@@ -37,6 +37,8 @@ class UserLearning internal constructor(
     private var formedPairs = 0
     private val pendingCounts = HashMap<String, Usage>()
     private val followsByPrev = HashMap<String, HashMap<String, Usage>>()
+    private val formedWeightCache = BoundedLruCache<String, Double>(RUNTIME_CACHE_SIZE)
+    private val followBoostCache = BoundedLruCache<Pair<String, String>, Double>(RUNTIME_CACHE_SIZE)
     private var maximumFollowVersion = Long.MIN_VALUE
     private var maximumFollow = 0.0
     private var maximumFollowContextVersion = Long.MIN_VALUE
@@ -61,13 +63,12 @@ class UserLearning internal constructor(
     var lastFailure: String? = null
         private set
 
-    init {
-        database?.readLearning()?.let(::applyStored)
-    }
-
     @Synchronized
     fun observeCommit(prevWord: String?, word: String, reading: String, now: Long) {
-        val before = if (database == null) null else storageSnapshot()
+        if (database != null) {
+            observeCommitDatabase(prevWord, word, reading, now)
+            return
+        }
         val t = now.coerceAtLeast(0L)
         var changed = false
         if (prevWord == null) {
@@ -82,20 +83,41 @@ class UserLearning internal constructor(
             if (closeChain(t)) changed = true
         }
         if (changed) {
-            finishMutation(before)
+            finishMutation()
         }
     }
 
     @Synchronized
     fun observeBreak() {
-        val before = if (database == null) null else storageSnapshot()
+        if (database != null) {
+            mutateDatabase { closeDatabaseChain(clock()) }
+            return
+        }
         if (closeChain(clock())) {
-            finishMutation(before)
+            finishMutation()
         }
     }
 
     @Synchronized
     fun readingSnapshot(): Map<String, List<String>> {
+        database?.let { backing ->
+            val now = clock()
+            val byReading = LinkedHashMap<String, MutableList<Pair<String, Double>>>()
+            var offset = 0
+            while (true) {
+                val page = backing.readFormedEntries(offset, RUNTIME_PAGE_SIZE)
+                for (entry in page) {
+                    val effective = decayed(entry.usage.count, entry.usage.lastSeen, now, FORMED_HALF_LIFE_MILLIS)
+                    byReading.getOrPut(entry.reading) { ArrayList() }.add(entry.word to effective)
+                }
+                if (page.size < RUNTIME_PAGE_SIZE) break
+                offset += page.size
+            }
+            return byReading.mapValues { (_, entries) ->
+                entries.sortedWith(compareByDescending<Pair<String, Double>> { it.second }.thenBy { it.first })
+                    .map { it.first }
+            }
+        }
         val now = clock()
         val byReading = HashMap<String, ArrayList<Pair<String, Double>>>()
         for ((word, m) in formedByWord) {
@@ -116,6 +138,9 @@ class UserLearning internal constructor(
     @Synchronized
     fun formedWordsFor(key: String): List<String> {
         if (key.isEmpty()) return emptyList()
+        database?.let {
+            return formedWordsForPage(key, 0, RUNTIME_PAGE_SIZE)
+        }
         val t9 = key[0] in '2'..'9'
         val now = clock()
         val out = ArrayList<Pair<String, Double>>()
@@ -132,7 +157,24 @@ class UserLearning internal constructor(
     }
 
     @Synchronized
+    internal fun formedWordsForPage(key: String, offset: Int, limit: Int): List<String> {
+        require(offset >= 0)
+        require(limit in 0..RUNTIME_PAGE_SIZE)
+        if (key.isEmpty() || limit == 0) return emptyList()
+        val backing = database
+        if (backing == null) return formedWordsFor(key).drop(offset).take(limit)
+        return backing.readFormedWordsForKey(key, key[0] in '2'..'9', offset, limit)
+            .map { it.word }
+            .distinct()
+    }
+
+    @Synchronized
     fun formedWeight(word: String): Double {
+        database?.let { backing ->
+            formedWeightCache[word]?.let { return it }
+            val usage = backing.readBestFormedUsage(word) ?: return 0.0
+            return formedWeight(usage).also { formedWeightCache.put(word, it) }
+        }
         val m = formedByWord[word] ?: return 0.0
         val now = clock()
         var bestCount = 0.0
@@ -150,8 +192,24 @@ class UserLearning internal constructor(
             RECENCY_WEIGHT * exp(-LN_2 * age.toDouble() / RECENCY_HALF_LIFE_MILLIS)
     }
 
+    private fun formedWeight(usage: StoredUsage): Double {
+        val now = clock()
+        val effective = decayed(usage.count, usage.lastSeen, now, FORMED_HALF_LIFE_MILLIS)
+        if (effective < MIN_ACTIVE) return 0.0
+        val age = (now - usage.lastSeen).coerceAtLeast(0L)
+        return BOOST_WEIGHT * ln(1.0 + effective) +
+            RECENCY_WEIGHT * exp(-LN_2 * age.toDouble() / RECENCY_HALF_LIFE_MILLIS)
+    }
+
     @Synchronized
     fun follows(prevWord: String): List<Pair<String, Double>> {
+        database?.let { backing ->
+            val now = clock()
+            return backing.readFollows(prevWord, 0, RUNTIME_PAGE_SIZE).mapNotNull { (word, usage) ->
+                val effective = decayed(usage.count, usage.lastSeen, now, FOLLOW_HALF_LIFE_MILLIS)
+                if (effective >= MIN_ACTIVE) word to effective else null
+            }.sortedWith(compareByDescending<Pair<String, Double>> { it.second }.thenBy { it.first })
+        }
         val m = followsByPrev[prevWord] ?: return emptyList()
         val now = clock()
         val out = ArrayList<Pair<String, Double>>(m.size)
@@ -164,6 +222,10 @@ class UserLearning internal constructor(
 
     @Synchronized
     internal fun maximumFollowBoost(): Double {
+        database?.let { backing ->
+            val maximum = backing.maximumFollowCount()
+            return if (maximum >= MIN_ACTIVE) FOLLOW_WEIGHT * ln(1.0 + maximum) else 0.0
+        }
         if (maximumFollowVersion == version) return maximumFollow
         var maximum = 0.0
         for (words in followsByPrev.values) for (usage in words.values) {
@@ -176,6 +238,7 @@ class UserLearning internal constructor(
 
     @Synchronized
     internal fun maximumFollowContextCodePoints(): Int {
+        database?.let { return it.maximumFollowContextCodePoints() }
         if (maximumFollowContextVersion == version) return maximumFollowContext
         var maximum = 0
         for (context in followsByPrev.keys) {
@@ -188,6 +251,10 @@ class UserLearning internal constructor(
 
     @Synchronized
     internal fun maximumFormedBoost(): Double {
+        database?.let { backing ->
+            val maximum = backing.maximumFormedCount()
+            return if (maximum >= MIN_ACTIVE) BOOST_WEIGHT * ln(1.0 + maximum) + RECENCY_WEIGHT else 0.0
+        }
         if (maximumFormedVersion == version) return maximumFormed
         var maximum = 0.0
         for (readings in formedByWord.values) for (usage in readings.values) {
@@ -205,6 +272,23 @@ class UserLearning internal constructor(
     @Synchronized
     fun followBoost(prevContext: String, word: String): Double {
         if (prevContext.isEmpty() || word.isEmpty()) return 0.0
+        database?.let { backing ->
+            val cacheKey = prevContext to word
+            followBoostCache[cacheKey]?.let { return it }
+            val now = clock()
+            var best = 0.0
+            var start = prevContext.length
+            while (start > 0) {
+                val cp = prevContext.codePointBefore(start)
+                if (!Character.isIdeographic(cp)) break
+                start -= Character.charCount(cp)
+                val usage = backing.readFollowUsage(prevContext.substring(start), word) ?: continue
+                best = maxOf(best, decayed(usage.count, usage.lastSeen, now, FOLLOW_HALF_LIFE_MILLIS))
+            }
+            val boost = if (best >= MIN_ACTIVE) FOLLOW_WEIGHT * ln(1.0 + best) else 0.0
+            followBoostCache.put(cacheKey, boost)
+            return boost
+        }
         val now = clock()
         var best = 0.0
         var start = prevContext.length
@@ -224,7 +308,13 @@ class UserLearning internal constructor(
     @Synchronized
     fun removeWord(word: String) {
         if (word.isEmpty()) return
-        val before = if (database == null) null else storageSnapshot()
+        database?.let { backing ->
+            mutateDatabase { backing.removeLearningWord(word) }
+            formedWeightCache.remove(word)
+            followBoostCache.clear()
+            ripe.removeAll { it.chars.joinToString("") == word }
+            return
+        }
         var changed = false
         formedByWord.remove(word)?.let {
             formedPairs -= it.size
@@ -246,12 +336,13 @@ class UserLearning internal constructor(
             }
         }
         if (changed) {
-            finishMutation(before)
+            finishMutation()
         }
     }
 
     @Synchronized
-    fun isEmpty(): Boolean = formedByWord.isEmpty() && pendingCounts.isEmpty() && followsByPrev.isEmpty()
+    fun isEmpty(): Boolean = database?.learningIsEmpty() ?:
+        (formedByWord.isEmpty() && pendingCounts.isEmpty() && followsByPrev.isEmpty())
 
     @Synchronized
     fun save(file: File) {
@@ -298,20 +389,147 @@ class UserLearning internal constructor(
             return
         }
         database?.replaceLearning(parsed.toStored())
-        formedByWord.clear()
-        pendingCounts.clear()
-        followsByPrev.clear()
-        chainRun.clear()
-        ripe.clear()
-        coveredRanges.clear()
-        chainPos = 0L
-        formedByWord.putAll(parsed.formed)
-        formedPairs = parsed.formed.values.sumOf { it.size }
-        pendingCounts.putAll(parsed.pending)
-        followsByPrev.putAll(parsed.follows)
+        clearRuntimeState()
+        if (database == null) {
+            formedByWord.putAll(parsed.formed)
+            formedPairs = parsed.formed.values.sumOf { it.size }
+            pendingCounts.putAll(parsed.pending)
+            followsByPrev.putAll(parsed.follows)
+        }
         dirty = false
         lastFailure = null
         version++
+    }
+
+    private fun observeCommitDatabase(prevWord: String?, word: String, reading: String, now: Long) {
+        mutateDatabase {
+            val timestamp = now.coerceAtLeast(0L)
+            var changed = if (prevWord == null) closeDatabaseChain(timestamp) else
+                recordFollowDatabase(prevWord, word, timestamp)
+            val normalized = sanitizeReading(reading)
+            changed = if (isSingleHan(word) && normalized in T9Pinyin.SYLLABLES) {
+                extendDatabaseChain(word, normalized, timestamp) || changed
+            } else {
+                closeDatabaseChain(timestamp) || changed
+            }
+            changed
+        }
+    }
+
+    private fun mutateDatabase(block: () -> Boolean) {
+        try {
+            val changed = block()
+            if (changed) {
+                formedWeightCache.clear()
+                followBoostCache.clear()
+                version++
+            }
+            dirty = false
+            lastFailure = null
+        } catch (failure: Exception) {
+            formedWeightCache.clear()
+            followBoostCache.clear()
+            version++
+            lastFailure = failure.javaClass.simpleName + ": " + failure.message.orEmpty()
+        }
+    }
+
+    private fun recordFollowDatabase(previousWord: String, word: String, now: Long): Boolean {
+        if (!isCollocatable(previousWord) || !isCollocatable(word)) return false
+        val backing = checkNotNull(database)
+        val current = backing.readFollowUsage(previousWord, word)
+        backing.upsertFollowUsage(previousWord, word, touched(current, now, FOLLOW_HALF_LIFE_MILLIS))
+        return true
+    }
+
+    private fun extendDatabaseChain(character: String, reading: String, now: Long): Boolean {
+        val backing = checkNotNull(database)
+        chainRun.addLast(character to reading)
+        chainPos++
+        val size = chainRun.size
+        for (length in 2..size) {
+            val characters = ArrayList<String>(length)
+            val readings = ArrayList<String>(length)
+            for (index in size - length until size) {
+                val (itemCharacter, itemReading) = chainRun[index]
+                characters.add(itemCharacter)
+                readings.add(itemReading)
+            }
+            val word = characters.joinToString("")
+            val joinedReading = readings.joinToString("")
+            val formed = backing.readFormedUsage(word, joinedReading)
+            if (formed != null) {
+                backing.upsertFormedUsage(word, joinedReading, touched(formed, now, FORMED_HALF_LIFE_MILLIS))
+                coveredRanges.add((chainPos - length) to chainPos)
+                continue
+            }
+            val pending = touched(
+                backing.readPendingUsage(joinedReading, word),
+                now,
+                PENDING_HALF_LIFE_MILLIS,
+            )
+            backing.upsertPendingUsage(joinedReading, word, pending)
+            if (pending.count >= PROMOTE_AT) {
+                ripe.add(Window(chainPos - length, chainPos, characters, readings))
+            }
+        }
+        return size >= 2
+    }
+
+    private fun closeDatabaseChain(now: Long): Boolean {
+        if (ripe.isEmpty()) {
+            val changed = chainRun.size >= 2
+            chainRun.clear()
+            coveredRanges.clear()
+            chainPos = 0L
+            return changed
+        }
+        val backing = checkNotNull(database)
+        val ordered = ripe.sortedWith(compareByDescending<Window> { it.chars.size }.thenBy { it.start })
+        val kept = ArrayList<Window>()
+        for (window in ordered) {
+            if (coveredRanges.any { it.first <= window.start && window.end <= it.second }) continue
+            if (kept.any { it.start <= window.start && window.end <= it.end }) continue
+            kept.add(window)
+        }
+        val seen = HashSet<String>()
+        for (window in kept) {
+            val reading = window.readings.joinToString("")
+            val word = window.chars.joinToString("")
+            if (!seen.add(pendingKey(reading, word))) continue
+            val pending = backing.readPendingUsage(reading, word)
+            val seed = (pending?.let {
+                decayed(it.count, it.lastSeen, now, PENDING_HALF_LIFE_MILLIS)
+            } ?: PROMOTE_AT).coerceIn(PROMOTE_AT, MAX_COUNT)
+            val existing = backing.readFormedUsage(word, reading)
+            val promoted = if (existing == null) StoredUsage(seed, now) else
+                touched(existing, now, FORMED_HALF_LIFE_MILLIS)
+            val delete = LinkedHashSet<Pair<String, String>>()
+            delete.add(reading to word)
+            for (length in 2 until window.chars.size) {
+                for (start in 0..window.chars.size - length) {
+                    delete.add(
+                        window.readings.subList(start, start + length).joinToString("") to
+                            window.chars.subList(start, start + length).joinToString(""),
+                    )
+                }
+            }
+            backing.promoteLearning(word, reading, promoted, delete)
+        }
+        backing.deletePendingLearning(ordered.map {
+            it.readings.joinToString("") to it.chars.joinToString("")
+        })
+        ripe.clear()
+        chainRun.clear()
+        coveredRanges.clear()
+        chainPos = 0L
+        return true
+    }
+
+    private fun touched(current: StoredUsage?, now: Long, halfLifeMillis: Long): StoredUsage {
+        val next = if (current == null) 1.0 else
+            (decayed(current.count, current.lastSeen, now, halfLifeMillis) + 1.0).coerceAtMost(MAX_COUNT)
+        return StoredUsage(next, now)
     }
 
     private fun extendChain(ch: String, reading: String, now: Long): Boolean {
@@ -478,6 +696,8 @@ class UserLearning internal constructor(
         private const val RECENCY_WEIGHT = 2.0
         private const val RECENCY_HALF_LIFE_MILLIS = 7L * 24L * 60L * 60L * 1000L
         private val LN_2 = ln(2.0)
+        internal const val RUNTIME_PAGE_SIZE = 128
+        private const val RUNTIME_CACHE_SIZE = 256
 
         private fun pendingKey(reading: String, word: String): String = reading + "\t" + word
 
@@ -562,7 +782,7 @@ class UserLearning internal constructor(
     }
 
     @Synchronized
-    internal fun storageSnapshot(): UserLearningSnapshot = UserLearningSnapshot(
+    internal fun storageSnapshot(): UserLearningSnapshot = database?.readLearning() ?: UserLearningSnapshot(
         formed = formedByWord.mapValues { (_, readings) ->
             readings.mapValues { (_, value) -> StoredUsage(value.count, value.lastSeen) }
         },
@@ -609,29 +829,37 @@ class UserLearning internal constructor(
         dirty = false
     }
 
-    private fun finishMutation(before: UserLearningSnapshot?) {
-        if (database == null) {
-            dirty = true
-            version++
-            return
-        }
-        try {
-            database.replaceLearning(storageSnapshot())
-            lastFailure = null
-            dirty = false
-            version++
-        } catch (e: Exception) {
-            before?.let(::applyStored)
-            lastFailure = e.javaClass.simpleName + ": " + e.message.orEmpty()
-        }
+    private fun finishMutation() {
+        dirty = true
+        version++
     }
 
     @Synchronized
     internal fun reloadFromStorage() {
-        database?.readLearning()?.let(::applyStored)
+        clearRuntimeState()
         version++
+    }
+
+    private fun clearRuntimeState() {
+        formedByWord.clear()
+        pendingCounts.clear()
+        followsByPrev.clear()
+        chainRun.clear()
+        ripe.clear()
+        coveredRanges.clear()
+        chainPos = 0L
+        formedPairs = 0
+        formedWeightCache.clear()
+        followBoostCache.clear()
+        maximumFollowVersion = Long.MIN_VALUE
+        maximumFollowContextVersion = Long.MIN_VALUE
+        maximumFormedVersion = Long.MIN_VALUE
+        dirty = false
     }
 
     internal val isDatabaseBacked: Boolean
         get() = database != null
+
+    internal fun runtimeCacheSizesForTest(): Pair<Int, Int> =
+        formedWeightCache.sizeForTest() to followBoostCache.sizeForTest()
 }

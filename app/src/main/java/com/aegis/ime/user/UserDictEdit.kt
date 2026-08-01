@@ -80,9 +80,23 @@ object UserDictEdit {
 
     fun list(userDb: File): List<UserModel.Entry> {
         UserDictHot.host?.let { return it.entries() }
+        return page(userDb, "", 0, UserModel.RUNTIME_PAGE_SIZE)
+    }
+
+    fun count(userDb: File, query: String): Long {
+        UserDictHot.host?.let { return it.entryCount(query) }
         return runCatching {
             UserDataMigration.open(rootOf(userDb)).use { database ->
-                UserModel(database = database).userWordEntries()
+                UserModel(database = database).entryCount(query)
+            }
+        }.getOrDefault(0L)
+    }
+
+    fun page(userDb: File, query: String, offset: Int, limit: Int): List<UserModel.Entry> {
+        UserDictHot.host?.let { return it.entryPage(query, offset, limit) }
+        return runCatching {
+            UserDataMigration.open(rootOf(userDb)).use { database ->
+                UserModel(database = database).entryPage(query, offset, limit)
             }
         }.getOrDefault(emptyList())
     }

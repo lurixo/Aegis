@@ -61,7 +61,12 @@ class LiveUserDictHost internal constructor(
         return true
     }
 
-    override fun entries(): List<UserModel.Entry> = model.userWordEntries()
+    override fun entries(): List<UserModel.Entry> = model.entryPage("", 0, UserModel.RUNTIME_PAGE_SIZE)
+
+    override fun entryCount(query: String): Long = model.entryCount(query)
+
+    override fun entryPage(query: String, offset: Int, limit: Int): List<UserModel.Entry> =
+        model.entryPage(query, offset, limit)
 
     override fun flush() {
         if (database != null) {

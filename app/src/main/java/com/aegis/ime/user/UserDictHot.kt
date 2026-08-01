@@ -28,6 +28,11 @@ object UserDictHot {
 
         fun entries(): List<UserModel.Entry>
 
+        fun entryCount(query: String): Long = UserDictSearch.filter(entries(), query).size.toLong()
+
+        fun entryPage(query: String, offset: Int, limit: Int): List<UserModel.Entry> =
+            UserDictSearch.filter(entries(), query).drop(offset).take(limit)
+
         fun flush()
     }
 

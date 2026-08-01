@@ -260,7 +260,8 @@ class UserDataDatabaseTest {
 
             val custom = CustomSymbolStore(preferences, "custom_symbols", database)
             repeat(240) { assertTrue(custom.add("custom-$it")) }
-            assertEquals(240, custom.list().size)
+            assertEquals("runtime custom list is explicitly bounded", 128, custom.list().size)
+            assertEquals(240L, custom.count())
             assertEquals((200 until 210).map { "custom-$it" }, custom.page(200, 10))
             assertTrue(custom.remove("custom-205"))
 

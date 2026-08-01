@@ -42,11 +42,8 @@ class PinyinDecoder(
     private val userLearning: UserLearning? = null,
 ) {
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
-
-    private var userIndexVersion = Long.MIN_VALUE
-    private var learnIndexVersion = Long.MIN_VALUE
-    private var userLetterIndex: Map<String, List<String>> = emptyMap()
-    private var userDigitIndex: Map<String, List<String>> = emptyMap()
+    internal var peakActivePoolSizeForTest: Int = 0
+        private set
 
     fun setFuzzyRules(rules: Set<String>) {
         fuzzyRules = rules
@@ -81,35 +78,56 @@ class PinyinDecoder(
         return preferredWordFreqs(out)
     }
 
-    private fun refreshUserIndex() {
-        if (userModel == null && userLearning == null) return
-        val userVersion = userModel?.version ?: Long.MIN_VALUE
-        val learnVersion = userLearning?.version ?: Long.MIN_VALUE
-        if (userVersion == userIndexVersion && learnVersion == learnIndexVersion) return
-        val userSnapshot = userModel?.readingSnapshot().orEmpty()
-        val learnSnapshot = userLearning?.readingSnapshot().orEmpty()
-        val letter = HashMap<String, MutableList<String>>()
-        val digit = HashMap<String, MutableList<String>>()
-        for (snapshot in listOf(userSnapshot, learnSnapshot)) {
-            for ((reading, words) in snapshot) {
-                if (reading.isEmpty()) continue
-                val dk = T9Pinyin.toT9(reading)
-                for (w in words) {
-                    letter.getOrPut(reading) { ArrayList() }.let { if (w !in it) it.add(w) }
-                    digit.getOrPut(dk) { ArrayList() }.let { if (w !in it) it.add(w) }
+    private fun userWordsFor(key: String): List<String> {
+        if ((userModel == null && userLearning == null) || key.isEmpty()) return emptyList()
+        val out = LinkedHashSet<String>()
+        userModel?.wordsForKeyPage(key, 0, USER_QUERY_LIMIT)?.let(out::addAll)
+        if (out.size < USER_QUERY_LIMIT) {
+            userLearning?.formedWordsForPage(key, 0, USER_QUERY_LIMIT)?.forEach {
+                if (out.size < USER_QUERY_LIMIT) out.add(it)
+            }
+        }
+        return out.toList()
+    }
+
+    private fun userWordCursor(key: String): BinaryDict.WordFreqCursor {
+        var phase = if (userModel == null) 1 else 0
+        var offset = 0
+        val pending = ArrayDeque<String>()
+        fun pull(): BinaryDict.WordFreq? {
+            while (true) {
+                val word = pending.removeFirstOrNull()
+                if (word != null) {
+                    if (phase == 2 && userModel?.containsWordForKey(key, word) == true) continue
+                    return BinaryDict.WordFreq(word, userWordFreq(word, key).toInt().coerceAtLeast(1))
+                }
+                when (phase) {
+                    0 -> {
+                        val page = userModel?.wordsForKeyPage(key, offset, USER_CURSOR_PAGE_SIZE).orEmpty()
+                        if (page.isEmpty()) {
+                            phase = 1
+                            offset = 0
+                        } else {
+                            pending.addAll(page)
+                            offset += page.size
+                        }
+                    }
+                    1 -> {
+                        val page = userLearning?.formedWordsForPage(key, offset, USER_CURSOR_PAGE_SIZE).orEmpty()
+                        if (page.isEmpty()) {
+                            phase = 3
+                        } else {
+                            phase = 2
+                            pending.addAll(page)
+                            offset += page.size
+                        }
+                    }
+                    2 -> phase = 1
+                    else -> return null
                 }
             }
         }
-        userLetterIndex = letter
-        userDigitIndex = digit
-        userIndexVersion = userVersion
-        learnIndexVersion = learnVersion
-    }
-
-    private fun userWordsFor(key: String): List<String> {
-        if ((userModel == null && userLearning == null) || key.isEmpty()) return emptyList()
-        refreshUserIndex()
-        return (if (key[0] in '2'..'9') userDigitIndex[key] else userLetterIndex[key]) ?: emptyList()
+        return BinaryDict.WordFreqCursor(::pull)
     }
 
     private fun learnedExactWordFreqs(key: String): Map<String, Int> {
@@ -460,17 +478,21 @@ class PinyinDecoder(
         }
     }
 
-    private data class RawPoolSource(
+    private class RawPoolSource(
         val cursor: BinaryDict.WordFreqCursor,
         val penalty: Double,
         val order: Int,
-    )
+        val activeLimit: Int = Int.MAX_VALUE,
+    ) {
+        var activeCount: Int = 0
+    }
 
     private data class RankedPoolItem(
         val wordFreq: BinaryDict.WordFreq,
         val score: Double,
         val userBoost: Double,
         val serial: Long,
+        val source: RawPoolSource,
     )
 
     private inner class IncrementalPoolCursor(
@@ -514,10 +536,14 @@ class PinyinDecoder(
             initialsDict?.let {
                 sources.add(RawPoolSource(it.prefixByFreqCursor(input), INITIALS_PENALTY, sourceOrder++))
             }
-            for (word in userWordsFor(input)) {
-                val frequency = userWordFreq(word, input).toInt().coerceAtLeast(1)
-                offer(BinaryDict.WordFreq(word, frequency), 0.0)
-            }
+            sources.add(
+                RawPoolSource(
+                    userWordCursor(input),
+                    0.0,
+                    sourceOrder++,
+                    activeLimit = USER_CURSOR_PAGE_SIZE,
+                ),
+            )
         }
 
         fun beginPage() {
@@ -571,7 +597,10 @@ class PinyinDecoder(
             if (commonPrepared) return
             commonPrepared = true
             for (source in sources) {
-                while ((source.cursor.peek()?.freq ?: Int.MIN_VALUE) >= ORDERING_COMMON_FREQ.toInt()) {
+                while (
+                    source.activeCount < source.activeLimit &&
+                    (source.cursor.peek()?.freq ?: Int.MIN_VALUE) >= ORDERING_COMMON_FREQ.toInt()
+                ) {
                     pull(source)
                 }
             }
@@ -587,14 +616,14 @@ class PinyinDecoder(
                 val best = ranked.peek()
                 val source = sources
                     .asSequence()
-                    .filter { it.cursor.peek() != null }
+                    .filter { it.activeCount < it.activeLimit && it.cursor.peek() != null }
                     .maxWithOrNull(
                         compareBy<RawPoolSource> { unseenUpperBound(it) }
                             .thenBy { -it.order },
                     )
                 if (best != null && (source == null || best.score > unseenUpperBound(source))) {
                     ranked.remove()
-                    active.remove(best.wordFreq.word)
+                    removeActive(best)
                     emitted.add(best.wordFreq.word)
                     return best
                 }
@@ -608,7 +637,7 @@ class PinyinDecoder(
                 }
                 if (best != null) {
                     ranked.remove()
-                    active.remove(best.wordFreq.word)
+                    removeActive(best)
                     emitted.add(best.wordFreq.word)
                 }
                 return best
@@ -622,23 +651,31 @@ class PinyinDecoder(
 
         private fun pull(source: RawPoolSource) {
             val wordFreq = source.cursor.next() ?: return
-            offer(wordFreq, source.penalty)
+            offer(wordFreq, source)
         }
 
-        private fun offer(wordFreq: BinaryDict.WordFreq, penalty: Double) {
+        private fun offer(wordFreq: BinaryDict.WordFreq, source: RawPoolSource) {
             if (wordFreq.word in blocked || wordFreq.word in emitted) return
             val userBoost = userModel?.wordBoost(wordFreq.word) ?: 0.0
             val item = RankedPoolItem(
                 wordFreq,
-                wordModelScore(wordFreq.word, wordFreq.freq, ctxId, ctx, condMemo) - penalty,
+                wordModelScore(wordFreq.word, wordFreq.freq, ctxId, ctx, condMemo) - source.penalty,
                 userBoost,
                 serial++,
+                source,
             )
             val previous = active[wordFreq.word]
             if (previous == null || compareRankedPoolItems(item, previous) < 0) {
+                if (previous != null) previous.source.activeCount--
                 active[wordFreq.word] = item
+                source.activeCount++
                 ranked.add(item)
+                peakActivePoolSizeForTest = maxOf(peakActivePoolSizeForTest, active.size)
             }
+        }
+
+        private fun removeActive(item: RankedPoolItem) {
+            if (active.remove(item.wordFreq.word, item)) item.source.activeCount--
         }
 
         private fun cleanupRanked() {
@@ -1741,6 +1778,8 @@ class PinyinDecoder(
         const val LEGACY_SENTENCE_RERANK_RESULTS = 128
         const val OCTAGRAM_PRECEDING_CODE_POINTS = 7
         const val MAX_SYLLABLE_KEY_LEN = 6
+        const val USER_QUERY_LIMIT = 128
+        const val USER_CURSOR_PAGE_SIZE = 64
         const val ORDERING_RARE_FREQ = 100.0
         const val ORDERING_COMMON_FREQ = 1000.0
         val ALIAS_FREQ_DISCOUNT = exp(-ALIAS_PENALTY)

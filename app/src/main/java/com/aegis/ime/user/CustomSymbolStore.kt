@@ -37,7 +37,7 @@ class CustomSymbolStore private constructor(
     private val lastValid = ArrayList<String>()
 
     fun list(): List<String> = runCatching {
-        val current = database?.readCustomItems(key) ?: legacyItems()
+        val current = database?.readCustomItems(key, 0, RUNTIME_PAGE_SIZE) ?: legacyItems()
         lastValid.clear()
         lastValid.addAll(current)
         lastFailure = null
@@ -50,7 +50,8 @@ class CustomSymbolStore private constructor(
         require(offset >= 0)
         require(limit >= 0)
         return runCatching {
-            database?.readCustomItems(key, offset, limit) ?: legacyItems().drop(offset).take(limit)
+            database?.readCustomItems(key, offset, minOf(limit, RUNTIME_PAGE_SIZE)) ?:
+                legacyItems().drop(offset).take(limit)
         }.onFailure {
             lastFailure = it.javaClass.simpleName + ": " + it.message.orEmpty()
         }.getOrElse { lastValid.drop(offset).take(limit) }
@@ -58,15 +59,33 @@ class CustomSymbolStore private constructor(
 
     fun add(symbol: String): Boolean {
         val s = symbol.filterNot { it.isISOControl() }.trim()
+        database?.let { backing ->
+            if (s.isEmpty()) return false
+            return runCatching { backing.addCustomItem(key, s) }
+                .onSuccess { added ->
+                    if (added && s !in lastValid && lastValid.size < RUNTIME_PAGE_SIZE) lastValid.add(s)
+                    lastFailure = null
+                }
+                .onFailure { lastFailure = it.javaClass.simpleName + ": " + it.message.orEmpty() }
+                .getOrDefault(false)
+        }
         val cur = list()
         if (s.isEmpty() || s in cur) return false
         return save(cur + s)
     }
 
     fun remove(symbol: String): Boolean {
+        database?.let { backing ->
+            return runCatching { backing.removeCustomItem(key, symbol) }
+                .onSuccess { removed -> if (removed) lastValid.remove(symbol); lastFailure = null }
+                .onFailure { lastFailure = it.javaClass.simpleName + ": " + it.message.orEmpty() }
+                .getOrDefault(false)
+        }
         val cur = list()
         return symbol in cur && save(cur - symbol)
     }
+
+    fun count(): Long = database?.customItemCount(key) ?: legacyItems().size.toLong()
 
     private fun save(items: List<String>): Boolean = runCatching {
         val saved = if (database == null) {
@@ -97,5 +116,9 @@ class CustomSymbolStore private constructor(
         val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
             .joinToString("") { "%02x".format(it.toInt() and 0xff) }
         return bytes.size.toString() + ":" + digest
+    }
+
+    private companion object {
+        const val RUNTIME_PAGE_SIZE = 128
     }
 }

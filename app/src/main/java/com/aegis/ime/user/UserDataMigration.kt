@@ -119,11 +119,13 @@ internal object UserDataMigration {
                 migrateRecent(File(root, "emoji"), "emoji", collectionIdentities)?.let { recentItems["emoji"] = it }
             }
             database.migrateLegacyCollections(legacyClipboard, customItems, recentItems, collectionIdentities)
-            val status = if (settingsCleanupComplete) "complete" else "cleanup-pending"
-            val detail = if (settingsCleanupComplete) {
+            val collectionCleanupComplete = cleanupLegacyCollections(preferences, database)
+            val cleanupComplete = settingsCleanupComplete && collectionCleanupComplete
+            val status = if (cleanupComplete) "complete" else "cleanup-pending"
+            val detail = if (cleanupComplete) {
                 "beta.29 user data and settings migration verified"
             } else {
-                "beta.29 user data migration verified; legacy settings cleanup pending"
+                "beta.29 user data migration verified; legacy preference cleanup pending"
             }
             writeStatus(root, status, detail)
             return database
@@ -142,6 +144,21 @@ internal object UserDataMigration {
         for (key in keys) editor.remove(key)
         if (!editor.commit()) return false
         return preferences.all.keys.none { it !in UserSettingsSchema.specialStorageKeys }
+    }
+
+    private fun cleanupLegacyCollections(
+        preferences: SharedPreferences?,
+        database: UserDataDatabase,
+    ): Boolean {
+        if (preferences == null) return true
+        val keys = listOf("custom_symbols", "custom_operators").filter {
+            preferences.contains(it) && database.metadata("beta29_custom_migration_$it") != null
+        }
+        if (keys.isEmpty()) return true
+        val editor = preferences.edit()
+        for (key in keys) editor.remove(key)
+        if (!editor.commit()) return false
+        return keys.none(preferences::contains)
     }
 
     private fun migrateRecent(

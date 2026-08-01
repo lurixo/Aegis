@@ -143,6 +143,9 @@
     <string name="user_dict_manual_description">Add a word and its pinyin so it is offered whenever you type that pinyin, or delete a word to drop it from suggestions. Words you assemble character by character are added here automatically. Changes take effect immediately.</string>
     <string name="user_dict_search_hint">Search word or pinyin</string>
     <string name="user_dict_count_format">Words: %1$d</string>
+    <string name="user_dict_previous_page">Previous</string>
+    <string name="user_dict_next_page">Next</string>
+    <string name="user_dict_page_format">Page %1$d of %2$d</string>
     <string name="user_dict_search_no_match">No matching words.</string>
     <string name="user_dict_word_hint">Word</string>
     <string name="user_dict_reading_hint">Pinyin (letters)</string>
@@ -306,6 +309,9 @@
     <string name="svc_rename_category">Rename category</string>
     <string name="svc_saved_to_clipboard">Saved to clipboard</string>
     <string name="clip_back">Back</string>
+    <string name="clip_previous_page">Previous page</string>
+    <string name="clip_next_page">Next page</string>
+    <string name="clip_page_format">%1$d / %2$d</string>
     <string name="clip_add_phrase">Add phrase</string>
     <string name="clip_clear_category">Clear category</string>
     <string name="clip_clear_history">Clear clipboard history</string>

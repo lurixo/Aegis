@@ -30,6 +30,13 @@ import java.security.MessageDigest
 
 internal data class StoredWord(val count: Int, val lastUsed: Long)
 
+internal data class StoredUserWordEntry(
+    val reading: String,
+    val word: String,
+    val count: Int,
+    val lastUsed: Long,
+)
+
 internal data class UserDataSnapshot(
     val words: Map<String, StoredWord>,
     val bigrams: Map<String, Map<String, Int>>,
@@ -37,6 +44,12 @@ internal data class UserDataSnapshot(
 )
 
 internal data class StoredUsage(val count: Double, val lastSeen: Long)
+
+internal data class StoredLearningEntry(
+    val reading: String,
+    val word: String,
+    val usage: StoredUsage,
+)
 
 internal data class UserLearningSnapshot(
     val formed: Map<String, Map<String, StoredUsage>>,
@@ -115,6 +128,9 @@ internal class UserDataDatabase private constructor(
         "SELECT value FROM metadata WHERE key=?",
         arrayOf(key),
     ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+
+    @Synchronized
+    fun dataVersion(): Long = metadataInTransaction(DATA_VERSION_KEY)?.toLongOrNull() ?: 0L
 
     @Synchronized
     fun putMetadata(key: String, value: String) {
@@ -243,6 +259,131 @@ internal class UserDataDatabase private constructor(
     }
 
     @Synchronized
+    fun userWordEntryCount(query: String = ""): Long {
+        val filter = userWordFilter(query)
+        return database.rawQuery(
+            "SELECT COUNT(*) FROM user_readings r JOIN user_words w ON w.word=r.word${filter.sql}",
+            filter.args,
+        ).use { cursor ->
+            cursor.moveToFirst()
+            cursor.getLong(0)
+        }
+    }
+
+    @Synchronized
+    fun readUserWordEntries(
+        query: String = "",
+        offset: Int,
+        limit: Int,
+    ): List<StoredUserWordEntry> {
+        require(offset >= 0)
+        require(limit in 0..MAX_RUNTIME_PAGE_SIZE)
+        if (limit == 0) return emptyList()
+        val filter = userWordFilter(query)
+        val args = ArrayList<String>((filter.args?.size ?: 0) + 2).apply {
+            filter.args?.let(::addAll)
+            add(limit.toString())
+            add(offset.toString())
+        }
+        val out = ArrayList<StoredUserWordEntry>(limit)
+        database.rawQuery(
+            "SELECT r.reading,r.word,w.count,w.last_used FROM user_readings r " +
+                "JOIN user_words w ON w.word=r.word${filter.sql} " +
+                "ORDER BY w.count DESC,r.reading,r.word LIMIT ? OFFSET ?",
+            args.toTypedArray(),
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                out.add(
+                    StoredUserWordEntry(
+                        cursor.getString(0),
+                        cursor.getString(1),
+                        cursor.getInt(2),
+                        cursor.getLong(3),
+                    ),
+                )
+            }
+        }
+        return out
+    }
+
+    @Synchronized
+    fun readUserWordsForKey(key: String, t9: Boolean, offset: Int, limit: Int): List<StoredUserWordEntry> {
+        require(offset >= 0)
+        require(limit in 0..MAX_RUNTIME_PAGE_SIZE)
+        if (limit == 0 || key.isEmpty()) return emptyList()
+        val reading = if (t9) t9Glob(key) ?: return emptyList() else key
+        val operator = if (t9) "GLOB" else "="
+        val out = ArrayList<StoredUserWordEntry>(limit)
+        database.rawQuery(
+            "SELECT r.reading,r.word,w.count,w.last_used FROM user_readings r " +
+                "JOIN user_words w ON w.word=r.word WHERE r.reading $operator ? " +
+                "GROUP BY r.word ORDER BY w.count DESC,w.last_used DESC,r.word LIMIT ? OFFSET ?",
+            arrayOf(reading, limit.toString(), offset.toString()),
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                out.add(
+                    StoredUserWordEntry(
+                        cursor.getString(0),
+                        cursor.getString(1),
+                        cursor.getInt(2),
+                        cursor.getLong(3),
+                    ),
+                )
+            }
+        }
+        return out
+    }
+
+    @Synchronized
+    fun hasUserWordForKey(key: String, t9: Boolean, word: String): Boolean {
+        if (key.isEmpty() || word.isEmpty()) return false
+        val reading = if (t9) t9Glob(key) ?: return false else key
+        val operator = if (t9) "GLOB" else "="
+        return database.rawQuery(
+            "SELECT 1 FROM user_readings WHERE reading $operator ? AND word=? LIMIT 1",
+            arrayOf(reading, word),
+        ).use { it.moveToFirst() }
+    }
+
+    @Synchronized
+    fun readStoredWord(word: String): StoredWord? = database.rawQuery(
+        "SELECT count,last_used FROM user_words WHERE word=?",
+        arrayOf(word),
+    ).use { cursor -> if (cursor.moveToFirst()) StoredWord(cursor.getInt(0), cursor.getLong(1)) else null }
+
+    @Synchronized
+    fun hasUserReading(reading: String, word: String): Boolean = database.rawQuery(
+        "SELECT 1 FROM user_readings WHERE reading=? AND word=? LIMIT 1",
+        arrayOf(reading, word),
+    ).use { it.moveToFirst() }
+
+    @Synchronized
+    fun maximumUserWordCount(): Int = scalarLong("SELECT COALESCE(MAX(count),0) FROM user_words").toInt()
+
+    @Synchronized
+    fun userDataIsEmpty(): Boolean = scalarLong("SELECT COUNT(*) FROM user_words") == 0L &&
+        scalarLong("SELECT COUNT(*) FROM user_readings") == 0L
+
+    @Synchronized
+    fun readUserSuccessors(previousWord: String, offset: Int, limit: Int): List<StoredUserWordEntry> {
+        require(offset >= 0)
+        require(limit in 0..MAX_RUNTIME_PAGE_SIZE)
+        if (limit == 0) return emptyList()
+        val out = ArrayList<StoredUserWordEntry>(limit)
+        database.rawQuery(
+            "SELECT '',b.word,b.count,w.last_used FROM user_bigrams b " +
+                "JOIN user_words w ON w.word=b.word WHERE b.prev_word=? " +
+                "ORDER BY b.count DESC,w.last_used DESC,b.word LIMIT ? OFFSET ?",
+            arrayOf(previousWord, limit.toString(), offset.toString()),
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                out.add(StoredUserWordEntry("", cursor.getString(1), cursor.getInt(2), cursor.getLong(3)))
+            }
+        }
+        return out
+    }
+
+    @Synchronized
     fun replaceUserData(snapshot: UserDataSnapshot) {
         transaction {
             database.delete("user_bigrams", null, null)
@@ -335,6 +476,169 @@ internal class UserDataDatabase private constructor(
     }
 
     @Synchronized
+    fun readFormedWordsForKey(key: String, t9: Boolean, offset: Int, limit: Int): List<StoredLearningEntry> {
+        require(offset >= 0)
+        require(limit in 0..MAX_RUNTIME_PAGE_SIZE)
+        if (limit == 0 || key.isEmpty()) return emptyList()
+        val reading = if (t9) t9Glob(key) ?: return emptyList() else key
+        val operator = if (t9) "GLOB" else "="
+        val out = ArrayList<StoredLearningEntry>(limit)
+        database.rawQuery(
+            "SELECT MIN(reading),word,MAX(count),MAX(last_seen) FROM learned_formed WHERE reading $operator ? " +
+                "GROUP BY word ORDER BY MAX(count) DESC,MAX(last_seen) DESC,word LIMIT ? OFFSET ?",
+            arrayOf(reading, limit.toString(), offset.toString()),
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                out.add(
+                    StoredLearningEntry(
+                        cursor.getString(0),
+                        cursor.getString(1),
+                        StoredUsage(cursor.getDouble(2), cursor.getLong(3)),
+                    ),
+                )
+            }
+        }
+        return out
+    }
+
+    @Synchronized
+    fun readFormedEntries(offset: Int, limit: Int): List<StoredLearningEntry> {
+        require(offset >= 0)
+        require(limit in 0..MAX_RUNTIME_PAGE_SIZE)
+        if (limit == 0) return emptyList()
+        val out = ArrayList<StoredLearningEntry>(limit)
+        database.rawQuery(
+            "SELECT reading,word,count,last_seen FROM learned_formed " +
+                "ORDER BY count DESC,last_seen DESC,reading,word LIMIT ? OFFSET ?",
+            arrayOf(limit.toString(), offset.toString()),
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                out.add(
+                    StoredLearningEntry(
+                        cursor.getString(0),
+                        cursor.getString(1),
+                        StoredUsage(cursor.getDouble(2), cursor.getLong(3)),
+                    ),
+                )
+            }
+        }
+        return out
+    }
+
+    @Synchronized
+    fun readFormedUsage(word: String, reading: String): StoredUsage? = readUsage(
+        "SELECT count,last_seen FROM learned_formed WHERE word=? AND reading=?",
+        arrayOf(word, reading),
+    )
+
+    @Synchronized
+    fun readBestFormedUsage(word: String): StoredUsage? = readUsage(
+        "SELECT count,last_seen FROM learned_formed WHERE word=? ORDER BY count DESC,last_seen DESC LIMIT 1",
+        arrayOf(word),
+    )
+
+    @Synchronized
+    fun readPendingUsage(reading: String, word: String): StoredUsage? = readUsage(
+        "SELECT count,last_seen FROM learned_pending WHERE reading=? AND word=?",
+        arrayOf(reading, word),
+    )
+
+    @Synchronized
+    fun readFollowUsage(previousWord: String, word: String): StoredUsage? = readUsage(
+        "SELECT count,last_seen FROM learned_follows WHERE prev_word=? AND word=?",
+        arrayOf(previousWord, word),
+    )
+
+    @Synchronized
+    fun readFollows(previousWord: String, offset: Int, limit: Int): List<Pair<String, StoredUsage>> {
+        require(offset >= 0)
+        require(limit in 0..MAX_RUNTIME_PAGE_SIZE)
+        if (limit == 0) return emptyList()
+        val out = ArrayList<Pair<String, StoredUsage>>(limit)
+        database.rawQuery(
+            "SELECT word,count,last_seen FROM learned_follows WHERE prev_word=? " +
+                "ORDER BY count DESC,last_seen DESC,word LIMIT ? OFFSET ?",
+            arrayOf(previousWord, limit.toString(), offset.toString()),
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                out.add(cursor.getString(0) to StoredUsage(cursor.getDouble(1), cursor.getLong(2)))
+            }
+        }
+        return out
+    }
+
+    @Synchronized
+    fun maximumFormedCount(): Double = scalarDouble("SELECT COALESCE(MAX(count),0) FROM learned_formed")
+
+    @Synchronized
+    fun maximumFollowCount(): Double = scalarDouble("SELECT COALESCE(MAX(count),0) FROM learned_follows")
+
+    @Synchronized
+    fun maximumFollowContextCodePoints(): Int = scalarLong(
+        "SELECT COALESCE(MAX(length(prev_word)),0) FROM learned_follows",
+    ).toInt()
+
+    @Synchronized
+    fun learningIsEmpty(): Boolean = scalarLong("SELECT COUNT(*) FROM learned_formed") == 0L &&
+        scalarLong("SELECT COUNT(*) FROM learned_pending") == 0L &&
+        scalarLong("SELECT COUNT(*) FROM learned_follows") == 0L
+
+    @Synchronized
+    fun upsertFormedUsage(word: String, reading: String, usage: StoredUsage) {
+        transaction { putUsage("learned_formed", "word", word, "reading", reading, usage) }
+    }
+
+    @Synchronized
+    fun upsertPendingUsage(reading: String, word: String, usage: StoredUsage) {
+        transaction { putUsage("learned_pending", "reading", reading, "word", word, usage) }
+    }
+
+    @Synchronized
+    fun upsertFollowUsage(previousWord: String, word: String, usage: StoredUsage) {
+        transaction { putUsage("learned_follows", "prev_word", previousWord, "word", word, usage) }
+    }
+
+    @Synchronized
+    fun promoteLearning(
+        word: String,
+        reading: String,
+        usage: StoredUsage,
+        pendingToDelete: Collection<Pair<String, String>>,
+    ) {
+        transaction {
+            for ((pendingReading, pendingWord) in pendingToDelete) {
+                database.delete(
+                    "learned_pending",
+                    "reading=? AND word=?",
+                    arrayOf(pendingReading, pendingWord),
+                )
+            }
+            putUsage("learned_formed", "word", word, "reading", reading, usage)
+        }
+    }
+
+    @Synchronized
+    fun deletePendingLearning(keys: Collection<Pair<String, String>>) {
+        if (keys.isEmpty()) return
+        transaction {
+            for ((reading, word) in keys) {
+                database.delete("learned_pending", "reading=? AND word=?", arrayOf(reading, word))
+            }
+        }
+    }
+
+    @Synchronized
+    fun removeLearningWord(word: String): Boolean {
+        var changed = false
+        transaction {
+            changed = database.delete("learned_formed", "word=?", arrayOf(word)) > 0 || changed
+            changed = database.delete("learned_pending", "word=?", arrayOf(word)) > 0 || changed
+            changed = database.delete("learned_follows", "prev_word=? OR word=?", arrayOf(word, word)) > 0 || changed
+        }
+        return changed
+    }
+
+    @Synchronized
     fun replaceLearning(snapshot: UserLearningSnapshot) {
         transaction {
             database.delete("learned_formed", null, null)
@@ -346,6 +650,12 @@ internal class UserDataDatabase private constructor(
 
     @Synchronized
     fun clipboardHistoryCount(): Long = scalarLong("SELECT COUNT(*) FROM clipboard_history")
+
+    @Synchronized
+    fun containsClipboard(text: String): Boolean = database.rawQuery(
+        "SELECT 1 FROM clipboard_history WHERE text=? LIMIT 1",
+        arrayOf(text),
+    ).use { it.moveToFirst() }
 
     @Synchronized
     fun readClipboardHistory(offset: Int = 0, limit: Int = Int.MAX_VALUE): List<String> {
@@ -412,6 +722,194 @@ internal class UserDataDatabase private constructor(
     }
 
     @Synchronized
+    fun phraseCategoryCount(): Long = scalarLong("SELECT COUNT(*) FROM phrase_categories")
+
+    @Synchronized
+    fun readPhraseCategoryNames(offset: Int, limit: Int): List<String> {
+        require(offset >= 0)
+        require(limit in 0..MAX_RUNTIME_PAGE_SIZE)
+        if (limit == 0) return emptyList()
+        val out = ArrayList<String>(limit)
+        database.rawQuery(
+            "SELECT name FROM phrase_categories ORDER BY position,name LIMIT ? OFFSET ?",
+            arrayOf(limit.toString(), offset.toString()),
+        ).use { cursor -> while (cursor.moveToNext()) out.add(cursor.getString(0)) }
+        return out
+    }
+
+    @Synchronized
+    fun phraseCategoryExists(name: String): Boolean = database.rawQuery(
+        "SELECT 1 FROM phrase_categories WHERE name=? LIMIT 1",
+        arrayOf(name),
+    ).use { it.moveToFirst() }
+
+    @Synchronized
+    fun phraseCount(category: String): Long = database.rawQuery(
+        "SELECT COUNT(*) FROM phrases WHERE category=?",
+        arrayOf(category),
+    ).use { cursor -> cursor.moveToFirst(); cursor.getLong(0) }
+
+    @Synchronized
+    fun phraseNote(category: String, text: String): String? = database.rawQuery(
+        "SELECT note FROM phrases WHERE category=? AND text=?",
+        arrayOf(category, text),
+    ).use { cursor -> if (cursor.moveToFirst()) cursor.getString(0) else null }
+
+    @Synchronized
+    fun ensurePhraseCategory(name: String): Boolean {
+        if (phraseCategoryExists(name)) return false
+        transaction { insertPhraseCategoryAtEnd(name) }
+        return true
+    }
+
+    @Synchronized
+    fun addPhraseCategory(name: String): Boolean {
+        if (name.isEmpty() || phraseCategoryExists(name)) return false
+        transaction { insertPhraseCategoryAtEnd(name) }
+        return true
+    }
+
+    @Synchronized
+    fun deletePhraseCategory(name: String): Boolean {
+        val position = phraseCategoryPosition(name) ?: return false
+        transaction {
+            database.delete("phrase_categories", "name=?", arrayOf(name))
+            closePositionGap("phrase_categories", null, null, position)
+        }
+        return true
+    }
+
+    @Synchronized
+    fun renamePhraseCategory(old: String, new: String): Boolean {
+        if (new.isEmpty() || old == new) return old == new && phraseCategoryExists(old)
+        val position = phraseCategoryPosition(old) ?: return false
+        if (phraseCategoryExists(new)) return false
+        transaction {
+            val temporaryPosition = scalarLong("SELECT COALESCE(MAX(position),-1)+1 FROM phrase_categories")
+            val values = ContentValues().apply { put("name", new); put("position", temporaryPosition) }
+            database.insertOrThrow("phrase_categories", null, values)
+            database.execSQL("UPDATE phrases SET category=? WHERE category=?", arrayOf(new, old))
+            database.delete("phrase_categories", "name=?", arrayOf(old))
+            database.execSQL("UPDATE phrase_categories SET position=? WHERE name=?", arrayOf<Any>(position, new))
+        }
+        return true
+    }
+
+    @Synchronized
+    fun setPhraseNote(category: String, text: String, note: String): Boolean {
+        val values = ContentValues().apply { put("note", note) }
+        var changed = false
+        transaction { changed = database.update("phrases", values, "category=? AND text=?", arrayOf(category, text)) > 0 }
+        return changed
+    }
+
+    @Synchronized
+    fun addPhrases(category: String, texts: Collection<String>): Int {
+        val incoming = LinkedHashSet(texts.filter { it.isNotEmpty() })
+        if (incoming.isEmpty()) return 0
+        var added = 0
+        transaction {
+            if (!phraseCategoryExists(category)) insertPhraseCategoryAtEnd(category)
+            val accepted = incoming.filterNot { phraseExists(category, it) }
+            if (accepted.isEmpty()) return@transaction
+            shiftPhrasePositions(category, accepted.size)
+            for ((position, text) in accepted.withIndex()) {
+                val values = ContentValues().apply {
+                    put("category", category)
+                    put("text", text)
+                    put("note", "")
+                    put("position", position)
+                }
+                database.insertOrThrow("phrases", null, values)
+                added++
+            }
+        }
+        return added
+    }
+
+    @Synchronized
+    fun deletePhrase(category: String, text: String): Boolean {
+        val position = phrasePosition(category, text) ?: return false
+        transaction {
+            database.delete("phrases", "category=? AND text=?", arrayOf(category, text))
+            closePositionGap("phrases", "category", category, position)
+        }
+        return true
+    }
+
+    @Synchronized
+    fun deletePhraseEverywhere(text: String): Boolean {
+        val categories = ArrayList<String>()
+        database.rawQuery("SELECT category FROM phrases WHERE text=?", arrayOf(text)).use { cursor ->
+            while (cursor.moveToNext()) categories.add(cursor.getString(0))
+        }
+        if (categories.isEmpty()) return false
+        transaction {
+            for (category in categories) {
+                val position = phrasePosition(category, text) ?: continue
+                database.delete("phrases", "category=? AND text=?", arrayOf(category, text))
+                closePositionGap("phrases", "category", category, position)
+            }
+        }
+        return true
+    }
+
+    @Synchronized
+    fun clearPhrases(category: String): Int {
+        var removed = 0
+        transaction { removed = database.delete("phrases", "category=?", arrayOf(category)) }
+        return removed
+    }
+
+    @Synchronized
+    fun editPhrase(category: String, oldText: String, newText: String): Boolean {
+        if (newText.isEmpty() || phraseExists(category, newText)) return false
+        val values = ContentValues().apply { put("text", newText) }
+        var changed = false
+        transaction {
+            changed = database.update("phrases", values, "category=? AND text=?", arrayOf(category, oldText)) > 0
+        }
+        return changed
+    }
+
+    @Synchronized
+    fun movePhrases(fromCategory: String, texts: Collection<String>, toCategory: String): Int {
+        if (fromCategory == toCategory || !phraseCategoryExists(toCategory)) return 0
+        var moved = 0
+        transaction {
+            for (text in LinkedHashSet(texts)) {
+                val sourcePosition = phrasePosition(fromCategory, text) ?: continue
+                val sourceNote = phraseNote(fromCategory, text).orEmpty()
+                val targetPosition = phrasePosition(toCategory, text)
+                if (targetPosition == null) {
+                    val values = ContentValues().apply {
+                        put("category", toCategory)
+                        put("text", text)
+                        put("note", sourceNote)
+                        put("position", phraseCount(toCategory))
+                    }
+                    database.insertOrThrow("phrases", null, values)
+                } else if (sourceNote.isNotEmpty() && phraseNote(toCategory, text).isNullOrEmpty()) {
+                    val values = ContentValues().apply { put("note", sourceNote) }
+                    database.update("phrases", values, "category=? AND text=?", arrayOf(toCategory, text))
+                }
+                database.delete("phrases", "category=? AND text=?", arrayOf(fromCategory, text))
+                closePositionGap("phrases", "category", fromCategory, sourcePosition)
+                moved++
+            }
+        }
+        return moved
+    }
+
+    @Synchronized
+    fun reorderPhrase(category: String, fromIndex: Int, toIndex: Int): Boolean =
+        reorderPosition("phrases", "category", category, fromIndex, toIndex)
+
+    @Synchronized
+    fun reorderPhraseCategory(fromIndex: Int, toIndex: Int): Boolean =
+        reorderPosition("phrase_categories", null, null, fromIndex, toIndex)
+
+    @Synchronized
     fun readPhrases(category: String, offset: Int = 0, limit: Int = Int.MAX_VALUE): List<StoredPhrase> {
         require(offset >= 0)
         require(limit >= 0)
@@ -445,6 +943,56 @@ internal class UserDataDatabase private constructor(
     }
 
     @Synchronized
+    fun customItemCount(kind: String): Long = database.rawQuery(
+        "SELECT COUNT(*) FROM custom_items WHERE kind=?",
+        arrayOf(kind),
+    ).use { cursor -> cursor.moveToFirst(); cursor.getLong(0) }
+
+    @Synchronized
+    fun containsCustomItem(kind: String, value: String): Boolean = database.rawQuery(
+        "SELECT 1 FROM custom_items WHERE kind=? AND value=? LIMIT 1",
+        arrayOf(kind, value),
+    ).use { it.moveToFirst() }
+
+    @Synchronized
+    fun addCustomItem(kind: String, value: String): Boolean {
+        if (value.isEmpty() || containsCustomItem(kind, value)) return false
+        transaction {
+            val position = database.rawQuery(
+                "SELECT COALESCE(MAX(position),-1)+1 FROM custom_items WHERE kind=?",
+                arrayOf(kind),
+            ).use { cursor -> cursor.moveToFirst(); cursor.getLong(0) }
+            val values = ContentValues().apply { put("kind", kind); put("value", value); put("position", position) }
+            database.insertOrThrow("custom_items", null, values)
+        }
+        return true
+    }
+
+    @Synchronized
+    fun removeCustomItem(kind: String, value: String): Boolean {
+        val position = database.rawQuery(
+            "SELECT position FROM custom_items WHERE kind=? AND value=?",
+            arrayOf(kind, value),
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getInt(0) else null } ?: return false
+        transaction {
+            database.delete("custom_items", "kind=? AND value=?", arrayOf(kind, value))
+            val count = customItemCount(kind).toInt()
+            if (count > 0) {
+                val highOffset = count + position + 2
+                database.execSQL(
+                    "UPDATE custom_items SET position=position+? WHERE kind=? AND position>?",
+                    arrayOf<Any>(highOffset, kind, position),
+                )
+                database.execSQL(
+                    "UPDATE custom_items SET position=position-? WHERE kind=? AND position>?",
+                    arrayOf<Any>(highOffset + 1, kind, highOffset),
+                )
+            }
+        }
+        return true
+    }
+
+    @Synchronized
     fun replaceCustomItems(kind: String, items: List<String>) {
         transaction { replaceCustomItemsInTransaction(kind, items) }
     }
@@ -464,6 +1012,20 @@ internal class UserDataDatabase private constructor(
             }
         }
         return out
+    }
+
+    @Synchronized
+    fun recentItemCount(kind: String): Long = database.rawQuery(
+        "SELECT COUNT(*) FROM recent_items WHERE kind=?",
+        arrayOf(kind),
+    ).use { cursor -> cursor.moveToFirst(); cursor.getLong(0) }
+
+    @Synchronized
+    fun recentItemOrigin(kind: String, identity: String): String? = database.rawQuery(
+        "SELECT origin FROM recent_items WHERE kind=? AND identity=?",
+        arrayOf(kind, identity),
+    ).use { cursor ->
+        if (!cursor.moveToFirst() || cursor.isNull(0)) null else cursor.getString(0)
     }
 
     @Synchronized
@@ -952,6 +1514,8 @@ internal class UserDataDatabase private constructor(
         database.beginTransaction()
         try {
             block()
+            val dataVersion = (metadataInTransaction(DATA_VERSION_KEY)?.toLongOrNull() ?: 0L) + 1L
+            putMetadataInTransaction(DATA_VERSION_KEY, dataVersion.toString())
             putMetadataInTransaction("last_commit_at", System.currentTimeMillis().toString())
             database.setTransactionSuccessful()
             lastFailure = null
@@ -1019,6 +1583,28 @@ internal class UserDataDatabase private constructor(
         }
     }
 
+    private fun readUsage(sql: String, args: Array<String>): StoredUsage? = database.rawQuery(sql, args).use { cursor ->
+        if (cursor.moveToFirst()) StoredUsage(cursor.getDouble(0), cursor.getLong(1)) else null
+    }
+
+    private fun putUsage(
+        table: String,
+        firstColumn: String,
+        firstValue: String,
+        secondColumn: String,
+        secondValue: String,
+        usage: StoredUsage,
+    ) {
+        require(table in LEARNING_TABLES)
+        val values = ContentValues().apply {
+            put(firstColumn, firstValue)
+            put(secondColumn, secondValue)
+            put("count", usage.count)
+            put("last_seen", usage.lastSeen.coerceAtLeast(0L))
+        }
+        database.insertWithOnConflict(table, null, values, SQLiteDatabase.CONFLICT_REPLACE)
+    }
+
     private fun replaceClipboardHistoryInTransaction(entries: List<String>, merge: Boolean) {
         if (!merge) database.delete("clipboard_history", null, null)
         val present = LinkedHashSet<String>()
@@ -1062,6 +1648,119 @@ internal class UserDataDatabase private constructor(
                 database.insertOrThrow("phrases", null, phraseValues)
             }
         }
+    }
+
+    private fun insertPhraseCategoryAtEnd(name: String) {
+        val values = ContentValues().apply {
+            put("name", name)
+            put("position", scalarLong("SELECT COALESCE(MAX(position),-1)+1 FROM phrase_categories"))
+        }
+        database.insertOrThrow("phrase_categories", null, values)
+    }
+
+    private fun phraseCategoryPosition(name: String): Int? = database.rawQuery(
+        "SELECT position FROM phrase_categories WHERE name=?",
+        arrayOf(name),
+    ).use { cursor -> if (cursor.moveToFirst()) cursor.getInt(0) else null }
+
+    private fun phrasePosition(category: String, text: String): Int? = database.rawQuery(
+        "SELECT position FROM phrases WHERE category=? AND text=?",
+        arrayOf(category, text),
+    ).use { cursor -> if (cursor.moveToFirst()) cursor.getInt(0) else null }
+
+    private fun phraseExists(category: String, text: String): Boolean = database.rawQuery(
+        "SELECT 1 FROM phrases WHERE category=? AND text=? LIMIT 1",
+        arrayOf(category, text),
+    ).use { it.moveToFirst() }
+
+    private fun shiftPhrasePositions(category: String, amount: Int) {
+        if (amount <= 0) return
+        val count = phraseCount(category).toInt()
+        if (count == 0) return
+        val highOffset = count + amount + 1
+        database.execSQL(
+            "UPDATE phrases SET position=position+? WHERE category=?",
+            arrayOf<Any>(highOffset, category),
+        )
+        database.execSQL(
+            "UPDATE phrases SET position=position-? WHERE category=?",
+            arrayOf<Any>(highOffset - amount, category),
+        )
+    }
+
+    private fun closePositionGap(table: String, scopeColumn: String?, scopeValue: String?, removedPosition: Int) {
+        require(table == "phrases" || table == "phrase_categories")
+        val countSql = if (scopeColumn == null) "SELECT COUNT(*) FROM $table" else
+            "SELECT COUNT(*) FROM $table WHERE $scopeColumn=?"
+        val count = database.rawQuery(countSql, scopeValue?.let { arrayOf(it) }).use { cursor ->
+            cursor.moveToFirst()
+            cursor.getInt(0)
+        }
+        if (count == 0) return
+        val highOffset = count + removedPosition + 2
+        val scopeSql = if (scopeColumn == null) "" else "$scopeColumn=? AND "
+        val firstArgs: Array<Any> = if (scopeValue == null) arrayOf(highOffset, removedPosition) else
+            arrayOf(highOffset, scopeValue, removedPosition)
+        database.execSQL(
+            "UPDATE $table SET position=position+? WHERE ${scopeSql}position>?",
+            firstArgs,
+        )
+        val secondArgs: Array<Any> = if (scopeValue == null) arrayOf(highOffset + 1, highOffset) else
+            arrayOf(highOffset + 1, scopeValue, highOffset)
+        database.execSQL(
+            "UPDATE $table SET position=position-? WHERE ${scopeSql}position>?",
+            secondArgs,
+        )
+    }
+
+    private fun reorderPosition(
+        table: String,
+        scopeColumn: String?,
+        scopeValue: String?,
+        fromIndex: Int,
+        toIndex: Int,
+    ): Boolean {
+        require(table == "phrases" || table == "phrase_categories")
+        val countSql = if (scopeColumn == null) "SELECT COUNT(*) FROM $table" else
+            "SELECT COUNT(*) FROM $table WHERE $scopeColumn=?"
+        val count = database.rawQuery(countSql, scopeValue?.let { arrayOf(it) }).use { cursor ->
+            cursor.moveToFirst()
+            cursor.getInt(0)
+        }
+        if (fromIndex !in 0 until count || toIndex !in 0 until count || fromIndex == toIndex) return false
+        transaction {
+            val scopeSql = if (scopeColumn == null) "" else "$scopeColumn=? AND "
+            val temporary = count * 3 + 7
+            val movedArgs: Array<Any> = if (scopeValue == null) arrayOf(temporary, fromIndex) else
+                arrayOf(temporary, scopeValue, fromIndex)
+            database.execSQL(
+                "UPDATE $table SET position=? WHERE ${scopeSql}position=?",
+                movedArgs,
+            )
+            val lower = minOf(fromIndex, toIndex)
+            val upper = maxOf(fromIndex, toIndex)
+            val highOffset = count + 2
+            val rangeArgs: Array<Any> = if (scopeValue == null) arrayOf(highOffset, lower, upper) else
+                arrayOf(highOffset, scopeValue, lower, upper)
+            database.execSQL(
+                "UPDATE $table SET position=position+? WHERE ${scopeSql}position BETWEEN ? AND ?",
+                rangeArgs,
+            )
+            val adjustment = if (fromIndex < toIndex) highOffset + 1 else highOffset - 1
+            val shiftedArgs: Array<Any> = if (scopeValue == null) arrayOf(adjustment, lower + highOffset, upper + highOffset) else
+                arrayOf(adjustment, scopeValue, lower + highOffset, upper + highOffset)
+            database.execSQL(
+                "UPDATE $table SET position=position-? WHERE ${scopeSql}position BETWEEN ? AND ?",
+                shiftedArgs,
+            )
+            val finalArgs: Array<Any> = if (scopeValue == null) arrayOf(toIndex, temporary) else
+                arrayOf(toIndex, scopeValue, temporary)
+            database.execSQL(
+                "UPDATE $table SET position=? WHERE ${scopeSql}position=?",
+                finalArgs,
+            )
+        }
+        return true
     }
 
     private fun replaceCustomItemsInTransaction(kind: String, items: List<String>) {
@@ -1129,8 +1828,50 @@ internal class UserDataDatabase private constructor(
         database.delete("user_words", "word=?", arrayOf(word))
     }
 
+    private data class UserWordFilter(val sql: String, val args: Array<String>?)
+
+    private fun userWordFilter(query: String): UserWordFilter {
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) return UserWordFilter("", null)
+        val lower = trimmed.lowercase()
+        val reading = buildString(lower.length) {
+            for (character in lower) if (character in 'a'..'z') append(character)
+        }
+        val pinyinOnly = reading.isNotEmpty() && lower.all {
+            it.isWhitespace() || it == '\'' || it in 'a'..'z'
+        }
+        return if (pinyinOnly) {
+            UserWordFilter(
+                " WHERE instr(lower(r.word),lower(?))>0 OR instr(r.reading,?)>0",
+                arrayOf(trimmed, reading),
+            )
+        } else {
+            UserWordFilter(" WHERE instr(lower(r.word),lower(?))>0", arrayOf(trimmed))
+        }
+    }
+
+    private fun t9Glob(key: String): String? = buildString(key.length * 5) {
+        for (digit in key) append(
+            when (digit) {
+                '2' -> "[abc]"
+                '3' -> "[def]"
+                '4' -> "[ghi]"
+                '5' -> "[jkl]"
+                '6' -> "[mno]"
+                '7' -> "[pqrs]"
+                '8' -> "[tuv]"
+                '9' -> "[wxyz]"
+                else -> return null
+            },
+        )
+    }
+
     private fun scalarLong(sql: String): Long = database.rawQuery(sql, null).use { cursor ->
         if (cursor.moveToFirst()) cursor.getLong(0) else 0L
+    }
+
+    private fun scalarDouble(sql: String): Double = database.rawQuery(sql, null).use { cursor ->
+        if (cursor.moveToFirst()) cursor.getDouble(0) else 0.0
     }
 
     private fun metadataInTransaction(key: String): String? = database.rawQuery(
@@ -1162,6 +1903,7 @@ internal class UserDataDatabase private constructor(
         private const val CLIPBOARD_MIGRATION_KEY = "beta29_clipboard_migration"
         private const val CUSTOM_MIGRATION_PREFIX = "beta29_custom_migration_"
         private const val RECENT_MIGRATION_PREFIX = "beta29_recent_migration_"
+        private const val DATA_VERSION_KEY = "data_version"
         internal const val SETTINGS_MIGRATION_KEY = "beta29_settings_migration"
         internal const val SETTINGS_MIGRATION_SOURCE_COUNT_KEY = "beta29_settings_source_count"
         internal const val SETTINGS_MIGRATION_SOURCE_DIGEST_KEY = "beta29_settings_source_digest"
@@ -1169,6 +1911,7 @@ internal class UserDataDatabase private constructor(
         internal const val SETTINGS_CHECKPOINT_PENDING_KEY = "settings_checkpoint_pending"
         private const val SCHEMA_VERSION = 4
         private const val MAX_COUNT = 1_000_000_000
+        internal const val MAX_RUNTIME_PAGE_SIZE = 256
         private const val SETTING_BOOLEAN = 1
         private const val SETTING_INT = 2
         private const val SETTING_LONG = 3
@@ -1176,6 +1919,7 @@ internal class UserDataDatabase private constructor(
         private const val SETTING_STRING = 5
         private const val SETTING_STRING_SET = 6
         private val checkpointLock = Any()
+        private val LEARNING_TABLES = setOf("learned_formed", "learned_pending", "learned_follows")
         private val DELETE_ORDER = listOf(
             "user_readings",
             "user_bigrams",

@@ -808,6 +808,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.historyProvider = { clipboardStore.history() }
             it.categoriesProvider = { clipboardStore.categories() }
             it.phrasesInProvider = { cat -> clipboardStore.phrasesIn(cat) }
+            it.historyPageProvider = { offset, limit -> clipboardStore.historyPage(offset, limit) }
+            it.historyCountProvider = { clipboardStore.historyCount() }
+            it.categoryPageProvider = { offset, limit -> clipboardStore.categoryPage(offset, limit) }
+            it.categoryCountProvider = { clipboardStore.categoryCount() }
+            it.phrasePageProvider = { category, offset, limit -> clipboardStore.phrasesPage(category, offset, limit) }
+            it.phraseCountProvider = { category -> clipboardStore.phraseCount(category) }
             it.phraseNoteProvider = { cat, text -> clipboardStore.noteFor(cat, text) }
             it.onPick = { t -> commitLargeText(t); inputView?.showPanel(null) }
             it.onCopyBlocksToAegis = { blocks -> copyBlocksToAegis(blocks) }

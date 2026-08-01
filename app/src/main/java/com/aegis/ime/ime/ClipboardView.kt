@@ -67,6 +67,12 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     var historyProvider: () -> List<String> = { emptyList() }
     var categoriesProvider: () -> List<String> = { emptyList() }
     var phrasesInProvider: (String) -> List<String> = { emptyList() }
+    var historyPageProvider: ((Int, Int) -> List<String>)? = null
+    var historyCountProvider: (() -> Long)? = null
+    var categoryPageProvider: ((Int, Int) -> List<String>)? = null
+    var categoryCountProvider: (() -> Long)? = null
+    var phrasePageProvider: ((String, Int, Int) -> List<String>)? = null
+    var phraseCountProvider: ((String) -> Long)? = null
     var phraseNoteProvider: (String, String) -> String = { _, _ -> "" }
     var onDeleteClips: (List<String>) -> Unit = {}
     var onDeletePhrasesFrom: (String, List<String>) -> Unit = { _, _ -> }
@@ -133,6 +139,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private var listScrollRestoreActive = false
     private var applyingListScroll = false
     private var listTouchActive = false
+    private var entryPage = 0
 
     private var sortMode = false
     private var categorySortMode = false
@@ -158,8 +165,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     fun showPhraseTab(category: String) {
         val switching = st.switchTab(ClipboardPanelState.Tab.PHRASE)
         st.collapse(); swipeRevealed = null; sortMode = false; categorySortMode = false
-        val retarget = category.isNotEmpty() && phraseCat != category && category in categoriesProvider()
+        val retarget = category.isNotEmpty() && phraseCat != category && category in currentCategories()
         if (retarget) phraseCat = category
+        if (switching || retarget) entryPage = 0
         if (switching || retarget) forceNextRebuild = true
         refresh(animate = false)
     }
@@ -167,7 +175,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     fun reopenAfterInline(category: String) {
         st.collapse(); swipeRevealed = null; sortMode = false; categorySortMode = false
         if (st.tab == ClipboardPanelState.Tab.PHRASE) {
-            if (category.isNotEmpty() && category in categoriesProvider()) phraseCat = category
+            if (category.isNotEmpty() && category in currentCategories()) phraseCat = category
+            entryPage = 0
             forceNextRebuild = true
         }
         refresh(animate = false)
@@ -292,6 +301,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         const val EXPANDED_TEXT_MAX_HEIGHT_DP = 144
         const val INITIAL_SYNC_ROWS = 12
         const val APPEND_ROWS_PER_FRAME = 12
+        const val PERSISTED_ENTRY_PAGE_SIZE = 60
+        const val PERSISTED_CATEGORY_LIMIT = 128
         const val SWIPE_ACTION_SIZE_DP = 44
         const val SWIPE_ACTION_GAP_DP = 4
         const val COMPACT_ACTION_HEIGHT_DP = 36
@@ -647,6 +658,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     fun reset() {
         invalidateListRender()
         listTouchActive = false
+        entryPage = 0
         st.reset(); hideOverlayImmediately(); swipeRevealed = null; sortMode = false; categorySortMode = false
     }
 
@@ -662,7 +674,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     internal fun isClipboardTabForTest(): Boolean = st.tab == ClipboardPanelState.Tab.CLIPBOARD
     internal fun phraseCatForTest(): String = phraseCat
     internal fun switchTabForTest(toClipboard: Boolean) {
-        if (st.switchTab(if (toClipboard) ClipboardPanelState.Tab.CLIPBOARD else ClipboardPanelState.Tab.PHRASE)) swipeRevealed = null
+        if (st.switchTab(if (toClipboard) ClipboardPanelState.Tab.CLIPBOARD else ClipboardPanelState.Tab.PHRASE)) {
+            swipeRevealed = null
+            entryPage = 0
+        }
         refresh()
     }
     internal fun forcePhrasesStateForTest(cat: String) { st.switchTab(ClipboardPanelState.Tab.PHRASE); swipeRevealed = null; phraseCat = cat }
@@ -797,14 +812,14 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         if (st.expanded != renderedExpanded) return false
         if (swipeRevealed != renderedSwipe) return false
         if (st.selected.toList() != renderedSelectedSig) return false
-        val categories = if (st.tab == Tab.PHRASE) categoriesProvider() else emptyList()
+        val categories = if (st.tab == Tab.PHRASE) currentCategories() else emptyList()
         if (categories != renderedCategoriesSig) return false
         val category = if (st.tab == Tab.PHRASE) currentCategory(categories) else ""
         if (category != renderedCategorySig) return false
         val entries = when {
             categorySortMode -> categories
-            st.tab == Tab.CLIPBOARD -> historyProvider()
-            else -> phrasesInProvider(category)
+            st.tab == Tab.CLIPBOARD -> entriesForPage("")
+            else -> entriesForPage(category)
         }
         return entries == renderedEntriesSig
     }
@@ -862,16 +877,16 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         if (!hasRenderedOnce || st.selectMode || sortMode || categorySortMode || isDragging) return false
         if (st.expanded != renderedExpanded || swipeRevealed != renderedSwipe) return false
         if (st.selected.toList() != renderedSelectedSig) return false
-        val categories = if (st.tab == Tab.PHRASE) categoriesProvider() else emptyList()
+        val categories = if (st.tab == Tab.PHRASE) currentCategories() else emptyList()
         if (categories != renderedCategoriesSig) return false
         val category = if (st.tab == Tab.PHRASE) currentCategory(categories) else ""
         return category == renderedCategorySig
     }
 
     private fun reconcileEntriesInPlace() {
-        val categories = if (st.tab == Tab.PHRASE) categoriesProvider() else emptyList()
+        val categories = if (st.tab == Tab.PHRASE) currentCategories() else emptyList()
         val category = if (st.tab == Tab.PHRASE) currentCategory(categories) else ""
-        val entries = if (st.tab == Tab.CLIPBOARD) historyProvider() else phrasesInProvider(category)
+        val entries = entriesForPage(category)
         if (pendingListAppend == null && renderedEntriesSig.isNotEmpty() && listColumn.childCount == renderedEntriesSig.size) {
             val reuse = HashMap<String, ArrayDeque<View>>()
             for (i in renderedEntriesSig.indices) {
@@ -972,9 +987,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
 
     private fun buildNormal() {
-        val categories = if (st.tab == Tab.PHRASE) categoriesProvider() else emptyList()
+        val categories = if (st.tab == Tab.PHRASE) currentCategories() else emptyList()
         val category = if (st.tab == Tab.PHRASE) currentCategory(categories) else ""
-        val entries = if (st.tab == Tab.CLIPBOARD) historyProvider() else phrasesInProvider(category)
+        val entries = entriesForPage(category)
         recordRenderSignature(categories, category, entries)
         val topBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1002,6 +1017,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         main.addView(topBar, ll(MP, dp(50)))
         populateListRows(entries) { e, i -> card(e, i, category) }
         main.addView(listScroll, ll(MP, 0, 1f))
+        if (isPersistedPagingEnabled()) main.addView(entryPageBar(category), ll(MP, dp(36)))
 
         if (st.tab == Tab.PHRASE) main.addView(categoryBar(categories, category), ll(MP, dp(44)).apply {
             leftMargin = dp(8)
@@ -1517,7 +1533,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     private fun moveDragTo(index: Int, rawY: Float? = null) {
-        val n = if (dragKind == DragKind.CATEGORY) categoriesProvider().size else currentEntries().size
+        val n = if (dragKind == DragKind.CATEGORY) currentCategories().size else currentEntries().size
         if (index !in 0 until n) return
         val old = dragCurrent
         dragCurrent = index
@@ -1589,7 +1605,12 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         val settleTarget = if (lifted != null && from in 0 until listColumn.childCount && to in 0 until listColumn.childCount)
             (listColumn.getChildAt(to).top - lifted.top).toFloat() else 0f
         if (reordered) {
-            if (kind == DragKind.CATEGORY) onReorderCategory(from, to) else onReorderPhrase(currentCategory(), from, to)
+            if (kind == DragKind.CATEGORY) onReorderCategory(from, to)
+            else onReorderPhrase(
+                currentCategory(),
+                from + entryPage * PERSISTED_ENTRY_PAGE_SIZE,
+                to + entryPage * PERSISTED_ENTRY_PAGE_SIZE,
+            )
         }
         if (reordered && lifted != null && lifted.isAttachedToWindow && Motion.enabled()) {
             dragFrom = -1; dragCurrent = -1; dragVisualIndex = -1; dragTouchOffsetY = 0f; dragLastRawY = 0f; dragKind = DragKind.NONE
@@ -1662,7 +1683,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun exitCategorySortMode() { categorySortMode = false; refresh() }
 
     private fun buildSortMode() {
-        val categories = categoriesProvider()
+        val categories = currentCategories()
         val cat = currentCategory(categories)
         val topBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1686,7 +1707,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         }
         main.addView(topBar, ll(MP, WC))
 
-        val entries = phrasesInProvider(cat)
+        val entries = entriesForPage(cat)
         recordRenderSignature(categories, cat, entries)
         populateListRows(entries) { e, i -> sortRowFor(e, i, cat) }
         main.addView(listScroll, ll(MP, 0, 1f))
@@ -1734,7 +1755,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     private fun buildCategorySortMode() {
-        val cats = categoriesProvider()
+        val cats = currentCategories()
         val current = currentCategory(cats)
         val topBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -1868,12 +1889,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         st.collapse()
         swipeRevealed = null
         if (phraseCat != name) {
-            val cats = categoriesProvider()
+            val cats = currentCategories()
             pendingCategorySlideFromX =
                 if (cats.indexOf(name) >= cats.indexOf(phraseCat)) selectLeadingGap().toFloat() else -selectLeadingGap().toFloat()
             pendingCategoryFade = true
         }
         phraseCat = name
+        entryPage = 0
         refresh()
     }
 
@@ -1904,9 +1926,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun exitSelect() { st.exitSelect(); refresh() }
 
     private fun buildSelectMode() {
-        val categories = if (st.tab == Tab.PHRASE) categoriesProvider() else emptyList()
+        val categories = if (st.tab == Tab.PHRASE) currentCategories() else emptyList()
         val category = if (st.tab == Tab.PHRASE) currentCategory(categories) else ""
-        val all = if (st.tab == Tab.CLIPBOARD) historyProvider() else phrasesInProvider(category)
+        val all = entriesForPage(category)
         recordRenderSignature(categories, category, all)
         lateinit var selectAll: TextView
         lateinit var countView: TextView
@@ -2120,7 +2142,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun showActionPopup(content: View) = showOverlay(content, maxWidthDp = 320)
 
     private fun chooseMoveCategoryThen(current: String, moveTexts: List<String>, after: () -> Unit = {}, action: (String) -> Unit) {
-        val targets = categoriesProvider().filter { it != current }
+        val targets = currentCategories().filter { it != current }
         val card = menuCard()
         if (targets.isEmpty()) {
             card.addView(menuTitle(context.getString(R.string.clip_no_other_categories)))
@@ -2171,7 +2193,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     private fun chooseCategoryThen(pending: List<String>, after: () -> Unit = {}) {
-        val cats = categoriesProvider()
+        val cats = currentCategories()
         if (cats.isEmpty()) { after(); onAddCategoryThenAdd(pending); return }
         val card = menuCard()
         card.addView(menuTitle(context.getString(R.string.clip_choose_category)))
@@ -2249,15 +2271,82 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
 
-    private fun currentCategory(): String = currentCategory(categoriesProvider())
+    private fun currentCategories(): List<String> = categoryPageProvider
+        ?.invoke(0, PERSISTED_CATEGORY_LIMIT)
+        ?: categoriesProvider()
+
+    private fun entriesForPage(category: String): List<String> {
+        val offset = entryPage * PERSISTED_ENTRY_PAGE_SIZE
+        val entries = if (st.tab == Tab.CLIPBOARD) {
+            historyPageProvider?.invoke(offset, PERSISTED_ENTRY_PAGE_SIZE) ?: historyProvider()
+        } else {
+            phrasePageProvider?.invoke(category, offset, PERSISTED_ENTRY_PAGE_SIZE) ?: phrasesInProvider(category)
+        }
+        if (entries.isNotEmpty() || entryPage == 0 || !isPersistedPagingEnabled()) return entries
+        entryPage--
+        return entriesForPage(category)
+    }
+
+    private fun currentEntryCount(category: String): Long = if (st.tab == Tab.CLIPBOARD) {
+        historyCountProvider?.invoke() ?: historyProvider().size.toLong()
+    } else {
+        phraseCountProvider?.invoke(category) ?: phrasesInProvider(category).size.toLong()
+    }
+
+    private fun isPersistedPagingEnabled(): Boolean = if (st.tab == Tab.CLIPBOARD) {
+        historyPageProvider != null && historyCountProvider != null
+    } else {
+        phrasePageProvider != null && phraseCountProvider != null
+    }
+
+    private fun entryPageBar(category: String): View {
+        val count = currentEntryCount(category)
+        val maximumPage = ((count - 1L).coerceAtLeast(0L) / PERSISTED_ENTRY_PAGE_SIZE).toInt()
+        if (entryPage > maximumPage) entryPage = maximumPage
+        return LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            addView(TextView(context).apply {
+                text = "‹"
+                gravity = Gravity.CENTER
+                contentDescription = context.getString(R.string.clip_previous_page)
+                setTextColor(if (entryPage > 0) TEXT_DARK else HINT)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
+                isEnabled = entryPage > 0
+                if (isEnabled) {
+                    Motion.applyTapFeedback(this, TEXT_DARK)
+                    setOnClickListener { entryPage--; listScrollY = 0; forceNextRebuild = true; refresh() }
+                }
+            }, ll(dp(48), MP))
+            addView(TextView(context).apply {
+                text = context.getString(R.string.clip_page_format, entryPage + 1, maximumPage + 1)
+                gravity = Gravity.CENTER
+                setTextColor(TEXT_SECONDARY)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.caption)
+            }, ll(0, MP, 1f))
+            addView(TextView(context).apply {
+                text = "›"
+                gravity = Gravity.CENTER
+                contentDescription = context.getString(R.string.clip_next_page)
+                setTextColor(if (entryPage < maximumPage) TEXT_DARK else HINT)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
+                isEnabled = entryPage < maximumPage
+                if (isEnabled) {
+                    Motion.applyTapFeedback(this, TEXT_DARK)
+                    setOnClickListener { entryPage++; listScrollY = 0; forceNextRebuild = true; refresh() }
+                }
+            }, ll(dp(48), MP))
+        }
+    }
+
+    private fun currentCategory(): String = currentCategory(currentCategories())
 
     private fun currentCategory(categories: List<String>): String {
         if (phraseCat !in categories) phraseCat = categories.firstOrNull().orEmpty()
         return phraseCat
     }
 
-    private fun currentEntries(): List<String> =
-        if (st.tab == Tab.CLIPBOARD) historyProvider() else phrasesInProvider(currentCategory())
+    private fun currentEntries(): List<String> = entriesForPage(currentCategory())
 
     private fun confirmDelete(texts: List<String>, after: () -> Unit = {}) {
         val deleteTab = st.tab
@@ -2281,8 +2370,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         background = rounded(CARD, ImeShapes.toolbarPillRadiusDp)
-        addView(pill(context.getString(R.string.clip_clipboard), st.tab == Tab.CLIPBOARD, true) { if (st.switchTab(Tab.CLIPBOARD)) { swipeRevealed = null; sortMode = false; categorySortMode = false; refresh() } }, ll(dp(84), MP))
-        addView(pill(context.getString(R.string.clip_phrases), st.tab == Tab.PHRASE, false) { if (st.switchTab(Tab.PHRASE)) { swipeRevealed = null; sortMode = false; categorySortMode = false; refresh() } }, ll(dp(84), MP))
+        addView(pill(context.getString(R.string.clip_clipboard), st.tab == Tab.CLIPBOARD, true) { if (st.switchTab(Tab.CLIPBOARD)) { swipeRevealed = null; sortMode = false; categorySortMode = false; entryPage = 0; refresh() } }, ll(dp(84), MP))
+        addView(pill(context.getString(R.string.clip_phrases), st.tab == Tab.PHRASE, false) { if (st.switchTab(Tab.PHRASE)) { swipeRevealed = null; sortMode = false; categorySortMode = false; entryPage = 0; refresh() } }, ll(dp(84), MP))
     }
 
     private fun pill(label: String, on: Boolean, left: Boolean, onClick: () -> Unit): TextView = TextView(context).apply {

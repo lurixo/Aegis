@@ -43,6 +43,7 @@ class ClipboardStore private constructor(
     private class Phrase(var text: String, var note: String = "")
     private class Category(var name: String, val phrases: ArrayList<Phrase> = ArrayList())
     private val phraseCats = ArrayList<Category>()
+    private val phrasePageCache = BoundedLruCache<String, List<String>>(RUNTIME_CACHE_CATEGORIES)
     private var lastValidPhrases = ArrayList<Category>()
 
     @Volatile
@@ -50,34 +51,38 @@ class ClipboardStore private constructor(
         private set
 
     fun load(purgeLegacyImages: Boolean = true): Boolean {
+        database?.let { backing ->
+            return runCatching {
+                if (purgeLegacyImages) purgeLegacyImageDir()
+                backing.ensurePhraseCategory(DEFAULT_CATEGORY_ID)
+                history.clear()
+                history.addAll(backing.readClipboardHistory(0, RUNTIME_PAGE_SIZE))
+                phraseCats.clear()
+                phraseCats.addAll(
+                    backing.readPhraseCategoryNames(0, RUNTIME_PAGE_SIZE).map { Category(it) },
+                )
+                if (phraseCats.isEmpty()) phraseCats.add(Category(DEFAULT_CATEGORY_ID))
+                phrasePageCache.clear()
+                lastValidPhrases.clear()
+                lastFailure = null
+                true
+            }.onFailure { lastFailure = failureText(it) }.getOrDefault(false)
+        }
         val previousHistory = ArrayList(history)
         val previousPhrases = copyCategories(phraseCats)
         return runCatching {
-            val backing = database
-            val loadedHistory: List<String>
-            val loadedPhrases: ArrayList<Category>
-            if (backing == null) {
-                if (purgeLegacyImages) purgeLegacyImageDir()
-                val seen = HashSet<String>()
-                loadedHistory = if (histFile.exists()) {
-                    histFile.readLines().mapNotNull { line ->
-                        readEntry(line)?.takeIf { entry ->
-                            entry.isNotBlank() && !isLegacyImageEntry(entry) && seen.add(entry)
-                        }
+            if (purgeLegacyImages) purgeLegacyImageDir()
+            val seen = HashSet<String>()
+            val loadedHistory = if (histFile.exists()) {
+                histFile.readLines().mapNotNull { line ->
+                    readEntry(line)?.takeIf { entry ->
+                        entry.isNotBlank() && !isLegacyImageEntry(entry) && seen.add(entry)
                     }
-                } else {
-                    emptyList()
                 }
-                loadedPhrases = readLegacyPhrases()
             } else {
-                loadedHistory = backing.readClipboardHistory()
-                loadedPhrases = backing.readPhraseCategories().mapTo(ArrayList()) { category ->
-                    Category(
-                        category.name,
-                        category.phrases.mapTo(ArrayList()) { phrase -> Phrase(phrase.text, phrase.note) },
-                    )
-                }
+                emptyList()
             }
+            val loadedPhrases = readLegacyPhrases()
             if (loadedPhrases.isEmpty()) loadedPhrases.add(Category(DEFAULT_CATEGORY_ID))
             history.clear()
             history.addAll(loadedHistory)
@@ -106,16 +111,13 @@ class ClipboardStore private constructor(
         }
 
     private fun loadPhrases() {
-        val loaded = if (database != null) {
-            database.readPhraseCategories().mapTo(ArrayList()) { category ->
-                Category(
-                    category.name,
-                    category.phrases.mapTo(ArrayList()) { phrase -> Phrase(phrase.text, phrase.note) },
-                )
-            }
-        } else {
-            readLegacyPhrases()
+        database?.let {
+            it.ensurePhraseCategory(DEFAULT_CATEGORY_ID)
+            phraseCats.clear()
+            lastValidPhrases.clear()
+            return
         }
+        val loaded = readLegacyPhrases()
         if (loaded.isEmpty()) loaded.add(Category(DEFAULT_CATEGORY_ID))
         phraseCats.clear()
         phraseCats.addAll(loaded)
@@ -180,6 +182,7 @@ class ClipboardStore private constructor(
                 backing.recordClipboard(t)
                 history.remove(t)
                 history.add(0, t)
+                while (history.size > RUNTIME_PAGE_SIZE) history.removeAt(history.lastIndex)
                 lastFailure = null
                 true
             }.onFailure { lastFailure = failureText(it) }.getOrDefault(false)
@@ -205,7 +208,7 @@ class ClipboardStore private constructor(
             return runCatching {
                 backing.replaceClipboardHistory(incoming, merge)
                 history.clear()
-                history.addAll(candidate)
+                history.addAll(candidate.take(RUNTIME_PAGE_SIZE))
                 lastFailure = null
                 true
             }.onFailure { lastFailure = failureText(it) }.getOrDefault(false)
@@ -228,9 +231,9 @@ class ClipboardStore private constructor(
 
     fun deleteAll(texts: Collection<String>): Boolean {
         val targets = texts.toSet()
-        if (targets.none(history::contains)) return false
         val backing = database
         if (backing != null) {
+            if (targets.none(backing::containsClipboard)) return false
             return runCatching {
                 backing.deleteClipboardHistory(targets)
                 history.removeAll(targets)
@@ -238,15 +241,16 @@ class ClipboardStore private constructor(
                 true
             }.onFailure { lastFailure = failureText(it) }.getOrDefault(false)
         }
+        if (targets.none(history::contains)) return false
         history.removeAll(targets)
         scheduleSave()
         return true
     }
 
     fun clearHistory(): Boolean {
-        if (history.isEmpty()) return false
         val backing = database
         if (backing != null) {
+            if (backing.clipboardHistoryCount() == 0L) return false
             return runCatching {
                 backing.clearClipboardHistory()
                 history.clear()
@@ -254,18 +258,30 @@ class ClipboardStore private constructor(
                 true
             }.onFailure { lastFailure = failureText(it) }.getOrDefault(false)
         }
+        if (history.isEmpty()) return false
         history.clear()
         scheduleSave()
         return true
     }
 
-    fun history(): List<String> = history.toList()
+    fun history(): List<String> = database?.let { backing ->
+        runCatching { backing.readClipboardHistory(0, RUNTIME_PAGE_SIZE) }
+            .onSuccess { page -> history.clear(); history.addAll(page); lastFailure = null }
+            .onFailure { lastFailure = failureText(it) }
+            .getOrElse { history.toList() }
+    } ?: history.toList()
 
     fun historyPage(offset: Int, limit: Int): List<String> {
         require(offset >= 0)
         require(limit >= 0)
-        return database?.readClipboardHistory(offset, limit) ?: history.drop(offset).take(limit)
+        return database?.let { backing ->
+            runCatching { backing.readClipboardHistory(offset, minOf(limit, RUNTIME_PAGE_SIZE)) }
+                .onFailure { lastFailure = failureText(it) }
+                .getOrElse { history.drop(offset).take(limit) }
+        } ?: history.drop(offset).take(limit)
     }
+
+    fun historyCount(): Long = database?.clipboardHistoryCount() ?: history.size.toLong()
 
     internal fun latest(): String? = database?.readClipboardHistory(limit = 1)?.firstOrNull() ?: history.firstOrNull()
 
@@ -276,22 +292,65 @@ class ClipboardStore private constructor(
         true
     }.onFailure { lastFailure = failureText(it) }.getOrDefault(false)
 
-    fun categories(): List<String> = phraseCats.map { it.name }
+    fun categories(): List<String> = database?.let { backing ->
+        runCatching { backing.readPhraseCategoryNames(0, RUNTIME_PAGE_SIZE) }
+            .onSuccess { names ->
+                phraseCats.clear()
+                phraseCats.addAll(names.map { Category(it) })
+                lastFailure = null
+            }
+            .onFailure { lastFailure = failureText(it) }
+            .getOrElse { phraseCats.map { it.name } }
+    } ?: phraseCats.map { it.name }
 
-    fun phrasesIn(category: String): List<String> = find(category)?.phrases?.map { it.text } ?: emptyList()
+    fun categoryPage(offset: Int, limit: Int): List<String> {
+        require(offset >= 0)
+        require(limit in 0..RUNTIME_PAGE_SIZE)
+        return database?.let { backing ->
+            runCatching { backing.readPhraseCategoryNames(offset, limit) }
+                .onFailure { lastFailure = failureText(it) }
+                .getOrElse { phraseCats.drop(offset).take(limit).map { it.name } }
+        } ?: phraseCats.drop(offset).take(limit).map { it.name }
+    }
+
+    fun categoryCount(): Long = database?.phraseCategoryCount() ?: phraseCats.size.toLong()
+
+    fun phrasesIn(category: String): List<String> = database?.let { backing ->
+        runCatching { backing.readPhrases(category, 0, RUNTIME_PAGE_SIZE).map { it.text } }
+            .onSuccess { phrasePageCache.put(category, it); lastFailure = null }
+            .onFailure { lastFailure = failureText(it) }
+            .getOrElse { phrasePageCache[category].orEmpty() }
+    } ?: (find(category)?.phrases?.map { it.text } ?: emptyList())
 
     fun phrasesPage(category: String, offset: Int, limit: Int): List<String> {
         require(offset >= 0)
         require(limit >= 0)
-        return database?.readPhrases(category, offset, limit)?.map { it.text } ?:
-            phrasesIn(category).drop(offset).take(limit)
+        return database?.let { backing ->
+            runCatching {
+                backing.readPhrases(category, offset, minOf(limit, RUNTIME_PAGE_SIZE)).map { it.text }
+            }
+                .onSuccess { if (offset == 0) phrasePageCache.put(category, it) }
+                .onFailure { lastFailure = failureText(it) }
+                .getOrElse { phrasePageCache[category].orEmpty().drop(offset).take(limit) }
+        } ?: phrasesIn(category).drop(offset).take(limit)
     }
 
-    fun phrases(): List<String> = phraseCats.flatMap { c -> c.phrases.map { it.text } }
+    fun phraseCount(category: String): Long = database?.phraseCount(category) ?:
+        (find(category)?.phrases?.size?.toLong() ?: 0L)
 
-    fun noteFor(category: String, text: String): String = findPhrase(find(category), text)?.note.orEmpty()
+    fun phrases(): List<String> = if (database == null) phraseCats.flatMap { c -> c.phrases.map { it.text } } else {
+        categories().asSequence().flatMap { phrasesIn(it).asSequence() }.take(RUNTIME_PAGE_SIZE).toList()
+    }
+
+    fun noteFor(category: String, text: String): String = database?.phraseNote(category, text) ?:
+        findPhrase(find(category), text)?.note.orEmpty()
 
     fun setPhraseNote(category: String, text: String, note: String): Boolean {
+        database?.let { backing ->
+            val normalized = note.filterNot { Character.isISOControl(it) }.trim()
+            return runCatching { backing.setPhraseNote(category, text, normalized) }
+                .onFailure { lastFailure = failureText(it) }.getOrDefault(false)
+        }
         val p = findPhrase(find(category), text) ?: return false
         p.note = note.filterNot { Character.isISOControl(it) }.trim()
         return savePhrases()
@@ -299,16 +358,28 @@ class ClipboardStore private constructor(
 
     fun addCategory(name: String): Boolean {
         val n = name.trim()
+        database?.let { backing ->
+            if (n.isEmpty()) return false
+            return runCatching { backing.addPhraseCategory(n) }
+                .onFailure { lastFailure = failureText(it) }.getOrDefault(false)
+        }
         if (n.isEmpty() || phraseCats.any { it.name == n }) return false
         phraseCats.add(Category(n))
         return savePhrases()
     }
 
-    fun deleteCategory(name: String): Boolean =
-        if (phraseCats.removeAll { it.name == name }) savePhrases() else false
+    fun deleteCategory(name: String): Boolean = database?.let { backing ->
+        runCatching { backing.deletePhraseCategory(name) }
+            .onFailure { lastFailure = failureText(it) }.getOrDefault(false)
+    } ?: if (phraseCats.removeAll { it.name == name }) savePhrases() else false
 
     fun renameCategory(old: String, new: String): Boolean {
         val n = new.trim()
+        database?.let { backing ->
+            if (n.isEmpty()) return false
+            return runCatching { backing.renamePhraseCategory(old, n) }
+                .onFailure { lastFailure = failureText(it) }.getOrDefault(false)
+        }
         val c = find(old) ?: return false
         if (n.isEmpty() || (n != old && phraseCats.any { it.name == n })) return false
         c.name = n
@@ -317,6 +388,17 @@ class ClipboardStore private constructor(
 
     fun addPhrasesTo(category: String, texts: Collection<String>): Int {
         if (category.isBlank()) return 0
+        database?.let { backing ->
+            val normalized = texts.map { it.trim() }.filter { it.isNotEmpty() }
+            return runCatching { backing.addPhrases(category, normalized) }
+                .onSuccess { added ->
+                    if (added > 0) {
+                        val current = phrasePageCache[category].orEmpty()
+                        phrasePageCache.put(category, (normalized + current).distinct().take(RUNTIME_PAGE_SIZE))
+                    }
+                }
+                .onFailure { lastFailure = failureText(it) }.getOrDefault(0)
+        }
         val c = find(category) ?: Category(category).also { phraseCats.add(it) }
         val seen = c.phrases.mapTo(HashSet()) { it.text }
         val added = ArrayList<Phrase>()
@@ -333,20 +415,32 @@ class ClipboardStore private constructor(
     }
 
     fun addPhrases(texts: Collection<String>): Int =
-        addPhrasesTo(phraseCats.firstOrNull()?.name ?: DEFAULT_CATEGORY_ID, texts)
+        addPhrasesTo(categories().firstOrNull() ?: DEFAULT_CATEGORY_ID, texts)
 
     fun deletePhraseFrom(category: String, text: String): Boolean {
+        database?.let { backing ->
+            return runCatching { backing.deletePhrase(category, text) }
+                .onFailure { lastFailure = failureText(it) }.getOrDefault(false)
+        }
         val categoryData = find(category) ?: return false
         return if (categoryData.phrases.removeAll { it.text == text }) savePhrases() else false
     }
 
     fun deletePhrase(text: String): Boolean {
+        database?.let { backing ->
+            return runCatching { backing.deletePhraseEverywhere(text) }
+                .onFailure { lastFailure = failureText(it) }.getOrDefault(false)
+        }
         var changed = false
         for (c in phraseCats) if (c.phrases.removeAll { it.text == text }) changed = true
         return changed && savePhrases()
     }
 
     fun clearPhrasesIn(category: String): Int {
+        database?.let { backing ->
+            return runCatching { backing.clearPhrases(category) }
+                .onFailure { lastFailure = failureText(it) }.getOrDefault(0)
+        }
         val c = find(category) ?: return 0
         val n = c.phrases.size
         if (n > 0) {
@@ -357,6 +451,11 @@ class ClipboardStore private constructor(
     }
 
     fun editPhrase(category: String, oldText: String, newText: String): Boolean {
+        database?.let { backing ->
+            val normalized = newText.filterNot { Character.isISOControl(it) }.trim()
+            return runCatching { backing.editPhrase(category, oldText, normalized) }
+                .onFailure { lastFailure = failureText(it) }.getOrDefault(false)
+        }
         val c = find(category) ?: return false
         val idx = c.phrases.indexOfFirst { it.text == oldText }
         if (idx < 0) return false
@@ -368,6 +467,11 @@ class ClipboardStore private constructor(
     }
 
     fun movePhrase(fromCategory: String, text: String, toCategory: String): Boolean {
+        database?.let { backing ->
+            if (fromCategory == toCategory) return true
+            return runCatching { backing.movePhrases(fromCategory, listOf(text), toCategory) == 1 }
+                .onFailure { lastFailure = failureText(it) }.getOrDefault(false)
+        }
         val to = find(toCategory) ?: return false
         val from = find(fromCategory) ?: return false
         if (from === to) return true
@@ -387,6 +491,10 @@ class ClipboardStore private constructor(
     }
 
     fun movePhrasesTo(fromCategory: String, texts: Collection<String>, toCategory: String): Int {
+        database?.let { backing ->
+            return runCatching { backing.movePhrases(fromCategory, texts, toCategory) }
+                .onFailure { lastFailure = failureText(it) }.getOrDefault(0)
+        }
         val to = find(toCategory) ?: return 0
         val from = find(fromCategory) ?: return 0
         if (from === to) return 0
@@ -402,6 +510,10 @@ class ClipboardStore private constructor(
     }
 
     fun reorderPhrase(category: String, fromIndex: Int, toIndex: Int): Boolean {
+        database?.let { backing ->
+            return runCatching { backing.reorderPhrase(category, fromIndex, toIndex) }
+                .onFailure { lastFailure = failureText(it) }.getOrDefault(false)
+        }
         val c = find(category) ?: return false
         val n = c.phrases.size
         if (fromIndex !in 0 until n || toIndex !in 0 until n || fromIndex == toIndex) return false
@@ -410,6 +522,10 @@ class ClipboardStore private constructor(
     }
 
     fun reorderCategory(fromIndex: Int, toIndex: Int): Boolean {
+        database?.let { backing ->
+            return runCatching { backing.reorderPhraseCategory(fromIndex, toIndex) }
+                .onFailure { lastFailure = failureText(it) }.getOrDefault(false)
+        }
         val n = phraseCats.size
         if (fromIndex !in 0 until n || toIndex !in 0 until n || fromIndex == toIndex) return false
         phraseCats.add(toIndex, phraseCats.removeAt(fromIndex))
@@ -583,6 +699,8 @@ class ClipboardStore private constructor(
         const val BIG_THRESHOLD = 64 * 1024
 
         const val DEFAULT_CATEGORY_ID = "default"
+        internal const val RUNTIME_PAGE_SIZE = 128
+        private const val RUNTIME_CACHE_CATEGORIES = 32
         private const val LEGACY_DEFAULT_NAME = "默认"
         private val DEFAULT_PHRASES = emptyList<String>()
     }

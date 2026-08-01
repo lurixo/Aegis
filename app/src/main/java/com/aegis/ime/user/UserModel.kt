@@ -31,6 +31,8 @@ class UserModel internal constructor(
     private val lastUsed = HashMap<String, Long>()
     private val bigram = HashMap<String, HashMap<String, Int>>()
     private val readings = HashMap<String, LinkedHashSet<String>>()
+    private val wordBoostCache = BoundedLruCache<String, Double>(RUNTIME_CACHE_SIZE)
+    private val readingCache = BoundedLruCache<String, List<String>>(RUNTIME_CACHE_SIZE)
     private var maximumBoostVersion = Long.MIN_VALUE
     private var maximumBoost = 0.0
 
@@ -46,21 +48,23 @@ class UserModel internal constructor(
     var lastFailure: String? = null
         private set
 
-    init {
-        database?.readUserData()?.let(::applyStored)
-    }
-
     @Synchronized
     fun record(prevWord: String?, word: String, now: Long): Boolean {
         if (!isValidWord(word)) return false
         if (!persist { database?.recordWord(word, null, prevWord?.takeIf(::isValidWord), now, true) }) return false
+        if (database != null) {
+            cacheStoredWord(word, now)
+            dirty = false
+            version++
+            return true
+        }
         count[word] = saturatingAdd(count[word] ?: 0, 1)
         lastUsed[word] = now.coerceAtLeast(0L)
         if (!prevWord.isNullOrEmpty() && isValidWord(prevWord)) {
             val m = bigram.getOrPut(prevWord) { HashMap() }
             m[word] = saturatingAdd(m[word] ?: 0, 1)
         }
-        dirty = database == null
+        dirty = true
         version++
         return true
     }
@@ -70,6 +74,13 @@ class UserModel internal constructor(
         val r = sanitizeReading(reading)
         if (!isValidWord(word) || r.isEmpty()) return false
         if (!persist { database?.recordWord(word, r, null, now, incrementCount) }) return false
+        if (database != null) {
+            cacheReading(r, word, remove = false)
+            cacheStoredWord(word, now)
+            dirty = false
+            version++
+            return true
+        }
         readings.getOrPut(r) { LinkedHashSet() }.add(word)
         if (incrementCount) {
             count[word] = saturatingAdd(count[word] ?: 0, 1)
@@ -77,7 +88,7 @@ class UserModel internal constructor(
             count[word] = 1
         }
         lastUsed[word] = now.coerceAtLeast(0L)
-        dirty = database == null
+        dirty = true
         version++
         return true
     }
@@ -88,10 +99,17 @@ class UserModel internal constructor(
         if (!isValidWord(w)) return false
         val r = sanitizeReading(reading)
         if (!persist { database?.recordWord(w, r.ifEmpty { null }, null, now, true) }) return false
+        if (database != null) {
+            if (r.isNotEmpty()) cacheReading(r, w, remove = false)
+            cacheStoredWord(w, now)
+            dirty = false
+            version++
+            return true
+        }
         if (r.isNotEmpty()) readings.getOrPut(r) { LinkedHashSet() }.add(w)
         count[w] = saturatingAdd(count[w] ?: 0, 1)
         lastUsed[w] = now.coerceAtLeast(0L)
-        dirty = database == null
+        dirty = true
         version++
         return true
     }
@@ -99,6 +117,15 @@ class UserModel internal constructor(
     @Synchronized
     fun removeWord(reading: String, word: String): Boolean {
         val r = sanitizeReading(reading)
+        if (database != null) {
+            if (!database.hasUserReading(r, word)) return false
+            if (!persist { database.removeReading(r, word) }) return false
+            wordBoostCache.remove(word)
+            cacheReading(r, word, remove = true)
+            dirty = false
+            version++
+            return true
+        }
         val set = readings[r] ?: return false
         if (word !in set) return false
         if (!persist { database?.removeReading(r, word) }) return false
@@ -110,7 +137,7 @@ class UserModel internal constructor(
             bigram.remove(word)
             for (m in bigram.values) m.remove(word)
         }
-        dirty = database == null
+        dirty = true
         version++
         return true
     }
@@ -118,6 +145,17 @@ class UserModel internal constructor(
     @Synchronized
     fun removeWord(word: String): Boolean {
         if (word.isEmpty()) return false
+        if (database != null) {
+            if (database.readStoredWord(word) == null) return false
+            if (!persist { database.removeWord(word) }) return false
+            wordBoostCache.remove(word)
+            for ((reading, words) in readingCache.snapshot()) {
+                if (word in words) cacheReading(reading, word, remove = true)
+            }
+            dirty = false
+            version++
+            return true
+        }
         if (word !in count && readings.values.none { word in it }) return false
         if (!persist { database?.removeWord(word) }) return false
         var changed = false
@@ -128,7 +166,7 @@ class UserModel internal constructor(
         for (r in emptyReadings) readings.remove(r)
         if (bigram.remove(word) != null) changed = true
         for (m in bigram.values) if (m.remove(word) != null) changed = true
-        if (changed) { dirty = database == null; version++ }
+        if (changed) { dirty = true; version++ }
         return changed
     }
 
@@ -136,6 +174,17 @@ class UserModel internal constructor(
 
     @Synchronized
     fun userWordEntries(): List<Entry> {
+        database?.let { backing ->
+            val out = ArrayList<Entry>()
+            var offset = 0
+            while (true) {
+                val page = backing.readUserWordEntries(offset = offset, limit = RUNTIME_PAGE_SIZE)
+                for (entry in page) out.add(Entry(entry.reading, entry.word, entry.count))
+                if (page.size < RUNTIME_PAGE_SIZE) break
+                offset += page.size
+            }
+            return out
+        }
         val out = ArrayList<Entry>()
         for ((r, ws) in readings) for (w in ws) out.add(Entry(r, w, count[w] ?: 0))
         return out.sortedWith(compareByDescending<Entry> { it.count }.thenBy { it.reading }.thenBy { it.word })
@@ -143,6 +192,21 @@ class UserModel internal constructor(
 
     @Synchronized
     fun readingSnapshot(): Map<String, List<String>> {
+        database?.let { backing ->
+            return runCatching {
+                val out = LinkedHashMap<String, MutableList<String>>()
+                var offset = 0
+                while (true) {
+                    val page = backing.readUserWordEntries(offset = offset, limit = RUNTIME_PAGE_SIZE)
+                    for (entry in page) out.getOrPut(entry.reading) { ArrayList() }.add(entry.word)
+                    if (page.size < RUNTIME_PAGE_SIZE) break
+                    offset += page.size
+                }
+                for ((reading, words) in out) readingCache.put(reading, words.take(RUNTIME_PAGE_SIZE))
+                out
+            }.onFailure { lastFailure = it.javaClass.simpleName + ": " + it.message.orEmpty() }
+                .getOrElse { readingCache.snapshot() }
+        }
         val out = HashMap<String, List<String>>(readings.size)
         val now = clock()
         for ((r, ws) in readings) {
@@ -156,12 +220,23 @@ class UserModel internal constructor(
 
     @Synchronized
     fun wordBoost(word: String): Double {
+        database?.let { backing ->
+            wordBoostCache[word]?.let { return it }
+            return runCatching {
+                val stored = backing.readStoredWord(word) ?: return@runCatching 0.0
+                usageScore(stored.count, stored.lastUsed, clock()).also { wordBoostCache.put(word, it) }
+            }.onFailure { lastFailure = it.javaClass.simpleName + ": " + it.message.orEmpty() }.getOrDefault(0.0)
+        }
         val c = count[word] ?: return 0.0
         return usageScore(c, lastUsed[word] ?: 0L, clock())
     }
 
     @Synchronized
     internal fun maximumWordBoost(): Double {
+        database?.let { backing ->
+            val maximum = backing.maximumUserWordCount()
+            return if (maximum <= 0) 0.0 else BOOST_WEIGHT * ln(1.0 + maximum) + RECENCY_WEIGHT
+        }
         if (maximumBoostVersion == version) return maximumBoost
         var maximum = 0.0
         for (value in count.values) {
@@ -175,6 +250,13 @@ class UserModel internal constructor(
     @Synchronized
     fun successors(prevWord: String, limit: Int): List<String> {
         if (limit <= 0) return emptyList()
+        database?.let { backing ->
+            return backing.readUserSuccessors(
+                prevWord,
+                offset = 0,
+                limit = minOf(limit, RUNTIME_PAGE_SIZE),
+            ).map { it.word }
+        }
         val m = bigram[prevWord] ?: return emptyList()
         val now = clock()
         return m.entries
@@ -188,7 +270,52 @@ class UserModel internal constructor(
     }
 
     @Synchronized
-    fun isEmpty(): Boolean = count.isEmpty() && readings.isEmpty()
+    fun isEmpty(): Boolean = database?.userDataIsEmpty() ?: (count.isEmpty() && readings.isEmpty())
+
+    @Synchronized
+    internal fun entryCount(query: String = ""): Long = database?.userWordEntryCount(query) ?: run {
+        if (query.isBlank()) userWordEntries().size.toLong() else UserDictSearch.filter(userWordEntries(), query).size.toLong()
+    }
+
+    @Synchronized
+    internal fun entryPage(query: String = "", offset: Int, limit: Int): List<Entry> {
+        require(offset >= 0)
+        require(limit in 0..RUNTIME_PAGE_SIZE)
+        return database?.readUserWordEntries(query, offset, limit)?.map {
+            Entry(it.reading, it.word, it.count)
+        } ?: UserDictSearch.filter(userWordEntries(), query).drop(offset).take(limit)
+    }
+
+    @Synchronized
+    internal fun wordsForKeyPage(key: String, offset: Int, limit: Int): List<String> {
+        require(offset >= 0)
+        require(limit in 0..RUNTIME_PAGE_SIZE)
+        if (key.isEmpty()) return emptyList()
+        val t9 = key[0] in '2'..'9'
+        return database?.let { backing ->
+            runCatching {
+                backing.readUserWordsForKey(key, t9, offset, limit).map { it.word }.also {
+                    if (!t9 && offset == 0) readingCache.put(key, it)
+                }
+            }.onFailure { lastFailure = it.javaClass.simpleName + ": " + it.message.orEmpty() }.getOrElse {
+                val cached = if (t9) readingCache.snapshot().entries
+                    .filter { com.aegis.ime.decoder.T9Pinyin.toT9(it.key) == key }
+                    .flatMap { it.value }.distinct() else readingCache[key].orEmpty()
+                cached.drop(offset).take(limit)
+            }
+        } ?:
+            readingSnapshot().let { snapshot ->
+                if (t9) snapshot.entries.filter { com.aegis.ime.decoder.T9Pinyin.toT9(it.key) == key }.flatMap { it.value }
+                else snapshot[key].orEmpty()
+            }.distinct().drop(offset).take(limit)
+    }
+
+    @Synchronized
+    internal fun containsWordForKey(key: String, word: String): Boolean {
+        if (key.isEmpty() || word.isEmpty()) return false
+        return database?.hasUserWordForKey(key, key[0] in '2'..'9', word) ?:
+            (word in wordsForKeyPage(key, 0, RUNTIME_PAGE_SIZE))
+    }
 
 
     @Synchronized
@@ -197,9 +324,22 @@ class UserModel internal constructor(
         try {
             tmp.bufferedWriter().use { w ->
                 w.write("$HEADER\n")
-                for ((word, c) in count) w.write("W\t$word\t$c\t${lastUsed[word] ?: 0}\n")
-                for ((prev, m) in bigram) for ((word, c) in m) w.write("B\t$prev\t$word\t$c\n")
-                for ((reading, ws) in readings) for (word in ws) w.write("R\t$reading\t$word\n")
+                val stored = database?.readUserData()
+                if (stored == null) {
+                    for ((word, c) in count) w.write("W\t$word\t$c\t${lastUsed[word] ?: 0}\n")
+                    for ((prev, m) in bigram) for ((word, c) in m) w.write("B\t$prev\t$word\t$c\n")
+                    for ((reading, ws) in readings) for (word in ws) w.write("R\t$reading\t$word\n")
+                } else {
+                    for ((word, state) in stored.words) {
+                        w.write("W\t$word\t${state.count}\t${state.lastUsed}\n")
+                    }
+                    for ((prev, words) in stored.bigrams) {
+                        for ((word, value) in words) w.write("B\t$prev\t$word\t$value\n")
+                    }
+                    for ((reading, words) in stored.readings) {
+                        for (word in words) w.write("R\t$reading\t$word\n")
+                    }
+                }
             }
             try {
                 Files.move(
@@ -223,11 +363,8 @@ class UserModel internal constructor(
     fun reload(file: File) {
         val parsed = parse(file)
         database?.replaceUserData(parsed.toStored())
-        count.clear()
-        lastUsed.clear()
-        bigram.clear()
-        readings.clear()
-        applyParsed(parsed)
+        clearRuntimeState()
+        if (database == null) applyParsed(parsed)
         version++
     }
 
@@ -235,7 +372,7 @@ class UserModel internal constructor(
     fun load(file: File) {
         val parsed = parse(file)
         database?.replaceUserData(parsed.toStored())
-        applyParsed(parsed)
+        if (database == null) applyParsed(parsed) else clearRuntimeState()
         version++
     }
 
@@ -256,6 +393,7 @@ class UserModel internal constructor(
         val parsed = parse(file)
         if (parsed.count.isEmpty() && parsed.readings.isEmpty()) return false
         val before = storageSnapshot()
+        if (database != null) applyStored(before)
         for ((word, c) in parsed.count) {
             count[word] = saturatingAdd(count[word] ?: 0, c)
             lastUsed[word] = maxOf(lastUsed[word] ?: 0, parsed.lastUsed[word] ?: now)
@@ -265,17 +403,21 @@ class UserModel internal constructor(
             for ((word, c) in m) dst[word] = saturatingAdd(dst[word] ?: 0, c)
         }
         for ((reading, ws) in parsed.readings) readings.getOrPut(reading) { LinkedHashSet() }.addAll(ws)
-        if (!persist { database?.replaceUserData(storageSnapshot()) }) {
+        val merged = inMemorySnapshot()
+        if (!persist { database?.replaceUserData(merged) }) {
             applyStored(before)
             return false
         }
         dirty = database == null
+        if (database != null) clearRuntimeState()
         version++
         return true
     }
 
     @Synchronized
-    internal fun storageSnapshot(): UserDataSnapshot = UserDataSnapshot(
+    internal fun storageSnapshot(): UserDataSnapshot = database?.readUserData() ?: inMemorySnapshot()
+
+    private fun inMemorySnapshot(): UserDataSnapshot = UserDataSnapshot(
         words = count.mapValues { (word, value) -> StoredWord(value, lastUsed[word] ?: 0L) },
         bigrams = bigram.mapValues { (_, words) -> LinkedHashMap(words) },
         readings = readings.mapValues { (_, words) -> LinkedHashSet(words) },
@@ -284,19 +426,47 @@ class UserModel internal constructor(
     @Synchronized
     internal fun replaceFromStorage(snapshot: UserDataSnapshot) {
         database?.replaceUserData(snapshot)
-        applyStored(snapshot)
+        if (database == null) applyStored(snapshot) else clearRuntimeState()
         dirty = false
         version++
     }
 
     @Synchronized
     internal fun reloadFromStorage() {
-        database?.readUserData()?.let(::applyStored)
+        clearRuntimeState()
         version++
+    }
+
+    private fun clearRuntimeState() {
+        count.clear()
+        lastUsed.clear()
+        bigram.clear()
+        readings.clear()
+        wordBoostCache.clear()
+        readingCache.clear()
+        maximumBoostVersion = Long.MIN_VALUE
+        dirty = false
+    }
+
+    private fun cacheReading(reading: String, word: String, remove: Boolean) {
+        if (reading.isEmpty()) return
+        val values = ArrayList(readingCache[reading].orEmpty())
+        if (remove) values.remove(word) else if (word !in values && values.size < RUNTIME_PAGE_SIZE) values.add(word)
+        if (values.isEmpty()) readingCache.remove(reading) else readingCache.put(reading, values)
+    }
+
+    private fun cacheStoredWord(word: String, fallbackNow: Long) {
+        val stored = runCatching { database?.readStoredWord(word) }.getOrNull()
+        val count = stored?.count ?: 1
+        val used = stored?.lastUsed ?: fallbackNow.coerceAtLeast(0L)
+        wordBoostCache.put(word, usageScore(count, used, clock()))
     }
 
     internal val isDatabaseBacked: Boolean
         get() = database != null
+
+    internal fun runtimeCacheSizesForTest(): Pair<Int, Int> =
+        wordBoostCache.sizeForTest() to readingCache.sizeForTest()
 
     private data class Parsed(
         val count: HashMap<String, Int> = HashMap(),
@@ -312,6 +482,8 @@ class UserModel internal constructor(
         private const val RECENCY_WEIGHT = 2.0
         private const val RECENCY_HALF_LIFE_MILLIS = 7L * 24L * 60L * 60L * 1000L
         private val LN_2 = ln(2.0)
+        internal const val RUNTIME_PAGE_SIZE = 128
+        private const val RUNTIME_CACHE_SIZE = 256
 
         private fun parse(file: File): Parsed {
             if (!file.exists() || file.length() == 0L) return Parsed()

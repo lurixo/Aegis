@@ -57,7 +57,6 @@ import androidx.compose.ui.unit.dp
 import com.aegis.ime.R
 import com.aegis.ime.user.UserDictEdit
 import com.aegis.ime.user.UserDictImport
-import com.aegis.ime.user.UserDictSearch
 import com.aegis.ime.user.UserModel
 import java.io.File
 
@@ -73,13 +72,21 @@ internal fun UserDictPage(onBack: () -> Unit) {
     val deletedToast = stringResource(R.string.user_dict_toast_deleted)
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
 
-    var entries by remember { mutableStateOf(UserDictEdit.list(userDb)) }
     var query by remember { mutableStateOf("") }
-    val searchIndex = remember(entries) { UserDictSearch.index(entries) }
-    val filtered = remember(searchIndex, query) { searchIndex.filter(query) }
+    var pageIndex by remember { mutableStateOf(0) }
+    var revision by remember { mutableStateOf(0) }
+    val totalCount = remember(revision) { UserDictEdit.count(userDb, "") }
+    val matchCount = remember(query, revision) {
+        if (query.isBlank()) totalCount else UserDictEdit.count(userDb, query)
+    }
+    val maximumPage = ((matchCount - 1L).coerceAtLeast(0L) / USER_DICT_PAGE_SIZE).toInt()
+    val currentPage = pageIndex.coerceAtMost(maximumPage)
+    val entries = remember(query, currentPage, revision) {
+        UserDictEdit.page(userDb, query, currentPage * USER_DICT_PAGE_SIZE, USER_DICT_PAGE_SIZE)
+    }
     var newWord by remember { mutableStateOf("") }
     var newReading by remember { mutableStateOf("") }
-    fun reload() { entries = UserDictEdit.list(userDb) }
+    fun reload() { revision++ }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain"),
@@ -153,7 +160,7 @@ internal fun UserDictPage(onBack: () -> Unit) {
         SettingsPageHeader(stringResource(R.string.settings_group_userdict_title), onBack)
         OutlinedTextField(
             value = query,
-            onValueChange = { query = it },
+            onValueChange = { query = it; pageIndex = 0 },
             label = { Text(stringResource(R.string.user_dict_search_hint)) },
             singleLine = true,
             modifier = Modifier
@@ -161,7 +168,7 @@ internal fun UserDictPage(onBack: () -> Unit) {
                 .testTag("user_dict_search"),
         )
         Text(
-            stringResource(R.string.user_dict_count_format, entries.size),
+            stringResource(R.string.user_dict_count_format, totalCount),
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.testTag("user_dict_count"),
         )
@@ -233,7 +240,7 @@ internal fun UserDictPage(onBack: () -> Unit) {
                     }
                 }
             }
-            if (filtered.isEmpty()) {
+            if (entries.isEmpty()) {
                 item(key = "empty") {
                     Text(
                         stringResource(
@@ -244,8 +251,30 @@ internal fun UserDictPage(onBack: () -> Unit) {
                     )
                 }
             } else {
-                items(filtered, key = { "${it.reading}\t${it.word}" }) { entry ->
+                items(entries, key = { "${it.reading}\t${it.word}" }) { entry ->
                     UserDictEntryRow(entry, onDelete = { deleteWord(entry.reading, entry.word) })
+                }
+                if (maximumPage > 0) {
+                    item(key = "page-controls") {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            TextButton(
+                                onClick = { pageIndex = currentPage - 1 },
+                                enabled = currentPage > 0,
+                            ) { Text(stringResource(R.string.user_dict_previous_page)) }
+                            Text(
+                                stringResource(R.string.user_dict_page_format, currentPage + 1, maximumPage + 1),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            TextButton(
+                                onClick = { pageIndex = currentPage + 1 },
+                                enabled = currentPage < maximumPage,
+                            ) { Text(stringResource(R.string.user_dict_next_page)) }
+                        }
+                    }
                 }
             }
         }
@@ -274,6 +303,8 @@ internal fun UserDictPage(onBack: () -> Unit) {
         )
     }
 }
+
+private const val USER_DICT_PAGE_SIZE = 100
 
 internal fun Modifier.userDictPageInsets(
     bottomInsets: WindowInsets,

@@ -143,6 +143,9 @@
     <string name="user_dict_manual_description">添加一个词和它的拼音，输入该拼音时就会作为候选出现；也可删除某个词，让它不再出现在候选里。逐字拼出的词会自动加到这里。改动立即生效。</string>
     <string name="user_dict_search_hint">搜索：词或拼音</string>
     <string name="user_dict_count_format">词数：%1$d</string>
+    <string name="user_dict_previous_page">上一页</string>
+    <string name="user_dict_next_page">下一页</string>
+    <string name="user_dict_page_format">第 %1$d / %2$d 页</string>
     <string name="user_dict_search_no_match">没有匹配的词。</string>
     <string name="user_dict_word_hint">词</string>
     <string name="user_dict_reading_hint">拼音（字母）</string>
@@ -304,6 +307,9 @@
     <string name="svc_rename_category">重命名分类</string>
     <string name="svc_saved_to_clipboard">已存入剪贴板</string>
     <string name="clip_back">返回</string>
+    <string name="clip_previous_page">上一页</string>
+    <string name="clip_next_page">下一页</string>
+    <string name="clip_page_format">%1$d / %2$d</string>
     <string name="clip_add_phrase">添加常用语</string>
     <string name="clip_clear_category">清空分类</string>
     <string name="clip_clear_history">清空剪贴板历史</string>

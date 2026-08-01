@@ -41,9 +41,7 @@ class SymbolUsageStore private constructor(
 
     fun load() {
         runCatching {
-            val loaded = if (database == null) readLegacyEntries() else {
-                database.readRecentItems(kind).map { Entry(it.value, it.origin) }
-            }
+            val loaded = if (database == null) readLegacyEntries() else emptyList()
             used.clear()
             used.addAll(loaded)
             lastFailure = null
@@ -53,6 +51,16 @@ class SymbolUsageStore private constructor(
     fun record(symbol: String, origin: String? = null): Boolean {
         if (symbol.isEmpty()) return false
         val key = SymbolCatalog.foldFullWidth(symbol)
+        database?.let { backing ->
+            return runCatching {
+                backing.recordRecentItem(kind, key, StoredRecentItem(symbol, origin))
+                used.removeAll { SymbolCatalog.foldFullWidth(it.symbol) == key }
+                used.add(0, Entry(symbol, origin))
+                while (used.size > RUNTIME_PAGE_SIZE) used.removeAt(used.lastIndex)
+                lastFailure = null
+                true
+            }.onFailure { lastFailure = failureText(it) }.getOrDefault(false)
+        }
         val candidate = ArrayList(used)
         candidate.removeAll { SymbolCatalog.foldFullWidth(it.symbol) == key }
         candidate.add(0, Entry(symbol, origin))
@@ -67,6 +75,15 @@ class SymbolUsageStore private constructor(
     }
 
     fun clear(): Boolean {
+        database?.let { backing ->
+            if (backing.recentItemCount(kind) == 0L) return false
+            return runCatching {
+                backing.clearRecentItems(kind)
+                used.clear()
+                lastFailure = null
+                true
+            }.onFailure { lastFailure = failureText(it) }.getOrDefault(false)
+        }
         if (used.isEmpty()) return false
         return runCatching {
             if (database == null) persist(emptyList()) else database.clearRecentItems(kind)
@@ -77,6 +94,13 @@ class SymbolUsageStore private constructor(
     }
 
     fun importEntries(incoming: List<Entry>, merge: Boolean): Boolean {
+        database?.let { backing ->
+            return runCatching {
+                backing.replaceRecentItems(kind, incoming.toStoredEntries(), merge)
+                lastFailure = null
+                true
+            }.onFailure { lastFailure = failureText(it) }.getOrDefault(false)
+        }
         val candidate = if (merge) ArrayList(used) else ArrayList()
         val seen = candidate.mapTo(HashSet()) { SymbolCatalog.foldFullWidth(it.symbol) }
         for (e in incoming) {
@@ -106,9 +130,17 @@ class SymbolUsageStore private constructor(
         }
     }
 
-    fun recent(n: Int = Int.MAX_VALUE): List<String> = used.take(n).map { it.symbol }
+    fun recent(n: Int = Int.MAX_VALUE): List<String> = if (database == null) {
+        used.take(n).map { it.symbol }
+    } else {
+        recentPage(0, minOf(n, RUNTIME_PAGE_SIZE)).map { it.symbol }
+    }
 
-    fun recentEntries(n: Int = Int.MAX_VALUE): List<Entry> = used.take(n)
+    fun recentEntries(n: Int = Int.MAX_VALUE): List<Entry> = if (database == null) {
+        used.take(n)
+    } else {
+        recentPage(0, minOf(n, RUNTIME_PAGE_SIZE))
+    }
 
     fun recentPage(offset: Int, limit: Int): List<Entry> {
         require(offset >= 0)
@@ -116,14 +148,30 @@ class SymbolUsageStore private constructor(
         return if (database == null) {
             used.drop(offset).take(limit)
         } else {
-            database.readRecentItems(kind, offset, limit).map { Entry(it.value, it.origin) }
+            val backing = database
+            runCatching {
+                backing.readRecentItems(kind, offset, minOf(limit, RUNTIME_PAGE_SIZE)).map {
+                    Entry(it.value, it.origin)
+                }
+            }.onSuccess { page ->
+                if (offset == 0) {
+                    used.clear()
+                    used.addAll(page.take(RUNTIME_PAGE_SIZE))
+                }
+                lastFailure = null
+            }.onFailure { lastFailure = failureText(it) }.getOrElse {
+                used.drop(offset).take(limit)
+            }
         }
     }
 
     fun originOf(symbol: String): String? {
         val key = SymbolCatalog.foldFullWidth(symbol)
+        database?.let { return it.recentItemOrigin(kind, key) }
         return used.firstOrNull { SymbolCatalog.foldFullWidth(it.symbol) == key }?.origin
     }
+
+    fun count(): Long = database?.recentItemCount(kind) ?: used.size.toLong()
 
     internal fun storageEntries(): List<Pair<String, StoredRecentItem>> = used.toStoredEntries()
 
@@ -153,5 +201,8 @@ class SymbolUsageStore private constructor(
     private fun failureText(failure: Throwable): String =
         failure.javaClass.simpleName + ": " + failure.message.orEmpty()
 
-    private companion object { const val LEGACY_KIND = "legacy" }
+    private companion object {
+        const val LEGACY_KIND = "legacy"
+        const val RUNTIME_PAGE_SIZE = 128
+    }
 }

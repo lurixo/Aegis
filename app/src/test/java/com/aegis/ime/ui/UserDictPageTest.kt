@@ -57,12 +57,19 @@ class UserDictPageTest {
 
     @Before fun reset() {
         UserDictHot.host = null
-        db.delete()
+        clearUserDataFiles()
     }
 
     @After fun cleanup() {
         scenario?.close()
-        db.delete()
+        clearUserDataFiles()
+    }
+
+    private fun clearUserDataFiles() {
+        ctx.filesDir.listFiles()?.filter {
+            it.name == "userdb.txt" || it.name.startsWith("user-data-v2") ||
+                it.name == "user-data-migration.status"
+        }?.forEach(File::delete)
     }
 
     private fun openUserDictPage() {
@@ -79,9 +86,13 @@ class UserDictPageTest {
                         var v = i
                         repeat(4) { append('a' + v % 26); v /= 26 }
                     }
+                    append("W\t词$i\t1\t0\n")
                     append("R\t$reading\t词$i\n")
                 }
-                for ((reading, word) in extras) append("R\t$reading\t$word\n")
+                for ((reading, word) in extras) {
+                    append("W\t$word\t1\t0\n")
+                    append("R\t$reading\t$word\n")
+                }
             },
         )
     }
