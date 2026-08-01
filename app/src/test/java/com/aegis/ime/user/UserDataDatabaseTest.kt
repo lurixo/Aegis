@@ -39,11 +39,26 @@ class UserDataDatabaseTest {
         val root = root()
         UserDataDatabase.open(root).use { first ->
             assertEquals("wal", first.journalModeForTest().lowercase())
+            assertTrue(first.foreignKeysEnabledForTest())
             UserDataDatabase.open(root).use { second ->
                 assertEquals("wal", second.journalModeForTest().lowercase())
+                assertTrue(second.foreignKeysEnabledForTest())
                 first.putMetadata("first", "visible")
                 assertEquals("visible", second.metadata("first"))
             }
+        }
+    }
+
+    @Test
+    fun updatingAUserWordNeverCascadesAwayItsReadings() {
+        val root = root()
+        UserDataDatabase.open(root).use { database ->
+            assertTrue(database.foreignKeysEnabledForTest())
+            val model = UserModel(database = database)
+            assertTrue(model.addManualWord("chang", "长", 1L))
+            assertTrue(model.addManualWord("zhang", "长", 2L))
+            assertTrue(model.record("前", "长", 3L))
+            assertEquals(setOf("chang", "zhang"), database.readUserData().readings.filterValues { "长" in it }.keys)
         }
     }
 

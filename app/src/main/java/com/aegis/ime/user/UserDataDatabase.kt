@@ -123,7 +123,7 @@ internal class UserDataDatabase private constructor(
         private set
 
     init {
-        database.execSQL("PRAGMA foreign_keys=ON")
+        database.setForeignKeyConstraintsEnabled(true)
         database.execSQL("PRAGMA synchronous=FULL")
         if (schemaInitializationRequired) createSchema(database)
         writeRecoveryStatus(recoveryReport)
@@ -577,7 +577,11 @@ internal class UserDataDatabase private constructor(
                 put("count", next)
                 put("last_used", now.coerceAtLeast(0L))
             }
-            database.insertWithOnConflict("user_words", null, values, SQLiteDatabase.CONFLICT_REPLACE)
+            if (current == 0) {
+                database.insertOrThrow("user_words", null, values)
+            } else if (database.update("user_words", values, "word=?", arrayOf(word)) != 1) {
+                throw IOException("user word update failed: $word")
+            }
             if (!reading.isNullOrEmpty()) {
                 val relation = ContentValues().apply {
                     put("reading", reading)
@@ -2134,6 +2138,11 @@ internal class UserDataDatabase private constructor(
     internal fun journalModeForTest(): String = database.rawQuery("PRAGMA journal_mode", null).use { cursor ->
         check(cursor.moveToFirst())
         cursor.getString(0)
+    }
+
+    @Synchronized
+    internal fun foreignKeysEnabledForTest(): Boolean = database.rawQuery("PRAGMA foreign_keys", null).use { cursor ->
+        cursor.moveToFirst() && cursor.getInt(0) == 1
     }
 
     private fun putUsage(
