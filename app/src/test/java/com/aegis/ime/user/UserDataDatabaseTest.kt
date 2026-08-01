@@ -21,8 +21,10 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.io.File
 import java.nio.file.Files
 
 @RunWith(RobolectricTestRunner::class)
@@ -95,6 +97,51 @@ class UserDataDatabaseTest {
     }
 
     @Test
+    fun digestMismatchRejectsAnOtherwiseValidLastGoodDatabase() {
+        val root = root()
+        UserDataDatabase.open(root).use { database ->
+            assertTrue(UserModel(database = database).addManualWord("keep", "保留", 1))
+            database.checkpointLastGood()
+        }
+        val unrelatedRoot = root()
+        UserDataDatabase.open(unrelatedRoot).use { database ->
+            assertTrue(UserModel(database = database).addManualWord("other", "其他", 1))
+            database.checkpointLastGood()
+        }
+        File(unrelatedRoot, UserDataDatabase.LAST_GOOD_NAME)
+            .copyTo(File(root, UserDataDatabase.LAST_GOOD_NAME), overwrite = true)
+        File(root, UserDataDatabase.DATABASE_NAME).writeText("corrupt")
+
+        UserDataDatabase.open(root).use { recovered ->
+            assertEquals(UserDataRecoveryKind.EMPTY, recovered.recoveryReport.kind)
+            assertTrue(recovered.isEmpty())
+            assertTrue(recovered.integrityOk())
+        }
+    }
+
+    @Test
+    fun invalidCurrentSnapshotFallsBackToTheVerifiedPreviousGeneration() {
+        val root = root()
+        UserDataDatabase.open(root).use { database ->
+            val model = UserModel(database = database)
+            assertTrue(model.addManualWord("first", "第一", 1))
+            database.checkpointLastGood()
+            assertTrue(model.addManualWord("second", "第二", 1))
+            database.checkpointLastGood()
+        }
+        File(root, "user-data-v2.last-good.sha256").writeText("0".repeat(64))
+        File(root, UserDataDatabase.DATABASE_NAME).writeText("corrupt")
+
+        UserDataDatabase.open(root).use { recovered ->
+            assertEquals(UserDataRecoveryKind.LAST_GOOD, recovered.recoveryReport.kind)
+            val readings = UserModel(database = recovered).readingSnapshot()
+            assertEquals(listOf("第一"), readings["first"])
+            assertFalse(readings.containsKey("second"))
+            assertTrue(recovered.recoveryReport.detail.contains("previous"))
+        }
+    }
+
+    @Test
     fun legacyMigrationIsVerifiedAndIdempotent() {
         val root = root()
         val oldUser = UserModel().apply { addManualWord("ceshi", "测试", 4) }
@@ -115,6 +162,159 @@ class UserDataDatabaseTest {
             database.migrateLegacy(UserDataSnapshot(emptyMap(), emptyMap(), emptyMap()), null, emptyMap())
             assertEquals(oldUser.storageSnapshot(), database.readUserData())
             assertEquals("complete", database.metadata("beta29_migration"))
+        }
+    }
+
+    @Test
+    fun invalidLegacyDataBlocksTheSwitchAndCanBeRetriedAfterRepair() {
+        val root = root()
+        val legacy = File(root, "userdb.txt")
+        legacy.writeText("invalid")
+
+        var failed = false
+        try {
+            UserDataMigration.open(root).close()
+        } catch (_: Exception) {
+            failed = true
+        }
+        assertTrue(failed)
+        assertTrue(legacy.isFile)
+        assertTrue(File(root, UserDataMigration.STATUS_NAME).readText().contains("status=failed"))
+        UserDataDatabase.open(root).use { database ->
+            assertEquals(null, database.metadata("beta29_migration"))
+            assertTrue(database.isEmpty())
+        }
+
+        UserModel().apply { assertTrue(addManualWord("retry", "重试", 4)); save(legacy) }
+        UserDataMigration.open(root).use { database ->
+            assertEquals(listOf("重试"), UserModel(database = database).readingSnapshot()["retry"])
+            assertEquals("complete", database.metadata("beta29_migration"))
+            assertTrue(File(root, UserDataMigration.STATUS_NAME).readText().contains("status=complete"))
+        }
+    }
+
+    @Test
+    fun beta29CollectionsMigrateWithoutOldCountLimitsAndRemainIdempotent() {
+        val root = root()
+        val history = (0..100_000).map { "clip-$it" }
+        File(root, "clipboard.txt").writeText(history.joinToString("\n"))
+        File(root, "phrases.txt").writeText("C\tdefault\nP\tlegacy phrase\nC\twork\nP\tlegacy work\n")
+        val preferences = RuntimeEnvironment.getApplication()
+            .getSharedPreferences("collection-migration-${root.name}", 0)
+        val customSymbols = (0 until 401).map { "symbol-$it" }
+        val customOperators = (0 until 407).map { "operator-$it" }
+        assertTrue(
+            preferences.edit()
+                .putString("custom_symbols", customSymbols.joinToString("\n"))
+                .putString("custom_operators", customOperators.joinToString("\n"))
+                .commit(),
+        )
+        File(root, "symbol_usage.txt").writeText((0 until 91).joinToString("\n") { "recent-$it\tgroup-$it" })
+        val emojiRoot = File(root, "emoji").apply { mkdirs() }
+        File(emojiRoot, "symbol_usage.txt").writeText((0 until 93).joinToString("\n") { "emoji-$it" })
+
+        UserDataMigration.open(root, preferences).use { database ->
+            assertEquals(100_001L, database.clipboardHistoryCount())
+            assertEquals(history.take(3), database.readClipboardHistory(limit = 3))
+            assertEquals(history.takeLast(3), database.readClipboardHistory(99_998, 3))
+            assertEquals(customSymbols, database.readCustomItems("custom_symbols"))
+            assertEquals(customOperators, database.readCustomItems("custom_operators"))
+            assertEquals((0 until 91).map { "recent-$it" }, database.readRecentItems("symbols").map { it.value })
+            assertEquals((0 until 93).map { "emoji-$it" }, database.readRecentItems("emoji").map { it.value })
+            assertEquals(listOf("default", "work"), database.readPhraseCategories().map { it.name })
+            assertEquals("complete", database.metadata("beta29_clipboard_migration"))
+            assertTrue(database.integrityOk())
+        }
+
+        assertTrue(File(root, "clipboard.txt").isFile)
+        assertTrue(File(root, "phrases.txt").isFile)
+        File(root, "clipboard.txt").appendText("\nlate-legacy-change")
+        preferences.edit().putString("custom_symbols", "late-legacy-change").commit()
+
+        UserDataMigration.open(root, preferences).use { database ->
+            assertEquals(100_001L, database.clipboardHistoryCount())
+            assertFalse(database.readClipboardHistory().contains("late-legacy-change"))
+            assertEquals(customSymbols, database.readCustomItems("custom_symbols"))
+        }
+    }
+
+    @Test
+    fun databaseBackedCollectionsSupportManagementAndPagedReadsBeyondOldLimits() {
+        val root = root()
+        val preferences = RuntimeEnvironment.getApplication()
+            .getSharedPreferences("collection-management-${root.name}", 0)
+        UserDataDatabase.open(root).use { database ->
+            val clipboard = ClipboardStore(root, database).apply { load() }
+            val history = (0 until 320).map { "clip-$it" }
+            assertTrue(clipboard.importHistory(history, merge = false))
+            assertTrue(clipboard.record("clip-200"))
+            assertEquals(listOf("clip-200", "clip-0", "clip-1"), clipboard.historyPage(0, 3))
+            assertEquals(history.subList(49, 59), clipboard.historyPage(50, 10))
+            assertTrue(clipboard.delete("clip-250"))
+            assertFalse(clipboard.history().contains("clip-250"))
+
+            assertTrue(clipboard.addCategory("large"))
+            assertEquals(240, clipboard.addPhrasesTo("large", (0 until 240).map { "phrase-$it" }))
+            assertEquals((100 until 110).map { "phrase-$it" }, clipboard.phrasesPage("large", 100, 10))
+
+            val custom = CustomSymbolStore(preferences, "custom_symbols", database)
+            repeat(240) { assertTrue(custom.add("custom-$it")) }
+            assertEquals(240, custom.list().size)
+            assertEquals((200 until 210).map { "custom-$it" }, custom.page(200, 10))
+            assertTrue(custom.remove("custom-205"))
+
+            val recent = SymbolUsageStore(root, database, "symbols").apply { load() }
+            repeat(80) { assertTrue(recent.record("recent-$it", "group-$it")) }
+            assertEquals(80, recent.recent().size)
+            assertEquals((59 downTo 50).map { "recent-$it" }, recent.recentPage(20, 10).map { it.symbol })
+            assertTrue(recent.record("recent-20", "new-origin"))
+            assertEquals("recent-20", recent.recent().first())
+            assertEquals("new-origin", recent.originOf("recent-20"))
+            database.checkpointLastGood()
+        }
+
+        UserDataDatabase.open(root).use { database ->
+            assertEquals(319L, database.clipboardHistoryCount())
+            assertEquals("clip-200", database.readClipboardHistory(limit = 1).single())
+            assertEquals(239, database.readCustomItems("custom_symbols").size)
+            assertEquals(80, database.readRecentItems("symbols").size)
+            assertEquals("recent-20", database.readRecentItems("symbols", limit = 1).single().value)
+            assertTrue(database.integrityOk())
+        }
+    }
+
+    @Test
+    fun failedCollectionWritesKeepTheLastValidState() {
+        val root = root()
+        val preferences = RuntimeEnvironment.getApplication()
+            .getSharedPreferences("collection-failure-${root.name}", 0)
+        val database = UserDataDatabase.open(root)
+        val clipboard = ClipboardStore(root, database).apply { load() }
+        val custom = CustomSymbolStore(preferences, "custom_symbols", database)
+        val recent = SymbolUsageStore(root, database, "symbols").apply { load() }
+        assertTrue(clipboard.record("kept clip"))
+        assertEquals(1, clipboard.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("kept phrase")))
+        assertTrue(custom.add("kept symbol"))
+        assertTrue(recent.record("kept recent", "kept origin"))
+        database.close()
+
+        assertFalse(clipboard.record("lost clip"))
+        assertEquals(0, clipboard.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("lost phrase")))
+        assertFalse(custom.add("lost symbol"))
+        assertFalse(recent.record("lost recent"))
+        assertEquals(listOf("kept clip"), clipboard.history())
+        assertEquals(listOf("kept phrase"), clipboard.phrasesIn(ClipboardStore.DEFAULT_CATEGORY_ID))
+        assertEquals(listOf("kept symbol"), custom.list())
+        assertEquals(listOf("kept recent"), recent.recent())
+        assertNotNull(clipboard.lastFailure)
+        assertNotNull(custom.lastFailure)
+        assertNotNull(recent.lastFailure)
+
+        UserDataDatabase.open(root).use { reopened ->
+            assertEquals(listOf("kept clip"), reopened.readClipboardHistory())
+            assertEquals(listOf("kept phrase"), reopened.readPhrases(ClipboardStore.DEFAULT_CATEGORY_ID).map { it.text })
+            assertEquals(listOf("kept symbol"), reopened.readCustomItems("custom_symbols"))
+            assertEquals(listOf("kept recent"), reopened.readRecentItems("symbols").map { it.value })
         }
     }
 }

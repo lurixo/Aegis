@@ -21,7 +21,15 @@ import java.security.MessageDigest
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 
-class ClipboardStore(private val dir: File) {
+class ClipboardStore private constructor(
+    private val dir: File,
+    private val database: UserDataDatabase?,
+    @Suppress("UNUSED_PARAMETER") marker: Unit,
+) {
+
+    constructor(dir: File) : this(dir, null, Unit)
+
+    internal constructor(dir: File, database: UserDataDatabase) : this(dir, database, Unit)
 
     private val histFile get() = File(dir, "clipboard.txt")
     private val phraseFile get() = File(dir, "phrases.txt")
@@ -35,20 +43,56 @@ class ClipboardStore(private val dir: File) {
     private class Phrase(var text: String, var note: String = "")
     private class Category(var name: String, val phrases: ArrayList<Phrase> = ArrayList())
     private val phraseCats = ArrayList<Category>()
+    private var lastValidPhrases = ArrayList<Category>()
 
-    fun load() {
-        history.clear()
-        purgeLegacyImageDir()
-        val seen = HashSet<String>()
-        runCatching {
-            if (histFile.exists()) histFile.readLines().forEach { line ->
-                readEntry(line)?.let { e ->
-                    if (e.isNotBlank() && !isLegacyImageEntry(e) && seen.add(e)) history.add(e)
+    @Volatile
+    var lastFailure: String? = null
+        private set
+
+    fun load(purgeLegacyImages: Boolean = true): Boolean {
+        val previousHistory = ArrayList(history)
+        val previousPhrases = copyCategories(phraseCats)
+        return runCatching {
+            val backing = database
+            val loadedHistory: List<String>
+            val loadedPhrases: ArrayList<Category>
+            if (backing == null) {
+                if (purgeLegacyImages) purgeLegacyImageDir()
+                val seen = HashSet<String>()
+                loadedHistory = if (histFile.exists()) {
+                    histFile.readLines().mapNotNull { line ->
+                        readEntry(line)?.takeIf { entry ->
+                            entry.isNotBlank() && !isLegacyImageEntry(entry) && seen.add(entry)
+                        }
+                    }
+                } else {
+                    emptyList()
+                }
+                loadedPhrases = readLegacyPhrases()
+            } else {
+                loadedHistory = backing.readClipboardHistory()
+                loadedPhrases = backing.readPhraseCategories().mapTo(ArrayList()) { category ->
+                    Category(
+                        category.name,
+                        category.phrases.mapTo(ArrayList()) { phrase -> Phrase(phrase.text, phrase.note) },
+                    )
                 }
             }
-        }
-        while (history.size > MAX_HISTORY) history.removeAt(history.size - 1)
-        loadPhrases()
+            if (loadedPhrases.isEmpty()) loadedPhrases.add(Category(DEFAULT_CATEGORY_ID))
+            history.clear()
+            history.addAll(loadedHistory)
+            phraseCats.clear()
+            phraseCats.addAll(loadedPhrases)
+            lastValidPhrases = copyCategories(phraseCats)
+            lastFailure = null
+            true
+        }.onFailure {
+            history.clear()
+            history.addAll(previousHistory)
+            phraseCats.clear()
+            phraseCats.addAll(previousPhrases)
+            lastFailure = failureText(it)
+        }.getOrDefault(false)
     }
 
     private fun purgeLegacyImageDir() { runCatching { File(dir, "clipboard_images").deleteRecursively() } }
@@ -62,20 +106,35 @@ class ClipboardStore(private val dir: File) {
         }
 
     private fun loadPhrases() {
-        phraseCats.clear()
-        if (!phraseFile.exists()) {
-            phraseCats.add(Category(DEFAULT_CATEGORY_ID, ArrayList(DEFAULT_PHRASES.map { Phrase(it) })))
-            return
+        val loaded = if (database != null) {
+            database.readPhraseCategories().mapTo(ArrayList()) { category ->
+                Category(
+                    category.name,
+                    category.phrases.mapTo(ArrayList()) { phrase -> Phrase(phrase.text, phrase.note) },
+                )
+            }
+        } else {
+            readLegacyPhrases()
         }
-        val lines = runCatching { phraseFile.readLines() }.getOrDefault(emptyList())
+        if (loaded.isEmpty()) loaded.add(Category(DEFAULT_CATEGORY_ID))
+        phraseCats.clear()
+        phraseCats.addAll(loaded)
+        lastValidPhrases = copyCategories(phraseCats)
+    }
+
+    private fun readLegacyPhrases(): ArrayList<Category> {
+        if (!phraseFile.exists()) {
+            return arrayListOf(Category(DEFAULT_CATEGORY_ID, ArrayList(DEFAULT_PHRASES.map { Phrase(it) })))
+        }
+        val lines = phraseFile.readLines()
         if (lines.none { it.startsWith("C\t") }) {
             val c = Category(DEFAULT_CATEGORY_ID)
             lines.forEach { decode(it)?.let { p -> if (p.isNotBlank()) c.phrases.add(Phrase(p)) } }
-            phraseCats.add(c)
-            return
+            return arrayListOf(c)
         }
-        phraseCats.addAll(canonicalCategories(parseCategories(lines)))
-        if (phraseCats.isEmpty()) phraseCats.add(Category(DEFAULT_CATEGORY_ID))
+        return canonicalCategories(parseCategories(lines)).also { categories ->
+            if (categories.isEmpty()) categories.add(Category(DEFAULT_CATEGORY_ID))
+        }
     }
 
     private fun parseCategories(lines: List<String>): List<Category> {
@@ -112,43 +171,121 @@ class ClipboardStore(private val dir: File) {
         return out
     }
 
-    fun record(text: String?) {
+    fun record(text: String?): Boolean {
         val t = text?.trim().orEmpty()
-        if (t.isEmpty()) return
+        if (t.isEmpty()) return false
+        val backing = database
+        if (backing != null) {
+            return runCatching {
+                backing.recordClipboard(t)
+                history.remove(t)
+                history.add(0, t)
+                lastFailure = null
+                true
+            }.onFailure { lastFailure = failureText(it) }.getOrDefault(false)
+        }
         history.remove(t)
         history.add(0, t)
-        while (history.size > MAX_HISTORY) history.removeAt(history.size - 1)
         scheduleSave()
+        return true
     }
 
-    fun importHistory(entries: List<String>, merge: Boolean) {
-        val incoming = entries.mapNotNull { it.trim().ifEmpty { null } }
+    fun importHistory(entries: List<String>, merge: Boolean): Boolean {
+        val incoming = ArrayList<String>()
+        val incomingSeen = HashSet<String>()
+        for (entry in entries) {
+            val value = entry.trim()
+            if (value.isNotEmpty() && incomingSeen.add(value)) incoming.add(value)
+        }
+        val candidate = if (merge) ArrayList(history) else ArrayList()
+        val present = candidate.toHashSet()
+        for (entry in incoming) if (present.add(entry)) candidate.add(entry)
+        val backing = database
+        if (backing != null) {
+            return runCatching {
+                backing.replaceClipboardHistory(incoming, merge)
+                history.clear()
+                history.addAll(candidate)
+                lastFailure = null
+                true
+            }.onFailure { lastFailure = failureText(it) }.getOrDefault(false)
+        }
         if (merge) {
-            val present = HashSet(history)
-            for (e in incoming) if (present.add(e)) history.add(e)
+            history.clear()
+            history.addAll(candidate)
         } else {
             history.clear()
-            val seen = HashSet<String>()
-            for (e in incoming) if (seen.add(e)) history.add(e)
+            history.addAll(candidate)
         }
-        while (history.size > MAX_HISTORY) history.removeAt(history.size - 1)
-        writeHistory(ArrayList(history))
+        return runCatching {
+            writeHistory(ArrayList(history))
+            lastFailure = null
+            true
+        }.onFailure { lastFailure = failureText(it) }.getOrDefault(false)
     }
 
-    fun delete(text: String) { if (history.remove(text)) scheduleSave() }
-    fun deleteAll(texts: Collection<String>) { if (history.removeAll(texts.toSet())) scheduleSave() }
-    fun clearHistory() { if (history.isNotEmpty()) { history.clear(); scheduleSave() } }
+    fun delete(text: String): Boolean = deleteAll(listOf(text))
+
+    fun deleteAll(texts: Collection<String>): Boolean {
+        val targets = texts.toSet()
+        if (targets.none(history::contains)) return false
+        val backing = database
+        if (backing != null) {
+            return runCatching {
+                backing.deleteClipboardHistory(targets)
+                history.removeAll(targets)
+                lastFailure = null
+                true
+            }.onFailure { lastFailure = failureText(it) }.getOrDefault(false)
+        }
+        history.removeAll(targets)
+        scheduleSave()
+        return true
+    }
+
+    fun clearHistory(): Boolean {
+        if (history.isEmpty()) return false
+        val backing = database
+        if (backing != null) {
+            return runCatching {
+                backing.clearClipboardHistory()
+                history.clear()
+                lastFailure = null
+                true
+            }.onFailure { lastFailure = failureText(it) }.getOrDefault(false)
+        }
+        history.clear()
+        scheduleSave()
+        return true
+    }
 
     fun history(): List<String> = history.toList()
 
-    internal fun latest(): String? = history.firstOrNull()
+    fun historyPage(offset: Int, limit: Int): List<String> {
+        require(offset >= 0)
+        require(limit >= 0)
+        return database?.readClipboardHistory(offset, limit) ?: history.drop(offset).take(limit)
+    }
+
+    internal fun latest(): String? = database?.readClipboardHistory(limit = 1)?.firstOrNull() ?: history.firstOrNull()
 
 
-    fun reloadPhrases() = loadPhrases()
+    fun reloadPhrases(): Boolean = runCatching {
+        loadPhrases()
+        lastFailure = null
+        true
+    }.onFailure { lastFailure = failureText(it) }.getOrDefault(false)
 
     fun categories(): List<String> = phraseCats.map { it.name }
 
     fun phrasesIn(category: String): List<String> = find(category)?.phrases?.map { it.text } ?: emptyList()
+
+    fun phrasesPage(category: String, offset: Int, limit: Int): List<String> {
+        require(offset >= 0)
+        require(limit >= 0)
+        return database?.readPhrases(category, offset, limit)?.map { it.text } ?:
+            phrasesIn(category).drop(offset).take(limit)
+    }
 
     fun phrases(): List<String> = phraseCats.flatMap { c -> c.phrases.map { it.text } }
 
@@ -157,23 +294,25 @@ class ClipboardStore(private val dir: File) {
     fun setPhraseNote(category: String, text: String, note: String): Boolean {
         val p = findPhrase(find(category), text) ?: return false
         p.note = note.filterNot { Character.isISOControl(it) }.trim()
-        savePhrases()
-        return true
+        return savePhrases()
     }
 
     fun addCategory(name: String): Boolean {
         val n = name.trim()
         if (n.isEmpty() || phraseCats.any { it.name == n }) return false
-        phraseCats.add(Category(n)); savePhrases(); return true
+        phraseCats.add(Category(n))
+        return savePhrases()
     }
 
-    fun deleteCategory(name: String) { if (phraseCats.removeAll { it.name == name }) savePhrases() }
+    fun deleteCategory(name: String): Boolean =
+        if (phraseCats.removeAll { it.name == name }) savePhrases() else false
 
     fun renameCategory(old: String, new: String): Boolean {
         val n = new.trim()
         val c = find(old) ?: return false
         if (n.isEmpty() || (n != old && phraseCats.any { it.name == n })) return false
-        c.name = n; savePhrases(); return true
+        c.name = n
+        return savePhrases()
     }
 
     fun addPhrasesTo(category: String, texts: Collection<String>): Int {
@@ -188,7 +327,7 @@ class ClipboardStore(private val dir: File) {
         }
         if (added.isNotEmpty()) {
             c.phrases.addAll(0, added)
-            savePhrases()
+            if (!savePhrases()) return 0
         }
         return added.size
     }
@@ -196,20 +335,24 @@ class ClipboardStore(private val dir: File) {
     fun addPhrases(texts: Collection<String>): Int =
         addPhrasesTo(phraseCats.firstOrNull()?.name ?: DEFAULT_CATEGORY_ID, texts)
 
-    fun deletePhraseFrom(category: String, text: String) {
-        find(category)?.let { c -> if (c.phrases.removeAll { it.text == text }) savePhrases() }
+    fun deletePhraseFrom(category: String, text: String): Boolean {
+        val categoryData = find(category) ?: return false
+        return if (categoryData.phrases.removeAll { it.text == text }) savePhrases() else false
     }
 
-    fun deletePhrase(text: String) {
+    fun deletePhrase(text: String): Boolean {
         var changed = false
         for (c in phraseCats) if (c.phrases.removeAll { it.text == text }) changed = true
-        if (changed) savePhrases()
+        return changed && savePhrases()
     }
 
     fun clearPhrasesIn(category: String): Int {
         val c = find(category) ?: return 0
         val n = c.phrases.size
-        if (n > 0) { c.phrases.clear(); savePhrases() }
+        if (n > 0) {
+            c.phrases.clear()
+            if (!savePhrases()) return 0
+        }
         return n
     }
 
@@ -221,8 +364,7 @@ class ClipboardStore(private val dir: File) {
         if (n.isEmpty()) return false
         if (c.phrases.withIndex().any { (j, p) -> j != idx && p.text == n }) return false
         c.phrases[idx].text = n
-        savePhrases()
-        return true
+        return savePhrases()
     }
 
     fun movePhrase(fromCategory: String, text: String, toCategory: String): Boolean {
@@ -232,8 +374,7 @@ class ClipboardStore(private val dir: File) {
         val p = findPhrase(from, text) ?: return false
         from.phrases.remove(p)
         carryInto(to, p)
-        savePhrases()
-        return true
+        return savePhrases()
     }
 
     private fun carryInto(to: Category, p: Phrase) = mergePhraseInto(to, p)
@@ -256,7 +397,7 @@ class ClipboardStore(private val dir: File) {
             carryInto(to, p)
             moved++
         }
-        if (moved > 0) savePhrases()
+        if (moved > 0 && !savePhrases()) return 0
         return moved
     }
 
@@ -265,16 +406,14 @@ class ClipboardStore(private val dir: File) {
         val n = c.phrases.size
         if (fromIndex !in 0 until n || toIndex !in 0 until n || fromIndex == toIndex) return false
         c.phrases.add(toIndex, c.phrases.removeAt(fromIndex))
-        savePhrases()
-        return true
+        return savePhrases()
     }
 
     fun reorderCategory(fromIndex: Int, toIndex: Int): Boolean {
         val n = phraseCats.size
         if (fromIndex !in 0 until n || toIndex !in 0 until n || fromIndex == toIndex) return false
         phraseCats.add(toIndex, phraseCats.removeAt(fromIndex))
-        savePhrases()
-        return true
+        return savePhrases()
     }
 
     private fun find(name: String): Category? = phraseCats.firstOrNull { it.name == name }
@@ -283,7 +422,15 @@ class ClipboardStore(private val dir: File) {
     private fun scheduleSave() {
         val snapshot = ArrayList(history)
         val gen = saveGen.incrementAndGet()
-        runCatching { io.execute { if (gen == saveGen.get()) runCatching { writeHistory(snapshot) } } }
+        runCatching {
+            io.execute {
+                if (gen == saveGen.get()) {
+                    runCatching { writeHistory(snapshot) }
+                        .onSuccess { lastFailure = null }
+                        .onFailure { lastFailure = failureText(it) }
+                }
+            }
+        }.onFailure { lastFailure = failureText(it) }
     }
 
     private fun writeHistory(snapshot: List<String>) {
@@ -323,11 +470,54 @@ class ClipboardStore(private val dir: File) {
     private fun sha256(s: String): String =
         MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it.toInt() and 0xFF) }
 
-    internal fun flushPendingWrites() { runCatching { io.submit { }.get() } }
+    internal fun flushPendingWrites() {
+        if (database != null) return
+        runCatching {
+            io.submit { }.get()
+        }.onFailure { lastFailure = failureText(it) }
+    }
 
-    private fun savePhrases() { runCatching { savePhrasesOrThrow() } }
+    private fun savePhrases(): Boolean = runCatching {
+        persistPhrasesOrThrow()
+        lastValidPhrases = copyCategories(phraseCats)
+        lastFailure = null
+        true
+    }.onFailure {
+        restoreLastValidPhrases()
+        lastFailure = failureText(it)
+    }.getOrDefault(false)
 
-    private fun savePhrasesOrThrow() { atomicWrite(phraseFile, serializePhrases()) }
+    private fun savePhrasesOrThrow() {
+        try {
+            persistPhrasesOrThrow()
+            lastValidPhrases = copyCategories(phraseCats)
+            lastFailure = null
+        } catch (failure: Exception) {
+            restoreLastValidPhrases()
+            lastFailure = failureText(failure)
+            throw failure
+        }
+    }
+
+    private fun persistPhrasesOrThrow() {
+        if (database == null) atomicWrite(phraseFile, serializePhrases())
+        else database.replacePhraseCategories(storedCategories())
+    }
+
+    private fun storedCategories(): List<StoredPhraseCategory> = phraseCats.map { category ->
+        StoredPhraseCategory(category.name, category.phrases.map { phrase -> StoredPhrase(phrase.text, phrase.note) })
+    }
+
+    private fun copyCategories(source: List<Category>): ArrayList<Category> = source.mapTo(ArrayList()) { category ->
+        Category(category.name, category.phrases.mapTo(ArrayList()) { phrase -> Phrase(phrase.text, phrase.note) })
+    }
+
+    private fun restoreLastValidPhrases() {
+        phraseCats.clear()
+        phraseCats.addAll(copyCategories(lastValidPhrases))
+    }
+
+    internal fun storageSnapshot(): ClipboardDataSnapshot = ClipboardDataSnapshot(history(), storedCategories())
 
     private fun serializePhrases(): String {
         val sb = StringBuilder()
@@ -392,9 +582,11 @@ class ClipboardStore(private val dir: File) {
         private const val BIG_LINE = "B\t"
         const val BIG_THRESHOLD = 64 * 1024
 
-        private const val MAX_HISTORY = 100000
         const val DEFAULT_CATEGORY_ID = "default"
         private const val LEGACY_DEFAULT_NAME = "默认"
         private val DEFAULT_PHRASES = emptyList<String>()
     }
+
+    private fun failureText(failure: Throwable): String =
+        failure.javaClass.simpleName + ": " + failure.message.orEmpty()
 }

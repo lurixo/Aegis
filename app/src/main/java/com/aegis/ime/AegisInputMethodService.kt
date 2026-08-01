@@ -97,9 +97,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var editPanelView: EditPanelView? = null
     private var layoutPanelView: LayoutPanelView? = null
     private var customSymbolView: CustomSymbolPanel? = null
-    private val customSymbolStore by lazy { CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE)) }
+    private val customSymbolStore by lazy {
+        CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE), "custom_symbols", userDatabase)
+    }
     private var customOperatorView: CustomSymbolPanel? = null
-    private val customOperatorStore by lazy { CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE), "custom_operators") }
+    private val customOperatorStore by lazy {
+        CustomSymbolStore(getSharedPreferences("aegis", MODE_PRIVATE), "custom_operators", userDatabase)
+    }
     private val zhSymbolPalette: List<String> by lazy {
         SymbolCatalog.categories.first { it.id == "zh" }.symbols.filter { it !in Layouts.nineFixedPunctuation }
     }
@@ -119,10 +123,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var pendingPhraseAdds: List<String> = emptyList()
     private var pendingMoveFrom = ""
     private var pendingMoveTexts: List<String> = emptyList()
-    private val clipboardStore by lazy { ClipboardStore(filesDir).also { it.load() } }
+    private val clipboardStore by lazy { ClipboardStore(filesDir, userDatabase).also { it.load() } }
     private val clipboardPendingWriteFlush: () -> Unit = { clipboardStore.flushPendingWrites() }
-    private val symbolUsageStore by lazy { SymbolUsageStore(filesDir).also { it.load() } }
-    private val emojiUsageStore by lazy { SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).also { it.load() } }
+    private val symbolUsageStore by lazy { SymbolUsageStore(filesDir, userDatabase, "symbols").also { it.load() } }
+    private val emojiUsageStore by lazy {
+        SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }, userDatabase, "emoji").also { it.load() }
+    }
     @Volatile private var secureField = false
 
     private data class EditorTarget(
@@ -247,7 +253,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun openUserDataDatabase(): UserDataDatabase {
-        val database = UserDataMigration.open(filesDir)
+        val database = UserDataMigration.open(filesDir, getSharedPreferences("aegis", MODE_PRIVATE))
         if (database.recoveryReport.kind != UserDataRecoveryKind.EXISTING) {
             Log.w("Aegis", "user data recovery: ${database.recoveryReport.detail}")
         }

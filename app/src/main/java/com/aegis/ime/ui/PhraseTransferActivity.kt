@@ -25,6 +25,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import com.aegis.ime.R
 import com.aegis.ime.user.ClipboardStore
+import com.aegis.ime.user.UserDataMigration
 
 class PhraseTransferActivity : ComponentActivity() {
 
@@ -61,7 +62,9 @@ class PhraseTransferActivity : ComponentActivity() {
 
     private fun applyImport(text: String, merge: Boolean) {
         val ok = runCatching {
-            ClipboardStore(filesDir).also { it.load() }.importPhrasesText(text, merge)
+            UserDataMigration.open(filesDir, getSharedPreferences("aegis", MODE_PRIVATE)).use { database ->
+                ClipboardStore(filesDir, database).also { it.load() }.importPhrasesText(text, merge)
+            }
         }.getOrDefault(false)
         toast(
             if (ok) {

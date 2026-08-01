@@ -16,14 +16,17 @@
 package com.aegis.ime.ui
 
 import com.aegis.ime.user.ClipboardStore
+import com.aegis.ime.user.UserDataMigration
 import java.io.File
 import java.io.OutputStream
 
 internal object PhraseTransferIo {
     fun exportPhrases(filesDir: File, openOutput: () -> OutputStream?): Boolean = runCatching {
-        val bytes = ClipboardStore(filesDir).also { it.load() }
-            .exportPhrasesText()
-            .toByteArray(Charsets.UTF_8)
+        val bytes = UserDataMigration.open(filesDir).use { database ->
+            ClipboardStore(filesDir, database).also { it.load() }
+                .exportPhrasesText()
+                .toByteArray(Charsets.UTF_8)
+        }
         if (bytes.isEmpty()) return@runCatching false
         val output = openOutput() ?: return@runCatching false
         output.use {

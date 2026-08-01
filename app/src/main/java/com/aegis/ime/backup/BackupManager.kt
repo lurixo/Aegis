@@ -250,7 +250,9 @@ object BackupManager {
         val stagedIndex = File(staging, CLIPBOARD)
         if (!stagedIndex.isFile) return
         val incoming = ClipboardStore(staging).also { it.load() }.history()
-        ClipboardStore(filesDir).also { it.load() }.importHistory(incoming, merge)
+        if (!ClipboardStore(filesDir).also { it.load() }.importHistory(incoming, merge)) {
+            throw IOException("clipboard import failed")
+        }
     }
 
     private fun applySymbolUsage(filesDir: File, staging: File, merge: Boolean) {

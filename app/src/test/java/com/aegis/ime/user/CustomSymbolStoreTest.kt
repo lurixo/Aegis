@@ -59,10 +59,11 @@ class CustomSymbolStoreTest {
         assertEquals(listOf("→←"), s.list())
     }
 
-    @Test fun capped_at_the_max() {
+    @Test fun entriesBeyondTheOldLimitRemainAvailable() {
         val s = freshStore()
-        repeat(250) { s.add("x$it") }
-        assertEquals(200, s.list().size)
+        repeat(800) { assertTrue(s.add("x$it")) }
+        assertEquals(800, s.list().size)
+        assertEquals((395 until 405).map { "x$it" }, s.page(395, 10))
     }
 
     @Test fun persists_across_instances_on_the_same_prefs() {

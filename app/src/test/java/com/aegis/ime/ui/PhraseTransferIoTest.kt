@@ -19,12 +19,17 @@ import com.aegis.ime.user.ClipboardStore
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.io.OutputStream
 import java.nio.file.Files
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class PhraseTransferIoTest {
 
     private fun newDir(): File = Files.createTempDirectory("phrase-transfer").toFile()

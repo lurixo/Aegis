@@ -66,11 +66,12 @@ class SymbolUsageStoreTest {
         assertEquals(listOf("★", "→", "☆"), s.recent())
     }
 
-    @Test fun caps_history_size() {
+    @Test fun entriesBeyondTheOldLimitRemainAvailable() {
         val s = SymbolUsageStore(newDir()).apply { load() }
-        for (i in 0 until 50) s.record("s$i")
-        assertTrue("recent must be capped", s.recent(100).size <= 30)
-        assertEquals("most recent stays at the front", "s49", s.recent().first())
+        for (i in 0 until 180) assertTrue(s.record("s$i"))
+        assertEquals(180, s.recent().size)
+        assertEquals("most recent stays at the front", "s179", s.recent().first())
+        assertEquals((129 downTo 120).map { "s$it" }, s.recentPage(50, 10).map { it.symbol })
     }
 
 
