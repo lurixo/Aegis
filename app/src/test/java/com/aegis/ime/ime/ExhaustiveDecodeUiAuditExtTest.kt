@@ -145,6 +145,9 @@ class ExhaustiveDecodeUiAuditExtTest {
             val o1 = dictSingles(s1) + allowed(s1)
             val o2 = dictSingles(s2) + allowed(s2)
             val injected = InputAssociations.lookup(s1 + s2)
+            while (c.candidateWords().none { isSingleChar(it) && it in o1 } && c.hasMoreCandidatesForTest()) {
+                c.requestMoreCandidates()
+            }
             val raw = c.candidateWords()
             val words = when {
                 injected.isEmpty() -> raw

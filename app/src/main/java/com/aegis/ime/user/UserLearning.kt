@@ -37,6 +37,10 @@ class UserLearning internal constructor(
     private var formedPairs = 0
     private val pendingCounts = HashMap<String, Usage>()
     private val followsByPrev = HashMap<String, HashMap<String, Usage>>()
+    private var maximumFollowVersion = Long.MIN_VALUE
+    private var maximumFollow = 0.0
+    private var maximumFormedVersion = Long.MIN_VALUE
+    private var maximumFormed = 0.0
 
     private val chainRun = ArrayDeque<Pair<String, String>>()
     private var chainPos = 0L
@@ -158,12 +162,30 @@ class UserLearning internal constructor(
 
     @Synchronized
     internal fun maximumFollowBoost(): Double {
-        val now = clock()
+        if (maximumFollowVersion == version) return maximumFollow
         var maximum = 0.0
         for (words in followsByPrev.values) for (usage in words.values) {
-            maximum = maxOf(maximum, decayed(usage.count, usage.lastSeen, now, FOLLOW_HALF_LIFE_MILLIS))
+            maximum = maxOf(maximum, usage.count)
         }
-        return if (maximum >= MIN_ACTIVE) FOLLOW_WEIGHT * ln(1.0 + maximum) else 0.0
+        maximumFollow = if (maximum >= MIN_ACTIVE) FOLLOW_WEIGHT * ln(1.0 + maximum) else 0.0
+        maximumFollowVersion = version
+        return maximumFollow
+    }
+
+    @Synchronized
+    internal fun maximumFormedBoost(): Double {
+        if (maximumFormedVersion == version) return maximumFormed
+        var maximum = 0.0
+        for (readings in formedByWord.values) for (usage in readings.values) {
+            maximum = maxOf(maximum, usage.count)
+        }
+        maximumFormed = if (maximum >= MIN_ACTIVE) {
+            BOOST_WEIGHT * ln(1.0 + maximum) + RECENCY_WEIGHT
+        } else {
+            0.0
+        }
+        maximumFormedVersion = version
+        return maximumFormed
     }
 
     @Synchronized

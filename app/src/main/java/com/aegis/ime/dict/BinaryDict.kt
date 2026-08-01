@@ -55,7 +55,52 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
 
     data class Page<T>(val items: List<T>, val hasMore: Boolean)
 
+    internal class WordFreqCursor internal constructor(private val pull: () -> WordFreq?) {
+        private var pending = pull()
+
+        fun peek(): WordFreq? = pending
+
+        fun next(): WordFreq? {
+            val item = pending
+            pending = pull()
+            return item
+        }
+    }
+
     private data class PrefixHit(val word: String, val freq: Int, val tieRank: Int, val order: Int)
+
+    private data class CursorHit(val value: WordFreq, val order: Int)
+
+    private inner class KeyWordCursor(private var entry: Int, private val end: Int) {
+        private val tied = ArrayDeque<CursorHit>()
+
+        init {
+            loadTieGroup()
+        }
+
+        fun peek(): CursorHit? = tied.firstOrNull()
+
+        fun next(): CursorHit? {
+            val item = tied.removeFirstOrNull() ?: return null
+            if (tied.isEmpty()) loadTieGroup()
+            return item
+        }
+
+        private fun loadTieGroup() {
+            if (entry >= end) return
+            val frequency = entryFrequency(entry)
+            val group = ArrayList<CursorHit>()
+            while (entry < end && entryFrequency(entry) == frequency) {
+                group.add(CursorHit(readEntry(entry), entry))
+                entry++
+            }
+            group.sortWith(
+                compareBy<CursorHit> { supplementarySingleTieRank(it.value.word) }
+                    .thenBy { it.order },
+            )
+            tied.addAll(group)
+        }
+    }
 
     fun exact(key: String, limit: Int = Int.MAX_VALUE): List<WordFreq> {
         if (key.isEmpty() || numKeys == 0) return emptyList()
@@ -100,6 +145,12 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
             )
         }
         return Page(out, pageEnd < end)
+    }
+
+    internal fun exactCursor(key: String): WordFreqCursor {
+        val range = entryRange(key) ?: return WordFreqCursor { null }
+        val cursor = KeyWordCursor(range.first, range.last + 1)
+        return WordFreqCursor { cursor.next()?.value }
     }
 
     fun containsExactWord(key: String, word: String): Boolean = exactWordFreq(key, word) != null
@@ -166,6 +217,52 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         return Page(ranked.subList(offset, end).toList(), ranked.size > end)
     }
 
+    internal fun prefixByFreqCursor(prefix: String, excludeExactKey: Boolean = false): WordFreqCursor {
+        if (prefix.isEmpty() || numKeys == 0) return WordFreqCursor { null }
+        val initial = prefixByFreq(prefix, SHORT_PREFIX_TOP_N)
+        val excluded = if (excludeExactKey) exact(prefix).mapTo(HashSet()) { it.word } else emptySet()
+        var offset = 0
+        var fallback: WordFreqCursor? = null
+        val seen = HashSet<String>()
+        return WordFreqCursor pull@{
+            while (offset < initial.size) {
+                val item = initial[offset++]
+                if (item.word !in excluded && seen.add(item.word)) return@pull item
+            }
+            val cursor = fallback ?: completePrefixByFreqCursor(prefix, excludeExactKey).also { fallback = it }
+            var item = cursor.next()
+            while (item != null && !seen.add(item.word)) item = cursor.next()
+            item
+        }
+    }
+
+    private fun completePrefixByFreqCursor(prefix: String, excludeExactKey: Boolean): WordFreqCursor {
+        val query = prefix.toByteArray(Charsets.US_ASCII)
+        val cursors = PriorityQueue<KeyWordCursor> { left, right ->
+            compareCursorHits(requireNotNull(left.peek()), requireNotNull(right.peek()))
+        }
+        var keyIndex = lowerBound(query)
+        while (keyIndex < numKeys && startsWith(keyIndex, query)) {
+            val start = entryStart(keyIndex)
+            val end = if (keyIndex + 1 < numKeys) entryStart(keyIndex + 1) else numEntries
+            if (start < end && (!excludeExactKey || compareKey(keyIndex, query) != 0)) {
+                cursors.add(KeyWordCursor(start, end))
+            }
+            keyIndex++
+        }
+        val seen = HashSet<String>()
+        return WordFreqCursor {
+            var result: WordFreq? = null
+            while (result == null && cursors.isNotEmpty()) {
+                val cursor = cursors.remove()
+                val hit = requireNotNull(cursor.next())
+                if (cursor.peek() != null) cursors.add(cursor)
+                if (seen.add(hit.value.word)) result = hit.value
+            }
+            result
+        }
+    }
+
     fun query(input: String, limit: Int): List<String> {
         if (input.isEmpty() || numKeys == 0) return emptyList()
         val q = input.toByteArray(Charsets.US_ASCII)
@@ -181,6 +278,26 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
     private fun keyOffset(i: Int) = buf.getInt(keyArrOff + i * 12)
     private fun keyLen(i: Int) = buf.getInt(keyArrOff + i * 12 + 4)
     private fun entryStart(i: Int) = buf.getInt(keyArrOff + i * 12 + 8)
+
+    private fun entryFrequency(entry: Int): Int = buf.getInt(entryArrOff + entry * 12 + 8)
+
+    private fun readEntry(entry: Int): WordFreq {
+        val offset = entryArrOff + entry * 12
+        return WordFreq(
+            readWord(buf.getInt(offset), buf.getInt(offset + 4)),
+            buf.getInt(offset + 8),
+        )
+    }
+
+    private fun entryRange(key: String): IntRange? {
+        if (key.isEmpty() || numKeys == 0) return null
+        val query = key.toByteArray(Charsets.US_ASCII)
+        val index = lowerBound(query)
+        if (index >= numKeys || compareKey(index, query) != 0) return null
+        val start = entryStart(index)
+        val end = if (index + 1 < numKeys) entryStart(index + 1) else numEntries
+        return if (start < end) start until end else null
+    }
 
     private fun lowerBound(q: ByteArray): Int {
         var lo = 0
@@ -331,6 +448,14 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         val freq = b.freq.compareTo(a.freq)
         if (freq != 0) return freq
         val tie = a.tieRank.compareTo(b.tieRank)
+        if (tie != 0) return tie
+        return a.order.compareTo(b.order)
+    }
+
+    private fun compareCursorHits(a: CursorHit, b: CursorHit): Int {
+        val frequency = b.value.freq.compareTo(a.value.freq)
+        if (frequency != 0) return frequency
+        val tie = supplementarySingleTieRank(a.value.word).compareTo(supplementarySingleTieRank(b.value.word))
         if (tie != 0) return tie
         return a.order.compareTo(b.order)
     }

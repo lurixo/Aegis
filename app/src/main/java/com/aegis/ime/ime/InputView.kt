@@ -51,6 +51,8 @@ class InputView(context: Context) : LinearLayout(context) {
     var onBackspaceSwipe: (Boolean) -> Unit = {}
     var onPanelBackspace: () -> Unit = {}
     var onPanelClear: () -> Unit = {}
+    var onRequestMoreCandidates: () -> Unit = {}
+    var onRequestMoreReadings: () -> Unit = {}
     var onExpandClosed: () -> Unit = {}
     var onCollapse: () -> Unit = {}
     var onCopyCommit: (String) -> Unit = {}
@@ -138,6 +140,8 @@ class InputView(context: Context) : LinearLayout(context) {
         gridView.onClose = { showPanel(null) }
         gridView.onBackspace = { onPanelBackspace() }
         gridView.onClear = { onPanelClear() }
+        gridView.onNearCandidateEnd = { onRequestMoreCandidates() }
+        gridView.onNearReadingEnd = { onRequestMoreReadings() }
         keyboardView.onKey = { key -> onKey(key) }
         keyboardView.onBackspaceSwipe = { up -> onBackspaceSwipe(up) }
         copyBarView.onCommit = { t -> onCopyCommit(t) }
@@ -369,7 +373,7 @@ class InputView(context: Context) : LinearLayout(context) {
         composingNow = candidates.isNotEmpty() || preedit.isNotEmpty()
         if (copyBarActive && composingNow) { hideCopyBar(); onCopyDismiss() }
         if (currentPanel === gridView) {
-            if (preedit.isEmpty()) showPanel(null)
+            if (preedit.isEmpty() && lastCandidates.isEmpty()) showPanel(null)
             else if (pendingGridBind == null) bindExpandedCandidates(animateContentChange = true)
         }
     }
@@ -452,7 +456,9 @@ class InputView(context: Context) : LinearLayout(context) {
             gridView.setReadings(lastReadings, lastSelectedReading)
             gridView.setSelectionContentVisible(true)
         }
-        if (animateContentChange && gridView.candidatesWouldChange(lastCandidates)) {
+        if (animateContentChange && gridView.candidatesWouldChange(lastCandidates) &&
+            !gridView.candidatesWouldAppend(lastCandidates)
+        ) {
             Motion.coverThrough(gridView, palette.keyboardBg, swap)
         } else {
             swap()

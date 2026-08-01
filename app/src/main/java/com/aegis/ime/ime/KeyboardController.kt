@@ -16,8 +16,16 @@
 package com.aegis.ime.ime
 
 import com.aegis.ime.decoder.Cand
+import com.aegis.ime.decoder.CANDIDATE_PAGE_SIZE
+import com.aegis.ime.decoder.CandidateContinuation
+import com.aegis.ime.decoder.CandidatePage
+import com.aegis.ime.decoder.CandidatePageSource
+import com.aegis.ime.decoder.CandidateSlice
+import com.aegis.ime.decoder.ListCandidatePageSource
 import com.aegis.ime.decoder.Syllable
 import com.aegis.ime.decoder.T9Pinyin
+import com.aegis.ime.decoder.continueCandidatePage
+import com.aegis.ime.decoder.firstCandidatePage
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.engine.Calculator
 import com.aegis.ime.engine.InputAssociations
@@ -42,6 +50,10 @@ class KeyboardController(
 ) {
     private data class LearnEvent(val prevWord: String?, val word: String, val prefixEnd: Int, val reading: String)
 
+    private enum class CandidateRole { NORMAL, DIRECT, PREDICTION, CALCULATOR }
+
+    private data class CandidateEntry(val candidate: Cand, val role: CandidateRole)
+
     private var lang = Lang.CN
     private var shiftState = ShiftState.OFF
     private val shifted get() = shiftState != ShiftState.OFF
@@ -54,6 +66,14 @@ class KeyboardController(
     private var cnLayout = LayoutId.NINE
     private val composing = StringBuilder()
     private var candidates: List<Cand> = emptyList()
+    private var candidateRoles: List<CandidateRole> = emptyList()
+    private var candidateContinuation: CandidateContinuation<CandidateEntry>? = null
+    private var readingContinuation: CandidateContinuation<String>? = null
+    private var expandedReadingItems: List<String> = emptyList()
+    private var queryInputEpoch = 0L
+    private var initialDecodePending = false
+    private var candidatePagePending = false
+    private var readingPagePending = false
     private var lastWord: String? = null
 
     private var engineSupportsChinese: Boolean = engine.supportsChinese
@@ -191,15 +211,25 @@ class KeyboardController(
     }
 
     fun setFuzzyRules(rules: Set<String>) {
+        if (pushedFuzzyRules == rules) return
         pushedFuzzyRules = rules
         engine.setFuzzyRules(rules)
+        refreshCandidates()
+        render()
     }
 
     fun reset(preserveLayout: Boolean = false) {
         userLearning?.observeBreak()
-        decodeLane?.markSatisfiedSynchronously()
+        invalidateCandidateQuery()
         composing.setLength(0)
         candidates = emptyList()
+        candidateRoles = emptyList()
+        expandedReadingItems = emptyList()
+        directCommitCands = emptySet()
+        predictionCands = emptySet()
+        calcCand = null
+        calcExpr = ""
+        calcResult = ""
         lockedReadings.clear()
         lockedInputLengths.clear()
         activeStart = 0
@@ -351,7 +381,7 @@ class KeyboardController(
     }
 
     fun onPickCandidate(index: Int) {
-        if (decodeLane?.pending == true) return
+        if (initialDecodePending) return
         if (index !in candidates.indices) return
         if (drillSyllable >= 0) {
             pickDrilledHomophone(candidates[index].word)
@@ -360,22 +390,22 @@ class KeyboardController(
             return
         }
         val cand = candidates[index]
-        when {
-            cand === calcCand -> {
+        when (candidateRoles.getOrElse(index) { CandidateRole.NORMAL }) {
+            CandidateRole.CALCULATOR -> {
                 val live = if (learningBlocked) null else Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN))
                 if (live != null && live.expr == calcExpr && live.result == calcResult && !host.hasSelection()) {
                     host.commitText(live.append)
                 }
                 clearComposingState(); lastWord = null
             }
-            cand in directCommitCands -> {
+            CandidateRole.DIRECT -> {
                 val text = committedPrefix.toString() + cand.word
                 expirePreeditChoiceUndo()
                 host.commitText(text)
                 applyDeferredLearning()
                 clearComposingState(); lastWord = null
             }
-            cand in predictionCands -> {
+            CandidateRole.PREDICTION -> {
                 expirePreeditChoiceUndo()
                 host.commitText(cand.word)
                 if (!learningBlocked) engine.learn(lastWord, cand.word)
@@ -384,7 +414,7 @@ class KeyboardController(
                 }
                 lastWord = cand.word
             }
-            else -> {
+            CandidateRole.NORMAL -> {
                 if (candidateStaysInPreedit(cand)) savePreeditChoiceUndo()
                 commitCandidate(cand)
             }
@@ -482,7 +512,7 @@ class KeyboardController(
         ensureDecodeApplied()
         val pick = candidates.firstOrNull()
         when {
-            pick != null && pick in directCommitCands -> {
+            pick != null && candidateRoles.firstOrNull() == CandidateRole.DIRECT -> {
                 val text = committedPrefix.toString() + pick.word
                 expirePreeditChoiceUndo()
                 host.commitText(text)
@@ -651,9 +681,16 @@ class KeyboardController(
     }
 
     private fun clearComposingState() {
-        decodeLane?.markSatisfiedSynchronously()
+        invalidateCandidateQuery()
         composing.setLength(0)
         candidates = emptyList()
+        candidateRoles = emptyList()
+        expandedReadingItems = emptyList()
+        directCommitCands = emptySet()
+        predictionCands = emptySet()
+        calcCand = null
+        calcExpr = ""
+        calcResult = ""
         lockedReadings.clear()
         lockedInputLengths.clear()
         activeStart = 0
@@ -692,29 +729,120 @@ class KeyboardController(
     }
 
     private fun refreshCandidates() {
-        val req = buildDecodeRequest()
+        val epoch = invalidateCandidateQuery()
+        refreshExpandedReadings(epoch)
+        val req = buildDecodeRequest(epoch)
         val lane = decodeLane
         if (lane == null) {
             applyDecodeResult(computeDecode(req))
         } else {
+            initialDecodePending = true
             lane.submit(
                 compute = { computeDecode(req) },
-                apply = { result -> applyDecodeResult(result); render() },
-                onError = { applyDecodeResult(emptyDecodeResult()); render() },
+                apply = { result ->
+                    initialDecodePending = false
+                    applyDecodeResult(result)
+                    render()
+                },
+                onError = {
+                    initialDecodePending = false
+                    applyDecodeResult(emptyDecodeResult(req.inputEpoch))
+                    render()
+                },
             )
         }
     }
 
+    private fun invalidateCandidateQuery(): Long {
+        queryInputEpoch++
+        candidateContinuation = null
+        readingContinuation = null
+        candidatePagePending = false
+        readingPagePending = false
+        initialDecodePending = false
+        decodeLane?.markSatisfiedSynchronously()
+        return queryInputEpoch
+    }
+
     private fun ensureDecodeApplied() {
         val lane = decodeLane ?: return
-        if (!lane.pending) return
-        applyDecodeResult(computeDecode(buildDecodeRequest()))
+        if (!initialDecodePending || !lane.pending) return
+        applyDecodeResult(computeDecode(buildDecodeRequest(queryInputEpoch)))
+        initialDecodePending = false
         lane.markSatisfiedSynchronously()
+    }
+
+    private class PagePull<T>(
+        private val inputEpoch: Long,
+        private val firstPage: () -> CandidatePage<T>,
+        private val nextPage: (CandidateContinuation<T>) -> CandidatePage<T>,
+    ) {
+        private val pending = ArrayDeque<T>()
+        private var continuation: CandidateContinuation<T>? = null
+        private var started = false
+        private var exhausted = false
+        private var pageFetchAvailable = true
+
+        fun beginOutputPage() {
+            pageFetchAvailable = true
+        }
+
+        fun nextItem(): T? {
+            while (pending.isEmpty() && !exhausted) {
+                if (!pageFetchAvailable) return null
+                pageFetchAvailable = false
+                val page = if (!started) {
+                    started = true
+                    firstPage()
+                } else {
+                    val token = continuation
+                    if (token == null) {
+                        exhausted = true
+                        break
+                    }
+                    nextPage(token)
+                }
+                if (page.inputEpoch != inputEpoch) {
+                    continuation = null
+                    exhausted = true
+                    break
+                }
+                pending.addAll(page.items)
+                continuation = page.continuation
+                if (pending.isEmpty() && continuation == null) exhausted = true
+            }
+            return pending.removeFirstOrNull()
+        }
+
+        fun hasMoreItems(): Boolean = pending.isNotEmpty() || !started || (!exhausted && continuation != null)
+    }
+
+    private class PullPageSource<T>(
+        private val pull: () -> T?,
+        private val hasMore: () -> Boolean,
+        private val beginPage: () -> Unit,
+    ) : CandidatePageSource<T> {
+        private var exhausted = false
+
+        override fun next(pageSize: Int): CandidateSlice<T> {
+            beginPage()
+            val items = ArrayList<T>(pageSize)
+            while (items.size < pageSize && !exhausted) {
+                val item = pull()
+                if (item == null) {
+                    if (!hasMore()) exhausted = true
+                    break
+                } else {
+                    items.add(item)
+                }
+            }
+            return CandidateSlice(items, !exhausted && hasMore())
+        }
     }
 
     private class DecodeRequest(
         val engine: CandidateEngine,
-        val host: ImeHost,
+        val inputEpoch: Long,
         val composingEmpty: Boolean,
         val committedPrefixEmpty: Boolean,
         val mode: Mode,
@@ -732,21 +860,20 @@ class KeyboardController(
         val learningBlocked: Boolean,
         val calcDismissed: Boolean,
         val lastWord: String?,
+        val context: CharSequence,
+        val calculatorInput: CharSequence,
     )
 
     private class DecodeResult(
-        val candidates: List<Cand>,
-        val directCommitCands: Set<Cand>,
-        val predictionCands: Set<Cand>,
-        val calcCand: Cand?,
+        val page: CandidatePage<CandidateEntry>,
         val calcExpr: String,
         val calcResult: String,
     )
 
-    private fun emptyDecodeResult(): DecodeResult =
-        DecodeResult(emptyList(), emptySet(), emptySet(), null, "", "")
+    private fun emptyDecodeResult(inputEpoch: Long = queryInputEpoch): DecodeResult =
+        DecodeResult(CandidatePage(emptyList(), null, inputEpoch), "", "")
 
-    private fun buildDecodeRequest(): DecodeRequest {
+    private fun buildDecodeRequest(inputEpoch: Long): DecodeRequest {
         val locked = mode() == Mode.PINYIN && composing.isNotEmpty() && lockedReadings.isNotEmpty()
         val full = if (locked) fullLetters() else ""
         val bounds = if (locked) readingToInputBounds() else emptyMap()
@@ -762,7 +889,7 @@ class KeyboardController(
         }
         return DecodeRequest(
             engine = engine,
-            host = host,
+            inputEpoch = inputEpoch,
             composingEmpty = composing.isEmpty(),
             committedPrefixEmpty = committedPrefix.isEmpty(),
             mode = mode(),
@@ -780,85 +907,230 @@ class KeyboardController(
             learningBlocked = learningBlocked,
             calcDismissed = calcDismissed,
             lastWord = lastWord,
+            context = host.textBeforeCursor(CTX_SCAN_LEN),
+            calculatorInput = host.textBeforeCursor(CALC_SCAN_LEN),
         )
     }
 
     private fun applyDecodeResult(r: DecodeResult) {
-        candidates = r.candidates
-        directCommitCands = r.directCommitCands
-        predictionCands = r.predictionCands
-        calcCand = r.calcCand
+        if (r.page.inputEpoch != queryInputEpoch) return
+        candidates = r.page.items.map { it.candidate }
+        candidateRoles = r.page.items.map { it.role }
+        candidateContinuation = r.page.continuation
+        directCommitCands = r.page.items.filter { it.role == CandidateRole.DIRECT }.mapTo(HashSet()) { it.candidate }
+        predictionCands = r.page.items.filter { it.role == CandidateRole.PREDICTION }.mapTo(HashSet()) { it.candidate }
+        calcCand = r.page.items.firstOrNull { it.role == CandidateRole.CALCULATOR }?.candidate
         calcExpr = r.calcExpr
         calcResult = r.calcResult
     }
 
-    private fun computeDecode(req: DecodeRequest): DecodeResult = synchronized(decodeLock) {
-        var directCommit: Set<Cand> = emptySet()
-        var prediction: Set<Cand> = emptySet()
-        var calcC: Cand? = null; var calcE = ""; var calcR = ""
-        val base = computeBase(req)
-        val out = when {
-            req.drillSyllable >= 0 && !req.composingEmpty && req.mode == Mode.PINYIN -> computeDrill(req)
-            !req.composingEmpty && req.mode == Mode.PINYIN -> {
-                val glyphs = dedupeFullHalfGlyphs(InputAssociations.lookup(req.rawComposing))
-                if (glyphs.isEmpty()) {
-                    base
-                } else {
-                    val extra = glyphs.map { Cand(it, req.composingLen) }
-                    directCommit = extra.toSet()
-                    if (base.isEmpty()) extra else listOf(base.first()) + extra + base.drop(1)
-                }
+    fun requestMoreCandidates() {
+        val continuation = candidateContinuation ?: return
+        if (candidatePagePending || initialDecodePending) return
+        val epoch = queryInputEpoch
+        candidatePagePending = true
+        val compute = {
+            synchronized(decodeLock) {
+                continueCandidatePage(continuation, epoch)
             }
+        }
+        val lane = decodeLane
+        if (lane == null) {
+            val page = runCatching(compute).getOrElse {
+                candidatePagePending = false
+                candidateContinuation = null
+                return
+            }
+            candidatePagePending = false
+            appendCandidatePage(page)
+            render()
+        } else {
+            lane.submit(
+                compute = compute,
+                apply = { page ->
+                    candidatePagePending = false
+                    appendCandidatePage(page)
+                    render()
+                },
+                onError = {
+                    candidatePagePending = false
+                    candidateContinuation = null
+                },
+            )
+        }
+    }
+
+    private fun appendCandidatePage(page: CandidatePage<CandidateEntry>) {
+        if (page.inputEpoch != queryInputEpoch) return
+        candidateContinuation = page.continuation
+        if (page.items.isEmpty()) return
+        candidates = candidates + page.items.map { it.candidate }
+        candidateRoles = candidateRoles + page.items.map { it.role }
+        directCommitCands = directCommitCands + page.items
+            .filter { it.role == CandidateRole.DIRECT }
+            .map { it.candidate }
+        predictionCands = predictionCands + page.items
+            .filter { it.role == CandidateRole.PREDICTION }
+            .map { it.candidate }
+    }
+
+    internal fun hasMoreCandidatesForTest(): Boolean = candidateContinuation != null
+
+    internal fun requestAllCandidatesForTest() {
+        while (candidateContinuation != null) requestMoreCandidates()
+    }
+
+    private fun computeDecode(req: DecodeRequest): DecodeResult = synchronized(decodeLock) {
+        var calcE = ""
+        var calcR = ""
+        val source = when {
+            req.drillSyllable >= 0 && !req.composingEmpty && req.mode == Mode.PINYIN -> drillCandidateSource(req)
+            !req.composingEmpty && req.mode == Mode.PINYIN -> composingCandidateSource(req)
             req.composingEmpty && req.committedPrefixEmpty -> {
-                val match = if (req.learningBlocked || req.calcDismissed) null else Calculator.detect(req.host.textBeforeCursor(CALC_SCAN_LEN))
+                val match = if (req.learningBlocked || req.calcDismissed) null else Calculator.detect(req.calculatorInput)
                 when {
                     match != null -> {
-                        val cand = Cand(match.append, 0)
-                        calcC = cand; calcE = match.expr; calcR = match.result
-                        listOf(cand)
+                        calcE = match.expr
+                        calcR = match.result
+                        ListCandidatePageSource(listOf(CandidateEntry(Cand(match.append, 0), CandidateRole.CALCULATOR)))
                     }
-                    !req.associationsEnabled || req.learningBlocked -> emptyList()
-                    else -> {
-                        val preds = req.engine.predict(req.lastWord).map { Cand(it, 0) }
-                        prediction = preds.toSet()
-                        preds
+                    !req.associationsEnabled || req.learningBlocked -> ListCandidatePageSource(emptyList())
+                    else -> predictionCandidateSource(req)
+                }
+            }
+            else -> ListCandidatePageSource(emptyList())
+        }
+        DecodeResult(firstCandidatePage(source, req.inputEpoch), calcE, calcR)
+    }
+
+    private fun baseCandidatePull(req: DecodeRequest): PagePull<Cand> {
+        val first = {
+            if (req.lockedNonEmpty) {
+                req.engine.candidatesForLockedReadingCoveredPage(
+                    req.full,
+                    req.inputEpoch,
+                    req.readingCuts,
+                    req.context,
+                )
+            } else {
+                val page = req.engine.candidatesCoveredPage(
+                    req.raw,
+                    req.isNine,
+                    req.inputEpoch,
+                    req.forcedCuts,
+                    req.context,
+                )
+                if (page.items.isNotEmpty() || page.continuation != null || !req.isNine) {
+                    page
+                } else {
+                    val prefix = T9Pinyin.longestDecodablePrefix(req.raw)
+                    if (prefix.length in 1 until req.raw.length) {
+                        req.engine.candidatesCoveredPage(
+                            prefix,
+                            t9 = true,
+                            inputEpoch = req.inputEpoch,
+                            context = req.context,
+                        )
+                    } else {
+                        page
                     }
                 }
             }
-            else -> base
         }
-        DecodeResult(out, directCommit, prediction, calcC, calcE, calcR)
+        return PagePull(
+            req.inputEpoch,
+            firstPage = first,
+            nextPage = { continuation -> req.engine.continuePage(continuation, req.inputEpoch) },
+        )
     }
 
-    private fun computeBase(req: DecodeRequest): List<Cand> {
-        if (req.composingEmpty || req.mode != Mode.PINYIN) return emptyList()
-        val context = req.host.textBeforeCursor(CTX_SCAN_LEN)
-        return if (req.lockedNonEmpty) {
-            req.engine.candidatesForLockedReadingCovered(req.full, req.readingCuts, context)
-                .map { Cand(it.word, req.bounds[it.coveredLen] ?: it.coveredLen.coerceAtMost(req.composingLen)) }
-        } else {
-            var c = req.engine.candidatesCovered(req.raw, req.isNine, req.forcedCuts, context)
-            if (c.isEmpty() && req.isNine) {
-                val pfx = T9Pinyin.longestDecodablePrefix(req.raw)
-                if (pfx.length in 1 until req.raw.length) c = req.engine.candidatesCovered(pfx, true, context = context)
-            }
-            c
-        }
+    private fun composingCandidateSource(req: DecodeRequest): CandidatePageSource<CandidateEntry> {
+        val base = baseCandidatePull(req)
+        val associations = PagePull(
+            req.inputEpoch,
+            firstPage = { InputAssociations.lookupPage(req.rawComposing, req.inputEpoch) },
+            nextPage = { continuation -> continueCandidatePage(continuation, req.inputEpoch) },
+        )
+        val seenGlyphs = HashSet<String>()
+        var baseHeadPending = true
+        var associationsExhausted = false
+        return PullPageSource(
+            pull = pull@{
+                if (baseHeadPending) {
+                    baseHeadPending = false
+                    val head = base.nextItem()
+                    if (head != null) return@pull CandidateEntry(remapCovered(req, head), CandidateRole.NORMAL)
+                }
+                while (!associationsExhausted) {
+                    val glyph = associations.nextItem()
+                    if (glyph == null) {
+                        if (associations.hasMoreItems()) return@pull null
+                        associationsExhausted = true
+                    } else if (seenGlyphs.add(SymbolCatalog.foldFullWidth(glyph))) {
+                        return@pull CandidateEntry(Cand(glyph, req.composingLen), CandidateRole.DIRECT)
+                    }
+                }
+                base.nextItem()?.let { CandidateEntry(remapCovered(req, it), CandidateRole.NORMAL) }
+            },
+            hasMore = {
+                baseHeadPending || !associationsExhausted || associations.hasMoreItems() || base.hasMoreItems()
+            },
+            beginPage = {
+                base.beginOutputPage()
+                associations.beginOutputPage()
+            },
+        )
     }
 
-    private fun computeDrill(req: DecodeRequest): List<Cand> {
+    private fun predictionCandidateSource(req: DecodeRequest): CandidatePageSource<CandidateEntry> {
+        val predictions = PagePull(
+            req.inputEpoch,
+            firstPage = { req.engine.predictPage(req.lastWord, req.inputEpoch) },
+            nextPage = { continuation -> req.engine.continuePage(continuation, req.inputEpoch) },
+        )
+        return PullPageSource(
+            pull = { predictions.nextItem()?.let { CandidateEntry(Cand(it, 0), CandidateRole.PREDICTION) } },
+            hasMore = predictions::hasMoreItems,
+            beginPage = predictions::beginOutputPage,
+        )
+    }
+
+    private fun drillCandidateSource(req: DecodeRequest): CandidatePageSource<CandidateEntry> {
         val reading = if (req.lockedNonEmpty) req.full else req.raw
         val syls = req.engine.syllablesForReading(reading, req.readingCuts)
-        if (req.drillSyllable !in syls.indices) return emptyList()
+        if (req.drillSyllable !in syls.indices) return ListCandidatePageSource(emptyList())
         val readingEnd = syls[req.drillSyllable].end
         val coveredLen = if (req.lockedNonEmpty) req.bounds[readingEnd] ?: readingEnd else readingEnd
-        return req.engine.homophonesForReadingAt(reading, req.drillSyllable, req.readingCuts)
-            .map { Cand(it, coveredLen.coerceIn(1, req.composingLen)) }
+        val homophones = PagePull(
+            req.inputEpoch,
+            firstPage = {
+                req.engine.homophonesForReadingAtPage(
+                    reading,
+                    req.drillSyllable,
+                    req.inputEpoch,
+                    req.readingCuts,
+                )
+            },
+            nextPage = { continuation -> req.engine.continuePage(continuation, req.inputEpoch) },
+        )
+        return PullPageSource(
+            pull = {
+                homophones.nextItem()?.let {
+                    CandidateEntry(Cand(it, coveredLen.coerceIn(1, req.composingLen)), CandidateRole.NORMAL)
+                }
+            },
+            hasMore = homophones::hasMoreItems,
+            beginPage = homophones::beginOutputPage,
+        )
     }
+
+    private fun remapCovered(req: DecodeRequest, candidate: Cand): Cand =
+        if (!req.lockedNonEmpty) candidate
+        else Cand(candidate.word, req.bounds[candidate.coveredLen] ?: candidate.coveredLen.coerceAtMost(req.composingLen))
 
     private fun currentSyllables(): List<Syllable> {
         if (composing.isEmpty()) return emptyList()
-        val req = buildDecodeRequest()
+        val req = buildDecodeRequest(queryInputEpoch)
         val reading = if (req.lockedNonEmpty) req.full else req.raw
         return req.engine.syllablesForReading(reading, req.readingCuts)
     }
@@ -887,6 +1159,13 @@ class KeyboardController(
 
     fun expireCandidateChoiceUndo() {
         expirePreeditChoiceUndo()
+        invalidateCandidateQuery()
+    }
+
+    fun onHostContextChanged() {
+        expirePreeditChoiceUndo()
+        refreshCandidates()
+        render()
     }
 
     private fun restorePreeditChoiceUndo(): Boolean {
@@ -928,7 +1207,7 @@ class KeyboardController(
     }
 
     private fun commitChosenLeftPrefix() {
-        val req = buildDecodeRequest()
+        val req = buildDecodeRequest(queryInputEpoch)
         val reading = if (req.lockedNonEmpty) req.full else req.raw
         val syls = req.engine.syllablesForReading(reading, req.readingCuts)
         var k = 0
@@ -1005,7 +1284,17 @@ class KeyboardController(
 
     internal fun shiftStateName(): String = shiftState.name
 
-    internal fun expandedReadings(): List<String> = when {
+    private fun refreshExpandedReadings(inputEpoch: Long) {
+        val page = firstCandidatePage(
+            ListCandidatePageSource(expandedReadingValues()),
+            inputEpoch,
+            CANDIDATE_PAGE_SIZE,
+        )
+        expandedReadingItems = page.items
+        readingContinuation = page.continuation
+    }
+
+    private fun expandedReadingValues(): List<String> = when {
         drillChoices.isNotEmpty() && drillSyllable >= 0 ->
             currentSyllables().getOrNull(drillSyllable)?.reading?.let(::listOf) ?: emptyList()
         layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty() -> {
@@ -1016,14 +1305,50 @@ class KeyboardController(
             val separatorEnd = body.indexOf('\'').takeIf { it >= 0 }
             val chunkEnd = listOfNotNull(forcedEnd, separatorEnd).minOrNull() ?: body.length
             val chunk = body.substring(0, chunkEnd.coerceIn(0, body.length))
-            val next = T9Pinyin.leftColumnLetterReadings(chunk, NINE_LEFT_MAX)
+            val next = T9Pinyin.leftColumnLetterReadings(chunk, Int.MAX_VALUE)
             when {
                 lockedReadings.isEmpty() -> next
                 next.isEmpty() -> listOf(lockedReadings.last())
                 else -> listOf(lockedReadings.last()) + next
             }
         }
-        else -> nineLeftColumn().filter { it.action == KeyAction.PICK_READING }.map { it.label }
+        layoutId == LayoutId.NINE && mode() == Mode.PINYIN && composing.isNotEmpty() -> {
+            val active = activeInput()
+            if (active.isEmpty()) {
+                lockedReadings.lastOrNull()?.let {
+                    T9Pinyin.leftColumnReadings(T9Pinyin.toT9(it), Int.MAX_VALUE)
+                }.orEmpty()
+            } else {
+                val firstCut = activeCuts().firstOrNull()
+                val chunk = if (firstCut != null) active.substring(0, firstCut) else active
+                val next = T9Pinyin.leftColumnReadings(chunk, Int.MAX_VALUE)
+                if (lockedReadings.isEmpty()) next else listOf(lockedReadings.last()) + next
+            }
+        }
+        else -> emptyList()
+    }
+
+    internal fun expandedReadings(): List<String> = expandedReadingItems
+
+    fun requestMoreReadings() {
+        val continuation = readingContinuation ?: return
+        if (readingPagePending) return
+        val epoch = queryInputEpoch
+        readingPagePending = true
+        val page = continueCandidatePage(continuation, epoch)
+        readingPagePending = false
+        if (page.inputEpoch != queryInputEpoch) return
+        readingContinuation = page.continuation
+        if (page.items.isNotEmpty()) {
+            expandedReadingItems = expandedReadingItems + page.items
+            render()
+        }
+    }
+
+    internal fun hasMoreReadingsForTest(): Boolean = readingContinuation != null
+
+    internal fun requestAllReadingsForTest() {
+        while (readingContinuation != null) requestMoreReadings()
     }
 
     private fun selectedExpandedReadingIndex(readings: List<String>): Int = when {
@@ -1053,7 +1378,7 @@ class KeyboardController(
     internal fun preeditForTest(): String = preeditText()
 
     fun onPickReadingIndex(index: Int) {
-        if (decodeLane?.pending == true) return
+        if (initialDecodePending) return
         val readings = expandedReadings()
         if (index !in readings.indices) return
         expirePreeditChoiceUndo()

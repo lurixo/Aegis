@@ -448,6 +448,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             }
             onPanelBackspace = { controller.onPanelBackspace() }
             onPanelClear = { controller.onPanelClear() }
+            onRequestMoreCandidates = { controller.requestMoreCandidates() }
+            onRequestMoreReadings = { controller.requestMoreReadings() }
             onExpandClosed = { controller.clearDrill() }
             onCollapse = { requestHideSelf(0) }
             onCopyCommit = { t -> commitLargeText(t) }
@@ -662,6 +664,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
         editPanelView?.setHasSelection(newSelStart != newSelEnd)
+        if (::controller.isInitialized && (oldSelStart != newSelStart || oldSelEnd != newSelEnd)) {
+            controller.onHostContextChanged()
+        }
     }
 
     private fun showEditPanel() {

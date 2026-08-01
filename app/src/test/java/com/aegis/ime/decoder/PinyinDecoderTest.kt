@@ -56,6 +56,29 @@ class PinyinDecoderTest {
     }
 
     @Test
+    fun sentenceEdgesBeyondTheLegacyBeamRemainReachableAcrossPages() {
+        val first = (0 until 25).map { EngineFixture.supplementary(400 + it) }
+        val tail = "乙"
+        val rows = first.mapIndexed { index, word ->
+            EngineFixture.Row("a", word, 1_000 - index)
+        } + EngineFixture.Row("b", tail, 1_000)
+        val decoder = PinyinDecoder(EngineFixture.build(rows))
+        val source = decoder.coveredCandidateSource("ab")
+        val words = ArrayList<String>()
+        val pageSizes = ArrayList<Int>()
+        while (true) {
+            val page = source.next(7)
+            words.addAll(page.items.map { it.word })
+            pageSizes.add(page.items.size)
+            if (!page.hasMore) break
+        }
+
+        assertTrue("the fixture crosses the former 20-edge sentence budget", first.size > 20)
+        assertTrue(words.containsAll(first.map { it + tail }))
+        assertTrue("the complete result set spans continuation pages", pageSizes.size > 3)
+    }
+
+    @Test
     fun decodesSentences() {
         val d = decoder()
         fun top(s: String) = d.decodeCovered(s, 30).firstOrNull()?.word

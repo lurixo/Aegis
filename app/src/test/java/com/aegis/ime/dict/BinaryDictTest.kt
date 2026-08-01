@@ -203,4 +203,28 @@ class BinaryDictTest {
         assertEquals(listOf(30, 30, 15), pageSizes)
         assertEquals(reference, paged)
     }
+
+    @Test
+    fun cursorsMatchCompleteRankingsWithoutRecomputingOffsets() {
+        val supplementary = EngineFixture.supplementary(700)
+        val rows = listOf(
+            EngineFixture.Row("cea", supplementary, 900),
+            EngineFixture.Row("cea", "甲", 900),
+            EngineFixture.Row("cea", "同词", 700),
+            EngineFixture.Row("ceb", "乙", 850),
+            EngineFixture.Row("ceb", "同词", 600),
+            EngineFixture.Row("cec", "丙", 500),
+        )
+        val dict = EngineFixture.build(rows)
+
+        fun drain(cursor: BinaryDict.WordFreqCursor): List<BinaryDict.WordFreq> {
+            val result = ArrayList<BinaryDict.WordFreq>()
+            while (cursor.peek() != null) result.add(requireNotNull(cursor.next()))
+            return result
+        }
+
+        assertEquals(dict.exact("cea").sortedWith(compareByDescending<BinaryDict.WordFreq> { it.freq }
+            .thenBy { Character.isSupplementaryCodePoint(it.word.codePointAt(0)) }), drain(dict.exactCursor("cea")))
+        assertEquals(dict.prefixByFreq("ce", Int.MAX_VALUE), drain(dict.prefixByFreqCursor("ce")))
+    }
 }

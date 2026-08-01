@@ -36,6 +36,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.ViewGroup
+import android.widget.AbsListView
 import android.widget.BaseAdapter
 import android.widget.FrameLayout
 import android.widget.LinearLayout
@@ -57,6 +58,8 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     var onClose: () -> Unit = {}
     var onBackspace: () -> Unit = {}
     var onClear: () -> Unit = {}
+    var onNearCandidateEnd: () -> Unit = {}
+    var onNearReadingEnd: () -> Unit = {}
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
@@ -103,6 +106,18 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         readingScroll.applyPalette(palette)
         table.applyPalette(palette)
         table.adapter = candidateAdapter
+        table.setOnScrollListener(object : AbsListView.OnScrollListener {
+            override fun onScrollStateChanged(view: AbsListView?, scrollState: Int) {}
+
+            override fun onScroll(view: AbsListView?, firstVisibleItem: Int, visibleItemCount: Int, totalItemCount: Int) {
+                if (totalItemCount > 0 && firstVisibleItem + visibleItemCount >= totalItemCount - 2) {
+                    onNearCandidateEnd()
+                }
+            }
+        })
+        readingScroll.setOnScrollChangeListener { view, _, _, _, _ ->
+            if (renderedReadings?.isNotEmpty() == true && !view.canScrollVertically(1)) onNearReadingEnd()
+        }
 
         readingScroll.addView(readingColumn, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(
@@ -390,6 +405,9 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         val liveWidth = measuringWidthOverride.takeIf { it > 0 } ?: width.takeIf { it > 0 } ?: configuredWidth
         val tableW = (liveWidth - sideSpan(liveWidth) - actionSpan(liveWidth) - dp(4 + 4)).coerceAtLeast(dp(46))
         if (candidates == renderedCandidates && tableW == renderedCandidateWidth) return
+        val previous = renderedCandidates
+        val appended = previous != null && candidates.size >= previous.size &&
+            candidates.subList(0, previous.size) == previous
         val contentChanged = candidates != renderedCandidates
         renderedCandidates = candidates.toList()
         renderedCandidateWidth = tableW
@@ -433,7 +451,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             }
         }
         candidateAdapter.notifyDataSetChanged()
-        if (contentChanged) {
+        if (contentChanged && !appended) {
             table.setSelection(0)
             gridScrollOffsetForTest = 0
         }
@@ -518,6 +536,10 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun needsPoolGrowth(candidateCount: Int, readingCount: Int): Boolean =
         (candidateCount > 0 && table.childCount == 0) || readingCount > readingPool.size
     internal fun candidatesWouldChange(candidates: List<String>): Boolean = candidates != renderedCandidates
+    internal fun candidatesWouldAppend(candidates: List<String>): Boolean {
+        val current = renderedCandidates ?: return false
+        return candidates.size > current.size && candidates.subList(0, current.size) == current
+    }
     internal fun setSelectionContentVisible(visible: Boolean) {
         val target = if (visible) View.VISIBLE else View.INVISIBLE
         readingScroll.visibility = target
@@ -600,6 +622,8 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         gridScrollOffsetForTest = bounded
         readingScroll.scrollTo(0, readingY)
     }
+    internal fun requestMoreCandidatesForTest() = onNearCandidateEnd()
+    internal fun requestMoreReadingsForTest() = onNearReadingEnd()
     internal fun readingTextColorForTest(index: Int): Int? =
         (readingColumn.getChildAt(index) as? TextView)?.currentTextColor
     internal fun selectedReadingBackgroundForTest(index: Int): Drawable? =

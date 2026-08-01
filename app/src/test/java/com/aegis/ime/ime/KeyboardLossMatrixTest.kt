@@ -91,6 +91,7 @@ class KeyboardLossMatrixTest {
         c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
         type(c, "chai"); c.onKey(Key("'", output = "'")); type(c, "ci")
         assertEquals("preedit keeps the 隔音符 the user typed", "chai'ci", c.preeditForTest())
+        while ("拆" !in c.candidateWords() && c.hasMoreCandidatesForTest()) c.requestMoreCandidates()
         assertChaiReachableAndRanked(c.candidateWords())
     }
 
@@ -102,6 +103,7 @@ class KeyboardLossMatrixTest {
         type(c, "2424"); pick(c, "chai")
         type(c, "24"); pick(c, "ci")
         assertEquals("preedit shows the locked chai'ci", "chai'ci", c.preeditForTest())
+        while ("拆" !in c.candidateWords() && c.hasMoreCandidatesForTest()) c.requestMoreCandidates()
         assertChaiReachableAndRanked(c.candidateWords())
     }
 

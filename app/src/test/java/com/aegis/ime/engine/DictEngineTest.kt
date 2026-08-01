@@ -24,6 +24,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import kotlin.math.ln
 
 class DictEngineTest {
 
@@ -171,6 +172,30 @@ class DictEngineTest {
         assertEquals(75, reference.size)
         assertEquals(listOf(30, 30, 15), pageSizes)
         assertEquals(reference, actual)
+    }
+
+    @Test
+    fun prefixPagesKeepOneGlobalRankingWhenALateDictionaryWordIsLearned() {
+        val rows = (0 until 75).map { index ->
+            EngineFixture.Row("ce${index.toString(36).padStart(2, '0')}", "前缀候选$index", 5_000 - index * 40)
+        }
+        val model = UserModel { 1_000L }
+        repeat(120) { model.record(null, rows.last().word, 1_000L) }
+        val engine = DictEngine(EngineFixture.build(rows), null, null, model)
+        val reference = rows.sortedByDescending { row -> ln(row.freq.toDouble()) + model.wordBoost(row.word) }
+        val actual = ArrayList<Cand>()
+        val pageSizes = ArrayList<Int>()
+        var page = engine.candidatesCoveredPage("ce", t9 = false, inputEpoch = 34L)
+        while (true) {
+            pageSizes.add(page.items.size)
+            actual.addAll(page.items)
+            val continuation = page.continuation ?: break
+            page = engine.continuePage(continuation, inputEpoch = 34L)
+        }
+
+        assertEquals(listOf(30, 30, 15), pageSizes)
+        assertEquals(reference.map { Cand(it.word, 2) }, actual)
+        assertEquals(rows.last().word, actual.first().word)
     }
 
     private fun pow(base: Int, exponent: Int): Int {

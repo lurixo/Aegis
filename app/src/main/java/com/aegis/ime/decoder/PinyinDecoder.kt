@@ -436,7 +436,7 @@ class PinyinDecoder(
         val source = if (atomic || interior.isNotEmpty()) {
             atomicCandidateSource(clean, interior, parseContext(context))
         } else {
-            ListCandidatePageSource(decodeCoveredClean(clean, context).items)
+            incrementalCoveredCandidateSource(clean, context)
         }
         if (norm == null) return source
         return object : CandidatePageSource<Cand> {
@@ -446,6 +446,251 @@ class PinyinDecoder(
                     slice.items.map { Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length }) },
                     slice.hasMore,
                 )
+            }
+        }
+    }
+
+    private data class RawPoolSource(
+        val cursor: BinaryDict.WordFreqCursor,
+        val penalty: Double,
+        val order: Int,
+    )
+
+    private data class RankedPoolItem(
+        val wordFreq: BinaryDict.WordFreq,
+        val score: Double,
+        val userBoost: Double,
+        val serial: Long,
+    )
+
+    private inner class IncrementalPoolCursor(
+        input: String,
+        private val ctx: Ctx,
+        blockedWords: Set<String>,
+    ) {
+        private val ctxId = resolveCtxId(ctx.cp)
+        private val condMemo = HashMap<Long, Double>()
+        private val blocked = HashSet(blockedWords)
+        private val emitted = HashSet<String>()
+        private val active = HashMap<String, RankedPoolItem>()
+        private val ranked = PriorityQueue<RankedPoolItem>(::compareRankedPoolItems)
+        private val sources = ArrayList<RawPoolSource>()
+        private val delayedRare = ArrayDeque<RankedPoolItem>()
+        private val maximumAdjustment =
+                (userModel?.maximumWordBoost() ?: 0.0) +
+                (userLearning?.maximumFormedBoost() ?: 0.0) +
+                (userLearning?.maximumFollowBoost() ?: 0.0) +
+                (octagram?.let { 2.0 * octagramWeight * maxOf(0.0, it.maximumRawScore) } ?: 0.0)
+        private var serial = 0L
+        private var commonPrepared = false
+        private var lastCommon: RankedPoolItem? = null
+        private var afterLastCommon = false
+        private var delayedDrained = false
+
+        init {
+            var sourceOrder = 0
+            sources.add(RawPoolSource(dict.exactCursor(input), 0.0, sourceOrder++))
+            for (alias in inputAliases(input)) {
+                sources.add(RawPoolSource(aliasSource.exactCursor(alias), ALIAS_PENALTY, sourceOrder++))
+            }
+            sources.add(RawPoolSource(dict.prefixByFreqCursor(input), 0.0, sourceOrder++))
+            if (fuzzyRules.isNotEmpty()) {
+                for (variant in Fuzzy.variants(input, fuzzyRules)) {
+                    if (variant != input) {
+                        sources.add(RawPoolSource(dict.prefixByFreqCursor(variant), FUZZY_PENALTY, sourceOrder++))
+                    }
+                }
+            }
+            initialsDict?.let {
+                sources.add(RawPoolSource(it.prefixByFreqCursor(input), INITIALS_PENALTY, sourceOrder))
+            }
+            for (word in userWordsFor(input)) {
+                val frequency = userWordFreq(word, input).toInt().coerceAtLeast(1)
+                offer(BinaryDict.WordFreq(word, frequency), 0.0)
+            }
+        }
+
+        fun next(): RankedPoolItem? {
+            if (afterLastCommon && !delayedDrained) {
+                val delayed = delayedRare.removeFirstOrNull()
+                if (delayed != null) return delayed
+                delayedDrained = true
+            }
+            while (true) {
+                val item = nextRanked() ?: return null
+                if (!commonPrepared && classification(item) < 0) prepareCommonBoundary()
+                val boundary = lastCommon
+                if (!afterLastCommon && boundary != null) {
+                    if (classification(item) < 0 && compareRankedPoolItems(item, boundary) < 0) {
+                        delayedRare.addLast(item)
+                        continue
+                    }
+                    if (item.wordFreq.word == boundary.wordFreq.word) afterLastCommon = true
+                }
+                return item
+            }
+        }
+
+        fun hasMore(): Boolean {
+            cleanupRanked()
+            return delayedRare.isNotEmpty() || active.isNotEmpty() || sources.any { it.cursor.peek() != null }
+        }
+
+        private fun prepareCommonBoundary() {
+            if (commonPrepared) return
+            commonPrepared = true
+            for (source in sources) {
+                while ((source.cursor.peek()?.freq ?: Int.MIN_VALUE) >= ORDERING_COMMON_FREQ.toInt()) {
+                    pull(source)
+                }
+            }
+            cleanupRanked()
+            lastCommon = active.values
+                .filter { classification(it) > 0 }
+                .maxWithOrNull(::compareRankedPoolItems)
+        }
+
+        private fun nextRanked(): RankedPoolItem? {
+            while (true) {
+                cleanupRanked()
+                val best = ranked.peek()
+                val source = sources
+                    .asSequence()
+                    .filter { it.cursor.peek() != null }
+                    .maxWithOrNull(
+                        compareBy<RawPoolSource> { unseenUpperBound(it) }
+                            .thenBy { -it.order },
+                    )
+                if (best != null && (source == null || best.score > unseenUpperBound(source))) {
+                    ranked.remove()
+                    active.remove(best.wordFreq.word)
+                    emitted.add(best.wordFreq.word)
+                    return best
+                }
+                if (source != null) {
+                    pull(source)
+                    continue
+                }
+                if (best != null) {
+                    ranked.remove()
+                    active.remove(best.wordFreq.word)
+                    emitted.add(best.wordFreq.word)
+                }
+                return best
+            }
+        }
+
+        private fun unseenUpperBound(source: RawPoolSource): Double {
+            val frequency = source.cursor.peek()?.freq ?: return Double.NEGATIVE_INFINITY
+            return ln(frequency.coerceAtLeast(1).toDouble()) - lnTotal - source.penalty + maximumAdjustment
+        }
+
+        private fun pull(source: RawPoolSource) {
+            val wordFreq = source.cursor.next() ?: return
+            offer(wordFreq, source.penalty)
+        }
+
+        private fun offer(wordFreq: BinaryDict.WordFreq, penalty: Double) {
+            if (wordFreq.word in blocked || wordFreq.word in emitted) return
+            val userBoost = userModel?.wordBoost(wordFreq.word) ?: 0.0
+            val item = RankedPoolItem(
+                wordFreq,
+                wordModelScore(wordFreq.word, wordFreq.freq, ctxId, ctx, condMemo) - penalty,
+                userBoost,
+                serial++,
+            )
+            val previous = active[wordFreq.word]
+            if (previous == null || compareRankedPoolItems(item, previous) < 0) {
+                active[wordFreq.word] = item
+                ranked.add(item)
+            }
+        }
+
+        private fun cleanupRanked() {
+            while (ranked.isNotEmpty()) {
+                val item = ranked.peek() ?: break
+                if (active[item.wordFreq.word] === item) break
+                ranked.remove()
+            }
+        }
+
+        private fun classification(item: RankedPoolItem): Int {
+            if (item.userBoost > 0.0) return 0
+            return when {
+                item.wordFreq.freq.toDouble() >= ORDERING_COMMON_FREQ -> 1
+                item.wordFreq.freq.toDouble() <= ORDERING_RARE_FREQ -> -1
+                else -> 0
+            }
+        }
+    }
+
+    private fun compareRankedPoolItems(left: RankedPoolItem, right: RankedPoolItem): Int {
+        val score = right.score.compareTo(left.score)
+        if (score != 0) return score
+        val tie = supplementarySingleTieRank(left.wordFreq.word)
+            .compareTo(supplementarySingleTieRank(right.wordFreq.word))
+        if (tie != 0) return tie
+        return left.serial.compareTo(right.serial)
+    }
+
+    private fun incrementalCoveredCandidateSource(input: String, context: CharSequence): CandidatePageSource<Cand> {
+        val ctx = parseContext(context)
+        val sentences = AtomicSentenceCursor(buildCompleteSentenceGraph(input), ctx)
+        val best = sentences.next()?.text
+        val seen = HashSet<String>()
+        if (best != null) seen.add(best)
+        val pool = IncrementalPoolCursor(input, ctx, seen)
+        return object : CandidatePageSource<Cand> {
+            private var bestPending = best != null
+            private var sentenceExhausted = false
+            private var leading: List<Cand>? = null
+            private var leadingOffset = 0
+            private var exhausted = false
+            private var headResultCount = if (best != null) 1 else 0
+            private var headResultBudget = -1
+
+            override fun next(pageSize: Int): CandidateSlice<Cand> {
+                if (headResultBudget < 0) headResultBudget = completionCap(pageSize)
+                val items = ArrayList<Cand>(pageSize)
+                while (items.size < pageSize && !exhausted) {
+                    when {
+                        bestPending -> {
+                            bestPending = false
+                            items.add(Cand(requireNotNull(best), input.length))
+                        }
+                        leading == null && headResultCount < headResultBudget && pool.hasMore() -> {
+                            val item = pool.next()
+                            if (item != null && seen.add(item.wordFreq.word)) {
+                                items.add(Cand(item.wordFreq.word, input.length))
+                                headResultCount++
+                            }
+                        }
+                        leading == null -> {
+                            leading = leadingSingles(input, input.length, ctx, seen)
+                        }
+                        leadingOffset < leading.orEmpty().size -> {
+                            items.add(leading.orEmpty()[leadingOffset++])
+                        }
+                        pool.hasMore() -> {
+                            val item = pool.next()
+                            if (item != null && seen.add(item.wordFreq.word)) {
+                                items.add(Cand(item.wordFreq.word, input.length))
+                            }
+                        }
+                        !sentenceExhausted -> {
+                            val sentence = sentences.next()
+                            if (sentence == null) {
+                                sentenceExhausted = true
+                            } else if (seen.add(sentence.text)) {
+                                items.add(Cand(sentence.text, input.length))
+                            }
+                        }
+                        else -> {
+                            exhausted = true
+                        }
+                    }
+                }
+                return CandidateSlice(items, !exhausted)
             }
         }
     }
@@ -946,6 +1191,27 @@ class PinyinDecoder(
         val baseScore: Double,
     )
 
+    private fun buildCompleteSentenceGraph(input: String): Array<ArrayList<AtomicGraphEdge>> {
+        val model = lm
+        val condMemo = HashMap<Long, Double>()
+        val graph = Array(input.length) { ArrayList<AtomicGraphEdge>() }
+        for (start in input.indices) for (end in start + 1..input.length) {
+            for (edge in edgesFor(input.substring(start, end))) {
+                val word = edge.word
+                val firstCp = word.codePointAt(0)
+                val lastCp = word.codePointBefore(word.length)
+                val unigram = ln(edge.freq.toDouble()) - lnTotal
+                val boost = (userModel?.wordBoost(word) ?: 0.0) +
+                    (userLearning?.formedWeight(word) ?: 0.0)
+                val inner = if (model == null) 0.0 else lambda * internalBigramScore(word, model, condMemo)
+                graph[start].add(
+                    AtomicGraphEdge(end, word, firstCp, lastCp, unigram + boost + inner - edge.penalty),
+                )
+            }
+        }
+        return graph
+    }
+
     private fun buildAtomicGraph(
         input: String,
         bounds: List<Int>,
@@ -1073,7 +1339,7 @@ class PinyinDecoder(
             while (queue.isNotEmpty()) {
                 val path = queue.remove()
                 if (path.state.position == nSyl) {
-                    if (yielded.add(path.text)) return SentencePath(path.text, path.baseScore)
+                    if (yielded.add(path.text)) return SentencePath(path.text, terminalScore(path.baseScore, path.text))
                     continue
                 }
                 for (edge in graph[path.state.position]) {
@@ -1103,6 +1369,18 @@ class PinyinDecoder(
     }
 
     private fun appendLeadingSingles(input: String, span: Int, out: ArrayList<Cand>, ctx: Ctx) {
+        val seen = out.mapTo(HashSet(out.size * 2)) { it.word }
+        val existingByCoverage = out.groupBy({ it.coveredLen }, { it.word })
+        out.addAll(leadingSingles(input, span, ctx, seen, existingByCoverage))
+    }
+
+    private fun leadingSingles(
+        input: String,
+        span: Int,
+        ctx: Ctx,
+        seen: MutableSet<String>,
+        existingByCoverage: Map<Int, List<String>> = emptyMap(),
+    ): List<Cand> {
         val ctxId = resolveCtxId(ctx.cp)
         val condMemo = HashMap<Long, Double>()
         val head = input.substring(0, span)
@@ -1110,8 +1388,6 @@ class PinyinDecoder(
         val lens = if (isT9) T9Pinyin.leadingSyllableDigitLens(head)
         else T9Pinyin.leadingSyllableLetterLens(head)
         val lensSet = lens.toSet()
-        val seen = HashSet<String>(out.size * 2)
-        for (c in out) seen.add(c.word)
         val entries = ArrayList<Entry>()
         for (q in span downTo 1) {
             for (wf in preferredExact(dict, input.substring(0, q))) {
@@ -1146,7 +1422,7 @@ class PinyinDecoder(
             val first = restSeg?.firstOrNull() ?: continue
             if (first == "n" || first == "ng" || first == "m") continue
             val present = HashSet<String>()
-            for (c in out) if (c.coveredLen == k) present.add(c.word)
+            present.addAll(existingByCoverage[k].orEmpty())
             for (e in entries) if (e.cov == k) present.add(e.word)
             for ((w, f) in homophoneFreqs(input.substring(0, k))) if (present.add(w))
                 entries.add(
@@ -1164,7 +1440,7 @@ class PinyinDecoder(
                 .thenBy { supplementarySingleTieRank(it.word) },
         )
         enforceRareAfterCommon(entries, word = { it.word }, frequency = { it.frequency })
-        for (e in entries) out.add(Cand(e.word, e.cov))
+        return entries.map { Cand(it.word, it.cov) }
     }
 
     private fun <T> enforceRareAfterCommon(

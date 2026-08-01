@@ -72,6 +72,7 @@ class LeftToRightReachabilityTest {
         c.candidateWords().filter { isSingleChar(it) }.toSet()
 
     private fun assertComplete(what: String, expected: Set<String>, c: KeyboardController) {
+        while (!shownSingles(c).containsAll(expected) && c.hasMoreCandidatesForTest()) c.requestMoreCandidates()
         val missing = expected - shownSingles(c)
         assertTrue(
             "$what: ${missing.size} of ${expected.size} characters unreachable, e.g. ${missing.take(8)}",
@@ -137,6 +138,7 @@ class LeftToRightReachabilityTest {
         val host = Host()
         val c = KeyboardController(host, realEngine()).apply { attachView(InputView(ctx)) }
         type(c, "ni")
+        while (!shownSingles(c).containsAll(ni) && c.hasMoreCandidatesForTest()) c.requestMoreCandidates()
         val words = c.candidateWords()
         val late = words.withIndex().last { (_, w) -> isSingleChar(w) && w in ni }
         assertTrue("the tail character sits past the 30-candidate window", late.index >= 30)

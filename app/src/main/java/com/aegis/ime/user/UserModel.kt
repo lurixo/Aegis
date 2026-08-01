@@ -31,6 +31,8 @@ class UserModel internal constructor(
     private val lastUsed = HashMap<String, Long>()
     private val bigram = HashMap<String, HashMap<String, Int>>()
     private val readings = HashMap<String, LinkedHashSet<String>>()
+    private var maximumBoostVersion = Long.MIN_VALUE
+    private var maximumBoost = 0.0
 
     @Volatile
     var dirty: Boolean = false
@@ -156,6 +158,18 @@ class UserModel internal constructor(
     fun wordBoost(word: String): Double {
         val c = count[word] ?: return 0.0
         return usageScore(c, lastUsed[word] ?: 0L, clock())
+    }
+
+    @Synchronized
+    internal fun maximumWordBoost(): Double {
+        if (maximumBoostVersion == version) return maximumBoost
+        var maximum = 0.0
+        for (value in count.values) {
+            maximum = maxOf(maximum, BOOST_WEIGHT * ln(1.0 + value) + RECENCY_WEIGHT)
+        }
+        maximumBoost = maximum
+        maximumBoostVersion = version
+        return maximumBoost
     }
 
     @Synchronized
