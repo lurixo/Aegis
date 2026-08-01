@@ -26,6 +26,7 @@ import com.aegis.ime.user.UserDataMigration
 import com.aegis.ime.user.UserDataRestoreStage
 import com.aegis.ime.user.UserDictEdit
 import com.aegis.ime.user.UserDictHot
+import com.aegis.ime.user.UserSettingsPreferences
 import com.aegis.ime.user.UserSettingsSchema
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -117,6 +118,7 @@ object BackupManager {
             val staged = readToStaging(rawIn, password, staging)
             try {
                 commit(filesDir, prefs, staged, mode, stage)
+                UserSettingsPreferences.invalidateCache(filesDir)
             } catch (failure: Exception) {
                 throw BackupException(BackupError.IO_ERROR, failure)
             }

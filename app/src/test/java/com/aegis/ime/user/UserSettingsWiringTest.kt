@@ -59,4 +59,13 @@ class UserSettingsWiringTest {
         assertFalse(dependencies.contains("androidx.room"))
         assertFalse(dependencies.contains("datastore"))
     }
+
+    @Test fun settings_reads_use_a_bounded_snapshot_and_restore_invalidates_it() {
+        val settings = source("src/main/java/com/aegis/ime/user/UserSettingsPreferences.kt")
+        val backup = source("src/main/java/com/aegis/ime/backup/BackupManager.kt")
+        assertTrue(settings.contains("MAX_SETTINGS_PER_ROOT = 256"))
+        assertTrue(settings.contains("MAX_ROOTS = 32"))
+        assertTrue(settings.contains("UserSettingsSnapshotCache.read(root)"))
+        assertTrue(backup.contains("UserSettingsPreferences.invalidateCache(filesDir)"))
+    }
 }

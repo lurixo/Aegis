@@ -147,8 +147,8 @@ internal class UserSettingsPreferences private constructor(
     var lastFailure: String? = null
         private set
 
-    override fun getAll(): Map<String, *> = read(emptyMap()) { database ->
-        database.readSettings().mapValues { UserSettingsSchema.asAny(it.value) }
+    override fun getAll(): Map<String, *> = read(emptyMap()) { settings ->
+        settings.mapValues { UserSettingsSchema.asAny(it.value) }
     }
 
     override fun getString(key: String, defValue: String?): String? =
@@ -171,7 +171,7 @@ internal class UserSettingsPreferences private constructor(
         return typed(key, fallback) { (it as StoredSettingValue.Bool).value }
     }
 
-    override fun contains(key: String): Boolean = read(false) { it.readSetting(key) != null }
+    override fun contains(key: String): Boolean = read(false) { key in it }
 
     override fun edit(): SharedPreferences.Editor = Editor()
 
@@ -188,13 +188,17 @@ internal class UserSettingsPreferences private constructor(
     }
 
     private fun <T> typed(key: String, fallback: T, convert: (StoredSettingValue) -> T): T =
-        read(fallback) { database ->
-            val value = database.readSetting(key) ?: return@read fallback
+        read(fallback) { settings ->
+            val value = settings[key] ?: return@read fallback
             convert(value)
         }
 
-    private fun <T> read(fallback: T, block: (UserDataDatabase) -> T): T = try {
-        opener().use { database -> block(database) }.also { lastFailure = null }
+    private fun <T> read(fallback: T, block: (Map<String, StoredSettingValue>) -> T): T = try {
+        block(
+            UserSettingsSnapshotCache.read(root) {
+                opener().use(UserDataDatabase::readSettings)
+            },
+        ).also { lastFailure = null }
     } catch (failure: Exception) {
         lastFailure = failure.javaClass.simpleName + ": " + failure.message.orEmpty()
         fallback
@@ -232,12 +236,14 @@ internal class UserSettingsPreferences private constructor(
 
         override fun clear(): SharedPreferences.Editor = apply { clearRequested = true }
 
-        override fun commit(): Boolean {
+        override fun commit(): Boolean = UserSettingsSnapshotCache.serializedWrite(root) {
             var database: UserDataDatabase? = null
             var before = emptyMap<String, StoredSettingValue>()
-            return try {
+            var beforeRead = false
+            try {
                 database = opener()
                 before = database.readSettings()
+                beforeRead = true
                 val writes = LinkedHashMap<String, StoredSettingValue>()
                 val removals = LinkedHashSet<String>()
                 if (clearRequested) writes.putAll(UserSettingsSchema.defaults)
@@ -256,16 +262,18 @@ internal class UserSettingsPreferences private constructor(
                 val after = database.readSettings()
                 val changed = (before.keys + after.keys).filterTo(LinkedHashSet()) { before[it] != after[it] }
                 lastFailure = null
+                UserSettingsSnapshotCache.publish(root, after)
                 UserSettingsChangeBus.notify(root, this@UserSettingsPreferences, changed)
                 true
             } catch (failure: Exception) {
                 lastFailure = failure.javaClass.simpleName + ": " + failure.message.orEmpty()
-                database?.let { opened ->
-                    runCatching {
+                var rollbackComplete = false
+                if (beforeRead) database?.let { opened ->
+                    rollbackComplete = runCatching {
                         opened.replaceSettings(before)
                         opened.checkpointLastGood()
                         opened.markSettingsCheckpointed()
-                    }
+                    }.isSuccess
                     val previousPrivacy = before[UserSettingsSchema.CLIPBOARD_HISTORY] as? StoredSettingValue.Bool
                     if (previousPrivacy?.value == false) {
                         runCatching {
@@ -276,6 +284,11 @@ internal class UserSettingsPreferences private constructor(
                             opened.markSettingsCheckpointed()
                         }
                     }
+                }
+                if (rollbackComplete) {
+                    UserSettingsSnapshotCache.publish(root, before)
+                } else if (database != null) {
+                    UserSettingsSnapshotCache.invalidate(root)
                 }
                 false
             } finally {
@@ -289,9 +302,15 @@ internal class UserSettingsPreferences private constructor(
     }
 
     companion object {
+        fun invalidateCache(root: File) {
+            UserSettingsSnapshotCache.invalidate(root)
+        }
+
         fun notifyRestored(root: File) {
-            val preferences = UserSettingsPreferences(root, null)
-            val keys = preferences.all.keys
+            val previousKeys = UserSettingsSnapshotCache.cachedKeys(root)
+            UserSettingsSnapshotCache.invalidate(root)
+            val preferences = UserSettingsPreferences(root) { UserDataDatabase.open(root) }
+            val keys = previousKeys + preferences.all.keys
             UserSettingsChangeBus.notify(root, preferences, keys)
         }
 
@@ -318,6 +337,92 @@ internal fun userSettings(context: Context): UserSettingsPreferences = UserSetti
     context.filesDir,
     context.getSharedPreferences("aegis", Context.MODE_PRIVATE),
 )
+
+/**
+ * Process-local, bounded read-through cache for the small settings table.
+ *
+ * SQLite remains the only persistent source of truth. Successful commits publish an immutable
+ * snapshot before hot-apply listeners run, failed commits never publish their requested values,
+ * and backup restore invalidates the snapshot before any subsequent read. The cache avoids doing
+ * database recovery and integrity verification once per getter on the UI thread.
+ */
+private object UserSettingsSnapshotCache {
+    private const val MAX_ROOTS = 32
+    private const val MAX_SETTINGS_PER_ROOT = 256
+
+    private class Entry {
+        @Volatile
+        var snapshot: Map<String, StoredSettingValue>? = null
+
+        @Volatile
+        var generation: Long = 0L
+
+        val loadLock = Any()
+        val writeLock = Any()
+    }
+
+    private val roots = object : LinkedHashMap<String, Entry>(MAX_ROOTS, 0.75f, true) {}
+
+    fun read(root: File, loader: () -> Map<String, StoredSettingValue>): Map<String, StoredSettingValue> {
+        val entry = entry(root)
+        entry.snapshot?.let { return it }
+        synchronized(entry.loadLock) {
+            entry.snapshot?.let { return it }
+            val generation = entry.generation
+            val loaded = immutableCopy(loader())
+            if (loaded.size <= MAX_SETTINGS_PER_ROOT && entry.generation == generation) {
+                entry.snapshot = loaded
+            }
+            return loaded
+        }
+    }
+
+    fun publish(root: File, values: Map<String, StoredSettingValue>) {
+        val entry = entry(root)
+        val snapshot = if (values.size <= MAX_SETTINGS_PER_ROOT) immutableCopy(values) else null
+        synchronized(entry.loadLock) {
+            entry.generation += 1L
+            entry.snapshot = snapshot
+        }
+    }
+
+    fun invalidate(root: File) {
+        val entry = entry(root)
+        synchronized(entry.loadLock) {
+            entry.generation += 1L
+            entry.snapshot = null
+        }
+    }
+
+    fun cachedKeys(root: File): Set<String> = entry(root).snapshot?.keys.orEmpty().toSet()
+
+    fun <T> serializedWrite(root: File, block: () -> T): T = synchronized(entry(root).writeLock, block)
+
+    private fun entry(root: File): Entry {
+        val key = root.absoluteFile.normalize().path
+        synchronized(roots) {
+            roots[key]?.let { return it }
+            val created = Entry()
+            roots[key] = created
+            while (roots.size > MAX_ROOTS) {
+                val eldest = roots.entries.iterator()
+                if (eldest.hasNext()) {
+                    eldest.next()
+                    eldest.remove()
+                }
+            }
+            return created
+        }
+    }
+
+    private fun immutableCopy(values: Map<String, StoredSettingValue>): Map<String, StoredSettingValue> =
+        values.entries.associateTo(LinkedHashMap(values.size)) { (key, value) ->
+            key to when (value) {
+                is StoredSettingValue.StringSetValue -> StoredSettingValue.StringSetValue(value.value.toSet())
+                else -> value
+            }
+        }
+}
 
 private object UserSettingsChangeBus {
     private val listeners = ConcurrentHashMap<String, CopyOnWriteArraySet<SharedPreferences.OnSharedPreferenceChangeListener>>()

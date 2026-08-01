@@ -26,13 +26,16 @@ import java.security.MessageDigest
 
 internal object UserDataMigration {
 
+    private val migrationLocks = Array(16) { Any() }
+
     fun open(
         root: File,
         preferences: SharedPreferences? = null,
         settingsStage: ((SettingsMigrationStage) -> Unit)? = null,
-    ): UserDataDatabase {
+    ): UserDataDatabase = synchronized(migrationLock(root)) {
         val database = UserDataDatabase.open(root)
         try {
+            if (canSkipCompletedMigration(root, preferences, database)) return@synchronized database
             val legacySettings = UserSettingsSchema.legacyValues(preferences)
             val migratedSettings = LinkedHashMap(UserSettingsSchema.defaults).apply {
                 if (database.recoveryReport.kind != UserDataRecoveryKind.EXISTING &&
@@ -128,13 +131,43 @@ internal object UserDataMigration {
                 "beta.29 user data migration verified; legacy preference cleanup pending"
             }
             writeStatus(root, status, detail)
-            return database
+            database
         } catch (failure: Exception) {
             database.close()
             runCatching { writeStatus(root, "failed", failure.javaClass.simpleName + ": " + failure.message.orEmpty()) }
             throw failure
         }
     }
+
+    private fun migrationLock(root: File): Any {
+        val key = root.absoluteFile.normalize().path.hashCode() and Int.MAX_VALUE
+        return migrationLocks[key % migrationLocks.size]
+    }
+
+    private fun canSkipCompletedMigration(
+        root: File,
+        preferences: SharedPreferences?,
+        database: UserDataDatabase,
+    ): Boolean {
+        val status = File(root, STATUS_NAME)
+        if (!status.isFile || status.bufferedReader().use { it.readLine() } != "status=complete") return false
+        if (database.metadata(UserDataDatabase.SETTINGS_MIGRATION_KEY) != "complete") return false
+        if (database.metadata("beta29_migration") != "complete") return false
+        if (preferences != null) {
+            if (runCatching { UserSettingsSchema.legacyValues(preferences).isNotEmpty() }.getOrDefault(true)) return false
+            if (preferences.contains("custom_symbols") || preferences.contains("custom_operators")) return false
+        }
+        return legacyInputs(root).none(File::isFile)
+    }
+
+    private fun legacyInputs(root: File): List<File> = listOf(
+        File(root, "userdb.txt"),
+        File(root, "userlearn.txt"),
+        File(root, "clipboard.txt"),
+        File(root, "phrases.txt"),
+        File(root, "symbol_usage.txt"),
+        File(File(root, "emoji"), "symbol_usage.txt"),
+    )
 
     private fun cleanupLegacySettings(preferences: SharedPreferences?): Boolean {
         if (preferences == null) return true

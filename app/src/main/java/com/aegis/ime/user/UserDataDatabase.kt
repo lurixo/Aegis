@@ -109,6 +109,7 @@ internal class UserDataDatabase private constructor(
     private val root: File,
     private val database: SQLiteDatabase,
     val recoveryReport: UserDataRecoveryReport,
+    private val schemaInitializationRequired: Boolean,
 ) : Closeable {
 
     private val databaseFile = File(root, DATABASE_NAME)
@@ -123,9 +124,8 @@ internal class UserDataDatabase private constructor(
 
     init {
         database.execSQL("PRAGMA foreign_keys=ON")
-        database.enableWriteAheadLogging()
         database.execSQL("PRAGMA synchronous=FULL")
-        createSchema(database)
+        if (schemaInitializationRequired) createSchema(database)
         writeRecoveryStatus(recoveryReport)
     }
 
@@ -2130,6 +2130,12 @@ internal class UserDataDatabase private constructor(
     @Synchronized
     internal fun rankingReadCountsForTest(): Pair<Int, Int> = scalarRankingReads to batchRankingReads
 
+    @Synchronized
+    internal fun journalModeForTest(): String = database.rawQuery("PRAGMA journal_mode", null).use { cursor ->
+        check(cursor.moveToFirst())
+        cursor.getString(0)
+    }
+
     private fun putUsage(
         table: String,
         firstColumn: String,
@@ -2432,6 +2438,7 @@ internal class UserDataDatabase private constructor(
 
     private fun writeRecoveryStatus(report: UserDataRecoveryReport) {
         val text = "kind=${report.kind.name.lowercase()}\ndetail=${report.detail}\n"
+        if (statusFile.isFile && runCatching { statusFile.readText() == text }.getOrDefault(false)) return
         writeTextAtomically(statusFile, text)
     }
 
@@ -2525,9 +2532,15 @@ internal class UserDataDatabase private constructor(
                     report = UserDataRecoveryReport(UserDataRecoveryKind.EMPTY, "created verified empty database after corruption")
                 }
             }
-            val db = SQLiteDatabase.openOrCreateDatabase(main, null)
-            createSchema(db)
-            return UserDataDatabase(root, db, report).also { opened ->
+            val db = SQLiteDatabase.openDatabase(
+                main.absolutePath,
+                null,
+                SQLiteDatabase.OPEN_READWRITE or
+                    SQLiteDatabase.CREATE_IF_NECESSARY or
+                    SQLiteDatabase.ENABLE_WRITE_AHEAD_LOGGING,
+            )
+            val schemaInitializationRequired = !schemaReady(db)
+            return UserDataDatabase(root, db, report, schemaInitializationRequired).also { opened ->
                 if (report.kind != UserDataRecoveryKind.EXISTING &&
                     opened.metadata(SETTINGS_MIGRATION_KEY) != null
                 ) {
@@ -2613,6 +2626,19 @@ internal class UserDataDatabase private constructor(
             db.execSQL("CREATE TABLE IF NOT EXISTS user_settings (key TEXT PRIMARY KEY, type INTEGER NOT NULL CHECK(type BETWEEN 1 AND 6), integer_value INTEGER, text_value TEXT)")
             db.execSQL("CREATE TABLE IF NOT EXISTS user_setting_set_values (setting_key TEXT NOT NULL, value TEXT NOT NULL, PRIMARY KEY(setting_key, value), FOREIGN KEY(setting_key) REFERENCES user_settings(key) ON DELETE CASCADE)")
             db.execSQL("PRAGMA user_version=$SCHEMA_VERSION")
+        }
+
+        private fun schemaReady(db: SQLiteDatabase): Boolean {
+            val version = db.rawQuery("PRAGMA user_version", null).use { cursor ->
+                cursor.moveToFirst() && cursor.getInt(0) == SCHEMA_VERSION
+            }
+            if (!version) return false
+            val tables = LinkedHashSet<String>()
+            db.rawQuery(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+                null,
+            ).use { cursor -> while (cursor.moveToNext()) tables.add(cursor.getString(0)) }
+            return tables == EXPECTED_TABLES
         }
 
         private fun isValidDatabase(file: File): Boolean {

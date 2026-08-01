@@ -35,6 +35,19 @@ class UserDataDatabaseTest {
     private fun root() = Files.createTempDirectory("aegis-user-data").toFile().also { it.deleteOnExit() }
 
     @Test
+    fun everyConcurrentConnectionStartsInWalMode() {
+        val root = root()
+        UserDataDatabase.open(root).use { first ->
+            assertEquals("wal", first.journalModeForTest().lowercase())
+            UserDataDatabase.open(root).use { second ->
+                assertEquals("wal", second.journalModeForTest().lowercase())
+                first.putMetadata("first", "visible")
+                assertEquals("visible", second.metadata("first"))
+            }
+        }
+    }
+
+    @Test
     fun storesLongWordsAndReadingsWithoutLegacyQuotas() {
         val root = root()
         val word = "长".repeat(300)

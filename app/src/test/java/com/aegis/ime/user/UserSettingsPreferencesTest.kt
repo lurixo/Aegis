@@ -168,11 +168,49 @@ class UserSettingsPreferencesTest {
             assertEquals(StoredSettingValue.Bool(true), database.readSetting("pref_key_haptics"))
         }
         assertTrue(delegate.contains("pref_key_haptics"))
+        assertTrue(File(root, UserDataMigration.STATUS_NAME).readText().contains("status=cleanup-pending"))
+        UserSettingsPreferences.notifyRestored(root)
+        assertTrue(
+            "restore notification must not mark unavailable legacy preferences as cleaned",
+            File(root, UserDataMigration.STATUS_NAME).readText().contains("status=cleanup-pending"),
+        )
         failing.failCommits = false
         UserDataMigration.open(root, failing).use { database ->
             assertEquals(StoredSettingValue.Bool(true), database.readSetting("pref_key_haptics"))
         }
         assertFalse(delegate.contains("pref_key_haptics"))
+    }
+
+    @Test fun fully_completed_and_clean_migration_uses_the_verified_fast_path() {
+        val root = temporary.newFolder("completed-fast-path")
+        val legacy = preferences()
+        legacy.edit().putString("pref_default_lang", "en").commit()
+        UserDataMigration.open(root, legacy).close()
+
+        val stages = ArrayList<SettingsMigrationStage>()
+        UserDataMigration.open(root, legacy, stages::add).use { database ->
+            assertEquals(StoredSettingValue.StringValue("en"), database.readSetting("pref_default_lang"))
+        }
+        assertTrue("a clean completed migration must not rerun detailed migration stages", stages.isEmpty())
+    }
+
+    @Test fun completed_migration_falls_back_when_a_stale_legacy_value_reappears() {
+        val root = temporary.newFolder("completed-stale-fallback")
+        val legacy = preferences()
+        legacy.edit().putString("pref_default_lang", "en").commit()
+        UserDataMigration.open(root, legacy).use { database ->
+            database.updateSettings(mapOf("pref_default_lang" to StoredSettingValue.StringValue("cn")))
+            database.checkpointLastGood()
+            database.markSettingsCheckpointed()
+        }
+        legacy.edit().putString("pref_default_lang", "stale").commit()
+
+        val stages = ArrayList<SettingsMigrationStage>()
+        UserDataMigration.open(root, legacy, stages::add).use { database ->
+            assertEquals(StoredSettingValue.StringValue("cn"), database.readSetting("pref_default_lang"))
+        }
+        assertTrue("stale input must force the idempotent cleanup path", stages.isNotEmpty())
+        assertFalse(legacy.contains("pref_default_lang"))
     }
 
     @Test fun clipboard_history_is_fail_closed_on_read_and_write_failure_and_survives_reopen() {
@@ -222,6 +260,63 @@ class UserSettingsPreferencesTest {
         executor.shutdownNow()
         assertEquals(0, failures.get())
         repeat(workers) { worker -> assertEquals(worker, settings.getInt("concurrent_$worker", -1)) }
+    }
+
+    @Test fun repeated_reads_share_one_verified_snapshot_and_successful_commits_refresh_every_instance() {
+        val root = temporary.newFolder("shared-read-snapshot")
+        val legacy = preferences()
+        legacy.edit()
+            .putString("pref_default_lang", "en")
+            .putBoolean("clip_history", false)
+            .commit()
+        UserDataMigration.open(root, legacy).close()
+
+        val opens = AtomicInteger()
+        val opener = {
+            opens.incrementAndGet()
+            UserDataDatabase.open(root)
+        }
+        val first = UserSettingsPreferences(root, opener)
+        val second = UserSettingsPreferences(root, opener)
+
+        repeat(20) {
+            assertEquals("en", first.getString("pref_default_lang", null))
+            assertFalse(second.getBoolean("clip_history", true))
+            assertEquals("nine", second.getString("cn_layout", null))
+        }
+        assertEquals("all getters must share one recovery-verified SQLite snapshot", 1, opens.get())
+
+        assertTrue(second.edit().putString("pref_default_lang", "cn").commit())
+        assertEquals(2, opens.get())
+        assertEquals("cn", first.getString("pref_default_lang", null))
+        assertFalse(first.getBoolean("clip_history", true))
+        assertEquals("the successful commit must publish without another open", 2, opens.get())
+    }
+
+    @Test fun restore_invalidation_forces_the_next_setting_read_back_to_sqlite() {
+        val root = temporary.newFolder("restore-cache-invalidation")
+        UserDataMigration.open(root, preferences()).use { database ->
+            database.updateSettings(mapOf("pref_default_lang" to StoredSettingValue.StringValue("en")))
+            database.checkpointLastGood()
+            database.markSettingsCheckpointed()
+        }
+        val opens = AtomicInteger()
+        val settings = UserSettingsPreferences(root) {
+            opens.incrementAndGet()
+            UserDataDatabase.open(root)
+        }
+        assertEquals("en", settings.getString("pref_default_lang", null))
+        assertEquals(1, opens.get())
+
+        UserDataDatabase.open(root).use { database ->
+            database.updateSettings(mapOf("pref_default_lang" to StoredSettingValue.StringValue("cn")))
+            database.checkpointLastGood()
+            database.markSettingsCheckpointed()
+        }
+        UserSettingsPreferences.invalidateCache(root)
+
+        assertEquals("cn", settings.getString("pref_default_lang", null))
+        assertEquals(2, opens.get())
     }
 
     @Test fun successful_sqlite_commits_notify_hot_apply_listeners_and_failed_commits_do_not() {
