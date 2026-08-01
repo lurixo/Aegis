@@ -17,17 +17,23 @@ package com.aegis.ime.backup
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.aegis.ime.user.ClipboardDataSnapshot
 import com.aegis.ime.user.ClipboardStore
+import com.aegis.ime.user.CustomSymbolStore
 import com.aegis.ime.user.LiveUserData
-import com.aegis.ime.user.LiveUserDictHost
+import com.aegis.ime.user.StoredPhraseCategory
+import com.aegis.ime.user.StoredRecentItem
 import com.aegis.ime.user.SymbolUsageStore
+import com.aegis.ime.user.UserDataDatabase
+import com.aegis.ime.user.UserDataMigration
+import com.aegis.ime.user.UserDataSnapshot
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserLearning
+import com.aegis.ime.user.UserLearningSnapshot
 import com.aegis.ime.user.UserModel
-import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
@@ -38,12 +44,14 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
 import java.io.File
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.ExecutorService
-import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
+import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
+import java.security.MessageDigest
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.zip.GZIPInputStream
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -54,14 +62,31 @@ class BackupRoundTripTest {
     private lateinit var prefs: SharedPreferences
     private val password = "backup-pass-01"
 
-    private companion object {
-        val DOWNLOAD_KEYS = listOf(
-            "engine_pack_touch", "gram_validator", "gram_sha256", "gram_size_bytes", "dict_validator", "dict_sha256",
-            "dict_asset_name", "dict_asset_url", "dict_release_tag", "dict_release_published_at",
-        )
-    }
+    private val downloadKeys = listOf(
+        "engine_pack_touch",
+        "gram_validator",
+        "gram_sha256",
+        "gram_size_bytes",
+        "dict_validator",
+        "dict_sha256",
+        "dict_asset_name",
+        "dict_asset_url",
+        "dict_release_tag",
+        "dict_release_published_at",
+    )
 
-    @Before fun setUp() {
+    private data class DataSnapshot(
+        val user: UserDataSnapshot,
+        val learning: UserLearningSnapshot,
+        val clipboard: ClipboardDataSnapshot,
+        val customSymbols: List<String>,
+        val customOperators: List<String>,
+        val recentSymbols: List<StoredRecentItem>,
+        val recentEmoji: List<StoredRecentItem>,
+    )
+
+    @Before
+    fun setUp() {
         context = RuntimeEnvironment.getApplication()
         filesDir = context.filesDir
         prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
@@ -70,839 +95,466 @@ class BackupRoundTripTest {
         LiveUserData.onBeforeExport = null
         LiveUserData.onBeforeRestore = null
         LiveUserData.restoreInProgress = false
-        listOf("userdb.txt", "userlearn.txt", "phrases.txt", "clipboard.txt", "symbol_usage.txt").forEach {
-            File(filesDir, it).deleteRecursively()
-        }
-        File(filesDir, "clips").deleteRecursively()
-        File(filesDir, "emoji").deleteRecursively()
-        File(filesDir, "backup_staging").deleteRecursively()
+        clearCanonicalData()
         prefs.edit().clear().commit()
     }
 
-
-    private fun userdbFile() = File(filesDir, "userdb.txt")
-    private fun freshClip() = ClipboardStore(filesDir).apply { load() }
-    private fun clipSideFileNames(): Set<String> =
-        File(filesDir, "clips").listFiles().orEmpty().filter { it.isFile }.mapTo(LinkedHashSet()) { it.name }
-
-    private fun clipboardIo(store: ClipboardStore): ExecutorService {
-        val field = ClipboardStore::class.java.getDeclaredField("io")
-        field.isAccessible = true
-        return field.get(store) as ExecutorService
+    private fun clearCanonicalData() {
+        filesDir.listFiles().orEmpty().forEach { file ->
+            if (
+                file.name == UserDataDatabase.DATABASE_NAME ||
+                file.name.startsWith(UserDataDatabase.DATABASE_NAME + "-") ||
+                file.name.startsWith("user-data-v2.last-good") ||
+                file.name in setOf(
+                    UserDataDatabase.STATUS_NAME,
+                    UserDataMigration.STATUS_NAME,
+                    "backup_staging",
+                    "backup_export",
+                    "backup_verify",
+                    "decoded-records",
+                    "userdb.txt",
+                    "userlearn.txt",
+                    "phrases.txt",
+                    "clipboard.txt",
+                    "symbol_usage.txt",
+                    "clips",
+                    "emoji",
+                )
+            ) {
+                file.deleteRecursively()
+            }
+        }
     }
+
+    private fun <T> withDatabase(block: (UserDataDatabase) -> T): T =
+        UserDataMigration.open(filesDir, prefs).use(block)
 
     private fun seedTypicalData() {
-        UserModel().apply {
-            addManualWord("nihao", "你好", 1000)
-            addManualWord("shijie", "世界", 1001)
-            record("你好", "世界", 1002)
-        }.save(userdbFile())
-
-        freshClip().apply {
-            addCategory("工作")
-            addPhrasesTo("工作", listOf("已收到", "好的"))
-            setPhraseNote("工作", "已收到", "回执")
-            record("剪贴内容一")
-            record("剪贴内容二")
-            flushPendingWrites()
-        }
-
-        SymbolUsageStore(filesDir).apply { load(); record("！", "math"); record("？", "math") }
-        SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).apply { load(); record("😀", "smileys") }
-
-        val e = prefs.edit()
+        prefs.edit()
             .putString("cn_layout", "alpha")
             .putBoolean("fuzzy", false)
-            .putString("custom_symbols", "§\n¶")
             .putInt("some_int", 7)
-        for (k in DOWNLOAD_KEYS) e.putString(k, "device-only-$k")
-        e.commit()
+            .apply {
+                for (key in downloadKeys) putString(key, "device-only-$key")
+            }
+            .commit()
+        withDatabase { database ->
+            val model = UserModel(database = database)
+            assertTrue(model.addManualWord("nihao", "你好", 1_000L))
+            assertTrue(model.addManualWord("shijie", "世界", 1_001L))
+            assertTrue(model.record("你好", "世界", 1_002L))
+
+            val learning = UserLearning(database = database)
+            repeat(3) {
+                learning.observeCommit(null, "张", "zhang", 1_100L + it)
+                learning.observeCommit("张", "伟", "wei", 1_200L + it)
+                learning.observeBreak()
+            }
+
+            val clipboard = ClipboardStore(filesDir, database).apply { load() }
+            assertTrue(clipboard.addCategory("工作"))
+            assertEquals(2, clipboard.addPhrasesTo("工作", listOf("已收到", "好的")))
+            val noteSaved = clipboard.setPhraseNote("工作", "已收到", "回执")
+            assertTrue(
+                "categories=${clipboard.categories()} phrases=${clipboard.phrasesIn("工作")} failure=${clipboard.lastFailure}",
+                noteSaved,
+            )
+            assertTrue(clipboard.record("剪贴内容一"))
+            assertTrue(clipboard.record("剪贴内容二"))
+
+            val customSymbols = CustomSymbolStore(prefs, "custom_symbols", database)
+            val customOperators = CustomSymbolStore(prefs, "custom_operators", database)
+            assertTrue(customSymbols.add("§"))
+            assertTrue(customSymbols.add("¶"))
+            assertTrue(customOperators.add("⊕"))
+
+            val symbols = SymbolUsageStore(filesDir, database, "symbols").apply { load() }
+            val emoji = SymbolUsageStore(File(filesDir, "emoji"), database, "emoji").apply { load() }
+            assertTrue(symbols.record("！", "math"))
+            assertTrue(symbols.record("？", "math"))
+            assertTrue(emoji.record("😀", "smileys"))
+            database.checkpointLastGood()
+        }
     }
 
-    private fun export(): ByteArray {
-        val bos = ByteArrayOutputStream()
-        BackupManager.export(filesDir, prefs, password.toCharArray(), bos)
-        return bos.toByteArray()
+    private fun snapshot(): DataSnapshot = withDatabase { database ->
+        DataSnapshot(
+            user = database.readUserData(),
+            learning = database.readLearning(),
+            clipboard = ClipboardDataSnapshot(database.readClipboardHistory(), database.readPhraseCategories()),
+            customSymbols = database.readCustomItems("custom_symbols"),
+            customOperators = database.readCustomItems("custom_operators"),
+            recentSymbols = database.readRecentItems("symbols"),
+            recentEmoji = database.readRecentItems("emoji"),
+        )
     }
 
-    private fun restore(bytes: ByteArray, mode: BackupManager.Mode, pass: String = password) =
+    private fun exportVerified(): ByteArray {
+        val output = ByteArrayOutputStream()
+        BackupManager.export(filesDir, prefs, password.toCharArray(), output)
+        val bytes = output.toByteArray()
+        BackupManager.verify(filesDir, password.toCharArray(), ByteArrayInputStream(bytes))
+        assertFalse(File(filesDir, "backup_export").exists())
+        assertFalse(File(filesDir, "backup_verify").exists())
+        return bytes
+    }
+
+    private fun restore(bytes: ByteArray, mode: BackupManager.Mode, pass: String = password): BackupManager.Mode =
         BackupManager.restore(filesDir, prefs, pass.toCharArray(), ByteArrayInputStream(bytes), mode)
 
-    private fun wipeUserData() {
-        listOf("userdb.txt", "userlearn.txt", "phrases.txt", "clipboard.txt", "symbol_usage.txt").forEach {
-            File(filesDir, it).deleteRecursively()
-        }
-        File(filesDir, "clips").deleteRecursively()
-        File(filesDir, "emoji").deleteRecursively()
-    }
-
-    private fun blockFilePathWithDirectory(relativePath: String) {
-        val dir = File(filesDir, relativePath)
-        dir.deleteRecursively()
-        dir.parentFile?.mkdirs()
-        assertTrue("precondition: blocker directory was created", dir.mkdirs())
-        File(dir, "blocker").writeText("x")
-    }
-
-    private fun expectRestoreIoFailure(backup: ByteArray, mode: BackupManager.Mode) {
+    private fun expectError(expected: BackupError, block: () -> Unit) {
         try {
-            restore(backup, mode)
-            fail("expected restore to report a persistence failure")
-        } catch (e: BackupException) {
-            assertEquals(BackupError.IO_ERROR, e.error)
-        }
-        assertFalse("staging must be cleaned up", File(filesDir, "backup_staging").exists())
-        assertFalse("guard must not stay latched after a failed restore", LiveUserData.restoreInProgress)
-    }
-
-    private class CommitFailingSharedPreferences(
-        private val delegate: SharedPreferences,
-    ) : SharedPreferences by delegate {
-        val editedKeys = LinkedHashSet<String>()
-        var commitCalled = false
-            private set
-
-        override fun edit(): SharedPreferences.Editor =
-            CommitFailingEditor(delegate.edit(), editedKeys) { commitCalled = true }
-
-        private class CommitFailingEditor(
-            private val delegate: SharedPreferences.Editor,
-            private val editedKeys: MutableSet<String>,
-            private val onCommit: () -> Unit,
-        ) : SharedPreferences.Editor by delegate {
-            override fun putBoolean(key: String, value: Boolean): SharedPreferences.Editor {
-                editedKeys.add(key)
-                delegate.putBoolean(key, value)
-                return this
-            }
-
-            override fun putFloat(key: String, value: Float): SharedPreferences.Editor {
-                editedKeys.add(key)
-                delegate.putFloat(key, value)
-                return this
-            }
-
-            override fun putInt(key: String, value: Int): SharedPreferences.Editor {
-                editedKeys.add(key)
-                delegate.putInt(key, value)
-                return this
-            }
-
-            override fun putLong(key: String, value: Long): SharedPreferences.Editor {
-                editedKeys.add(key)
-                delegate.putLong(key, value)
-                return this
-            }
-
-            override fun putString(key: String, value: String?): SharedPreferences.Editor {
-                editedKeys.add(key)
-                delegate.putString(key, value)
-                return this
-            }
-
-            override fun putStringSet(key: String, values: Set<String>?): SharedPreferences.Editor {
-                editedKeys.add(key)
-                delegate.putStringSet(key, values)
-                return this
-            }
-
-            override fun commit(): Boolean {
-                onCommit()
-                return false
-            }
+            block()
+            fail("expected BackupException($expected)")
+        } catch (failure: BackupException) {
+            assertEquals(expected, failure.error)
         }
     }
 
-    private fun decodeUserdbFromBackup(backup: ByteArray): UserModel {
-        val captured = ByteArrayOutputStream()
-        BackupCrypto.readDecrypted(ByteArrayInputStream(backup), password.toCharArray()) { plain ->
-            java.util.zip.GZIPInputStream(plain).use { gz ->
-                BackupArchive.read(java.io.DataInputStream(gz), object : BackupArchive.Visitor {
-                    override fun onPrefs(blob: ByteArray) {}
-                    override fun openFile(relativePath: String) =
-                        if (relativePath == "userdb.txt") captured else ByteArrayOutputStream()
-                })
-            }
-        }
-        val tmp = File(filesDir, "decoded_userdb_probe.txt")
-        tmp.writeBytes(captured.toByteArray())
-        return UserModel().apply { load(tmp) }.also { tmp.delete() }
-    }
-
-    private fun decodeFileNamesFromBackup(backup: ByteArray): Set<String> {
-        val names = LinkedHashSet<String>()
-        BackupCrypto.readDecrypted(ByteArrayInputStream(backup), password.toCharArray()) { plain ->
-            java.util.zip.GZIPInputStream(plain).use { gz ->
-                BackupArchive.read(java.io.DataInputStream(gz), object : BackupArchive.Visitor {
-                    override fun onPrefs(blob: ByteArray) {}
-                    override fun openFile(relativePath: String): ByteArrayOutputStream {
-                        names.add(relativePath)
-                        return ByteArrayOutputStream()
-                    }
-                })
-            }
-        }
-        return names
-    }
-
-    @Test fun user_learning_file_obeys_overwrite_and_minimal_merge_semantics() {
-        val userLearn = File(filesDir, "userlearn.txt")
-        UserLearning { 1_000L }.apply {
-            observeCommit("备份", "内容", "", 1_000L)
-            save(userLearn)
-        }
-        val backedUp = userLearn.readBytes()
-        val backup = export()
-        assertTrue("user learning must be present in the archive", "userlearn.txt" in decodeFileNamesFromBackup(backup))
-
-        userLearn.delete()
-        restore(backup, BackupManager.Mode.OVERWRITE)
-        assertArrayEquals(backedUp, userLearn.readBytes())
-
-        UserLearning { 2_000L }.apply {
-            observeCommit("本机", "保留", "", 2_000L)
-            save(userLearn)
-        }
-        val local = userLearn.readBytes()
-        restore(backup, BackupManager.Mode.MERGE)
-        assertArrayEquals(local, userLearn.readBytes())
-    }
-
-    @Test fun export_flushes_live_user_learning_before_archiving() {
-        val userLearn = File(filesDir, "userlearn.txt")
-        val learning = UserLearning { 1_000L }.apply {
-            observeCommit("实时", "学习", "", 1_000L)
-        }
-        UserDictHot.host = LiveUserDictHost(UserModel(), userdbFile(), learning, userLearn)
-        try {
-            val backup = export()
-            assertFalse("export must flush the secondary store", learning.dirty)
-            assertTrue("the flushed file must enter the archive", "userlearn.txt" in decodeFileNamesFromBackup(backup))
-            UserDictHot.host = null
-            userLearn.delete()
-            restore(backup, BackupManager.Mode.OVERWRITE)
-            val restored = UserLearning { 1_000L }.apply { load(userLearn) }
-            assertEquals(listOf("学习"), restored.follows("实时").map { it.first })
-        } finally {
-            UserDictHot.host = null
-        }
-    }
-
-    @Test fun merge_restore_flushes_live_user_learning_before_preserving_the_local_file() {
-        val userLearn = File(filesDir, "userlearn.txt")
-        UserLearning { 1_000L }.apply {
-            observeCommit("备份", "内容", "", 1_000L)
-            save(userLearn)
-        }
-        val backup = export()
-        userLearn.delete()
-
-        val learning = UserLearning { 2_000L }.apply {
-            observeCommit("本机", "保留", "", 2_000L)
-        }
-        UserDictHot.host = LiveUserDictHost(UserModel(), userdbFile(), learning, userLearn)
-        try {
-            restore(backup, BackupManager.Mode.MERGE)
-            val reloaded = UserLearning { 2_000L }.apply { load(userLearn) }
-            assertEquals(listOf("保留"), reloaded.follows("本机").map { it.first })
-            assertTrue(reloaded.follows("备份").isEmpty())
-        } finally {
-            UserDictHot.host = null
-        }
-    }
-
-
-    @Test fun overwrite_restore_recovers_every_store_item_by_item() {
+    @Test
+    fun overwriteRoundTripRestoresEveryDatabaseStoreAndRemainingPreference() {
         seedTypicalData()
-        val backup = export()
+        val expected = snapshot()
+        val backup = exportVerified()
 
-        wipeUserData()
-        prefs.edit().clear().commit()
-
+        clearCanonicalData()
+        prefs.edit().clear().putString("dict_sha256", "local-download-state").commit()
         restore(backup, BackupManager.Mode.OVERWRITE)
 
-        val model = UserModel().apply { load(userdbFile()) }
-        val entries = model.userWordEntries().associate { (it.reading to it.word) to it.count }
-        assertEquals(setOf("nihao" to "你好", "shijie" to "世界"), entries.keys)
-        assertEquals(1, entries["nihao" to "你好"])
-        assertEquals(2, entries["shijie" to "世界"])
-        assertTrue("word boost survived", model.wordBoost("你好") > 0.0)
-        assertEquals(listOf("世界"), model.successors("你好", 8))
-
-        val clip = freshClip()
-        assertTrue(clip.phrasesIn("工作").containsAll(listOf("已收到", "好的")))
-        assertEquals("回执", clip.noteFor("工作", "已收到"))
-
-        assertTrue(clip.history().containsAll(listOf("剪贴内容一", "剪贴内容二")))
-
-        assertTrue(SymbolUsageStore(filesDir).apply { load() }.recent().containsAll(listOf("！", "？")))
-        assertTrue(SymbolUsageStore(File(filesDir, "emoji")).apply { load() }.recent().contains("😀"))
-
+        assertEquals(expected, snapshot())
         assertEquals("alpha", prefs.getString("cn_layout", null))
         assertFalse(prefs.getBoolean("fuzzy", true))
-        assertEquals("§\n¶", prefs.getString("custom_symbols", null))
         assertEquals(7, prefs.getInt("some_int", -1))
-        for (k in DOWNLOAD_KEYS) assertFalse("download-state key $k must not be restored", prefs.contains(k))
+        assertEquals("local-download-state", prefs.getString("dict_sha256", null))
+        assertFalse(prefs.contains("custom_symbols"))
+        assertFalse(prefs.contains("custom_operators"))
+        assertFalse(LiveUserData.restoreInProgress)
     }
 
-    @Test fun the_archive_never_carries_download_state_keys() {
+    @Test
+    fun mergeKeepsLocalOrderAndSettingsWhileAddingAndCombiningBackupData() {
         seedTypicalData()
-        val backup = export()
+        val backup = exportVerified()
 
-        var prefsBlob: ByteArray? = null
-        BackupCrypto.readDecrypted(ByteArrayInputStream(backup), password.toCharArray()) { plain ->
-            java.util.zip.GZIPInputStream(plain).use { gz ->
-                BackupArchive.read(java.io.DataInputStream(gz), object : BackupArchive.Visitor {
-                    override fun onPrefs(blob: ByteArray) { prefsBlob = blob }
-                    override fun openFile(relativePath: String) = java.io.ByteArrayOutputStream()
-                })
-            }
+        clearCanonicalData()
+        prefs.edit().clear().putString("cn_layout", "local").commit()
+        withDatabase { database ->
+            val model = UserModel(database = database)
+            assertTrue(model.addManualWord("beijing", "北京", 2_000L))
+            val clipboard = ClipboardStore(filesDir, database).apply { load() }
+            assertTrue(clipboard.record("本机剪贴"))
+            assertTrue(clipboard.addCategory("本机组"))
+            assertEquals(1, clipboard.addPhrasesTo("本机组", listOf("本机短语")))
+            assertTrue(CustomSymbolStore(prefs, "custom_symbols", database).add("本机符号"))
+            assertTrue(SymbolUsageStore(filesDir, database, "symbols").apply { load() }.record("本", "local"))
         }
-        val decoded = PrefsCodec.decode(prefsBlob!!)
-        assertTrue("real settings are present", decoded.containsKey("cn_layout"))
-        for (k in DOWNLOAD_KEYS) assertFalse("archive must omit $k", decoded.containsKey(k))
-    }
-
-    @Test fun overwrite_preserves_download_state_keys_already_on_the_device() {
-        seedTypicalData()
-        val backup = export()
-
-        wipeUserData()
-        prefs.edit().clear().putString("dict_sha256", "STILL_HERE").commit()
-
-        restore(backup, BackupManager.Mode.OVERWRITE)
-
-        assertEquals("alpha", prefs.getString("cn_layout", null))
-        assertEquals("STILL_HERE", prefs.getString("dict_sha256", null))
-    }
-
-    @Test fun merge_unions_data_and_keeps_local_settings() {
-        seedTypicalData()
-        val backup = export()
-
-        wipeUserData()
-        UserModel().apply { addManualWord("beijing", "北京", 2000) }.save(userdbFile())
-        freshClip().apply { record("本机剪贴"); flushPendingWrites() }
-        prefs.edit().putString("cn_layout", "nine").commit()
 
         restore(backup, BackupManager.Mode.MERGE)
 
-        val model = UserModel().apply { load(userdbFile()) }
-        val entries = model.userWordEntries().map { it.reading to it.word }.toSet()
-        assertTrue("kept local word", entries.contains("beijing" to "北京"))
-        assertTrue("added backup words", entries.containsAll(listOf("nihao" to "你好", "shijie" to "世界")))
-
-        assertTrue(freshClip().history().containsAll(listOf("本机剪贴", "剪贴内容一", "剪贴内容二")))
-
-        assertEquals("nine", prefs.getString("cn_layout", null))
-        assertEquals("§\n¶", prefs.getString("custom_symbols", null))
+        withDatabase { database ->
+            val readings = database.readUserData().readings
+            assertEquals(setOf("北京"), readings["beijing"])
+            assertEquals(setOf("你好"), readings["nihao"])
+            assertEquals("本机剪贴", database.readClipboardHistory(limit = 1).single())
+            assertTrue(database.readClipboardHistory().containsAll(listOf("剪贴内容一", "剪贴内容二")))
+            val categories = database.readPhraseCategories().associateBy(StoredPhraseCategory::name)
+            assertTrue(categories.containsKey("本机组"))
+            assertTrue(categories.containsKey("工作"))
+            assertEquals(listOf("本机符号", "§", "¶"), database.readCustomItems("custom_symbols"))
+            assertEquals("本", database.readRecentItems("symbols", limit = 1).single().value)
+            assertTrue(database.readRecentItems("symbols").map { it.value }.containsAll(listOf("！", "？")))
+        }
+        assertEquals("local", prefs.getString("cn_layout", null))
+        assertEquals(7, prefs.getInt("some_int", -1))
     }
 
-    @Test fun wrong_password_is_rejected_and_leaves_data_untouched() {
+    @Test
+    fun wrongPasswordTruncationAndCiphertextDamageNeverChangeTheTarget() {
         seedTypicalData()
-        val backup = export()
-        val userdbBefore = userdbFile().readText()
+        val backup = exportVerified()
+        withDatabase { database -> assertTrue(ClipboardStore(filesDir, database).apply { load() }.record("target marker")) }
+        prefs.edit().putString("target_pref", "keep").commit()
+        val expected = snapshot()
 
-        try {
-            restore(backup, BackupManager.Mode.OVERWRITE, pass = "not-the-password")
-            fail("expected a wrong-password failure")
-        } catch (e: BackupException) {
-            assertEquals(BackupError.WRONG_PASSWORD_OR_CORRUPT, e.error)
+        expectError(BackupError.WRONG_PASSWORD_OR_CORRUPT) {
+            restore(backup, BackupManager.Mode.OVERWRITE, "wrong-password")
+        }
+        expectError(BackupError.WRONG_PASSWORD_OR_CORRUPT) {
+            restore(backup.copyOf(backup.size - 17), BackupManager.Mode.OVERWRITE)
+        }
+        val damaged = backup.copyOf().also { it[it.lastIndex] = (it.last().toInt() xor 1).toByte() }
+        expectError(BackupError.WRONG_PASSWORD_OR_CORRUPT) {
+            restore(damaged, BackupManager.Mode.OVERWRITE)
         }
 
-        assertEquals("existing data must be unchanged", userdbBefore, userdbFile().readText())
-        assertFalse("staging must be cleaned up", File(filesDir, "backup_staging").exists())
+        assertEquals(expected, snapshot())
+        assertEquals("keep", prefs.getString("target_pref", null))
+        assertFalse(File(filesDir, "backup_staging").exists())
+        assertFalse(LiveUserData.restoreInProgress)
     }
 
-    @Test fun a_corrupt_file_is_rejected_and_leaves_data_untouched() {
+    @Test
+    fun versionOneIsExplicitlyUnsupportedWithoutChangingData() {
         seedTypicalData()
-        val backup = export()
-        backup[backup.size / 2] = (backup[backup.size / 2].toInt() xor 0x7F).toByte()
-        val userdbBefore = userdbFile().readText()
+        val expected = snapshot()
+        val backup = exportVerified()
+        backup[BackupFormat.MAGIC.size] = 1
 
-        try {
+        expectError(BackupError.UNSUPPORTED_VERSION) {
             restore(backup, BackupManager.Mode.OVERWRITE)
-            fail("expected a corrupt-file failure")
-        } catch (e: BackupException) {
-            assertEquals(BackupError.WRONG_PASSWORD_OR_CORRUPT, e.error)
         }
-        assertEquals(userdbBefore, userdbFile().readText())
+        assertEquals(expected, snapshot())
+    }
+
+    @Test
+    fun dataAndSingleRecordsBeyondOldEightMiBBoundariesRoundTripExactly() {
+        val history = List(9_000) { index ->
+            "clip-$index-" + String(CharArray(1_024) { offset ->
+                ('a'.code + (index * 131 + offset * 17).mod(26)).toChar()
+            })
+        }
+        val largePreference = "p".repeat(8 * 1024 * 1024 + 1)
+        withDatabase { database ->
+            val clipboard = ClipboardStore(filesDir, database).apply { load() }
+            assertTrue(clipboard.importHistory(history, merge = false))
+            val customSymbols = CustomSymbolStore(prefs, "custom_symbols", database)
+            repeat(450) { assertTrue(customSymbols.add("custom-$it")) }
+            val recent = SymbolUsageStore(filesDir, database, "symbols").apply { load() }
+            repeat(100) { assertTrue(recent.record("recent-$it", "group-$it")) }
+            database.checkpointLastGood()
+        }
+        assertTrue(File(filesDir, UserDataDatabase.DATABASE_NAME).length() > 8L * 1024L * 1024L)
+        assertTrue(prefs.edit().putString("large_preference", largePreference).commit())
+        val preferenceHash = sha256(largePreference)
+
+        val backup = exportVerified()
+        clearCanonicalData()
+        prefs.edit().clear().commit()
+        restore(backup, BackupManager.Mode.OVERWRITE)
+
+        withDatabase { database ->
+            var offset = 0
+            while (offset < history.size) {
+                val expectedPage = history.subList(offset, minOf(offset + 128, history.size))
+                assertEquals(expectedPage, database.readClipboardHistory(offset, expectedPage.size))
+                offset += expectedPage.size
+            }
+            assertEquals(450, database.readCustomItems("custom_symbols").size)
+            assertEquals(100, database.readRecentItems("symbols").size)
+        }
+        val restoredPreference = prefs.getString("large_preference", null).orEmpty()
+        assertEquals(largePreference.length, restoredPreference.length)
+        assertEquals(preferenceHash, sha256(restoredPreference))
+    }
+
+    @Test
+    fun verifyReopensAndRejectsAnIncompleteOrTamperedProduct() {
+        seedTypicalData()
+        val backup = exportVerified()
+        expectError(BackupError.WRONG_PASSWORD_OR_CORRUPT) {
+            BackupManager.verify(filesDir, password.toCharArray(), ByteArrayInputStream(backup.copyOf(backup.size / 2)))
+        }
+        val damaged = backup.copyOf().also { it[it.lastIndex] = (it.last().toInt() xor 1).toByte() }
+        expectError(BackupError.WRONG_PASSWORD_OR_CORRUPT) {
+            BackupManager.verify(filesDir, password.toCharArray(), ByteArrayInputStream(damaged))
+        }
+        assertFalse(File(filesDir, "backup_verify").exists())
+    }
+
+    @Test
+    fun outputAndInputIoFailuresAreReportedWithoutLeakingTemporaryState() {
+        seedTypicalData()
+        val expected = snapshot()
+        var exportFailed = false
+        try {
+            BackupManager.export(filesDir, prefs, password.toCharArray(), FailingOutputStream(0))
+        } catch (_: IOException) {
+            exportFailed = true
+        }
+        assertTrue(exportFailed)
+        assertFalse(File(filesDir, "backup_export").exists())
+
+        val backup = exportVerified()
+        expectError(BackupError.IO_ERROR) {
+            BackupManager.restore(
+                filesDir,
+                prefs,
+                password.toCharArray(),
+                FailingInputStream(backup, backup.size / 2),
+                BackupManager.Mode.OVERWRITE,
+            )
+        }
+        assertEquals(expected, snapshot())
         assertFalse(File(filesDir, "backup_staging").exists())
     }
 
-    @Test fun overwrite_does_not_wipe_a_category_absent_from_the_backup() {
-        UserModel().apply { addManualWord("nihao", "你好", 1000) }.save(userdbFile())
-        val backup = export()
-
-        freshClip().apply { record("请勿删除"); flushPendingWrites() }
-
-        restore(backup, BackupManager.Mode.OVERWRITE)
-
-        assertTrue("absent category must be left intact", freshClip().history().contains("请勿删除"))
-        assertTrue(UserModel().apply { load(userdbFile()) }.userWordEntries().any { it.word == "你好" })
-    }
-
-    @Test fun restore_refreshes_live_stores_and_clears_the_capture_guard() {
+    @Test
+    fun preferenceCommitFailurePreventsDatabaseCommit() {
         seedTypicalData()
-        val backup = export()
-        wipeUserData()
-        prefs.edit().clear().commit()
-
-        var reloaded = false
-        LiveUserData.onRestored = { reloaded = true; LiveUserData.restoreInProgress = false }
-
-        restore(backup, BackupManager.Mode.OVERWRITE)
-
-        assertTrue("the running service's stores are refreshed after a restore", reloaded)
-        assertFalse("the capture guard is released once the reload lands", LiveUserData.restoreInProgress)
-    }
-
-    @Test fun restore_reports_failure_when_live_user_dictionary_import_fails() {
-        UserModel().apply { addManualWord("nihao", "你好", 1000) }.save(userdbFile())
-        val backup = export()
-        wipeUserData()
-
-        UserDictHot.host = object : UserDictHot.Host {
-            override fun addWord(reading: String, word: String, now: Long) = true
-            override fun removeWord(reading: String, word: String) = true
-            override fun importUserDict(importFile: File, merge: Boolean, now: Long) = false
-            override fun entries(): List<UserModel.Entry> = emptyList()
-            override fun flush() {}
+        val backup = exportVerified()
+        withDatabase { database -> assertTrue(ClipboardStore(filesDir, database).apply { load() }.record("local after export")) }
+        val expected = snapshot()
+        assertTrue(prefs.edit().remove("cn_layout").putBoolean("fuzzy", true).commit())
+        val failing = object : SharedPreferences by prefs {
+            override fun edit(): SharedPreferences.Editor {
+                val delegate = prefs.edit()
+                return object : SharedPreferences.Editor by delegate {
+                    override fun commit(): Boolean {
+                        delegate.commit()
+                        return false
+                    }
+                }
+            }
         }
-        try {
-            expectRestoreIoFailure(backup, BackupManager.Mode.OVERWRITE)
-        } finally {
-            UserDictHot.host = null
-        }
-    }
 
-    @Test fun restore_reports_failure_when_preference_commit_fails_after_decoding_prefs() {
-        seedTypicalData()
-        val backup = export()
-        wipeUserData()
-        prefs.edit().clear().commit()
-        val failingPrefs = CommitFailingSharedPreferences(prefs)
-
-        try {
+        expectError(BackupError.IO_ERROR) {
             BackupManager.restore(
                 filesDir,
-                failingPrefs,
+                failing,
                 password.toCharArray(),
                 ByteArrayInputStream(backup),
                 BackupManager.Mode.OVERWRITE,
             )
-            fail("expected restore to report a preference persistence failure")
-        } catch (e: BackupException) {
-            assertEquals(BackupError.IO_ERROR, e.error)
         }
-
-        assertTrue(
-            "restored preferences must be decoded and applied before commit failure is reported",
-            "cn_layout" in failingPrefs.editedKeys,
-        )
-        assertTrue("preference editor commit must be reached", failingPrefs.commitCalled)
-        assertFalse("staging must be cleaned up", File(filesDir, "backup_staging").exists())
-        assertFalse("guard must not stay latched after a failed restore", LiveUserData.restoreInProgress)
+        assertEquals(expected, snapshot())
+        assertFalse(prefs.contains("cn_layout"))
+        assertTrue(prefs.getBoolean("fuzzy", false))
+        assertFalse(LiveUserData.restoreInProgress)
     }
 
-    @Test fun restore_reports_failure_when_phrase_persistence_fails() {
-        freshClip().apply { addPhrasesTo("default", listOf("短语写入失败探针")) }
-        val backup = export()
-        wipeUserData()
-        blockFilePathWithDirectory("phrases.txt")
-
-        expectRestoreIoFailure(backup, BackupManager.Mode.OVERWRITE)
-    }
-
-    @Test fun merge_restore_reports_failure_when_clipboard_persistence_fails() {
-        freshClip().apply { record("剪贴写入失败探针"); flushPendingWrites() }
-        val backup = export()
-        wipeUserData()
-        blockFilePathWithDirectory("clipboard.txt")
-
-        expectRestoreIoFailure(backup, BackupManager.Mode.MERGE)
-    }
-
-    @Test fun restore_reports_failure_when_symbol_persistence_fails() {
-        SymbolUsageStore(filesDir).apply { load(); record("！", "zh") }
-        val backup = export()
-        wipeUserData()
-        blockFilePathWithDirectory("symbol_usage.txt")
-
-        expectRestoreIoFailure(backup, BackupManager.Mode.OVERWRITE)
-    }
-
-    @Test fun restore_reports_failure_when_emoji_persistence_fails() {
-        SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).apply { load(); record("😀", "smileys") }
-        val backup = export()
-        wipeUserData()
-        blockFilePathWithDirectory("emoji/symbol_usage.txt")
-
-        expectRestoreIoFailure(backup, BackupManager.Mode.OVERWRITE)
-    }
-
-    @Test fun a_failed_restore_never_latches_the_capture_guard() {
+    @Test
+    fun databaseOpenFailureRollsBackPreferences() {
         seedTypicalData()
-        val backup = export()
-        try {
-            restore(backup, BackupManager.Mode.OVERWRITE, pass = "wrong")
-            fail("expected failure")
-        } catch (e: BackupException) {
-            assertEquals(BackupError.WRONG_PASSWORD_OR_CORRUPT, e.error)
+        val backup = exportVerified()
+        clearCanonicalData()
+        prefs.edit().clear().putString("target_pref", "keep").commit()
+        val blocker = File(filesDir, UserDataDatabase.DATABASE_NAME).apply {
+            mkdirs()
+            File(this, "blocker").writeText("x")
         }
-        assertFalse("guard must not stay latched after a failed restore", LiveUserData.restoreInProgress)
-    }
 
-    @Test fun the_backup_file_reveals_no_plaintext_or_password() {
-        freshClip().apply { record("UNIQUE-LEAK-MARKER-42"); flushPendingWrites() }
-        val backup = export()
-        val haystack = String(backup, Charsets.ISO_8859_1)
-        assertFalse("user content must be encrypted", haystack.contains("UNIQUE-LEAK-MARKER-42"))
-        assertFalse("password must never appear", haystack.contains(password))
-    }
-
-    @Test fun large_dictionary_and_a_multi_megabyte_clip_round_trip_without_loading_it_all() {
-        val model = UserModel()
-        val count = 60_000
-        for (i in 0 until count) model.addManualWord("reading$i", "词$i", 1000L + i)
-        model.save(userdbFile())
-
-        val bigClip = "巨大剪贴".repeat(400_000)
-        freshClip().apply { importHistory(listOf(bigClip, "普通"), merge = false) }
-
-        val backup = export()
-        wipeUserData()
-        restore(backup, BackupManager.Mode.OVERWRITE)
-
-        assertEquals(count, UserModel().apply { load(userdbFile()) }.userWordEntries().size)
-        val history = freshClip().history()
-        assertTrue(history.contains("普通"))
-        assertTrue("the multi-MB entry round-trips", history.contains(bigClip))
-    }
-
-    @Test fun overwrite_restore_replaces_clip_sidecar_set() {
-        val restoredBig = "restored-sidecar-" + "r".repeat(ClipboardStore.BIG_THRESHOLD + 1)
-        freshClip().apply { importHistory(listOf(restoredBig), merge = false) }
-        val backup = export()
-        val restoredSidecars = clipSideFileNames()
-        assertTrue("precondition: restored history has a sidecar", restoredSidecars.isNotEmpty())
-
-        wipeUserData()
-        val staleBig = "stale-sidecar-" + "s".repeat(ClipboardStore.BIG_THRESHOLD + 1)
-        freshClip().apply { importHistory(listOf(staleBig), merge = false) }
-        val staleSidecars = clipSideFileNames()
-        assertTrue("precondition: target history has a stale sidecar", staleSidecars.isNotEmpty())
-        assertTrue("precondition: sidecar hashes differ", restoredSidecars.intersect(staleSidecars).isEmpty())
-
-        restore(backup, BackupManager.Mode.OVERWRITE)
-
-        assertEquals(listOf(restoredBig), freshClip().history())
-        assertEquals(restoredSidecars, clipSideFileNames())
-    }
-
-    @Test fun overwrite_restore_normalizes_duplicate_clips_and_missing_sidecars() {
-        File(filesDir, "clipboard.txt").writeText("重复剪贴\nB\tMissingSidecar42\n重复剪贴\n")
-        val backup = export()
-
-        wipeUserData()
-        restore(backup, BackupManager.Mode.OVERWRITE)
-
-        assertEquals(listOf("重复剪贴", "B\tMissingSidecar42"), freshClip().history())
-        assertEquals(listOf("重复剪贴", "B\tMissingSidecar42"), File(filesDir, "clipboard.txt").readLines())
-        assertTrue(clipSideFileNames().isEmpty())
-    }
-
-    @Test fun export_after_overwrite_omits_unreferenced_clip_sidecars() {
-        val restoredBig = "export-restored-sidecar-" + "r".repeat(ClipboardStore.BIG_THRESHOLD + 1)
-        freshClip().apply { importHistory(listOf(restoredBig), merge = false) }
-        val backup = export()
-        val restoredSidecars = clipSideFileNames()
-        assertTrue("precondition: restored history has a sidecar", restoredSidecars.isNotEmpty())
-
-        wipeUserData()
-        val staleBig = "export-stale-sidecar-" + "s".repeat(ClipboardStore.BIG_THRESHOLD + 1)
-        freshClip().apply { importHistory(listOf(staleBig), merge = false) }
-        val staleSidecars = clipSideFileNames()
-        assertTrue("precondition: target history has a stale sidecar", staleSidecars.isNotEmpty())
-        assertTrue("precondition: sidecar hashes differ", restoredSidecars.intersect(staleSidecars).isEmpty())
-
-        restore(backup, BackupManager.Mode.OVERWRITE)
-        val clipsDir = File(filesDir, "clips").apply { mkdirs() }
-        for (name in staleSidecars) File(clipsDir, name).writeText(staleBig)
-
-        val archiveNames = decodeFileNamesFromBackup(export())
-
-        for (name in restoredSidecars) assertTrue("restored sidecar must be archived", "clips/$name" in archiveNames)
-        for (name in staleSidecars) assertFalse("stale sidecar must not be archived", "clips/$name" in archiveNames)
-    }
-
-    @Test fun export_flushes_live_learning_not_yet_written_to_disk() {
-        val userDb = userdbFile()
-        UserModel().apply { addManualWord("nihao", "你好", 1000) }.save(userDb)
-
-        val live = UserModel().apply {
-            load(userDb)
-            addManualWord("shijie", "世界", 2000)
-            record("你好", "世界", 2001)
-        }
-        assertTrue("precondition: the live model has unsaved learning", live.dirty)
-        UserDictHot.host = LiveUserDictHost(live, userDb)
-        try {
-            val decoded = decodeUserdbFromBackup(export())
-            val entries = decoded.userWordEntries().associate { (it.reading to it.word) to it.count }
-            assertTrue("live-only learned word must be in the backup", entries.containsKey("shijie" to "世界"))
-            assertEquals("its exact frequency (one add + one commit) must survive", 2, entries["shijie" to "世界"])
-            assertEquals("the freshly learned bigram must be flushed too", listOf("世界"), decoded.successors("你好", 8))
-        } finally {
-            UserDictHot.host = null
-        }
-    }
-
-    @Test fun export_flushes_queued_big_clipboard_write_before_copying_index_and_side_file() {
-        val clip = freshClip()
-        val ioBlocked = CountDownLatch(1)
-        val releaseIo = CountDownLatch(1)
-        clipboardIo(clip).execute {
-            ioBlocked.countDown()
-            releaseIo.await(5, TimeUnit.SECONDS)
-        }
-        assertTrue("precondition: clipboard IO thread is blocked", ioBlocked.await(1, TimeUnit.SECONDS))
-
-        val marker = "queued-big-clipboard-marker-" + "x".repeat(ClipboardStore.BIG_THRESHOLD + 1)
-        clip.record(marker)
-
-        val flushEntered = CountDownLatch(1)
-        val exportWorker = Executors.newSingleThreadExecutor()
-        try {
-            LiveUserData.onBeforeExport = {
-                flushEntered.countDown()
-                clip.flushPendingWrites()
-            }
-
-            val export = exportWorker.submit<ByteArray> { export() }
-            assertTrue("export reached the live clipboard flush hook", flushEntered.await(1, TimeUnit.SECONDS))
-            assertFalse("export must wait for the queued clipboard write", export.isDone)
-
-            releaseIo.countDown()
-            val backup = export.get(5, TimeUnit.SECONDS)
-
-            wipeUserData()
+        expectError(BackupError.IO_ERROR) {
             restore(backup, BackupManager.Mode.OVERWRITE)
-
-            assertTrue("queued big clipboard entry must restore from the backup", freshClip().history().contains(marker))
-        } finally {
-            releaseIo.countDown()
-            exportWorker.shutdownNow()
-            LiveUserData.onBeforeExport = null
         }
+        assertEquals("keep", prefs.getString("target_pref", null))
+        assertFalse(prefs.contains("cn_layout"))
+        assertTrue(blocker.isDirectory)
     }
 
-    @Test fun restore_flushes_queued_clipboard_write_before_committing_restored_history() {
-        val restoredMarker = "restored-clipboard-marker-" + "r".repeat(ClipboardStore.BIG_THRESHOLD + 1)
-        freshClip().apply { importHistory(listOf(restoredMarker), merge = false) }
-        val backup = export()
-        wipeUserData()
-
-        val liveClip = freshClip()
-        val ioBlocked = CountDownLatch(1)
-        val releaseIo = CountDownLatch(1)
-        clipboardIo(liveClip).execute {
-            ioBlocked.countDown()
-            releaseIo.await(5, TimeUnit.SECONDS)
+    @Test
+    fun restoreRefreshesLiveStoresAndAlwaysReleasesTheCaptureGuard() {
+        seedTypicalData()
+        val backup = exportVerified()
+        val reloads = AtomicInteger(0)
+        LiveUserData.onRestored = {
+            reloads.incrementAndGet()
+            LiveUserData.restoreInProgress = false
         }
-        assertTrue("precondition: clipboard IO thread is blocked", ioBlocked.await(1, TimeUnit.SECONDS))
-
-        liveClip.record("queued-stale-before-restore")
-
-        val flushEntered = CountDownLatch(1)
-        val restoreWorker = Executors.newSingleThreadExecutor()
-        try {
-            LiveUserData.onBeforeRestore = {
-                flushEntered.countDown()
-                liveClip.flushPendingWrites()
-            }
-
-            val restoreFuture = restoreWorker.submit<BackupManager.Mode> {
-                restore(backup, BackupManager.Mode.OVERWRITE)
-            }
-            assertTrue("restore reached the live clipboard flush hook", flushEntered.await(1, TimeUnit.SECONDS))
-            assertFalse("restore must wait for the queued clipboard write before committing", restoreFuture.isDone)
-
-            releaseIo.countDown()
-            assertEquals(BackupManager.Mode.OVERWRITE, restoreFuture.get(5, TimeUnit.SECONDS))
-
-            assertEquals(listOf(restoredMarker), freshClip().history())
-        } finally {
-            releaseIo.countDown()
-            restoreWorker.shutdownNow()
-            LiveUserData.onBeforeRestore = null
-        }
-    }
-
-    @Test fun service_teardown_drains_queued_clipboard_write_before_restore_can_commit() {
-        val restoredMarker = "restored-after-service-teardown-" + "t".repeat(ClipboardStore.BIG_THRESHOLD + 1)
-        freshClip().apply { importHistory(listOf(restoredMarker), merge = false) }
-        val backup = export()
-        wipeUserData()
-
-        val liveClip = freshClip()
-        val ioBlocked = CountDownLatch(1)
-        val releaseIo = CountDownLatch(1)
-        clipboardIo(liveClip).execute {
-            ioBlocked.countDown()
-            releaseIo.await(5, TimeUnit.SECONDS)
-        }
-        assertTrue("precondition: clipboard IO thread is blocked", ioBlocked.await(1, TimeUnit.SECONDS))
-
-        liveClip.record("queued-stale-during-service-teardown")
-
-        val flushCalls = AtomicInteger(0)
-        val teardownFlushEntered = CountDownLatch(1)
-        val restoreFlushEntered = CountDownLatch(1)
-        val flush = {
-            when (flushCalls.incrementAndGet()) {
-                1 -> teardownFlushEntered.countDown()
-                2 -> restoreFlushEntered.countDown()
-            }
-            liveClip.flushPendingWrites()
-        }
-        val teardownWorker = Executors.newSingleThreadExecutor()
-        val restoreWorker = Executors.newSingleThreadExecutor()
-        try {
-            LiveUserData.onBeforeExport = flush
-            LiveUserData.onBeforeRestore = flush
-
-            val teardownFuture = teardownWorker.submit {
-                LiveUserData.unregisterClipboardPersistenceHooks(flush)
-            }
-            assertTrue("service teardown reached the live clipboard flush hook", teardownFlushEntered.await(1, TimeUnit.SECONDS))
-            assertFalse("service teardown must wait for the queued clipboard write", teardownFuture.isDone)
-
-            val restoreFuture = restoreWorker.submit<BackupManager.Mode> {
-                restore(backup, BackupManager.Mode.OVERWRITE)
-            }
-            assertTrue("restore must still see the flush hook while teardown is draining it", restoreFlushEntered.await(1, TimeUnit.SECONDS))
-            assertFalse("restore must wait for the queued clipboard write before committing", restoreFuture.isDone)
-
-            releaseIo.countDown()
-            teardownFuture.get(5, TimeUnit.SECONDS)
-            assertEquals(BackupManager.Mode.OVERWRITE, restoreFuture.get(5, TimeUnit.SECONDS))
-
-            assertNull(LiveUserData.onBeforeExport)
-            assertNull(LiveUserData.onBeforeRestore)
-            assertEquals(listOf(restoredMarker), freshClip().history())
-        } finally {
-            releaseIo.countDown()
-            teardownWorker.shutdownNow()
-            restoreWorker.shutdownNow()
-            LiveUserData.onBeforeExport = null
-            LiveUserData.onBeforeRestore = null
-        }
-    }
-
-    @Test fun a_legacy_flat_phrases_file_restores_instead_of_being_silently_dropped() {
-        File(filesDir, "phrases.txt").writeText("张三\n李四\n王五\n")
-        val backup = export()
-
-        wipeUserData()
-        prefs.edit().clear().commit()
-
         restore(backup, BackupManager.Mode.OVERWRITE)
-
-        assertTrue(
-            "legacy flat phrases must survive the round-trip",
-            freshClip().phrases().containsAll(listOf("张三", "李四", "王五")),
-        )
+        assertEquals(1, reloads.get())
+        assertFalse(LiveUserData.restoreInProgress)
     }
 
-    @Test fun overwrite_restore_merges_duplicate_phrase_categories_from_backup() {
-        File(filesDir, "phrases.txt").writeText(
-            "C\t工作\n" +
-                "P\t备份一\n" +
-                "N\t一注\n" +
-                "C\t工作\n" +
-                "P\t备份二\n" +
-                "P\t备份一\n" +
-                "N\t不应覆盖\n",
-        )
-        val backup = export()
+    @Test
+    fun exportAndRestoreInvokeLiveFlushHooksBeforeTakingOrChangingSnapshots() {
+        seedTypicalData()
+        val exportFlushes = AtomicInteger(0)
+        val restoreFlushes = AtomicInteger(0)
+        LiveUserData.onBeforeExport = { exportFlushes.incrementAndGet() }
+        LiveUserData.onBeforeRestore = { restoreFlushes.incrementAndGet() }
+        val backup = exportVerified()
+        restore(backup, BackupManager.Mode.OVERWRITE)
+        assertEquals(1, exportFlushes.get())
+        assertEquals(1, restoreFlushes.get())
+    }
 
-        wipeUserData()
-        freshClip().apply {
-            addCategory("工作")
-            addPhrasesTo("工作", listOf("本机旧"))
-            addCategory("本机组")
-            addPhrasesTo("本机组", listOf("不应保留"))
+    @Test
+    fun archiveContainsOnlyTheDatabaseAndStreamedNonDevicePreferences() {
+        prefs.edit().putString("custom_symbols", "stale-legacy-value").commit()
+        seedTypicalData()
+        val backup = exportVerified()
+        val decoded = decodeRecords(backup)
+        assertEquals("database", decoded.keys.first())
+        assertTrue(UserDataDatabase.validateRestoreSource(decoded.getValue("database")))
+        val preferenceKeys = decoded.filterKeys { it.startsWith("preference/") }.values.map { file ->
+            file.inputStream().use { PrefsCodec.readEntry(DataInputStream(it)).first }
+        }.toSet()
+        assertTrue(preferenceKeys.containsAll(listOf("cn_layout", "fuzzy", "some_int")))
+        for (key in downloadKeys) assertFalse(preferenceKeys.contains(key))
+        assertFalse(preferenceKeys.contains("custom_symbols"))
+        assertFalse(preferenceKeys.contains("custom_operators"))
+    }
+
+    @Test
+    fun eachExportUsesFreshAuthenticatedEncryption() {
+        seedTypicalData()
+        val first = exportVerified()
+        val second = exportVerified()
+        assertNotEquals(first.toList(), second.toList())
+        val haystack = String(first, Charsets.ISO_8859_1)
+        assertFalse(haystack.contains("剪贴内容一"))
+        assertFalse(haystack.contains(password))
+    }
+
+    private fun decodeRecords(backup: ByteArray): LinkedHashMap<String, File> {
+        val directory = File(filesDir, "decoded-records").apply {
+            deleteRecursively()
+            mkdirs()
+        }
+        val files = LinkedHashMap<String, File>()
+        BackupCrypto.readDecrypted(ByteArrayInputStream(backup), password.toCharArray()) { plain ->
+            GZIPInputStream(plain).use { gzip ->
+                BackupArchive.read(
+                    DataInputStream(gzip),
+                    object : BackupArchive.Visitor {
+                        override fun openRecord(name: String, kind: Int): OutputStream {
+                            val file = File(directory, name.replace('/', '_'))
+                            files[name] = file
+                            return file.outputStream()
+                        }
+                    },
+                )
+            }
+        }
+        return files
+    }
+
+    private fun sha256(value: String): String = MessageDigest.getInstance("SHA-256")
+        .digest(value.toByteArray(Charsets.UTF_8))
+        .joinToString("") { "%02x".format(it.toInt() and 0xff) }
+
+    private class FailingOutputStream(private val failAfter: Int) : OutputStream() {
+        private var written = 0
+
+        override fun write(value: Int) {
+            if (written >= failAfter) throw IOException("simulated output failure")
+            written++
         }
 
-        restore(backup, BackupManager.Mode.OVERWRITE)
-
-        val clip = freshClip()
-        assertEquals(1, clip.categories().count { it == "工作" })
-        assertEquals(listOf("备份一", "备份二"), clip.phrasesIn("工作"))
-        assertEquals("一注", clip.noteFor("工作", "备份一"))
-        assertFalse("本机组" in clip.categories())
-        assertFalse("本机旧" in clip.phrasesIn("工作"))
+        override fun write(bytes: ByteArray, offset: Int, length: Int) {
+            if (written + length > failAfter) throw IOException("simulated output failure")
+            written += length
+        }
     }
 
-    @Test fun merge_restore_collapses_local_duplicate_phrase_categories() {
-        File(filesDir, "phrases.txt").writeText(
-            "C\t工作\n" +
-                "P\t备份一\n" +
-                "P\t共同\n" +
-                "N\t备份注\n" +
-                "C\t新组\n" +
-                "P\t新短语\n",
-        )
-        val backup = export()
+    private class FailingInputStream(
+        private val bytes: ByteArray,
+        private val failAfter: Int,
+    ) : InputStream() {
+        private var position = 0
 
-        wipeUserData()
-        File(filesDir, "phrases.txt").writeText(
-            "C\t工作\n" +
-                "P\t本机一\n" +
-                "C\t工作\n" +
-                "P\t本机二\n" +
-                "P\t共同\n" +
-                "N\t本机注\n" +
-                "C\t本机组\n" +
-                "P\t保留\n",
-        )
+        override fun read(): Int {
+            if (position >= failAfter) throw IOException("simulated input failure")
+            return if (position >= bytes.size) -1 else bytes[position++].toInt() and 0xff
+        }
 
-        restore(backup, BackupManager.Mode.MERGE)
-
-        val clip = freshClip()
-        assertEquals(1, clip.categories().count { it == "工作" })
-        assertEquals(listOf("本机一", "本机二", "共同", "备份一"), clip.phrasesIn("工作"))
-        assertEquals("本机注", clip.noteFor("工作", "共同"))
-        assertEquals(listOf("新短语"), clip.phrasesIn("新组"))
-        assertEquals(listOf("保留"), clip.phrasesIn("本机组"))
-    }
-
-    @Test fun malformed_blank_phrase_category_backup_never_wipes_existing_phrases() {
-        File(filesDir, "phrases.txt").writeText("C\t\nP\t无分类短语\n")
-        val backup = export()
-
-        wipeUserData()
-        freshClip().apply { addPhrasesTo("default", listOf("请勿删除的短语")) }
-
-        restore(backup, BackupManager.Mode.OVERWRITE)
-
-        val clip = freshClip()
-        assertTrue(clip.phrases().contains("请勿删除的短语"))
-        assertFalse("" in clip.categories())
-    }
-
-    @Test fun an_empty_phrases_backup_never_wipes_existing_phrases_on_overwrite() {
-        File(filesDir, "phrases.txt").writeText("")
-        val backup = export()
-
-        freshClip().addPhrasesTo("default", listOf("请勿删除的短语"))
-
-        restore(backup, BackupManager.Mode.OVERWRITE)
-
-        assertTrue(
-            "an empty-phrases backup must not wipe the device's phrases on overwrite",
-            freshClip().phrases().contains("请勿删除的短语"),
-        )
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+            if (position >= failAfter) throw IOException("simulated input failure")
+            if (position >= bytes.size) return -1
+            val count = minOf(length, bytes.size - position, failAfter - position)
+            bytes.copyInto(buffer, offset, position, position + count)
+            position += count
+            return count
+        }
     }
 }

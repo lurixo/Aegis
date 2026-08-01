@@ -105,6 +105,12 @@ class BackupCryptoTest {
         expectError(BackupError.UNSUPPORTED_VERSION) { decrypt(file, "pass1234") }
     }
 
+    @Test fun versionOneIsRejectedBeforeAnyArchiveRestore() {
+        val file = encrypt("legacy".toByteArray(), "pass1234")
+        file[BackupFormat.MAGIC.size] = 1
+        expectError(BackupError.UNSUPPORTED_VERSION) { decrypt(file, "pass1234") }
+    }
+
     @Test fun an_unknown_kdf_id_is_reported() {
         val file = encrypt("x".toByteArray(), "pass1234")
         file[BackupFormat.MAGIC.size + 1] = 42

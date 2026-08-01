@@ -18,7 +18,7 @@ package com.aegis.ime.backup
 internal object BackupFormat {
     val MAGIC: ByteArray = byteArrayOf(0x41, 0x45, 0x47, 0x49, 0x53, 0x42, 0x4B, 0x31)
 
-    const val HEADER_VERSION = 1
+    const val HEADER_VERSION = 2
 
     const val KDF_PBKDF2_HMAC_SHA256 = 1
 

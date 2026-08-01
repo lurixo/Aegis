@@ -16,6 +16,7 @@
 package com.aegis.ime.ui
 
 import android.content.Context
+import android.net.Uri
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -29,14 +30,20 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 
 private fun str(id: Int) = RuntimeEnvironment.getApplication().getString(id)
 
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
+@Suppress("DEPRECATION")
 class BackupActivityUiTest {
     @get:Rule val compose = createAndroidComposeRule<BackupActivity>()
 
@@ -77,5 +84,35 @@ class BackupActivityUiTest {
         compose.onNodeWithContentDescription(str(R.string.settings_back)).performScrollTo().performClick()
         compose.waitForIdle()
         assertTrue(compose.activity.isFinishing)
+    }
+
+    @Test fun export_closes_and_reopens_the_document_before_reporting_success() {
+        val uri = Uri.parse("content://aegis.test/verified-export")
+        val resolver = shadowOf(compose.activity.contentResolver)
+        val product = AtomicReference<ByteArrayOutputStream>()
+        val reopenCount = AtomicInteger()
+        resolver.registerOutputStreamSupplier(uri) { ByteArrayOutputStream().also(product::set) }
+        resolver.registerInputStreamSupplier(uri) {
+            reopenCount.incrementAndGet()
+            ByteArrayInputStream(product.get().toByteArray())
+        }
+
+        assertTrue(compose.activity.writeExport(uri, "backup-pass-01".toCharArray()))
+        assertTrue(product.get().size() > 0)
+        assertTrue(reopenCount.get() == 1)
+        assertFalse(resolver.deleteStatements.any { it.uri == uri })
+    }
+
+    @Test fun failed_reopen_verification_deletes_the_invalid_document() {
+        val uri = Uri.parse("content://aegis.test/invalid-export")
+        val resolver = shadowOf(compose.activity.contentResolver)
+        val product = AtomicReference<ByteArrayOutputStream>()
+        resolver.registerOutputStreamSupplier(uri) { ByteArrayOutputStream().also(product::set) }
+        resolver.registerInputStreamSupplier(uri) {
+            ByteArrayInputStream(product.get().toByteArray().copyOf(1))
+        }
+
+        assertFalse(compose.activity.writeExport(uri, "backup-pass-01".toCharArray()))
+        assertTrue(resolver.deleteStatements.any { it.uri == uri })
     }
 }

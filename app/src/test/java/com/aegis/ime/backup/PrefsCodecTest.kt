@@ -18,44 +18,76 @@ package com.aegis.ime.backup
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
+import java.io.DataOutputStream
 
 class PrefsCodecTest {
 
-    @Test fun round_trips_every_supported_type() {
-        val source = linkedMapOf<String, Any?>(
-            "flag" to true,
-            "count" to 42,
-            "stamp" to 1_700_000_000_000L,
-            "ratio" to 1.5f,
-            "layout" to "alpha",
-            "symbols" to setOf("！", "？", "。"),
+    private fun roundTrip(key: String, value: Any): Pair<String, PrefsCodec.Value> {
+        val bytes = ByteArrayOutputStream()
+        DataOutputStream(bytes).use { PrefsCodec.writeEntry(it, key, value) }
+        return PrefsCodec.readEntry(DataInputStream(ByteArrayInputStream(bytes.toByteArray())))
+    }
+
+    @Test
+    fun everySupportedTypeRoundTripsAsOneRecord() {
+        assertEquals("flag" to PrefsCodec.Value.Bool(true), roundTrip("flag", true))
+        assertEquals("count" to PrefsCodec.Value.Integer(42), roundTrip("count", 42))
+        assertEquals("stamp" to PrefsCodec.Value.LongVal(1_700_000_000_000L), roundTrip("stamp", 1_700_000_000_000L))
+        assertEquals("ratio" to PrefsCodec.Value.FloatVal(1.5f), roundTrip("ratio", 1.5f))
+        assertEquals("layout" to PrefsCodec.Value.Str("alpha"), roundTrip("layout", "alpha"))
+        assertEquals(
+            "symbols" to PrefsCodec.Value.StrSet(setOf("！", "？", "。")),
+            roundTrip("symbols", setOf("！", "？", "。")),
         )
-        val decoded = PrefsCodec.decode(PrefsCodec.encode(source))
-
-        assertEquals(6, decoded.size)
-        assertEquals(PrefsCodec.Value.Bool(true), decoded["flag"])
-        assertEquals(PrefsCodec.Value.Integer(42), decoded["count"])
-        assertEquals(PrefsCodec.Value.LongVal(1_700_000_000_000L), decoded["stamp"])
-        assertEquals(PrefsCodec.Value.FloatVal(1.5f), decoded["ratio"])
-        assertEquals(PrefsCodec.Value.Str("alpha"), decoded["layout"])
-        assertEquals(PrefsCodec.Value.StrSet(setOf("！", "？", "。")), decoded["symbols"])
     }
 
-    @Test fun skips_unsupported_value_types() {
-        val decoded = PrefsCodec.decode(PrefsCodec.encode(mapOf("keep" to "yes", "drop" to Any(), "null" to null)))
-        assertTrue(decoded.containsKey("keep"))
-        assertFalse(decoded.containsKey("drop"))
-        assertFalse(decoded.containsKey("null"))
+    @Test
+    fun supportDetectionRejectsUnknownOrMixedValues() {
+        assertTrue(PrefsCodec.supported("yes"))
+        assertTrue(PrefsCodec.supported(setOf("a", "b")))
+        assertFalse(PrefsCodec.supported(Any()))
+        assertFalse(PrefsCodec.supported(null))
+        assertFalse(PrefsCodec.supported(setOf("a", 1)))
     }
 
-    @Test fun round_trips_a_value_longer_than_64k() {
-        val big = "x".repeat(70_000)
-        val decoded = PrefsCodec.decode(PrefsCodec.encode(mapOf("custom_symbols" to big)))
-        assertEquals(PrefsCodec.Value.Str(big), decoded["custom_symbols"])
+    @Test
+    fun aSingleStringBeyondTheOldEightMiBBoundaryRoundTrips() {
+        val value = "界".repeat(8 * 1024 * 1024 + 1)
+        assertEquals("large" to PrefsCodec.Value.Str(value), roundTrip("large", value))
     }
 
-    @Test fun round_trips_an_empty_map() {
-        assertTrue(PrefsCodec.decode(PrefsCodec.encode(emptyMap())).isEmpty())
+    @Test
+    fun trailingRecordDataIsRejected() {
+        val bytes = ByteArrayOutputStream()
+        DataOutputStream(bytes).use { output ->
+            PrefsCodec.writeEntry(output, "key", "value")
+            output.writeByte(1)
+        }
+        try {
+            PrefsCodec.readEntry(DataInputStream(ByteArrayInputStream(bytes.toByteArray())))
+            fail("expected corrupt preference record")
+        } catch (_: BackupCorruptException) {
+        }
+    }
+
+    @Test
+    fun negativeLengthsUnknownTypesAndTruncatedStringsAreRejected() {
+        val malformed = listOf(
+            byteArrayOf(-1, -1, -1, -1),
+            byteArrayOf(0, 0, 0, 1, 0, 'k'.code.toByte(), 99),
+            byteArrayOf(0, 0, 0, 1, 0, 'k'.code.toByte(), 'S'.code.toByte(), 0, 0, 0, 2, 0, 'x'.code.toByte()),
+        )
+        for (bytes in malformed) {
+            try {
+                PrefsCodec.readEntry(DataInputStream(ByteArrayInputStream(bytes)))
+                fail("expected corrupt preference record")
+            } catch (_: Exception) {
+            }
+        }
     }
 }

@@ -17,117 +17,234 @@ package com.aegis.ime.backup
 
 import java.io.DataInputStream
 import java.io.DataOutputStream
-import java.io.File
 import java.io.OutputStream
+import java.security.MessageDigest
 
 internal object BackupArchive {
 
-    private const val ENTRY_PREFS = 'P'.code
-    private const val ENTRY_FILE = 'F'.code
-    private const val ENTRY_END = 'X'.code
-    private const val COPY_CHUNK = 64 * 1024
+    const val KIND_DATABASE = 1
+    const val KIND_PREFERENCE = 2
 
-    private const val MAX_PREFS_BYTES = 8 * 1024 * 1024
+    private val ARCHIVE_MAGIC = byteArrayOf(0x41, 0x45, 0x47, 0x49, 0x53, 0x41, 0x52, 0x32)
+    private const val ARCHIVE_VERSION = 2
+    private const val ENTRY_RECORD = 'R'.code
+    private const val ENTRY_MANIFEST = 'M'.code
+    private const val WRITE_CHUNK_BYTES = 64 * 1024
+    private const val MAX_DECLARED_CHUNK_BYTES = 16 * 1024 * 1024
+    private const val MAX_RECORDS = 1_000_000
+    private const val DIGEST_BYTES = 32
 
-    private const val MAX_CHUNK_BYTES = 16 * 1024 * 1024
+    data class RecordMetadata(
+        val name: String,
+        val kind: Int,
+        val size: Long,
+        val sha256: ByteArray,
+    )
 
-    fun writePrefs(out: DataOutputStream, blob: ByteArray) {
-        out.writeByte(ENTRY_PREFS)
-        out.writeInt(blob.size)
-        out.write(blob)
-    }
+    class Writer(private val output: DataOutputStream) {
+        private val records = ArrayList<RecordMetadata>()
+        private val names = HashSet<String>()
+        private var finished = false
 
-    fun writeFile(out: DataOutputStream, name: String, file: File) {
-        val nameBytes = name.toByteArray(Charsets.UTF_8)
-        out.writeByte(ENTRY_FILE)
-        out.writeShort(nameBytes.size)
-        out.write(nameBytes)
-        file.inputStream().use { input ->
-            val buf = ByteArray(COPY_CHUNK)
-            while (true) {
-                val n = input.read(buf)
-                if (n < 0) break
-                if (n == 0) continue
-                out.writeInt(n)
-                out.write(buf, 0, n)
-            }
-            out.writeInt(0)
+        init {
+            output.write(ARCHIVE_MAGIC)
+            output.writeByte(ARCHIVE_VERSION)
+        }
+
+        fun writeRecord(name: String, kind: Int, write: (OutputStream) -> Unit) {
+            check(!finished)
+            require(sanitizedRecordName(name, kind) != null)
+            require(names.add(name))
+            output.writeByte(ENTRY_RECORD)
+            output.writeByte(kind)
+            writeName(output, name)
+            val record = ChunkedRecordOutput(output)
+            write(record)
+            record.finish()
+            records.add(RecordMetadata(name, kind, record.size, record.digest()))
+        }
+
+        fun finish() {
+            check(!finished)
+            finished = true
+            output.writeByte(ENTRY_MANIFEST)
+            output.writeInt(records.size)
+            val digest = MessageDigest.getInstance("SHA-256")
+            for (record in records) writeMetadata(output, digest, record)
+            output.write(digest.digest())
+            output.flush()
         }
     }
 
-    fun writeEnd(out: DataOutputStream) {
-        out.writeByte(ENTRY_END)
-    }
-
     interface Visitor {
-        fun onPrefs(blob: ByteArray)
-
-        fun openFile(relativePath: String): OutputStream
+        fun openRecord(name: String, kind: Int): OutputStream
     }
 
-    fun read(input: DataInputStream, visitor: Visitor) {
-        val buf = ByteArray(COPY_CHUNK)
+    fun read(input: DataInputStream, visitor: Visitor): List<RecordMetadata> {
+        val magic = ByteArray(ARCHIVE_MAGIC.size)
+        input.readFully(magic)
+        if (!magic.contentEquals(ARCHIVE_MAGIC)) throw BackupCorruptException("bad archive magic")
+        if (input.readUnsignedByte() != ARCHIVE_VERSION) throw BackupCorruptException("bad archive version")
+        val records = ArrayList<RecordMetadata>()
+        val names = HashSet<String>()
+        val buffer = ByteArray(WRITE_CHUNK_BYTES)
         while (true) {
-            val tag = input.read()
-            if (tag < 0) throw BackupCorruptException("archive ended before the end marker")
-            when (tag) {
-                ENTRY_END -> return
-                ENTRY_PREFS -> {
-                    val len = input.readInt()
-                    if (len < 0 || len > MAX_PREFS_BYTES) throw BackupCorruptException("bad prefs length $len")
-                    val blob = ByteArray(len)
-                    input.readFully(blob)
-                    visitor.onPrefs(blob)
+            when (val tag = input.read()) {
+                ENTRY_RECORD -> {
+                    if (records.size >= MAX_RECORDS) throw BackupCorruptException("too many records")
+                    val kind = input.readUnsignedByte()
+                    val name = readName(input)
+                    if (sanitizedRecordName(name, kind) == null || !names.add(name)) {
+                        throw BackupCorruptException("invalid record name")
+                    }
+                    val digest = MessageDigest.getInstance("SHA-256")
+                    var size = 0L
+                    visitor.openRecord(name, kind).use { sink ->
+                        while (true) {
+                            val length = input.readInt()
+                            if (length == 0) break
+                            if (length < 0 || length > MAX_DECLARED_CHUNK_BYTES) {
+                                throw BackupCorruptException("bad chunk length $length")
+                            }
+                            var remaining = length
+                            while (remaining > 0) {
+                                val count = minOf(remaining, buffer.size)
+                                input.readFully(buffer, 0, count)
+                                sink.write(buffer, 0, count)
+                                digest.update(buffer, 0, count)
+                                size = Math.addExact(size, count.toLong())
+                                remaining -= count
+                            }
+                        }
+                    }
+                    records.add(RecordMetadata(name, kind, size, digest.digest()))
                 }
-                ENTRY_FILE -> {
-                    val nameLen = input.readUnsignedShort()
-                    val nameBytes = ByteArray(nameLen)
-                    input.readFully(nameBytes)
-                    val rawName = String(nameBytes, Charsets.UTF_8)
-                    val safe = sanitizedRelativePath(rawName)
-                        ?: throw BackupCorruptException("unsafe entry name")
-                    visitor.openFile(safe).use { sink -> copyChunks(input, sink, buf) }
+                ENTRY_MANIFEST -> {
+                    readAndVerifyManifest(input, records)
+                    if (input.read() != -1) throw BackupCorruptException("trailing archive data")
+                    return records
                 }
+                -1 -> throw BackupCorruptException("archive ended before manifest")
                 else -> throw BackupCorruptException("unknown entry tag $tag")
             }
         }
     }
 
-    private fun copyChunks(input: DataInputStream, sink: OutputStream, buf: ByteArray) {
-        while (true) {
-            val len = input.readInt()
-            if (len == 0) return
-            if (len < 0 || len > MAX_CHUNK_BYTES) throw BackupCorruptException("bad chunk length $len")
-            var remaining = len
+    fun sanitizedRecordName(name: String, kind: Int): String? {
+        if (name.isEmpty() || name.length > 255 || name.contains("..") || name.contains('\\')) return null
+        return when {
+            kind == KIND_DATABASE && name == "database" -> name
+            kind == KIND_PREFERENCE && name.matches(Regex("preference/[0-9]{8}")) -> name
+            else -> null
+        }
+    }
+
+    private fun readAndVerifyManifest(input: DataInputStream, actual: List<RecordMetadata>) {
+        val count = input.readInt()
+        if (count < 0 || count > MAX_RECORDS || count != actual.size) {
+            throw BackupCorruptException("bad manifest count $count")
+        }
+        val digest = MessageDigest.getInstance("SHA-256")
+        repeat(count) { index ->
+            val expected = readMetadata(input, digest)
+            val observed = actual[index]
+            if (expected.name != observed.name || expected.kind != observed.kind || expected.size != observed.size ||
+                !expected.sha256.contentEquals(observed.sha256)
+            ) {
+                throw BackupCorruptException("manifest mismatch at record $index")
+            }
+        }
+        val expectedDigest = ByteArray(DIGEST_BYTES)
+        input.readFully(expectedDigest)
+        if (!expectedDigest.contentEquals(digest.digest())) throw BackupCorruptException("manifest digest mismatch")
+    }
+
+    private fun writeMetadata(output: DataOutputStream, digest: MessageDigest, record: RecordMetadata) {
+        val bytes = metadataBytes(record)
+        output.write(bytes)
+        digest.update(bytes)
+    }
+
+    private fun readMetadata(input: DataInputStream, digest: MessageDigest): RecordMetadata {
+        val kind = input.readUnsignedByte()
+        val name = readName(input)
+        val size = input.readLong()
+        if (size < 0) throw BackupCorruptException("bad record size")
+        val hash = ByteArray(DIGEST_BYTES)
+        input.readFully(hash)
+        val record = RecordMetadata(name, kind, size, hash)
+        digest.update(metadataBytes(record))
+        return record
+    }
+
+    private fun metadataBytes(record: RecordMetadata): ByteArray {
+        val nameBytes = record.name.toByteArray(Charsets.UTF_8)
+        val bytes = ByteArray(1 + 2 + nameBytes.size + 8 + DIGEST_BYTES)
+        var offset = 0
+        bytes[offset++] = record.kind.toByte()
+        bytes[offset++] = (nameBytes.size ushr 8).toByte()
+        bytes[offset++] = nameBytes.size.toByte()
+        nameBytes.copyInto(bytes, offset)
+        offset += nameBytes.size
+        for (shift in 56 downTo 0 step 8) bytes[offset++] = (record.size ushr shift).toByte()
+        record.sha256.copyInto(bytes, offset)
+        return bytes
+    }
+
+    private fun writeName(output: DataOutputStream, name: String) {
+        val bytes = name.toByteArray(Charsets.UTF_8)
+        require(bytes.size <= 0xffff)
+        output.writeShort(bytes.size)
+        output.write(bytes)
+    }
+
+    private fun readName(input: DataInputStream): String {
+        val length = input.readUnsignedShort()
+        val bytes = ByteArray(length)
+        input.readFully(bytes)
+        return String(bytes, Charsets.UTF_8)
+    }
+
+    private class ChunkedRecordOutput(private val output: DataOutputStream) : OutputStream() {
+        private val buffer = ByteArray(WRITE_CHUNK_BYTES)
+        private val digest = MessageDigest.getInstance("SHA-256")
+        private var used = 0
+        var size = 0L
+            private set
+
+        override fun write(value: Int) {
+            if (used == buffer.size) flushBuffer()
+            buffer[used++] = value.toByte()
+        }
+
+        override fun write(bytes: ByteArray, offset: Int, length: Int) {
+            require(offset >= 0 && length >= 0 && offset + length <= bytes.size)
+            var source = offset
+            var remaining = length
             while (remaining > 0) {
-                val toRead = minOf(remaining, buf.size)
-                input.readFully(buf, 0, toRead)
-                sink.write(buf, 0, toRead)
-                remaining -= toRead
+                if (used == buffer.size) flushBuffer()
+                val count = minOf(remaining, buffer.size - used)
+                bytes.copyInto(buffer, used, source, source + count)
+                used += count
+                source += count
+                remaining -= count
             }
         }
-    }
 
-    fun sanitizedRelativePath(name: String): String? {
-        if (name.isEmpty() || name.length > 255) return null
-        if (name.startsWith("/") || name.contains("\\") || name.contains("..")) return null
-        if (name in TOP_LEVEL_FILES) return name
-        if (name == "emoji/symbol_usage.txt") return name
-        if (name.startsWith("clips/")) {
-            val token = name.substring("clips/".length)
-            if (token.endsWith(".txt")) {
-                val stem = token.removeSuffix(".txt")
-                if (stem.isNotEmpty() && stem.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' }) return name
-            }
+        fun finish() {
+            flushBuffer()
+            output.writeInt(0)
         }
-        return null
-    }
 
-    private val TOP_LEVEL_FILES = setOf(
-        "userdb.txt",
-        "userlearn.txt",
-        "phrases.txt",
-        "clipboard.txt",
-        "symbol_usage.txt",
-    )
+        fun digest(): ByteArray = digest.digest()
+
+        private fun flushBuffer() {
+            if (used == 0) return
+            output.writeInt(used)
+            output.write(buffer, 0, used)
+            digest.update(buffer, 0, used)
+            size = Math.addExact(size, used.toLong())
+            used = 0
+        }
+    }
 }

@@ -482,11 +482,277 @@ internal class UserDataDatabase private constructor(
         cursor.moveToFirst() && cursor.getString(0) == "ok"
     }
 
+    @Synchronized
+    fun foreignKeysOk(): Boolean = database.rawQuery("PRAGMA foreign_key_check", null).use { cursor ->
+        !cursor.moveToFirst()
+    }
+
+    @Synchronized
+    fun exportSnapshot(destination: File) = synchronized(checkpointLock) {
+        val busy = database.rawQuery("PRAGMA wal_checkpoint(FULL)", null).use { cursor ->
+            if (!cursor.moveToFirst()) throw IOException("snapshot checkpoint returned no status")
+            cursor.getInt(0)
+        }
+        if (busy != 0) throw IOException("snapshot checkpoint remained busy")
+        destination.parentFile?.let { parent ->
+            if (!parent.exists() && !parent.mkdirs()) throw IOException("snapshot directory creation failed")
+        }
+        val temporary = File(destination.parentFile, destination.name + ".tmp")
+        try {
+            copyFile(databaseFile, temporary)
+            val validationFailure = restoreSourceValidationFailure(temporary)
+            if (validationFailure != null) {
+                throw IOException("exported database validation failed: $validationFailure")
+            }
+            atomicReplace(temporary, destination)
+        } finally {
+            temporary.delete()
+        }
+    }
+
+    @Synchronized
+    fun restoreFrom(source: File, merge: Boolean) = synchronized(checkpointLock) {
+        if (!validateRestoreSource(source)) throw IOException("restore database validation failed")
+        val rollback = File(source.parentFile, "$DATABASE_NAME.before-restore")
+        try {
+            exportSnapshot(rollback)
+            try {
+                withRestoreSource(source) {
+                    transaction {
+                        if (merge) mergeRestoreSource() else overwriteFromRestoreSource()
+                        if (!integrityOk() || !foreignKeysOk()) {
+                            throw IOException("restored database verification failed")
+                        }
+                    }
+                }
+            } catch (restoreFailure: Exception) {
+                runCatching { restoreRollbackSnapshot(rollback) }.onFailure(restoreFailure::addSuppressed)
+                throw restoreFailure
+            }
+            try {
+                checkpointLastGood()
+            } catch (checkpointFailure: Exception) {
+                val rolledBack = runCatching { restoreRollbackSnapshot(rollback) }
+                    .onFailure(checkpointFailure::addSuppressed)
+                    .isSuccess
+                if (rolledBack) {
+                    runCatching { checkpointLastGood() }.onFailure(checkpointFailure::addSuppressed)
+                    throw checkpointFailure
+                }
+                if (!integrityOk() || !foreignKeysOk()) throw checkpointFailure
+                lastFailure = "restore committed without a new last-good snapshot: " +
+                    checkpointFailure.javaClass.simpleName + ": " + checkpointFailure.message.orEmpty()
+            }
+        } finally {
+            rollback.delete()
+        }
+    }
+
     override fun close() {
         database.close()
     }
 
-    private fun transaction(block: () -> Unit) {
+    private fun overwriteFromRestoreSource() {
+        for (table in DELETE_ORDER) database.delete(table, null, null)
+        for ((table, columns) in RESTORE_TABLES) {
+            database.execSQL("INSERT INTO $table ($columns) SELECT $columns FROM restore_source.$table")
+        }
+    }
+
+    private fun withRestoreSource(source: File, block: () -> Unit) {
+        database.execSQL("ATTACH DATABASE ? AS restore_source", arrayOf(source.absolutePath))
+        var blockFailure: Exception? = null
+        try {
+            block()
+        } catch (failure: Exception) {
+            blockFailure = failure
+            throw failure
+        } finally {
+            try {
+                database.execSQL("DETACH DATABASE restore_source")
+            } catch (detachFailure: Exception) {
+                if (blockFailure != null) blockFailure.addSuppressed(detachFailure)
+                else lastFailure = detachFailure.javaClass.simpleName + ": " + detachFailure.message.orEmpty()
+            }
+        }
+    }
+
+    private fun restoreRollbackSnapshot(rollback: File) {
+        withRestoreSource(rollback) {
+            transaction {
+                overwriteFromRestoreSource()
+                if (!integrityOk() || !foreignKeysOk()) throw IOException("restore rollback verification failed")
+            }
+        }
+    }
+
+    private fun mergeRestoreSource() {
+        database.execSQL(
+            "UPDATE user_words SET count=MIN($MAX_COUNT, count+(SELECT count FROM restore_source.user_words source WHERE source.word=user_words.word)), " +
+                "last_used=MAX(last_used,(SELECT last_used FROM restore_source.user_words source WHERE source.word=user_words.word)) " +
+                "WHERE EXISTS(SELECT 1 FROM restore_source.user_words source WHERE source.word=user_words.word)",
+        )
+        database.execSQL("INSERT OR IGNORE INTO user_words (word,count,last_used) SELECT word,count,last_used FROM restore_source.user_words")
+        database.execSQL("INSERT OR IGNORE INTO user_readings (reading,word) SELECT reading,word FROM restore_source.user_readings")
+        database.execSQL(
+            "UPDATE user_bigrams SET count=MIN($MAX_COUNT, count+(SELECT count FROM restore_source.user_bigrams source " +
+                "WHERE source.prev_word=user_bigrams.prev_word AND source.word=user_bigrams.word)) " +
+                "WHERE EXISTS(SELECT 1 FROM restore_source.user_bigrams source " +
+                "WHERE source.prev_word=user_bigrams.prev_word AND source.word=user_bigrams.word)",
+        )
+        database.execSQL("INSERT OR IGNORE INTO user_bigrams (prev_word,word,count) SELECT prev_word,word,count FROM restore_source.user_bigrams")
+        mergeUsageTable("learned_formed", "word", "reading")
+        mergeUsageTable("learned_pending", "reading", "word")
+        mergeUsageTable("learned_follows", "prev_word", "word")
+        mergeClipboardHistory()
+        mergePhraseCategories()
+        mergeCustomItems()
+        mergeRecentItems()
+    }
+
+    private fun mergeUsageTable(table: String, firstKey: String, secondKey: String) {
+        database.execSQL(
+            "UPDATE $table SET count=MIN(1.0e12, count+(SELECT count FROM restore_source.$table source " +
+                "WHERE source.$firstKey=$table.$firstKey AND source.$secondKey=$table.$secondKey)), " +
+                "last_seen=MAX(last_seen,(SELECT last_seen FROM restore_source.$table source " +
+                "WHERE source.$firstKey=$table.$firstKey AND source.$secondKey=$table.$secondKey)) " +
+                "WHERE EXISTS(SELECT 1 FROM restore_source.$table source " +
+                "WHERE source.$firstKey=$table.$firstKey AND source.$secondKey=$table.$secondKey)",
+        )
+        database.execSQL(
+            "INSERT OR IGNORE INTO $table ($firstKey,$secondKey,count,last_seen) " +
+                "SELECT $firstKey,$secondKey,count,last_seen FROM restore_source.$table",
+        )
+    }
+
+    private fun mergeClipboardHistory() {
+        var next = database.rawQuery("SELECT COALESCE(MIN(recency), 0) - 1 FROM clipboard_history", null).use { cursor ->
+            cursor.moveToFirst()
+            cursor.getLong(0)
+        }
+        database.rawQuery("SELECT text FROM restore_source.clipboard_history ORDER BY recency DESC, text", null).use { cursor ->
+            while (cursor.moveToNext()) {
+                val values = ContentValues().apply {
+                    put("text", cursor.getString(0))
+                    put("recency", next--)
+                }
+                database.insertWithOnConflict("clipboard_history", null, values, SQLiteDatabase.CONFLICT_IGNORE)
+            }
+        }
+    }
+
+    private fun mergePhraseCategories() {
+        var nextCategory = scalarLong("SELECT COALESCE(MAX(position), -1) + 1 FROM phrase_categories")
+        database.rawQuery("SELECT name FROM restore_source.phrase_categories ORDER BY position, name", null).use { cursor ->
+            while (cursor.moveToNext()) {
+                val values = ContentValues().apply {
+                    put("name", cursor.getString(0))
+                    put("position", nextCategory)
+                }
+                if (database.insertWithOnConflict(
+                        "phrase_categories",
+                        null,
+                        values,
+                        SQLiteDatabase.CONFLICT_IGNORE,
+                    ) != -1L
+                ) {
+                    nextCategory++
+                }
+            }
+        }
+        val nextPhrase = HashMap<String, Long>()
+        database.rawQuery(
+            "SELECT category,text,note FROM restore_source.phrases ORDER BY category,position,text",
+            null,
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val category = cursor.getString(0)
+                val text = cursor.getString(1)
+                val note = cursor.getString(2)
+                database.execSQL(
+                    "UPDATE phrases SET note=? WHERE category=? AND text=? AND note='' AND ?!=''",
+                    arrayOf(note, category, text, note),
+                )
+                val position = nextPhrase.getOrPut(category) {
+                    database.rawQuery(
+                        "SELECT COALESCE(MAX(position), -1) + 1 FROM phrases WHERE category=?",
+                        arrayOf(category),
+                    ).use { positionCursor ->
+                        positionCursor.moveToFirst()
+                        positionCursor.getLong(0)
+                    }
+                }
+                val values = ContentValues().apply {
+                    put("category", category)
+                    put("text", text)
+                    put("note", note)
+                    put("position", position)
+                }
+                if (database.insertWithOnConflict("phrases", null, values, SQLiteDatabase.CONFLICT_IGNORE) != -1L) {
+                    nextPhrase[category] = position + 1
+                }
+            }
+        }
+    }
+
+    private fun mergeCustomItems() {
+        val nextPosition = HashMap<String, Long>()
+        database.rawQuery("SELECT kind,value FROM restore_source.custom_items ORDER BY kind,position,value", null).use { cursor ->
+            while (cursor.moveToNext()) {
+                val kind = cursor.getString(0)
+                val position = nextPosition.getOrPut(kind) {
+                    database.rawQuery(
+                        "SELECT COALESCE(MAX(position), -1) + 1 FROM custom_items WHERE kind=?",
+                        arrayOf(kind),
+                    ).use { positionCursor ->
+                        positionCursor.moveToFirst()
+                        positionCursor.getLong(0)
+                    }
+                }
+                val values = ContentValues().apply {
+                    put("kind", kind)
+                    put("value", cursor.getString(1))
+                    put("position", position)
+                }
+                if (database.insertWithOnConflict("custom_items", null, values, SQLiteDatabase.CONFLICT_IGNORE) != -1L) {
+                    nextPosition[kind] = position + 1
+                }
+            }
+        }
+    }
+
+    private fun mergeRecentItems() {
+        val nextRecency = HashMap<String, Long>()
+        database.rawQuery(
+            "SELECT kind,identity,value,origin FROM restore_source.recent_items ORDER BY kind,recency DESC,identity",
+            null,
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val kind = cursor.getString(0)
+                val recency = nextRecency.getOrPut(kind) {
+                    database.rawQuery(
+                        "SELECT COALESCE(MIN(recency), 0) - 1 FROM recent_items WHERE kind=?",
+                        arrayOf(kind),
+                    ).use { recencyCursor ->
+                        recencyCursor.moveToFirst()
+                        recencyCursor.getLong(0)
+                    }
+                }
+                val values = ContentValues().apply {
+                    put("kind", kind)
+                    put("identity", cursor.getString(1))
+                    put("value", cursor.getString(2))
+                    if (cursor.isNull(3)) putNull("origin") else put("origin", cursor.getString(3))
+                    put("recency", recency)
+                }
+                if (database.insertWithOnConflict("recent_items", null, values, SQLiteDatabase.CONFLICT_IGNORE) != -1L) {
+                    nextRecency[kind] = recency - 1
+                }
+            }
+        }
+    }
+
+    private fun transaction(block: () -> Unit) = synchronized(checkpointLock) {
         database.beginTransaction()
         try {
             block()
@@ -582,6 +848,7 @@ internal class UserDataDatabase private constructor(
     }
 
     private fun replacePhraseCategoriesInTransaction(categories: List<StoredPhraseCategory>) {
+        database.delete("phrases", null, null)
         database.delete("phrase_categories", null, null)
         for ((categoryPosition, category) in categories.withIndex()) {
             val categoryValues = ContentValues().apply {
@@ -702,6 +969,33 @@ internal class UserDataDatabase private constructor(
         private const val SCHEMA_VERSION = 3
         private const val MAX_COUNT = 1_000_000_000
         private val checkpointLock = Any()
+        private val DELETE_ORDER = listOf(
+            "user_readings",
+            "user_bigrams",
+            "user_words",
+            "learned_formed",
+            "learned_pending",
+            "learned_follows",
+            "clipboard_history",
+            "phrases",
+            "phrase_categories",
+            "custom_items",
+            "recent_items",
+        )
+        private val RESTORE_TABLES = linkedMapOf(
+            "user_words" to "word,count,last_used",
+            "user_readings" to "reading,word",
+            "user_bigrams" to "prev_word,word,count",
+            "learned_formed" to "word,reading,count,last_seen",
+            "learned_pending" to "reading,word,count,last_seen",
+            "learned_follows" to "prev_word,word,count,last_seen",
+            "clipboard_history" to "text,recency",
+            "phrase_categories" to "name,position",
+            "phrases" to "category,text,note,position",
+            "custom_items" to "kind,value,position",
+            "recent_items" to "kind,identity,value,origin,recency",
+        )
+        private val EXPECTED_TABLES = RESTORE_TABLES.keys + setOf("metadata", "android_metadata")
 
         fun open(root: File): UserDataDatabase {
             if (!root.exists() && !root.mkdirs()) throw IOException("user data directory creation failed")
@@ -737,6 +1031,40 @@ internal class UserDataDatabase private constructor(
             "absent"
         } else {
             "${file.length()}:${sha256(file)}"
+        }
+
+        fun validateRestoreSource(file: File): Boolean = restoreSourceValidationFailure(file) == null
+
+        private fun restoreSourceValidationFailure(file: File): String? {
+            if (!file.isFile || file.length() == 0L) return "database file is absent or empty"
+            return try {
+                SQLiteDatabase.openDatabase(file.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+                    val version = db.rawQuery("PRAGMA user_version", null).use { cursor ->
+                        cursor.moveToFirst()
+                        cursor.getInt(0)
+                    }
+                    val tables = LinkedHashSet<String>()
+                    db.rawQuery(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+                        null,
+                    ).use { cursor -> while (cursor.moveToNext()) tables.add(cursor.getString(0)) }
+                    val integrity = db.rawQuery("PRAGMA integrity_check", null).use { cursor ->
+                        cursor.moveToFirst() && cursor.getString(0) == "ok"
+                    }
+                    val foreignKeyViolation = db.rawQuery("PRAGMA foreign_key_check", null).use { cursor ->
+                        cursor.moveToFirst()
+                    }
+                    when {
+                        version != SCHEMA_VERSION -> "schema version $version is unsupported"
+                        tables != EXPECTED_TABLES -> "table set $tables does not match $EXPECTED_TABLES"
+                        !integrity -> "integrity check failed"
+                        foreignKeyViolation -> "foreign key check failed"
+                        else -> null
+                    }
+                }
+            } catch (failure: Exception) {
+                failure.javaClass.simpleName + ": " + failure.message.orEmpty()
+            }
         }
 
         private fun createSchema(db: SQLiteDatabase) {

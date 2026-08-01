@@ -25,6 +25,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 
 @RunWith(RobolectricTestRunner::class)
@@ -315,6 +316,40 @@ class UserDataDatabaseTest {
             assertEquals(listOf("kept phrase"), reopened.readPhrases(ClipboardStore.DEFAULT_CATEGORY_ID).map { it.text })
             assertEquals(listOf("kept symbol"), reopened.readCustomItems("custom_symbols"))
             assertEquals(listOf("kept recent"), reopened.readRecentItems("symbols").map { it.value })
+        }
+    }
+
+    @Test
+    fun restoreCheckpointFailureRollsBackTheCommittedDatabaseState() {
+        val sourceRoot = root()
+        val stagingRoot = root()
+        val sourceSnapshot = File(stagingRoot, "source.db")
+        UserDataDatabase.open(sourceRoot).use { database ->
+            assertTrue(UserModel(database = database).addManualWord("backup", "备份", 1))
+            database.exportSnapshot(sourceSnapshot)
+        }
+
+        val targetRoot = root()
+        UserDataDatabase.open(targetRoot).use { database ->
+            assertTrue(UserModel(database = database).addManualWord("local", "本机", 2))
+            database.checkpointLastGood()
+            val expected = database.readUserData()
+            File(targetRoot, UserDataDatabase.LAST_GOOD_NAME).apply {
+                delete()
+                assertTrue(mkdir())
+                File(this, "blocker").writeText("x")
+            }
+
+            var failed = false
+            try {
+                database.restoreFrom(sourceSnapshot, merge = false)
+            } catch (_: IOException) {
+                failed = true
+            }
+            assertTrue(failed)
+            assertEquals(expected, database.readUserData())
+            assertTrue(database.integrityOk())
+            assertTrue(database.foreignKeysOk())
         }
     }
 }

@@ -16,15 +16,17 @@
 package com.aegis.ime.backup
 
 import android.content.SharedPreferences
-import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.LiveUserData
-import com.aegis.ime.user.SymbolUsageStore
+import com.aegis.ime.user.UserDataDatabase
+import com.aegis.ime.user.UserDataMigration
 import com.aegis.ime.user.UserDictEdit
 import com.aegis.ime.user.UserDictHot
-import com.aegis.ime.user.UserDictImport
 import java.io.DataInputStream
 import java.io.DataOutputStream
+import java.io.EOFException
 import java.io.File
+import java.io.FilterInputStream
+import java.io.FilterOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
@@ -33,17 +35,10 @@ import java.util.zip.GZIPOutputStream
 
 object BackupManager {
 
-
-    private const val USERDB = "userdb.txt"
-    private const val USERLEARN = "userlearn.txt"
-    private const val PHRASES = "phrases.txt"
-    private const val CLIPBOARD = "clipboard.txt"
-    private const val CLIPS_DIR = "clips"
-    private const val BIG_CLIP_LINE = "B\t"
-    private const val SYMBOL_USAGE = "symbol_usage.txt"
-    private const val EMOJI_DIR = "emoji"
-    private const val EMOJI_USAGE = "emoji/symbol_usage.txt"
     private const val STAGING_DIR = "backup_staging"
+    private const val EXPORT_DIR = "backup_export"
+    private const val VERIFY_DIR = "backup_verify"
+    private const val PREFERENCE_DIR = "preferences"
 
     private val DOWNLOAD_STATE_KEYS = setOf(
         "engine_pack_touch",
@@ -57,57 +52,52 @@ object BackupManager {
         "dict_release_tag",
         "dict_release_published_at",
     )
+    private val DATABASE_BACKED_PREFERENCE_KEYS = setOf("custom_symbols", "custom_operators")
+    private val EXCLUDED_PREFERENCE_KEYS = DOWNLOAD_STATE_KEYS + DATABASE_BACKED_PREFERENCE_KEYS
 
     enum class Mode { OVERWRITE, MERGE }
-
 
     fun export(filesDir: File, prefs: SharedPreferences, password: CharArray, rawOut: OutputStream) {
         UserDictEdit.flushBeforeExport()
         LiveUserData.flushBeforeExport()
-        BackupCrypto.writeEncrypted(rawOut, password) { cipherOut ->
-            val gzip = GZIPOutputStream(cipherOut)
-            val out = DataOutputStream(gzip)
-            BackupArchive.writePrefs(out, PrefsCodec.encode(prefs.all.filterKeys { it !in DOWNLOAD_STATE_KEYS }))
-            for (rel in backupRelPaths(filesDir)) {
-                val file = File(filesDir, rel)
-                if (file.isFile) BackupArchive.writeFile(out, rel, file)
-            }
-            BackupArchive.writeEnd(out)
-            out.flush()
-            gzip.finish()
-        }
-    }
-
-    private fun backupRelPaths(filesDir: File): List<String> {
-        val paths = ArrayList<String>()
-        for (name in listOf(USERDB, USERLEARN, PHRASES, CLIPBOARD, SYMBOL_USAGE)) {
-            if (File(filesDir, name).isFile) paths.add(name)
-        }
-        if (File(filesDir, EMOJI_USAGE).isFile) paths.add(EMOJI_USAGE)
-        val referencedClips = referencedClipSidecarNames(File(filesDir, CLIPBOARD))
-        File(filesDir, CLIPS_DIR).listFiles()?.sortedBy { it.name }?.forEach { f ->
-            if (f.name !in referencedClips) return@forEach
-            val rel = "$CLIPS_DIR/${f.name}"
-            if (f.isFile && BackupArchive.sanitizedRelativePath(rel) != null) paths.add(rel)
-        }
-        return paths
-    }
-
-    private fun referencedClipSidecarNames(index: File): Set<String> {
-        if (!index.isFile) return emptySet()
-        val names = LinkedHashSet<String>()
-        runCatching {
-            index.forEachLine { line ->
-                if (line.startsWith(BIG_CLIP_LINE)) {
-                    val name = line.substring(BIG_CLIP_LINE.length) + ".txt"
-                    val rel = "$CLIPS_DIR/$name"
-                    if (BackupArchive.sanitizedRelativePath(rel) != null) names.add(name)
+        val exportDir = prepareDirectory(File(filesDir, EXPORT_DIR))
+        try {
+            val snapshot = File(exportDir, UserDataDatabase.DATABASE_NAME)
+            UserDataMigration.open(filesDir, prefs).use { database -> database.exportSnapshot(snapshot) }
+            BackupCrypto.writeEncrypted(rawOut, password) { cipherOut ->
+                GZIPOutputStream(cipherOut).use { gzip ->
+                    val writer = BackupArchive.Writer(DataOutputStream(gzip))
+                    writer.writeRecord("database", BackupArchive.KIND_DATABASE) { record ->
+                        snapshot.inputStream().use { input -> input.copyTo(record, 64 * 1024) }
+                    }
+                    val preferences = prefs.all.entries
+                        .filter { (key, value) -> key !in EXCLUDED_PREFERENCE_KEYS && PrefsCodec.supported(value) }
+                        .sortedBy { it.key }
+                    for ((index, entry) in preferences.withIndex()) {
+                        val name = "preference/${index.toString().padStart(8, '0')}"
+                        writer.writeRecord(name, BackupArchive.KIND_PREFERENCE) { record ->
+                            val output = DataOutputStream(record)
+                            PrefsCodec.writeEntry(output, entry.key, requireNotNull(entry.value))
+                            output.flush()
+                        }
+                    }
+                    writer.finish()
+                    gzip.finish()
                 }
             }
+        } finally {
+            exportDir.deleteRecursively()
         }
-        return names
     }
 
+    fun verify(filesDir: File, password: CharArray, rawIn: InputStream) {
+        val verifyDir = File(filesDir, VERIFY_DIR)
+        try {
+            readToStaging(rawIn, password, verifyDir)
+        } finally {
+            verifyDir.deleteRecursively()
+        }
+    }
 
     fun restore(
         filesDir: File,
@@ -117,37 +107,21 @@ object BackupManager {
         mode: Mode,
     ): Mode {
         val staging = File(filesDir, STAGING_DIR)
-        staging.deleteRecursively()
-        if (!staging.mkdirs()) throw BackupException(BackupError.IO_ERROR)
         LiveUserData.restoreInProgress = true
         var handedOff = false
         try {
             try {
                 UserDictHot.host?.flush()
                 LiveUserData.flushBeforeRestore()
-            } catch (e: Exception) {
-                throw BackupException(BackupError.IO_ERROR, e)
+            } catch (failure: Exception) {
+                throw BackupException(BackupError.IO_ERROR, failure)
             }
-
-            val visitor = StagingVisitor(staging)
+            val staged = readToStaging(rawIn, password, staging)
             try {
-                BackupCrypto.readDecrypted(rawIn, password) { plainIn ->
-                    GZIPInputStream(plainIn).use { gzip ->
-                        BackupArchive.read(DataInputStream(gzip), visitor)
-                    }
-                }
-            } catch (e: BackupException) {
-                throw e
-            } catch (e: Exception) {
-                throw BackupException(BackupError.WRONG_PASSWORD_OR_CORRUPT, e)
+                commit(filesDir, prefs, staged, mode)
+            } catch (failure: Exception) {
+                throw BackupException(BackupError.IO_ERROR, failure)
             }
-
-            try {
-                commit(filesDir, prefs, staging, visitor.prefsBlob, mode)
-            } catch (e: Exception) {
-                throw BackupException(BackupError.IO_ERROR, e)
-            }
-
             val reload = LiveUserData.onRestored
             if (reload != null) {
                 handedOff = true
@@ -160,114 +134,199 @@ object BackupManager {
         }
     }
 
-    private class StagingVisitor(private val staging: File) : BackupArchive.Visitor {
-        var prefsBlob: ByteArray? = null
-            private set
+    private data class StagedBackup(
+        val database: File,
+        val preferences: List<File>,
+    )
 
-        override fun onPrefs(blob: ByteArray) {
-            prefsBlob = blob
+    private fun readToStaging(rawIn: InputStream, password: CharArray, staging: File): StagedBackup {
+        val directory = try {
+            prepareDirectory(staging)
+        } catch (failure: Exception) {
+            throw BackupException(BackupError.IO_ERROR, failure)
         }
-
-        override fun openFile(relativePath: String): OutputStream {
-            val dest = File(staging, relativePath)
-            dest.parentFile?.mkdirs()
-            return dest.outputStream()
-        }
-    }
-
-    private fun commit(
-        filesDir: File,
-        prefs: SharedPreferences,
-        staging: File,
-        prefsBlob: ByteArray?,
-        mode: Mode,
-    ) {
-        val merge = mode == Mode.MERGE
-        applyPrefs(prefs, prefsBlob, merge)
-        applyUserDb(filesDir, staging, merge)
-        applyUserLearning(filesDir, staging, merge)
-        applyPhrases(filesDir, staging, merge)
-        applyClipboard(filesDir, staging, merge)
-        applySymbolUsage(filesDir, staging, merge)
-        applyEmojiUsage(filesDir, staging, merge)
-    }
-
-    private fun applyPrefs(prefs: SharedPreferences, blob: ByteArray?, merge: Boolean) {
-        if (blob == null) return
-        val decoded = PrefsCodec.decode(blob).filterKeys { it !in DOWNLOAD_STATE_KEYS }
-        val editor = prefs.edit()
-        for ((key, value) in decoded) {
-            if (merge && prefs.contains(key)) continue
-            when (value) {
-                is PrefsCodec.Value.Bool -> editor.putBoolean(key, value.v)
-                is PrefsCodec.Value.Integer -> editor.putInt(key, value.v)
-                is PrefsCodec.Value.LongVal -> editor.putLong(key, value.v)
-                is PrefsCodec.Value.FloatVal -> editor.putFloat(key, value.v)
-                is PrefsCodec.Value.Str -> editor.putString(key, value.v)
-                is PrefsCodec.Value.StrSet -> editor.putStringSet(key, value.v)
+        val databaseFile = File(directory, UserDataDatabase.DATABASE_NAME)
+        val preferenceFiles = ArrayList<File>()
+        try {
+            BackupCrypto.readDecrypted(sourceInput(rawIn), password) { plainIn ->
+                GZIPInputStream(plainIn).use { gzip ->
+                    BackupArchive.read(
+                        DataInputStream(gzip),
+                        object : BackupArchive.Visitor {
+                            override fun openRecord(name: String, kind: Int): OutputStream {
+                                val destination = when (kind) {
+                                    BackupArchive.KIND_DATABASE -> databaseFile
+                                    BackupArchive.KIND_PREFERENCE -> File(
+                                        File(directory, PREFERENCE_DIR),
+                                        name.substringAfter('/'),
+                                    ).also(preferenceFiles::add)
+                                    else -> throw BackupCorruptException("unknown record kind")
+                                }
+                                return stagingOutput(destination)
+                            }
+                        },
+                    )
+                }
             }
+        } catch (failure: BackupException) {
+            throw failure
+        } catch (failure: StagingFailure) {
+            throw BackupException(BackupError.IO_ERROR, failure.cause ?: failure)
+        } catch (failure: SourceFailure) {
+            throw BackupException(BackupError.IO_ERROR, failure.cause ?: failure)
+        } catch (failure: Exception) {
+            throw BackupException(BackupError.WRONG_PASSWORD_OR_CORRUPT, failure)
         }
-        if (!editor.commit()) throw IOException("preferences restore failed")
-    }
-
-    private fun applyUserDb(filesDir: File, staging: File, merge: Boolean) {
-        val staged = File(staging, USERDB)
-        if (!staged.isFile) return
-        val now = System.currentTimeMillis()
-        val host = UserDictHot.host
-        val applied = if (host != null) {
-            host.importUserDict(staged, merge, now)
-        } else {
-            UserDictImport.apply(staged, File(filesDir, USERDB), merge, now)
+        if (!UserDataDatabase.validateRestoreSource(databaseFile)) {
+            throw BackupException(BackupError.WRONG_PASSWORD_OR_CORRUPT)
         }
-        if (!applied) throw IOException("user dictionary import failed")
-    }
-
-    private fun applyUserLearning(filesDir: File, staging: File, merge: Boolean) {
-        val staged = File(staging, USERLEARN)
-        if (!staged.isFile) return
-        val target = File(filesDir, USERLEARN)
-        if (merge && target.isFile) return
-        staged.copyTo(target, overwrite = true)
-    }
-
-    private fun applyPhrases(filesDir: File, staging: File, merge: Boolean) {
-        val staged = File(staging, PHRASES)
-        if (!staged.isFile) return
-        val raw = staged.readText()
-        val text = if (raw.lineSequence().any { it.startsWith("C\t") }) {
-            raw
-        } else {
-            val migrated = ClipboardStore(staging).also { it.load() }
-            if (migrated.phrases().isEmpty()) return
-            migrated.exportPhrasesText()
+        val keys = HashSet<String>()
+        try {
+            for (file in preferenceFiles.sortedBy { it.name }) {
+                val key = file.inputStream().use { PrefsCodec.readEntry(DataInputStream(it)).first }
+                if (!keys.add(key)) throw BackupCorruptException("duplicate preference key")
+            }
+        } catch (failure: BackupCorruptException) {
+            throw BackupException(BackupError.WRONG_PASSWORD_OR_CORRUPT, failure)
+        } catch (failure: EOFException) {
+            throw BackupException(BackupError.WRONG_PASSWORD_OR_CORRUPT, failure)
+        } catch (failure: IOException) {
+            throw BackupException(BackupError.IO_ERROR, failure)
         }
-        val applied = ClipboardStore(filesDir).also { it.load() }.importPhrasesText(text, merge)
-        if (!applied) return
+        return StagedBackup(databaseFile, preferenceFiles.sortedBy { it.name })
     }
 
-    private fun applyClipboard(filesDir: File, staging: File, merge: Boolean) {
-        val stagedIndex = File(staging, CLIPBOARD)
-        if (!stagedIndex.isFile) return
-        val incoming = ClipboardStore(staging).also { it.load() }.history()
-        if (!ClipboardStore(filesDir).also { it.load() }.importHistory(incoming, merge)) {
-            throw IOException("clipboard import failed")
+    private fun commit(filesDir: File, prefs: SharedPreferences, staged: StagedBackup, mode: Mode) {
+        val merge = mode == Mode.MERGE
+        val rollbackPreferences = applyPreferences(prefs, staged.preferences, merge)
+        try {
+            UserDataMigration.open(filesDir, prefs).use { database ->
+                database.restoreFrom(staged.database, merge)
+            }
+        } catch (failure: Exception) {
+            try {
+                rollbackPreferences()
+            } catch (rollbackFailure: Exception) {
+                failure.addSuppressed(rollbackFailure)
+            }
+            throw failure
         }
     }
 
-    private fun applySymbolUsage(filesDir: File, staging: File, merge: Boolean) {
-        val staged = File(staging, SYMBOL_USAGE)
-        if (!staged.isFile) return
-        val incoming = SymbolUsageStore(staging).also { it.load() }.recentEntries()
-        val applied = SymbolUsageStore(filesDir).also { it.load() }.importEntries(incoming, merge)
-        if (!applied) throw IOException("symbol usage import failed")
+    private fun applyPreferences(
+        prefs: SharedPreferences,
+        files: List<File>,
+        merge: Boolean,
+    ): () -> Unit {
+        val changes = LinkedHashMap<String, PrefsCodec.Value>()
+        for (file in files) {
+            val (key, value) = file.inputStream().use { PrefsCodec.readEntry(DataInputStream(it)) }
+            if (key in EXCLUDED_PREFERENCE_KEYS || merge && prefs.contains(key)) continue
+            changes[key] = value
+        }
+        val original = LinkedHashMap<String, Any?>()
+        val absent = HashSet<String>()
+        val current = prefs.all
+        for (key in changes.keys) {
+            if (prefs.contains(key)) original[key] = copyPreferenceValue(current[key]) else absent.add(key)
+        }
+        val editor = prefs.edit()
+        for ((key, value) in changes) putPreference(editor, key, value)
+        val rollback = {
+            val rollbackEditor = prefs.edit()
+            for (key in absent) rollbackEditor.remove(key)
+            for ((key, value) in original) putRawPreference(rollbackEditor, key, value)
+            if (!rollbackEditor.commit()) throw IOException("preferences rollback failed")
+        }
+        if (!editor.commit()) {
+            val failure = IOException("preferences restore failed")
+            runCatching(rollback).onFailure(failure::addSuppressed)
+            throw failure
+        }
+        return rollback
     }
 
-    private fun applyEmojiUsage(filesDir: File, staging: File, merge: Boolean) {
-        val staged = File(staging, EMOJI_USAGE)
-        if (!staged.isFile) return
-        val incoming = SymbolUsageStore(File(staging, EMOJI_DIR)).also { it.load() }.recentEntries()
-        val applied = SymbolUsageStore(File(filesDir, EMOJI_DIR).apply { mkdirs() }).also { it.load() }.importEntries(incoming, merge)
-        if (!applied) throw IOException("emoji usage import failed")
+    private fun putPreference(editor: SharedPreferences.Editor, key: String, value: PrefsCodec.Value) {
+        when (value) {
+            is PrefsCodec.Value.Bool -> editor.putBoolean(key, value.v)
+            is PrefsCodec.Value.Integer -> editor.putInt(key, value.v)
+            is PrefsCodec.Value.LongVal -> editor.putLong(key, value.v)
+            is PrefsCodec.Value.FloatVal -> editor.putFloat(key, value.v)
+            is PrefsCodec.Value.Str -> editor.putString(key, value.v)
+            is PrefsCodec.Value.StrSet -> editor.putStringSet(key, value.v)
+        }
     }
+
+    private fun putRawPreference(editor: SharedPreferences.Editor, key: String, value: Any?) {
+        when (value) {
+            is Boolean -> editor.putBoolean(key, value)
+            is Int -> editor.putInt(key, value)
+            is Long -> editor.putLong(key, value)
+            is Float -> editor.putFloat(key, value)
+            is String -> editor.putString(key, value)
+            is Set<*> -> editor.putStringSet(key, value.filterIsInstance<String>().toSet())
+            null -> editor.remove(key)
+        }
+    }
+
+    private fun copyPreferenceValue(value: Any?): Any? =
+        if (value is Set<*>) value.filterIsInstance<String>().toSet() else value
+
+    private fun prepareDirectory(directory: File): File {
+        if (directory.exists() && !directory.deleteRecursively()) throw IOException("temporary directory cleanup failed")
+        if (!directory.mkdirs()) throw IOException("temporary directory creation failed")
+        return directory
+    }
+
+    private fun stagingOutput(destination: File): OutputStream {
+        try {
+            destination.parentFile?.let { parent ->
+                if (!parent.exists() && !parent.mkdirs()) throw IOException("staging directory creation failed")
+            }
+            return object : FilterOutputStream(destination.outputStream()) {
+                override fun write(value: Int) {
+                    try {
+                        out.write(value)
+                    } catch (failure: IOException) {
+                        throw StagingFailure(failure)
+                    }
+                }
+
+                override fun write(bytes: ByteArray, offset: Int, length: Int) {
+                    try {
+                        out.write(bytes, offset, length)
+                    } catch (failure: IOException) {
+                        throw StagingFailure(failure)
+                    }
+                }
+
+                override fun close() {
+                    try {
+                        super.close()
+                    } catch (failure: IOException) {
+                        throw StagingFailure(failure)
+                    }
+                }
+            }
+        } catch (failure: IOException) {
+            throw StagingFailure(failure)
+        }
+    }
+
+    private fun sourceInput(source: InputStream): InputStream = object : FilterInputStream(source) {
+        override fun read(): Int = try {
+            super.read()
+        } catch (failure: IOException) {
+            throw SourceFailure(failure)
+        }
+
+        override fun read(bytes: ByteArray, offset: Int, length: Int): Int = try {
+            super.read(bytes, offset, length)
+        } catch (failure: IOException) {
+            throw SourceFailure(failure)
+        }
+    }
+
+    private class StagingFailure(cause: IOException) : IOException(cause)
+    private class SourceFailure(cause: IOException) : IOException(cause)
 }

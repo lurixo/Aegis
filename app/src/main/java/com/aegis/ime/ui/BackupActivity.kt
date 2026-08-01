@@ -257,13 +257,16 @@ class BackupActivity : ComponentActivity() {
         }
     }
 
-    private fun writeExport(uri: Uri, password: CharArray): Boolean {
-        val out = contentResolver.openOutputStream(uri) ?: return false
-        return try {
-            BackupManager.export(filesDir, aegisPrefs(), password, out)
-            true
-        } finally {
-            runCatching { out.close() }
+    internal fun writeExport(uri: Uri, password: CharArray): Boolean {
+        try {
+            val out = contentResolver.openOutputStream(uri) ?: throw java.io.IOException("backup target open failed")
+            out.use { BackupManager.export(filesDir, aegisPrefs(), password, it) }
+            val input = contentResolver.openInputStream(uri) ?: throw java.io.IOException("backup reopen failed")
+            input.use { BackupManager.verify(filesDir, password, it) }
+            return true
+        } catch (_: Exception) {
+            runCatching { contentResolver.delete(uri, null, null) }
+            return false
         }
     }
 
