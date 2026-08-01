@@ -44,7 +44,7 @@ internal object UserSettingsSchema {
         "pref_key_preview_master" to StoredSettingValue.Bool(false),
         "pref_key_preview_nine" to StoredSettingValue.Bool(true),
         "pref_key_preview_alpha" to StoredSettingValue.Bool(true),
-        CLIPBOARD_HISTORY to StoredSettingValue.Bool(true),
+        CLIPBOARD_HISTORY to StoredSettingValue.Bool(false),
         "dl_hint_dismissed" to StoredSettingValue.Bool(false),
     ).apply {
         for (rule in Fuzzy.RULES) put(Fuzzy.prefKey(rule.key), StoredSettingValue.Bool(true))

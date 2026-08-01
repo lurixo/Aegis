@@ -217,7 +217,7 @@ class UserSettingsPreferencesTest {
         val root = temporary.newFolder("privacy")
         val legacy = preferences()
         val settings = UserSettingsPreferences(root, legacy)
-        assertTrue(settings.getBoolean("clip_history", false))
+        assertFalse(settings.getBoolean("clip_history", true))
         assertTrue(settings.edit().putBoolean("clip_history", false).commit())
         assertFalse(UserSettingsPreferences(root, legacy).getBoolean("clip_history", true))
 
@@ -225,6 +225,26 @@ class UserSettingsPreferencesTest {
         assertFalse(unavailable.getBoolean("clip_history", true))
         assertFalse(unavailable.edit().putBoolean("clip_history", true).commit())
         assertFalse(UserSettingsPreferences(root, legacy).getBoolean("clip_history", true))
+    }
+
+    @Test fun fresh_database_created_before_settings_bootstrap_is_private_but_explicit_beta29_true_is_preserved() {
+        val freshRoot = temporary.newFolder("privacy-created-by-user-data-path")
+        UserDataDatabase.open(freshRoot).use { database ->
+            assertNull(database.readSetting("clip_history"))
+        }
+        val fresh = UserSettingsPreferences(freshRoot, preferences())
+        assertFalse(fresh.getBoolean("clip_history", true))
+        UserDataDatabase.open(freshRoot).use { database ->
+            assertEquals(StoredSettingValue.Bool(false), database.readSetting("clip_history"))
+        }
+
+        val migratedRoot = temporary.newFolder("privacy-explicit-beta29-on")
+        val legacy = preferences()
+        assertTrue(legacy.edit().putBoolean("clip_history", true).commit())
+        UserDataMigration.open(migratedRoot, legacy).use { database ->
+            assertEquals(StoredSettingValue.Bool(true), database.readSetting("clip_history"))
+        }
+        assertFalse(legacy.contains("clip_history"))
     }
 
     @Test fun corruption_without_a_valid_snapshot_cannot_reenable_clipboard_history() {
