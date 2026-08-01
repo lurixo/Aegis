@@ -170,6 +170,31 @@ class UserDataTransferTest {
     }
 
     @Test
+    fun streamingValidationCrossesEveryOldTwoHundredFiftyThousandRowMilestone() {
+        val milestones = listOf(249_999L, 250_000L, 250_001L, 500_000L)
+        val observed = ArrayList<Long>()
+        var accepted = 0L
+        val total = UserDataTransfer.readUserDictionary(GeneratedRowsInputStream(500_000)) {
+            accepted++
+            if (accepted in milestones) observed.add(accepted)
+        }
+        assertEquals(milestones, observed)
+        assertEquals(500_000L, total)
+    }
+
+    @Test
+    fun validRowsCrossEveryOldFourThousandNinetySixCharacterMilestone() {
+        for (lineLength in listOf(4_095, 4_096, 4_097, 16_384)) {
+            val word = "界".repeat(lineLength - 6)
+            val input = "${UserDataTransfer.USER_DICTIONARY_HEADER}\nW\t$word\t1\t1\n".byteInputStream()
+            var accepted: UserDataTransfer.UserDictionaryRow? = null
+            assertEquals(1L, UserDataTransfer.readUserDictionary(input) { accepted = it })
+            assertEquals(UserDataTransfer.UserDictionaryRow.Word(word, 1, 1L), accepted)
+            assertEquals(lineLength, "W\t$word\t1\t1".length)
+        }
+    }
+
+    @Test
     fun overlongTransferRowIsRejectedWithoutChangingData() {
         val root = newDir()
         UserDataMigration.open(root).use { database ->
@@ -231,6 +256,39 @@ class UserDataTransferTest {
         val rows = ArrayList<UserDataTransfer.UserDictionaryRow>()
         UserDataTransfer.readUserDictionary(ByteArrayInputStream(bytes), rows::add)
         return rows
+    }
+
+    private class GeneratedRowsInputStream(private val rowCount: Int) : InputStream() {
+        private var nextRow = 0
+        private var chunk = (UserDataTransfer.USER_DICTIONARY_HEADER + "\n").toByteArray()
+        private var chunkOffset = 0
+        private val oneByte = ByteArray(1)
+
+        private fun advance(): Boolean {
+            if (nextRow >= rowCount) return false
+            chunk = "W\t词$nextRow\t1\t$nextRow\n".toByteArray()
+            chunkOffset = 0
+            nextRow++
+            return true
+        }
+
+        override fun read(): Int {
+            val count = read(oneByte, 0, 1)
+            return if (count < 0) -1 else oneByte[0].toInt() and 0xff
+        }
+
+        override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+            if (length == 0) return 0
+            var written = 0
+            while (written < length) {
+                if (chunkOffset >= chunk.size && !advance()) break
+                val count = minOf(length - written, chunk.size - chunkOffset)
+                chunk.copyInto(buffer, offset + written, chunkOffset, chunkOffset + count)
+                chunkOffset += count
+                written += count
+            }
+            return if (written == 0) -1 else written
+        }
     }
 
     private class FailingInputStream(

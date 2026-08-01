@@ -74,15 +74,17 @@ class FuzzyVariantsTest {
 
     @Test
     fun longFuzzyRunContinuesPastEveryFormerBound() {
-        val input = "z".repeat(41)
-        val cursor = Fuzzy.variantCursor(input, setOf("zh"))
-        val out = ArrayList<String>()
-        repeat(130) { cursor.next()?.let(out::add) }
-        assertEquals(130, out.size)
-        assertEquals(input, out.first())
-        assertTrue("a site beyond the former six-toggle window must change", out.any { it.takeLast(8).contains("zh") })
-        assertTrue("the original input length must not disable fuzzy matching", out.any { it.length > input.length })
-        assertTrue("generation must remain resumable after the first 64", cursor.peek() != null)
+        for (length in listOf(39, 40, 41, 80)) {
+            val input = "z".repeat(length)
+            val cursor = Fuzzy.variantCursor(input, setOf("zh"))
+            val out = ArrayList<String>()
+            repeat(130) { cursor.next()?.let(out::add) }
+            assertEquals("input length $length", 130, out.size)
+            assertEquals(input, out.first())
+            assertTrue("a site beyond the former six-toggle window must change", out.any { it.takeLast(8).contains("zh") })
+            assertTrue("input length $length must not disable fuzzy matching", out.any { it.length > input.length })
+            assertTrue("generation must remain resumable after the first 64", cursor.peek() != null)
+        }
     }
 
     @Test

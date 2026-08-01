@@ -180,7 +180,9 @@ class BinaryDictTest {
         }
 
         assertEquals(260, reference.size)
+        assertEquals(reference.take(127), dict.prefixByFreq("a", 127))
         assertEquals(reference.take(128), dict.prefixByFreq("a", 128))
+        assertEquals(reference.take(129), dict.prefixByFreq("a", 129))
         assertEquals(reference, paged)
     }
 

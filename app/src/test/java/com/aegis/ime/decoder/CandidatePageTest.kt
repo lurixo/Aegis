@@ -26,20 +26,22 @@ class CandidatePageTest {
 
     @Test
     fun continuationCollectsEveryItemInStableThirtyItemPages() {
-        val expected = (0 until 95).toList()
-        val pageSizes = ArrayList<Int>()
-        val actual = ArrayList<Int>()
-        var page = firstCandidatePage(ListCandidatePageSource(expected), inputEpoch = 41L)
-        while (true) {
-            assertEquals(41L, page.inputEpoch)
-            pageSizes.add(page.items.size)
-            actual.addAll(page.items)
-            val continuation = page.continuation ?: break
-            page = continueCandidatePage(continuation, inputEpoch = 41L)
-        }
+        for (count in listOf(29, 30, 31, 120)) {
+            val expected = (0 until count).toList()
+            val pageSizes = ArrayList<Int>()
+            val actual = ArrayList<Int>()
+            var page = firstCandidatePage(ListCandidatePageSource(expected), inputEpoch = 41L)
+            while (true) {
+                assertEquals(41L, page.inputEpoch)
+                pageSizes.add(page.items.size)
+                actual.addAll(page.items)
+                val continuation = page.continuation ?: break
+                page = continueCandidatePage(continuation, inputEpoch = 41L)
+            }
 
-        assertEquals(listOf(30, 30, 30, 5), pageSizes)
-        assertEquals(expected, actual)
+            assertEquals(expected.chunked(CANDIDATE_PAGE_SIZE).map { it.size }, pageSizes)
+            assertEquals(expected, actual)
+        }
     }
 
     @Test

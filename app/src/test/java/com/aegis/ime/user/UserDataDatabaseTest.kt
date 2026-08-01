@@ -82,6 +82,32 @@ class UserDataDatabaseTest {
     }
 
     @Test
+    fun wordsAndReadingsCrossEveryOldTwoHundredFiftySixUnitMilestoneAtomically() {
+        val lengths = listOf(255, 256, 257, 1_024)
+        val expected = LinkedHashMap<String, String>()
+        val root = root()
+        UserDataDatabase.open(root).use { database ->
+            val model = UserModel(database = database)
+            for ((index, length) in lengths.withIndex()) {
+                val word = String(Character.toChars(0x4E00 + index)).repeat(length)
+                val reading = ('a' + index).toString().repeat(length)
+                assertTrue("word/reading length $length", model.addManualWord(reading, word, index.toLong()))
+                expected[reading] = word
+            }
+            database.checkpointLastGood()
+        }
+
+        UserDataDatabase.open(root).use { database ->
+            val snapshot = database.readUserData()
+            for ((reading, word) in expected) {
+                assertTrue(word in snapshot.words)
+                assertEquals(setOf(word), snapshot.readings[reading])
+            }
+            assertTrue(database.integrityOk())
+        }
+    }
+
+    @Test
     fun failedDatabaseWriteKeepsTheLastValidModelState() {
         val root = root()
         val database = UserDataDatabase.open(root)
@@ -225,7 +251,7 @@ class UserDataDatabaseTest {
     @Test
     fun beta29CollectionsMigrateWithoutOldCountLimitsAndRemainIdempotent() {
         val root = root()
-        val history = (0..100_000).map { "clip-$it" }
+        val history = (0..200_000).map { "clip-$it" }
         File(root, "clipboard.txt").writeText(history.joinToString("\n"))
         File(root, "phrases.txt").writeText("C\tdefault\nP\tlegacy phrase\nC\twork\nP\tlegacy work\n")
         val preferences = RuntimeEnvironment.getApplication()
@@ -243,13 +269,18 @@ class UserDataDatabaseTest {
         File(emojiRoot, "symbol_usage.txt").writeText((0 until 93).joinToString("\n") { "emoji-$it" })
 
         UserDataMigration.open(root, preferences).use { database ->
-            assertEquals(100_001L, database.clipboardHistoryCount())
+            assertEquals(200_001L, database.clipboardHistoryCount())
             assertEquals(history.take(3), database.readClipboardHistory(limit = 3))
-            assertEquals(history.takeLast(3), database.readClipboardHistory(99_998, 3))
+            assertEquals(history.subList(99_998, 100_002), database.readClipboardHistory(99_998, 4))
+            assertEquals(history.takeLast(3), database.readClipboardHistory(199_998, 3))
             assertEquals(customSymbols, database.readCustomItems("custom_symbols"))
+            assertEquals(customSymbols.subList(198, 203), database.readCustomItems("custom_symbols", 198, 5))
             assertEquals(customOperators, database.readCustomItems("custom_operators"))
+            assertEquals(customOperators.subList(198, 203), database.readCustomItems("custom_operators", 198, 5))
             assertEquals((0 until 91).map { "recent-$it" }, database.readRecentItems("symbols").map { it.value })
+            assertEquals((28 until 33).map { "recent-$it" }, database.readRecentItems("symbols", 28, 5).map { it.value })
             assertEquals((0 until 93).map { "emoji-$it" }, database.readRecentItems("emoji").map { it.value })
+            assertEquals((28 until 33).map { "emoji-$it" }, database.readRecentItems("emoji", 28, 5).map { it.value })
             assertEquals(listOf("default", "work"), database.readPhraseCategories().map { it.name })
             assertEquals("complete", database.metadata("beta29_clipboard_migration"))
             assertTrue(database.integrityOk())
@@ -261,9 +292,62 @@ class UserDataDatabaseTest {
         preferences.edit().putString("custom_symbols", "late-legacy-change").commit()
 
         UserDataMigration.open(root, preferences).use { database ->
-            assertEquals(100_001L, database.clipboardHistoryCount())
-            assertFalse(database.readClipboardHistory().contains("late-legacy-change"))
+            assertEquals(200_001L, database.clipboardHistoryCount())
+            assertFalse(database.containsClipboard("late-legacy-change"))
             assertEquals(customSymbols, database.readCustomItems("custom_symbols"))
+        }
+    }
+
+    @Test
+    fun learningTablesCrossEveryFormerFixedCountMilestone() {
+        val formedCap = 500
+        val pendingCap = 2_000
+        val followPreviousCap = 1_500
+        val followPerPreviousCap = 8
+        val formed = LinkedHashMap<String, Map<String, StoredUsage>>()
+        repeat(formedCap * 4) { index ->
+            formed["成熟$index"] = mapOf("formed$index" to StoredUsage(3.0, index.toLong()))
+        }
+        val pending = LinkedHashMap<Pair<String, String>, StoredUsage>()
+        repeat(pendingCap * 4) { index ->
+            pending["pending$index" to "待成熟$index"] = StoredUsage(1.0, index.toLong())
+        }
+        val follows = LinkedHashMap<String, Map<String, StoredUsage>>()
+        repeat(followPreviousCap * 4) { index ->
+            val successors = if (index == 0) {
+                (0 until followPerPreviousCap * 4).associate { successor ->
+                    "后续$successor" to StoredUsage(2.0, successor.toLong())
+                }
+            } else {
+                mapOf("后续$index" to StoredUsage(2.0, index.toLong()))
+            }
+            follows["前项$index"] = successors
+        }
+
+        UserDataDatabase.open(root()).use { database ->
+            database.replaceLearning(UserLearningSnapshot(formed, pending, follows))
+            val stored = database.readLearning()
+            assertEquals(formedCap * 4, stored.formed.size)
+            assertEquals(pendingCap * 4, stored.pending.size)
+            assertEquals(followPreviousCap * 4, stored.follows.size)
+            assertEquals(followPerPreviousCap * 4, stored.follows.getValue("前项0").size)
+            for (size in listOf(formedCap - 1, formedCap, formedCap + 1, formedCap * 4)) {
+                assertTrue(stored.formed.containsKey("成熟${size - 1}"))
+            }
+            for (size in listOf(pendingCap - 1, pendingCap, pendingCap + 1, pendingCap * 4)) {
+                assertTrue(stored.pending.containsKey("pending${size - 1}" to "待成熟${size - 1}"))
+            }
+            for (size in listOf(followPreviousCap - 1, followPreviousCap, followPreviousCap + 1, followPreviousCap * 4)) {
+                assertTrue(stored.follows.containsKey("前项${size - 1}"))
+            }
+            for (size in listOf(
+                followPerPreviousCap - 1,
+                followPerPreviousCap,
+                followPerPreviousCap + 1,
+                followPerPreviousCap * 4,
+            )) {
+                assertTrue(stored.follows.getValue("前项0").containsKey("后续${size - 1}"))
+            }
         }
     }
 

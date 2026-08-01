@@ -139,6 +139,41 @@ class UserLearningTest {
     }
 
     @Test
+    fun automaticFormationCrossesTheOldFourCharacterBoundaryAtEveryMilestone() {
+        for (length in listOf(3, 4, 5, 16)) {
+            val learning = UserLearning { now }
+            val run = Array(length) { index ->
+                String(Character.toChars(0x4E00 + length * 32 + index)) to "ma"
+            }
+            repeat(3) { typeRun(learning, *run) }
+            val word = run.joinToString("") { it.first }
+            val reading = "ma".repeat(length)
+            assertEquals("formed word length $length", listOf(word), learning.formedWordsFor(reading))
+        }
+    }
+
+    @Test
+    fun automaticFormationCrossesTheOldTwentyFourLetterBoundaryAtEveryMilestone() {
+        val readings = listOf(
+            listOf("zhuang", "zhuang", "zhuang", "shang"),
+            List(4) { "zhuang" },
+            List(5) { "shang" },
+            List(8) { "zhuang" },
+        )
+        assertEquals(listOf(23, 24, 25, 48), readings.map { row -> row.sumOf(String::length) })
+        for ((caseIndex, row) in readings.withIndex()) {
+            val learning = UserLearning { now }
+            val run = Array(row.size) { index ->
+                String(Character.toChars(0x6200 + caseIndex * 32 + index)) to row[index]
+            }
+            repeat(3) { typeRun(learning, *run) }
+            val word = run.joinToString("") { it.first }
+            val reading = row.joinToString("")
+            assertEquals("formed reading length ${reading.length}", listOf(word), learning.formedWordsFor(reading))
+        }
+    }
+
+    @Test
     fun pendingFloodStillAllowsFreshPromotion() {
         for (i in 0 until 2_100) {
             val a = String(Character.toChars(0x4E00 + i))
@@ -194,6 +229,54 @@ class UserLearningTest {
         assertEquals(listOf("允许"), store.follows("甲乙丙丁").map { it.first })
         assertEquals(listOf("继续"), store.follows("甲乙丙丁戊己庚辛").map { it.first })
         assertEquals(8, store.maximumFollowContextCodePoints())
+    }
+
+    @Test
+    fun collocationsCrossTheOldFourCharacterBoundaryOnBothSidesAtEveryMilestone() {
+        for (length in listOf(3, 4, 5, 16)) {
+            val previous = String(Character.toChars(0x7000 + length)).repeat(length)
+            val next = String(Character.toChars(0x7100 + length)).repeat(length)
+            repeat(2) { store.observeCommit(previous, next, "", now) }
+            assertEquals("collocation length $length", listOf(next), store.follows(previous).map { it.first })
+        }
+        assertEquals(16, store.maximumFollowContextCodePoints())
+    }
+
+    @Test
+    fun legacyLearningFilesCrossEveryOldTwoMiBBoundaryMilestone() {
+        val oldLimit = 2L * 1024L * 1024L
+        for (targetBytes in listOf(oldLimit - 1L, oldLimit, oldLimit + 1L, oldLimit * 2L)) {
+            val file = tempFile("userlearn-size")
+            writeSingleFormedRowOfExactSize(file, targetBytes)
+            val learning = UserLearning { now }
+            learning.load(file)
+            assertEquals(targetBytes, file.length())
+            assertTrue("$targetBytes-byte learning file must load", learning.lastFailure == null)
+            assertFalse("$targetBytes-byte learning file must retain its row", learning.isEmpty())
+            file.delete()
+        }
+    }
+
+    private fun writeSingleFormedRowOfExactSize(file: File, targetBytes: Long) {
+        val header = "aegis-userlearn 1\n"
+        val prefix = "F\t"
+        val suffix = "\t甲乙\t1.0\t1\n"
+        val fixedBytes = (header + prefix + suffix).toByteArray(Charsets.UTF_8).size.toLong()
+        val readingLength = targetBytes - fixedBytes
+        require(readingLength >= 2L)
+        file.outputStream().bufferedWriter(Charsets.UTF_8).use { writer ->
+            writer.write(header)
+            writer.write(prefix)
+            var remaining = readingLength
+            val chunk = "a".repeat(8 * 1024)
+            while (remaining >= chunk.length) {
+                writer.write(chunk)
+                remaining -= chunk.length
+            }
+            if (remaining > 0L) writer.write("a".repeat(remaining.toInt()))
+            writer.write(suffix)
+        }
+        assertEquals(targetBytes, file.length())
     }
 
     @Test

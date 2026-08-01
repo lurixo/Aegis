@@ -56,9 +56,12 @@ class PrefsCodecTest {
     }
 
     @Test
-    fun aSingleStringBeyondTheOldEightMiBBoundaryRoundTrips() {
-        val value = "界".repeat(8 * 1024 * 1024 + 1)
-        assertEquals("large" to PrefsCodec.Value.Str(value), roundTrip("large", value))
+    fun stringsCrossEveryOldEightMiBBoundaryMilestone() {
+        val oldLimit = 8 * 1024 * 1024
+        for (length in listOf(oldLimit - 1, oldLimit, oldLimit + 1, oldLimit * 2)) {
+            val value = "x".repeat(length)
+            assertEquals("string length $length", "large" to PrefsCodec.Value.Str(value), roundTrip("large", value))
+        }
     }
 
     @Test
