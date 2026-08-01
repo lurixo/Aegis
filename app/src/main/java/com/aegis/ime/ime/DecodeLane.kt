@@ -15,8 +15,12 @@
 
 package com.aegis.ime.ime
 
+import java.util.concurrent.CancellationException
 import java.util.concurrent.Executor
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Future
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicReference
 
 class DecodeLane(
     private val worker: Executor,
@@ -24,6 +28,7 @@ class DecodeLane(
     private val logError: (Throwable) -> Unit = {},
 ) {
     private val seq = AtomicLong(0L)
+    private val running = AtomicReference<Future<*>?>(null)
     @Volatile private var lastRequested = 0L
     @Volatile private var lastApplied = 0L
 
@@ -32,10 +37,10 @@ class DecodeLane(
     fun <R> submit(compute: () -> R, apply: (R) -> Unit, onError: () -> Unit = {}) {
         val gen = seq.incrementAndGet()
         lastRequested = gen
-        worker.execute {
-            if (gen < lastRequested) return@execute
+        val task = Runnable {
+            if (gen < lastRequested) return@Runnable
             val result = runCatching { compute() }
-            result.exceptionOrNull()?.let(logError)
+            result.exceptionOrNull()?.takeUnless { it is CancellationException }?.let(logError)
             main.execute {
                 if (gen == lastRequested && gen > lastApplied) {
                     lastApplied = gen
@@ -43,9 +48,16 @@ class DecodeLane(
                 }
             }
         }
+        if (worker is ExecutorService) {
+            val future = worker.submit(task)
+            running.getAndSet(future)?.cancel(true)
+        } else {
+            worker.execute(task)
+        }
     }
 
     fun markSatisfiedSynchronously() {
         lastApplied = lastRequested
+        running.getAndSet(null)?.cancel(true)
     }
 }

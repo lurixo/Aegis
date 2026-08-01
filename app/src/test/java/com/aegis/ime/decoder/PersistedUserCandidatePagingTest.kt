@@ -61,6 +61,11 @@ class PersistedUserCandidatePagingTest {
                 "active candidate state must stay bounded, peak=${decoder.peakActivePoolSizeForTest}",
                 decoder.peakActivePoolSizeForTest <= 512,
             )
+            assertTrue(
+                "static single-frequency lookup must be reused across persisted words, misses=${decoder.singleFrequencyCacheMissesForTest}",
+                decoder.singleFrequencyCacheMissesForTest <= 16,
+            )
+            assertTrue(decoder.singleFrequencyCacheSizeForTest() <= PinyinDecoder.SINGLE_FREQUENCY_CACHE_SIZE)
         }
     }
 }

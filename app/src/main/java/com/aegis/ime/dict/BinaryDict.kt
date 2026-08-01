@@ -21,6 +21,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.nio.channels.FileChannel
 import java.util.PriorityQueue
+import java.util.concurrent.CancellationException
 
 class BinaryDict private constructor(private val buf: ByteBuffer) {
 
@@ -59,14 +60,33 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
     data class Page<T>(val items: List<T>, val hasMore: Boolean)
 
     internal class WordFreqCursor internal constructor(private val pull: () -> WordFreq?) {
-        private var pending = pull()
+        private val pending = ArrayDeque<WordFreq>()
+        private var exhausted = false
 
-        fun peek(): WordFreq? = pending
+        init {
+            fill(1)
+        }
+
+        fun peek(): WordFreq? = pending.firstOrNull()
+
+        fun peekPage(limit: Int): List<WordFreq> {
+            require(limit > 0)
+            fill(limit)
+            return pending.take(limit)
+        }
 
         fun next(): WordFreq? {
-            val item = pending
-            pending = pull()
+            val item = pending.removeFirstOrNull()
+            fill(1)
             return item
+        }
+
+        private fun fill(limit: Int) {
+            while (!exhausted && pending.size < limit) {
+                ensureDecodeActive()
+                val item = pull()
+                if (item == null) exhausted = true else pending.addLast(item)
+            }
         }
     }
 
@@ -94,13 +114,16 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
             val frequency = entryFrequency(entry)
             val group = ArrayList<CursorHit>()
             while (entry < end && entryFrequency(entry) == frequency) {
+                if ((group.size and CANCELLATION_CHECK_MASK) == 0) ensureDecodeActive()
                 group.add(CursorHit(readEntry(entry), entry))
                 entry++
             }
+            ensureDecodeActive()
             group.sortWith(
                 compareBy<CursorHit> { supplementarySingleTieRank(it.value.word) }
                     .thenBy { it.order },
             )
+            ensureDecodeActive()
             tied.addAll(group)
         }
     }
@@ -117,6 +140,7 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         val out = ArrayList<WordFreq>(take)
         var j = es
         while (j < ee && out.size < limit) {
+            if (((j - es) and CANCELLATION_CHECK_MASK) == 0) ensureDecodeActive()
             val wo = buf.getInt(entryArrOff + j * 12)
             val wl = buf.getInt(entryArrOff + j * 12 + 4)
             val fr = buf.getInt(entryArrOff + j * 12 + 8)
@@ -139,6 +163,7 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         val pageEnd = minOf(end.toLong(), pageStart.toLong() + limit.toLong()).toInt()
         val out = ArrayList<WordFreq>(pageEnd - pageStart)
         for (entry in pageStart until pageEnd) {
+            if (((entry - pageStart) and CANCELLATION_CHECK_MASK) == 0) ensureDecodeActive()
             val entryOffset = entryArrOff + entry * 12
             out.add(
                 WordFreq(
@@ -168,6 +193,7 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         val ee = if (i + 1 < numKeys) entryStart(i + 1) else numEntries
         var j = es
         while (j < ee) {
+            if (((j - es) and CANCELLATION_CHECK_MASK) == 0) ensureDecodeActive()
             val entryOff = entryArrOff + j * 12
             val wo = buf.getInt(entryOff)
             val wl = buf.getInt(entryOff + 4)
@@ -188,10 +214,12 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         var order = 0
         var i = lowerBound(q)
         while (i < numKeys && startsWith(i, q)) {
+            ensureDecodeActive()
             val es = entryStart(i)
             val ee = if (i + 1 < numKeys) entryStart(i + 1) else numEntries
             var j = es
             while (j < ee) {
+                if (((j - es) and CANCELLATION_CHECK_MASK) == 0) ensureDecodeActive()
                 val entryOff = entryArrOff + j * 12
                 val fr = buf.getInt(entryOff + 8)
                 if (top.size >= limit) {
@@ -246,6 +274,7 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         }
         var keyIndex = lowerBound(query)
         while (keyIndex < numKeys && startsWith(keyIndex, query)) {
+            ensureDecodeActive()
             val start = entryStart(keyIndex)
             val end = if (keyIndex + 1 < numKeys) entryStart(keyIndex + 1) else numEntries
             if (start < end && (!excludeExactKey || compareKey(keyIndex, query) != 0)) {
@@ -272,6 +301,7 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         val out = LinkedHashSet<String>()
         var i = lowerBound(q)
         while (i < numKeys && out.size < limit && startsWith(i, q)) {
+            ensureDecodeActive()
             addWords(i, out, limit)
             i++
         }
@@ -341,6 +371,7 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         val ee = if (i + 1 < numKeys) entryStart(i + 1) else numEntries
         var j = es
         while (j < ee && out.size < limit) {
+            if (((j - es) and CANCELLATION_CHECK_MASK) == 0) ensureDecodeActive()
             val wo = buf.getInt(entryArrOff + j * 12)
             val wl = buf.getInt(entryArrOff + j * 12 + 4)
             out.add(readWord(wo, wl))
@@ -430,8 +461,9 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
     }
 
     private fun sortedPrefixHits(top: PriorityQueue<PrefixHit>): List<WordFreq> =
-        top.toList()
+        top.toList().also { ensureDecodeActive() }
             .sortedWith(Comparator { a, b -> comparePrefixBestFirst(a, b) })
+            .also { ensureDecodeActive() }
             .map { WordFreq(it.word, it.freq) }
 
     private fun supplementarySingleTieRank(word: String): Int =
@@ -481,8 +513,13 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
     }
 
     companion object {
+        private const val CANCELLATION_CHECK_MASK = 127
         private const val SHORT_PREFIX_TOP_N = 128
         private const val SHORT_PREFIX_BUCKETS = 128
+
+        private fun ensureDecodeActive() {
+            if (Thread.currentThread().isInterrupted) throw CancellationException("decode superseded")
+        }
 
         fun fromFile(file: File): BinaryDict =
             RandomAccessFile(file, "r").use { raf ->

@@ -19,7 +19,11 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CancellationException
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class DecodeLaneTest {
 
@@ -104,7 +108,7 @@ class DecodeLaneTest {
     }
 
     @Test fun a_real_single_thread_executor_survives_a_compute_exception() {
-        val exec = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val exec = Executors.newSingleThreadExecutor()
         try {
             val logged = java.util.concurrent.atomic.AtomicInteger(0)
             val realLane = DecodeLane(exec, exec, logError = { logged.incrementAndGet() })
@@ -119,6 +123,45 @@ class DecodeLaneTest {
                 secondRan.await(5, java.util.concurrent.TimeUnit.SECONDS),
             )
             assertEquals("the exception was caught and reported, not propagated", 1, logged.get())
+        } finally {
+            exec.shutdownNow()
+        }
+    }
+
+    @Test fun a_new_request_interrupts_the_running_stale_compute() {
+        val exec = Executors.newSingleThreadExecutor()
+        try {
+            val logged = java.util.concurrent.atomic.AtomicInteger(0)
+            val applied = ArrayList<Int>()
+            val firstStarted = CountDownLatch(1)
+            val firstStopped = CountDownLatch(1)
+            val secondApplied = CountDownLatch(1)
+            val realLane = DecodeLane(exec, Executor { it.run() }, logError = { logged.incrementAndGet() })
+
+            realLane.submit(
+                compute = {
+                    firstStarted.countDown()
+                    try {
+                        while (!Thread.currentThread().isInterrupted) Thread.yield()
+                        throw CancellationException("superseded")
+                    } finally {
+                        firstStopped.countDown()
+                    }
+                },
+                apply = { applied.add(it) },
+            )
+            assertTrue("the stale compute started", firstStarted.await(5, TimeUnit.SECONDS))
+
+            realLane.submit(
+                compute = { 2 },
+                apply = { applied.add(it); secondApplied.countDown() },
+            )
+
+            assertTrue("the stale compute was interrupted", firstStopped.await(5, TimeUnit.SECONDS))
+            assertTrue("the newest result applied", secondApplied.await(5, TimeUnit.SECONDS))
+            assertEquals(listOf(2), applied)
+            assertEquals("supersession is control flow, not a decode failure", 0, logged.get())
+            assertFalse(realLane.pending)
         } finally {
             exec.shutdownNow()
         }

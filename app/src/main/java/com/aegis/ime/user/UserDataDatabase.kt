@@ -113,6 +113,8 @@ internal class UserDataDatabase private constructor(
 
     private val databaseFile = File(root, DATABASE_NAME)
     private val lastGoodFile = File(root, LAST_GOOD_NAME)
+    private var scalarRankingReads = 0
+    private var batchRankingReads = 0
     private val statusFile = File(root, STATUS_NAME)
 
     @Volatile
@@ -489,10 +491,31 @@ internal class UserDataDatabase private constructor(
     }
 
     @Synchronized
-    fun readStoredWord(word: String): StoredWord? = database.rawQuery(
-        "SELECT count,last_used FROM user_words WHERE word=?",
-        arrayOf(word),
-    ).use { cursor -> if (cursor.moveToFirst()) StoredWord(cursor.getInt(0), cursor.getLong(1)) else null }
+    fun readStoredWord(word: String): StoredWord? {
+        scalarRankingReads++
+        return database.rawQuery(
+            "SELECT count,last_used FROM user_words WHERE word=?",
+            arrayOf(word),
+        ).use { cursor -> if (cursor.moveToFirst()) StoredWord(cursor.getInt(0), cursor.getLong(1)) else null }
+    }
+
+    @Synchronized
+    internal fun readStoredWords(words: Collection<String>): Map<String, StoredWord> {
+        val unique = words.asSequence().filter { it.isNotEmpty() }.distinct().toList()
+        require(unique.size <= MAX_RUNTIME_PAGE_SIZE)
+        if (unique.isEmpty()) return emptyMap()
+        batchRankingReads++
+        val out = LinkedHashMap<String, StoredWord>(unique.size)
+        database.rawQuery(
+            "SELECT word,count,last_used FROM user_words WHERE word IN (${placeholders(unique.size)})",
+            unique.toTypedArray(),
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                out[cursor.getString(0)] = StoredWord(cursor.getInt(1), cursor.getLong(2))
+            }
+        }
+        return out
+    }
 
     @Synchronized
     fun hasUserReading(reading: String, word: String): Boolean = database.rawQuery(
@@ -675,10 +698,33 @@ internal class UserDataDatabase private constructor(
     )
 
     @Synchronized
-    fun readBestFormedUsage(word: String): StoredUsage? = readUsage(
-        "SELECT count,last_seen FROM learned_formed WHERE word=? ORDER BY count DESC,last_seen DESC LIMIT 1",
-        arrayOf(word),
-    )
+    fun readBestFormedUsage(word: String): StoredUsage? {
+        scalarRankingReads++
+        return readUsage(
+            "SELECT count,last_seen FROM learned_formed WHERE word=? ORDER BY count DESC,last_seen DESC LIMIT 1",
+            arrayOf(word),
+        )
+    }
+
+    @Synchronized
+    internal fun readBestFormedUsages(words: Collection<String>): Map<String, StoredUsage> {
+        val unique = words.asSequence().filter { it.isNotEmpty() }.distinct().toList()
+        require(unique.size <= MAX_RUNTIME_PAGE_SIZE)
+        if (unique.isEmpty()) return emptyMap()
+        batchRankingReads++
+        val out = LinkedHashMap<String, StoredUsage>(unique.size)
+        database.rawQuery(
+            "SELECT word,count,last_seen FROM learned_formed " +
+                "WHERE word IN (${placeholders(unique.size)}) ORDER BY word,count DESC,last_seen DESC",
+            unique.toTypedArray(),
+        ).use { cursor ->
+            while (cursor.moveToNext()) {
+                val word = cursor.getString(0)
+                if (word !in out) out[word] = StoredUsage(cursor.getDouble(1), cursor.getLong(2))
+            }
+        }
+        return out
+    }
 
     @Synchronized
     fun readPendingUsage(reading: String, word: String): StoredUsage? = readUsage(
@@ -687,10 +733,43 @@ internal class UserDataDatabase private constructor(
     )
 
     @Synchronized
-    fun readFollowUsage(previousWord: String, word: String): StoredUsage? = readUsage(
-        "SELECT count,last_seen FROM learned_follows WHERE prev_word=? AND word=?",
-        arrayOf(previousWord, word),
-    )
+    fun readFollowUsage(previousWord: String, word: String): StoredUsage? {
+        scalarRankingReads++
+        return readUsage(
+            "SELECT count,last_seen FROM learned_follows WHERE prev_word=? AND word=?",
+            arrayOf(previousWord, word),
+        )
+    }
+
+    @Synchronized
+    internal fun forEachFollowUsage(
+        previousWords: Collection<String>,
+        words: Collection<String>,
+        consumer: (String, StoredUsage) -> Unit,
+    ) {
+        val uniquePrevious = previousWords.asSequence().filter { it.isNotEmpty() }.distinct().toList()
+        val uniqueWords = words.asSequence().filter { it.isNotEmpty() }.distinct().toList()
+        require(uniqueWords.size < MAX_RUNTIME_PAGE_SIZE)
+        if (uniquePrevious.isEmpty() || uniqueWords.isEmpty()) return
+        val previousPageSize = MAX_RUNTIME_PAGE_SIZE - uniqueWords.size
+        for (page in uniquePrevious.chunked(previousPageSize)) {
+            batchRankingReads++
+            val args = ArrayList<String>(page.size + uniqueWords.size).apply {
+                addAll(page)
+                addAll(uniqueWords)
+            }
+            database.rawQuery(
+                "SELECT word,count,last_seen FROM learned_follows " +
+                    "WHERE prev_word IN (${placeholders(page.size)}) " +
+                    "AND word IN (${placeholders(uniqueWords.size)})",
+                args.toTypedArray(),
+            ).use { cursor ->
+                while (cursor.moveToNext()) {
+                    consumer(cursor.getString(0), StoredUsage(cursor.getDouble(1), cursor.getLong(2)))
+                }
+            }
+        }
+    }
 
     @Synchronized
     fun readFollows(previousWord: String, offset: Int, limit: Int): List<Pair<String, StoredUsage>> {
@@ -2036,6 +2115,20 @@ internal class UserDataDatabase private constructor(
     private fun readUsage(sql: String, args: Array<String>): StoredUsage? = database.rawQuery(sql, args).use { cursor ->
         if (cursor.moveToFirst()) StoredUsage(cursor.getDouble(0), cursor.getLong(1)) else null
     }
+
+    private fun placeholders(count: Int): String {
+        require(count in 1..MAX_RUNTIME_PAGE_SIZE)
+        return List(count) { "?" }.joinToString(",")
+    }
+
+    @Synchronized
+    internal fun resetRankingReadCountsForTest() {
+        scalarRankingReads = 0
+        batchRankingReads = 0
+    }
+
+    @Synchronized
+    internal fun rankingReadCountsForTest(): Pair<Int, Int> = scalarRankingReads to batchRankingReads
 
     private fun putUsage(
         table: String,

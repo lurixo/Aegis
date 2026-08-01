@@ -21,6 +21,7 @@ import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
 import java.util.PriorityQueue
+import java.util.concurrent.CancellationException
 import kotlin.math.exp
 import kotlin.math.ln
 
@@ -42,8 +43,42 @@ class PinyinDecoder(
     private val userLearning: UserLearning? = null,
 ) {
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
+    private val singleFrequencyCache = object : LinkedHashMap<String, Map<String, Int>>(
+        SINGLE_FREQUENCY_CACHE_SIZE,
+        0.75f,
+        true,
+    ) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Map<String, Int>>?): Boolean =
+            size > SINGLE_FREQUENCY_CACHE_SIZE
+    }
     internal var peakActivePoolSizeForTest: Int = 0
         private set
+    internal var singleFrequencyCacheMissesForTest: Int = 0
+        private set
+
+    private fun ensureDecodeActive() {
+        if (Thread.currentThread().isInterrupted) throw CancellationException("decode superseded")
+    }
+
+    private fun prefetchRanking(words: Collection<String>, contextTail: String = "") {
+        if (words.isEmpty()) return
+        ensureDecodeActive()
+        userModel?.wordBoosts(words)
+        userLearning?.rankingBoosts(contextTail, words)
+    }
+
+    private fun <T> forEachRankingBatch(
+        items: List<T>,
+        word: (T) -> String,
+        action: (T) -> Unit,
+    ) {
+        for (offset in items.indices step RANKING_PREFETCH_SIZE) {
+            ensureDecodeActive()
+            val batch = items.subList(offset, minOf(items.size, offset + RANKING_PREFETCH_SIZE))
+            prefetchRanking(batch.map(word).distinct())
+            batch.forEach(action)
+        }
+    }
 
     fun setFuzzyRules(rules: Set<String>) {
         fuzzyRules = rules
@@ -96,6 +131,7 @@ class PinyinDecoder(
         val pending = ArrayDeque<String>()
         fun pull(): BinaryDict.WordFreq? {
             while (true) {
+                ensureDecodeActive()
                 val word = pending.removeFirstOrNull()
                 if (word != null) {
                     if (phase == 2 && userModel?.containsWordForKey(key, word) == true) continue
@@ -130,13 +166,33 @@ class PinyinDecoder(
         return BinaryDict.WordFreqCursor(::pull)
     }
 
-    private fun learnedExactWordFreqs(key: String): Map<String, Int> {
+    private fun learnedExactWordFreqs(key: String, words: List<String> = userWordsFor(key)): Map<String, Int> {
         val out = LinkedHashMap<String, Int>()
-        for (word in userWordsFor(key)) {
+        for (word in words) {
             val freq = dict.exactWordFreq(key, word) ?: continue
             out[word] = freq
         }
         return out
+    }
+
+    private fun singleWordFrequencies(key: String): Map<String, Int> {
+        synchronized(singleFrequencyCache) {
+            singleFrequencyCache[key]?.let { return it }
+        }
+        ensureDecodeActive()
+        val frequencies = HashMap<String, Int>()
+        for (wordFreq in preferredExact(dict, key)) {
+            if (isSingleChar(wordFreq.word)) frequencies.putIfAbsent(wordFreq.word, wordFreq.freq)
+        }
+        synchronized(singleFrequencyCache) {
+            singleFrequencyCacheMissesForTest++
+            singleFrequencyCache[key] = frequencies
+        }
+        return frequencies
+    }
+
+    internal fun singleFrequencyCacheSizeForTest(): Int = synchronized(singleFrequencyCache) {
+        singleFrequencyCache.size
     }
 
     private fun userWordFreq(word: String, readingKey: String): Double {
@@ -147,19 +203,13 @@ class PinyinDecoder(
         val n = readingKey.length
         val m = cps.size
         if (m == 0) return 1.0
-        val cache = HashMap<String, Map<String, Int>>()
-        fun singleFreqs(key: String): Map<String, Int> = cache.getOrPut(key) {
-            val map = HashMap<String, Int>()
-            for (wf in preferredExact(dict, key)) if (isSingleChar(wf.word)) map.putIfAbsent(wf.word, wf.freq)
-            map
-        }
         val dp = Array(n + 1) { DoubleArray(m + 1) { Double.NEGATIVE_INFINITY } }
         dp[0][0] = Double.MAX_VALUE
         for (p in 0 until n) for (i in 0 until m) {
             if (dp[p][i] == Double.NEGATIVE_INFINITY) continue
             var q = p + 1
             while (q <= n && q - p <= MAX_SYLLABLE_KEY_LEN) {
-                val f = singleFreqs(readingKey.substring(p, q))[cps[i]]
+                val f = singleWordFrequencies(readingKey.substring(p, q))[cps[i]]
                 if (f != null) {
                     val v = minOf(dp[p][i], f.toDouble())
                     if (v > dp[q][i + 1]) dp[q][i + 1] = v
@@ -171,14 +221,17 @@ class PinyinDecoder(
         return if (best == Double.NEGATIVE_INFINITY || best == Double.MAX_VALUE) 1.0 else best.coerceAtLeast(1.0)
     }
 
-    private fun edgesFor(sub: String): List<Edge> {
+    private fun edgesFor(sub: String): List<Edge> = edgesFor(sub, includeInitials = true)
+
+    private fun edgesFor(sub: String, includeInitials: Boolean): List<Edge> {
         val out = ArrayList<Edge>()
         val seen = HashSet<String>()
         addExactEdges(dict, sub, 0.0, out, seen)
-        for ((word, freq) in learnedExactWordFreqs(sub)) {
+        val userWords = userWordsFor(sub)
+        for ((word, freq) in learnedExactWordFreqs(sub, userWords)) {
             if (seen.add(word)) out.add(Edge(word, freq, 0.0))
         }
-        for (uw in userWordsFor(sub)) {
+        for (uw in userWords) {
             if (seen.add(uw)) {
                 val n = uw.codePointCount(0, uw.length)
                 out.add(Edge(uw, userWordFreq(uw, sub).toInt().coerceAtLeast(1), (n - 1).coerceAtLeast(0) * lnTotal))
@@ -193,7 +246,7 @@ class PinyinDecoder(
                 addExactEdges(dict, variant, FUZZY_PENALTY, out, seen)
             }
         }
-        initialsDict?.let { addExactEdges(it, sub, INITIALS_PENALTY, out, seen) }
+        if (includeInitials) initialsDict?.let { addExactEdges(it, sub, INITIALS_PENALTY, out, seen) }
         return out
     }
 
@@ -372,8 +425,14 @@ class PinyinDecoder(
     private fun supplementarySingleTieRank(word: String): Int =
         if (isSingleChar(word) && Character.isSupplementaryCodePoint(word.codePointAt(0))) 1 else 0
 
-    private fun preferredWordFreqs(words: List<BinaryDict.WordFreq>): List<BinaryDict.WordFreq> =
-        words.sortedWith(compareByDescending<BinaryDict.WordFreq> { it.freq }.thenBy { supplementarySingleTieRank(it.word) })
+    private fun preferredWordFreqs(words: List<BinaryDict.WordFreq>): List<BinaryDict.WordFreq> {
+        ensureDecodeActive()
+        val preferred = words.sortedWith(
+            compareByDescending<BinaryDict.WordFreq> { it.freq }.thenBy { supplementarySingleTieRank(it.word) },
+        )
+        ensureDecodeActive()
+        return preferred
+    }
 
     private fun preferredExact(source: BinaryDict, key: String, limit: Int = Int.MAX_VALUE): List<BinaryDict.WordFreq> {
         if (limit <= 0) return emptyList()
@@ -485,6 +544,7 @@ class PinyinDecoder(
         val activeLimit: Int = Int.MAX_VALUE,
     ) {
         var activeCount: Int = 0
+        var rankingPrefetched: Int = 0
     }
 
     private data class RankedPoolItem(
@@ -551,6 +611,7 @@ class PinyinDecoder(
         }
 
         fun next(): RankedPoolItem? {
+            ensureDecodeActive()
             if (afterLastCommon && !delayedDrained) {
                 val delayed = delayedRare.removeFirstOrNull()
                 if (delayed != null) return delayed
@@ -581,6 +642,7 @@ class PinyinDecoder(
             val variants = fuzzyVariants ?: return false
             var activated = 0
             while (activated < Fuzzy.VARIANT_BATCH_SIZE) {
+                ensureDecodeActive()
                 val variant = variants.next()
                 if (variant == null) {
                     fuzzyExhausted = true
@@ -597,6 +659,7 @@ class PinyinDecoder(
             if (commonPrepared) return
             commonPrepared = true
             for (source in sources) {
+                ensureDecodeActive()
                 while (
                     source.activeCount < source.activeLimit &&
                     (source.cursor.peek()?.freq ?: Int.MIN_VALUE) >= ORDERING_COMMON_FREQ.toInt()
@@ -612,6 +675,7 @@ class PinyinDecoder(
 
         private fun nextRanked(): RankedPoolItem? {
             while (true) {
+                ensureDecodeActive()
                 cleanupRanked()
                 val best = ranked.peek()
                 val source = sources
@@ -650,7 +714,15 @@ class PinyinDecoder(
         }
 
         private fun pull(source: RawPoolSource) {
+            ensureDecodeActive()
+            if ((userModel != null || userLearning != null) && source.rankingPrefetched == 0) {
+                val prefetched = source.cursor.peekPage(RANKING_PREFETCH_SIZE)
+                val words = prefetched.map { it.word }.distinct()
+                prefetchRanking(words, ctx.tail)
+                source.rankingPrefetched = prefetched.size
+            }
             val wordFreq = source.cursor.next() ?: return
+            if (source.rankingPrefetched > 0) source.rankingPrefetched--
             offer(wordFreq, source)
         }
 
@@ -722,11 +794,13 @@ class PinyinDecoder(
             private var headResultBudget = -1
 
             override fun next(pageSize: Int): CandidateSlice<Cand> {
+                ensureDecodeActive()
                 if (headResultBudget < 0) headResultBudget = completionCap(pageSize)
                 pool.beginPage()
                 val items = ArrayList<Cand>(pageSize)
                 var poolPaused = false
                 while (items.size < pageSize && !exhausted) {
+                    ensureDecodeActive()
                     when {
                         bestPending -> {
                             bestPending = false
@@ -1276,17 +1350,27 @@ class PinyinDecoder(
         val condMemo = HashMap<Long, Double>()
         val graph = Array(input.length) { ArrayList<AtomicGraphEdge>() }
         for (start in input.indices) for (end in start + 1..input.length) {
-            for (edge in edgesFor(input.substring(start, end))) {
-                val word = edge.word
-                val firstCp = word.codePointAt(0)
-                val lastCp = word.codePointBefore(word.length)
-                val unigram = ln(edge.freq.toDouble()) - lnTotal
-                val boost = (userModel?.wordBoost(word) ?: 0.0) +
-                    (userLearning?.formedWeight(word) ?: 0.0)
-                val inner = if (model == null) 0.0 else lambda * internalBigramScore(word, model, condMemo)
-                graph[start].add(
-                    AtomicGraphEdge(end, word, firstCp, lastCp, unigram + boost + inner - edge.penalty),
-                )
+            ensureDecodeActive()
+            // Initials entries already have their own complete, pageable candidate source. Combining every
+            // initials hit into the sentence graph multiplies ambiguous pinyin prefixes such as z/zh and
+            // makes the first page depend on scanning the whole abbreviation dictionary.
+            val edges = edgesFor(input.substring(start, end), includeInitials = false)
+            for (offset in edges.indices step RANKING_PREFETCH_SIZE) {
+                val batch = edges.subList(offset, minOf(edges.size, offset + RANKING_PREFETCH_SIZE))
+                prefetchRanking(batch.map { it.word }.distinct())
+                for (edge in batch) {
+                    ensureDecodeActive()
+                    val word = edge.word
+                    val firstCp = word.codePointAt(0)
+                    val lastCp = word.codePointBefore(word.length)
+                    val unigram = ln(edge.freq.toDouble()) - lnTotal
+                    val boost = (userModel?.wordBoost(word) ?: 0.0) +
+                        (userLearning?.formedWeight(word) ?: 0.0)
+                    val inner = if (model == null) 0.0 else lambda * internalBigramScore(word, model, condMemo)
+                    graph[start].add(
+                        AtomicGraphEdge(end, word, firstCp, lastCp, unigram + boost + inner - edge.penalty),
+                    )
+                }
             }
         }
         return graph
@@ -1303,6 +1387,7 @@ class PinyinDecoder(
         val nSyl = bounds.size - 1
         val graph = Array(nSyl) { ArrayList<AtomicGraphEdge>() }
         for (i in 0 until nSyl) for (j in i + 1..nSyl) {
+            ensureDecodeActive()
             val segment = input.substring(bounds[i], bounds[j])
             val exact = preferredExact(dict, segment)
             val eligible = if (j == i + 1) {
@@ -1320,15 +1405,20 @@ class PinyinDecoder(
                 if (j > i + 1 && !admissibleUnderCuts(word, bounds[i], bounds[j], interior, input, singlesCache)) continue
                 entries.add(BinaryDict.WordFreq(word, freq))
             }
-            for (entry in entries) {
-                val word = entry.word
-                val firstCp = word.codePointAt(0)
-                val lastCp = word.codePointBefore(word.length)
-                val unigram = ln(entry.freq.toDouble()) - lnTotal
-                val boost = (userModel?.wordBoost(word) ?: 0.0) +
-                    (userLearning?.formedWeight(word) ?: 0.0)
-                val inner = if (model == null) 0.0 else lambda * internalBigramScore(word, model, condMemo)
-                graph[i].add(AtomicGraphEdge(j, word, firstCp, lastCp, unigram + boost + inner))
+            for (offset in entries.indices step RANKING_PREFETCH_SIZE) {
+                val batch = entries.subList(offset, minOf(entries.size, offset + RANKING_PREFETCH_SIZE))
+                prefetchRanking(batch.map { it.word }.distinct())
+                for (entry in batch) {
+                    ensureDecodeActive()
+                    val word = entry.word
+                    val firstCp = word.codePointAt(0)
+                    val lastCp = word.codePointBefore(word.length)
+                    val unigram = ln(entry.freq.toDouble()) - lnTotal
+                    val boost = (userModel?.wordBoost(word) ?: 0.0) +
+                        (userLearning?.formedWeight(word) ?: 0.0)
+                    val inner = if (model == null) 0.0 else lambda * internalBigramScore(word, model, condMemo)
+                    graph[i].add(AtomicGraphEdge(j, word, firstCp, lastCp, unigram + boost + inner))
+                }
             }
         }
         return graph
@@ -1417,6 +1507,7 @@ class PinyinDecoder(
 
         fun next(): SentencePath? {
             while (queue.isNotEmpty()) {
+                ensureDecodeActive()
                 val path = queue.remove()
                 if (path.state.position == nSyl) {
                     if (yielded.add(path.text)) return SentencePath(path.text, terminalScore(path.baseScore, path.text))
@@ -1470,29 +1561,33 @@ class PinyinDecoder(
         val lensSet = lens.toSet()
         val entries = ArrayList<Entry>()
         for (q in span downTo 1) {
-            for (wf in preferredExact(dict, input.substring(0, q))) {
-                if (isSingleChar(wf.word) || !seen.add(wf.word)) continue
-                entries.add(
-                    Entry(
-                        wf.word,
-                        q,
-                        wordModelScore(wf.word, wf.freq, ctxId, ctx, condMemo),
-                        single = false,
-                        frequency = wf.freq.toDouble(),
-                    ),
-                )
-            }
-            if (q in lensSet) {
-                for ((w, f) in homophoneFreqs(input.substring(0, q))) if (seen.add(w))
+            forEachRankingBatch(preferredExact(dict, input.substring(0, q)), { it.word }) { wf ->
+                if (!isSingleChar(wf.word) && seen.add(wf.word)) {
                     entries.add(
                         Entry(
-                            w,
+                            wf.word,
                             q,
-                            wordModelScore(w, f, ctxId, ctx, condMemo),
-                            single = true,
-                            frequency = f,
+                            wordModelScore(wf.word, wf.freq, ctxId, ctx, condMemo),
+                            single = false,
+                            frequency = wf.freq.toDouble(),
                         ),
                     )
+                }
+            }
+            if (q in lensSet) {
+                forEachRankingBatch(homophoneFreqs(input.substring(0, q)), { it.first }) { (w, f) ->
+                    if (seen.add(w)) {
+                        entries.add(
+                            Entry(
+                                w,
+                                q,
+                                wordModelScore(w, f, ctxId, ctx, condMemo),
+                                single = true,
+                                frequency = f,
+                            ),
+                        )
+                    }
+                }
             }
         }
         if (lens.firstOrNull() != input.length) for (k in lens) {
@@ -1504,16 +1599,19 @@ class PinyinDecoder(
             val present = HashSet<String>()
             present.addAll(existingByCoverage[k].orEmpty())
             for (e in entries) if (e.cov == k) present.add(e.word)
-            for ((w, f) in homophoneFreqs(input.substring(0, k))) if (present.add(w))
-                entries.add(
-                    Entry(
-                        w,
-                        k,
-                        wordModelScore(w, f, ctxId, ctx, condMemo),
-                        single = true,
-                        frequency = f,
-                    ),
-                )
+            forEachRankingBatch(homophoneFreqs(input.substring(0, k)), { it.first }) { (w, f) ->
+                if (present.add(w)) {
+                    entries.add(
+                        Entry(
+                            w,
+                            k,
+                            wordModelScore(w, f, ctxId, ctx, condMemo),
+                            single = true,
+                            frequency = f,
+                        ),
+                    )
+                }
+            }
         }
         entries.sortWith(
             compareByDescending<Entry> { it.score }
@@ -1528,8 +1626,16 @@ class PinyinDecoder(
         word: (T) -> String,
         frequency: (T) -> Double,
     ) {
+        val boostedWords = HashSet<String>()
+        val words = entries.asSequence().map(word).filter { it.isNotEmpty() }.distinct().toList()
+        for (batch in words.chunked(RANKING_PREFETCH_SIZE)) {
+            ensureDecodeActive()
+            userModel?.wordBoosts(batch)?.forEach { (candidate, boost) ->
+                if (boost > 0.0) boostedWords.add(candidate)
+            }
+        }
         fun classification(entry: T): Int {
-            if ((userModel?.wordBoost(word(entry)) ?: 0.0) > 0.0) return 0
+            if (word(entry) in boostedWords) return 0
             val freq = frequency(entry)
             return when {
                 freq >= ORDERING_COMMON_FREQ -> 1
@@ -1780,6 +1886,8 @@ class PinyinDecoder(
         const val MAX_SYLLABLE_KEY_LEN = 6
         const val USER_QUERY_LIMIT = 128
         const val USER_CURSOR_PAGE_SIZE = 64
+        const val RANKING_PREFETCH_SIZE = 240
+        const val SINGLE_FREQUENCY_CACHE_SIZE = 128
         const val ORDERING_RARE_FREQ = 100.0
         const val ORDERING_COMMON_FREQ = 1000.0
         val ALIAS_FREQ_DISCOUNT = exp(-ALIAS_PENALTY)

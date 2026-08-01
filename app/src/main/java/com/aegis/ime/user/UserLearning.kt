@@ -172,8 +172,9 @@ class UserLearning internal constructor(
     fun formedWeight(word: String): Double {
         database?.let { backing ->
             formedWeightCache[word]?.let { return it }
-            val usage = backing.readBestFormedUsage(word) ?: return 0.0
-            return formedWeight(usage).also { formedWeightCache.put(word, it) }
+            val usage = backing.readBestFormedUsage(word)
+            val weight = if (usage == null) 0.0 else formedWeight(usage)
+            return weight.also { formedWeightCache.put(word, it) }
         }
         val m = formedByWord[word] ?: return 0.0
         val now = clock()
@@ -202,6 +203,74 @@ class UserLearning internal constructor(
     }
 
     @Synchronized
+    internal fun rankingBoosts(contextTail: String, words: Collection<String>): Map<String, Double> {
+        val unique = words.asSequence().filter { it.isNotEmpty() }.distinct().toList()
+        require(unique.size < UserDataDatabase.MAX_RUNTIME_PAGE_SIZE)
+        if (unique.isEmpty()) return emptyMap()
+        val backing = database ?: return unique.associateWith { formedWeight(it) + followBoost(contextTail, it) }
+
+        val formed = LinkedHashMap<String, Double>(unique.size)
+        val missingFormed = ArrayList<String>()
+        for (word in unique) {
+            val cached = formedWeightCache[word]
+            if (cached == null) missingFormed.add(word) else formed[word] = cached
+        }
+        if (missingFormed.isNotEmpty()) {
+            runCatching {
+                val stored = backing.readBestFormedUsages(missingFormed)
+                for (word in missingFormed) {
+                    val weight = stored[word]?.let(::formedWeight) ?: 0.0
+                    formedWeightCache.put(word, weight)
+                    formed[word] = weight
+                }
+            }.onFailure {
+                lastFailure = it.javaClass.simpleName + ": " + it.message.orEmpty()
+                for (word in missingFormed) formed[word] = 0.0
+            }
+        }
+
+        val follows = LinkedHashMap<String, Double>(unique.size)
+        if (contextTail.isEmpty()) {
+            for (word in unique) follows[word] = 0.0
+        } else {
+            val missingFollows = ArrayList<String>()
+            for (word in unique) {
+                val cached = followBoostCache[contextTail to word]
+                if (cached == null) missingFollows.add(word) else follows[word] = cached
+            }
+            if (missingFollows.isNotEmpty()) {
+                runCatching {
+                    val suffixes = ArrayList<String>()
+                    var start = contextTail.length
+                    while (start > 0) {
+                        val cp = contextTail.codePointBefore(start)
+                        if (!Character.isIdeographic(cp)) break
+                        start -= Character.charCount(cp)
+                        suffixes.add(contextTail.substring(start))
+                    }
+                    val now = clock()
+                    val best = HashMap<String, Double>()
+                    backing.forEachFollowUsage(suffixes, missingFollows) { word, usage ->
+                        val effective = decayed(usage.count, usage.lastSeen, now, FOLLOW_HALF_LIFE_MILLIS)
+                        if (effective > (best[word] ?: 0.0)) best[word] = effective
+                    }
+                    for (word in missingFollows) {
+                        val effective = best[word] ?: 0.0
+                        val boost = if (effective >= MIN_ACTIVE) FOLLOW_WEIGHT * ln(1.0 + effective) else 0.0
+                        followBoostCache.put(contextTail to word, boost)
+                        follows[word] = boost
+                    }
+                }.onFailure {
+                    lastFailure = it.javaClass.simpleName + ": " + it.message.orEmpty()
+                    for (word in missingFollows) follows[word] = 0.0
+                }
+            }
+        }
+
+        return unique.associateWith { (formed[it] ?: 0.0) + (follows[it] ?: 0.0) }
+    }
+
+    @Synchronized
     fun follows(prevWord: String): List<Pair<String, Double>> {
         database?.let { backing ->
             val now = clock()
@@ -222,11 +291,13 @@ class UserLearning internal constructor(
 
     @Synchronized
     internal fun maximumFollowBoost(): Double {
+        if (maximumFollowVersion == version) return maximumFollow
         database?.let { backing ->
             val maximum = backing.maximumFollowCount()
-            return if (maximum >= MIN_ACTIVE) FOLLOW_WEIGHT * ln(1.0 + maximum) else 0.0
+            maximumFollow = if (maximum >= MIN_ACTIVE) FOLLOW_WEIGHT * ln(1.0 + maximum) else 0.0
+            maximumFollowVersion = version
+            return maximumFollow
         }
-        if (maximumFollowVersion == version) return maximumFollow
         var maximum = 0.0
         for (words in followsByPrev.values) for (usage in words.values) {
             maximum = maxOf(maximum, usage.count)
@@ -238,8 +309,12 @@ class UserLearning internal constructor(
 
     @Synchronized
     internal fun maximumFollowContextCodePoints(): Int {
-        database?.let { return it.maximumFollowContextCodePoints() }
         if (maximumFollowContextVersion == version) return maximumFollowContext
+        database?.let {
+            maximumFollowContext = it.maximumFollowContextCodePoints()
+            maximumFollowContextVersion = version
+            return maximumFollowContext
+        }
         var maximum = 0
         for (context in followsByPrev.keys) {
             maximum = maxOf(maximum, context.codePointCount(0, context.length))
@@ -251,11 +326,17 @@ class UserLearning internal constructor(
 
     @Synchronized
     internal fun maximumFormedBoost(): Double {
+        if (maximumFormedVersion == version) return maximumFormed
         database?.let { backing ->
             val maximum = backing.maximumFormedCount()
-            return if (maximum >= MIN_ACTIVE) BOOST_WEIGHT * ln(1.0 + maximum) + RECENCY_WEIGHT else 0.0
+            maximumFormed = if (maximum >= MIN_ACTIVE) {
+                BOOST_WEIGHT * ln(1.0 + maximum) + RECENCY_WEIGHT
+            } else {
+                0.0
+            }
+            maximumFormedVersion = version
+            return maximumFormed
         }
-        if (maximumFormedVersion == version) return maximumFormed
         var maximum = 0.0
         for (readings in formedByWord.values) for (usage in readings.values) {
             maximum = maxOf(maximum, usage.count)

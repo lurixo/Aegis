@@ -223,8 +223,9 @@ class UserModel internal constructor(
         database?.let { backing ->
             wordBoostCache[word]?.let { return it }
             return runCatching {
-                val stored = backing.readStoredWord(word) ?: return@runCatching 0.0
-                usageScore(stored.count, stored.lastUsed, clock()).also { wordBoostCache.put(word, it) }
+                val stored = backing.readStoredWord(word)
+                val boost = if (stored == null) 0.0 else usageScore(stored.count, stored.lastUsed, clock())
+                boost.also { wordBoostCache.put(word, it) }
             }.onFailure { lastFailure = it.javaClass.simpleName + ": " + it.message.orEmpty() }.getOrDefault(0.0)
         }
         val c = count[word] ?: return 0.0
@@ -232,12 +233,44 @@ class UserModel internal constructor(
     }
 
     @Synchronized
+    internal fun wordBoosts(words: Collection<String>): Map<String, Double> {
+        val unique = words.asSequence().filter { it.isNotEmpty() }.distinct().toList()
+        require(unique.size <= UserDataDatabase.MAX_RUNTIME_PAGE_SIZE)
+        if (unique.isEmpty()) return emptyMap()
+        val backing = database ?: return unique.associateWith(::wordBoost)
+        val out = LinkedHashMap<String, Double>(unique.size)
+        val missing = ArrayList<String>()
+        for (word in unique) {
+            val cached = wordBoostCache[word]
+            if (cached == null) missing.add(word) else out[word] = cached
+        }
+        if (missing.isNotEmpty()) {
+            runCatching {
+                val stored = backing.readStoredWords(missing)
+                val now = clock()
+                for (word in missing) {
+                    val row = stored[word]
+                    val boost = if (row == null) 0.0 else usageScore(row.count, row.lastUsed, now)
+                    wordBoostCache.put(word, boost)
+                    out[word] = boost
+                }
+            }.onFailure {
+                lastFailure = it.javaClass.simpleName + ": " + it.message.orEmpty()
+                for (word in missing) out[word] = 0.0
+            }
+        }
+        return out
+    }
+
+    @Synchronized
     internal fun maximumWordBoost(): Double {
+        if (maximumBoostVersion == version) return maximumBoost
         database?.let { backing ->
             val maximum = backing.maximumUserWordCount()
-            return if (maximum <= 0) 0.0 else BOOST_WEIGHT * ln(1.0 + maximum) + RECENCY_WEIGHT
+            maximumBoost = if (maximum <= 0) 0.0 else BOOST_WEIGHT * ln(1.0 + maximum) + RECENCY_WEIGHT
+            maximumBoostVersion = version
+            return maximumBoost
         }
-        if (maximumBoostVersion == version) return maximumBoost
         var maximum = 0.0
         for (value in count.values) {
             maximum = maxOf(maximum, BOOST_WEIGHT * ln(1.0 + value) + RECENCY_WEIGHT)

@@ -36,6 +36,55 @@ class PersistedPagingTest {
     private fun root(): File = Files.createTempDirectory("persisted-paging").toFile().also { it.deleteOnExit() }
 
     @Test
+    fun batchedRankingReadsMatchScalarSemanticsAndCacheMisses() {
+        val root = root()
+        UserDataDatabase.open(root).use { database ->
+            database.replaceUserData(
+                UserDataSnapshot(
+                    words = mapOf("甲" to StoredWord(9, 1_900L), "乙" to StoredWord(3, 1_000L)),
+                    bigrams = emptyMap(),
+                    readings = mapOf("jia" to setOf("甲"), "yi" to setOf("乙")),
+                ),
+            )
+            database.replaceLearning(
+                UserLearningSnapshot(
+                    formed = mapOf(
+                        "甲" to mapOf(
+                            "jia" to StoredUsage(5.0, 1_900L),
+                            "other" to StoredUsage(4.0, 2_000L),
+                        ),
+                    ),
+                    pending = emptyMap(),
+                    follows = mapOf(
+                        "前" to mapOf("甲" to StoredUsage(2.0, 1_900L)),
+                        "更前" to mapOf("甲" to StoredUsage(3.0, 1_800L)),
+                    ),
+                ),
+            )
+            val words = listOf("甲", "乙", "缺失")
+            val scalarModel = UserModel({ 2_000L }, database)
+            val scalarLearning = UserLearning({ 2_000L }, database)
+            val expectedModel = words.associateWith(scalarModel::wordBoost)
+            val expectedLearning = words.associateWith {
+                scalarLearning.formedWeight(it) + scalarLearning.followBoost("更前", it)
+            }
+
+            val batchedModel = UserModel({ 2_000L }, database)
+            val batchedLearning = UserLearning({ 2_000L }, database)
+            assertEquals(expectedModel, batchedModel.wordBoosts(words))
+            assertEquals(expectedLearning, batchedLearning.rankingBoosts("更前", words))
+
+            database.resetRankingReadCountsForTest()
+            words.forEach {
+                batchedModel.wordBoost(it)
+                batchedLearning.formedWeight(it)
+                batchedLearning.followBoost("更前", it)
+            }
+            assertEquals(0 to 0, database.rankingReadCountsForTest())
+        }
+    }
+
+    @Test
     fun userDictionarySearchIsStablePagedAndDoesNotPopulateAnUnboundedModel() {
         val root = root()
         UserDataDatabase.open(root).use { database ->
