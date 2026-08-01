@@ -205,4 +205,22 @@ class T9PinyinTest {
         assertTrue(T9Pinyin.leftColumnReadings("", 4).isEmpty())
         assertTrue(T9Pinyin.leftColumnReadings("1", 4).isEmpty())
     }
+
+    @Test fun leftColumnPagesPreserveEveryAmbiguousReadingInOrder() {
+        val digits = "742642"
+        val reference = T9Pinyin.leftColumnReadings(digits, Int.MAX_VALUE)
+        val actual = ArrayList<String>()
+        val pageSizes = ArrayList<Int>()
+        var page = T9Pinyin.leftColumnReadingsPage(digits, inputEpoch = 23L, pageSize = 5)
+        while (true) {
+            pageSizes.add(page.items.size)
+            actual.addAll(page.items)
+            val continuation = page.continuation ?: break
+            page = continueCandidatePage(continuation, inputEpoch = 23L, pageSize = 5)
+        }
+
+        assertEquals(18, reference.size)
+        assertEquals(listOf(5, 5, 5, 3), pageSizes)
+        assertEquals(reference, actual)
+    }
 }

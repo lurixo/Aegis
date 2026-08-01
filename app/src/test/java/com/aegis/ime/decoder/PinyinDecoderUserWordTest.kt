@@ -189,8 +189,8 @@ class PinyinDecoderUserWordTest {
         val reading = "yizhi"
         val digits = T9Pinyin.toT9(reading)
         val target = "义肢"
-        assertTrue(productionDict.exact(reading).indexOfFirst { it.word == target } >= PinyinDecoder.EDGE_N)
-        assertTrue(productionT9Dict.exact(digits).indexOfFirst { it.word == target } >= PinyinDecoder.EDGE_N)
+        assertTrue(productionDict.exact(reading).indexOfFirst { it.word == target } >= 20)
+        assertTrue(productionT9Dict.exact(digits).indexOfFirst { it.word == target } >= 20)
 
         fun learned(count: Int) = UserModel().apply {
             repeat(count) { recordWord(reading, target, it.toLong(), incrementCount = true) }
@@ -228,7 +228,7 @@ class PinyinDecoderUserWordTest {
             ),
         )
         val exactWords = controlledDict.exact(reading).filter { it.word.codePointCount(0, it.word.length) > 1 }
-        assertTrue(exactWords.indexOfFirst { it.word == target } >= PinyinDecoder.SENTENCE_EDGE_N)
+        assertTrue(exactWords.indexOfFirst { it.word == target } >= 6)
 
         fun best(count: Int): String {
             val model = UserModel().apply {

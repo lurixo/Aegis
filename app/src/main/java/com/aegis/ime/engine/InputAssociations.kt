@@ -15,9 +15,12 @@
 
 package com.aegis.ime.engine
 
-object InputAssociations {
+import com.aegis.ime.decoder.CANDIDATE_PAGE_SIZE
+import com.aegis.ime.decoder.CandidatePage
+import com.aegis.ime.decoder.ListCandidatePageSource
+import com.aegis.ime.decoder.firstCandidatePage
 
-    const val MAX_PER_QUERY = 3
+object InputAssociations {
 
     private val legacy: List<Pair<String, List<String>>> = listOf(
         "haode" to listOf("👌"),
@@ -86,8 +89,18 @@ object InputAssociations {
 
     fun lookup(pinyin: String): List<String> {
         if (pinyin.isEmpty()) return emptyList()
-        return table[normalize(pinyin)].orEmpty().take(MAX_PER_QUERY)
+        return table[normalize(pinyin)].orEmpty()
     }
+
+    fun lookupPage(
+        pinyin: String,
+        inputEpoch: Long,
+        pageSize: Int = CANDIDATE_PAGE_SIZE,
+    ): CandidatePage<String> = firstCandidatePage(
+        ListCandidatePageSource(lookup(pinyin)),
+        inputEpoch,
+        pageSize,
+    )
 
     internal fun entriesForTest(): Map<String, List<String>> = table
 }

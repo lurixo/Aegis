@@ -165,7 +165,7 @@ class EngineLockedFixTest {
         assertTrue("supplementary rare remains reachable in bounded digit-prefix completions", digitRare in digitWords)
     }
 
-    @Test fun oneUnitPrefixCompletionsUseTheBoundedTopIndexOnLiveDecodePaths() {
+    @Test fun oneUnitPrefixCompletionsUseTheCacheForSmallQueriesAndFallBackForCompleteQueries() {
         val fanout = 300
         val letterRows = ArrayList<EngineFixture.Row>()
         for (i in 0 until fanout) {
@@ -174,7 +174,7 @@ class EngineLockedFixTest {
         letterRows.add(EngineFixture.Row("sz999", "高频词", 5000))
         val letterDict = EngineFixture.build(letterRows)
         val letterTop = letterDict.prefixByFreq("s", fanout + 10)
-        assertTrue("one-letter prefix index must not materialize every matching key", letterTop.size < letterRows.size)
+        assertEquals("complete one-letter query must fall back past the cache", letterRows.size, letterTop.size)
         assertEquals("高频词", letterTop.first().word)
 
         val letterDecoder = PinyinDecoder(letterDict)
@@ -187,7 +187,7 @@ class EngineLockedFixTest {
         digitRows.add(EngineFixture.Row("99", "高频九", 5000))
         val digitDict = EngineFixture.build(digitRows)
         val digitTop = digitDict.prefixByFreq("9", fanout + 10)
-        assertTrue("one-digit prefix index must not materialize every matching key", digitTop.size < digitRows.size)
+        assertEquals("complete one-digit query must fall back past the cache", digitRows.size, digitTop.size)
         assertEquals("高频九", digitTop.first().word)
 
         val digitDecoder = PinyinDecoder(digitDict)

@@ -38,36 +38,34 @@ class SettingsWiringTest {
         assertFalse(svc.contains("associationPrefListener"))
     }
 
-    @Test fun service_serves_the_live_user_dict_host_after_the_initial_load() {
+    @Test fun service_serves_the_live_user_dict_host_before_building_the_initial_engine() {
         val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
         assertTrue(
-            "the live host must be registered once the initial userdb load finished",
+            "the live host must be registered on the dictionary-load worker",
             svc.contains("UserDictHot.host = liveUserDictHost"),
         )
         assertTrue(
             "onDestroy must withdraw only its own host",
             svc.contains("if (UserDictHot.host === liveUserDictHost) UserDictHot.host = null"),
         )
-        val loadGate = svc.indexOf("userDbLoaded = true")
+        val loadGate = svc.indexOf("runCatching { com.aegis.ime.engine.InputAssociations.lookup(\"nihao\") }")
         val hostReg = svc.indexOf("UserDictHot.host = liveUserDictHost")
-        assertTrue("host registration must follow the userDbLoaded gate", loadGate in 1 until hostReg)
+        val engineBuild = svc.indexOf("val engine = buildEngine()")
+        assertTrue("host registration must follow worker warmup", loadGate in 1 until hostReg)
+        assertTrue("host registration must precede initial engine construction", hostReg in 1 until engineBuild)
     }
 
-    @Test fun service_loads_saves_reloads_and_routes_user_learning() {
+    @Test fun service_routes_database_backed_user_learning_and_reloads_after_restore() {
         val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
-        assertTrue(svc.contains("private val userLearning = UserLearning()"))
+        assertTrue(svc.contains("private val userDatabase by userDatabaseDelegate"))
+        assertTrue(svc.contains("private val userModel by lazy { UserModel(database = userDatabase) }"))
+        assertTrue(svc.contains("private val userLearning by lazy { UserLearning(database = userDatabase) }"))
         assertTrue(svc.contains("private val userLearnFile by lazy { File(filesDir, \"userlearn.txt\") }"))
-        val initialLoad = svc.substringAfter("runCatching { com.aegis.ime.engine.InputAssociations.lookup(\"nihao\") }")
-            .substringBefore("userDbLoaded = true")
-        val userDbLoad = initialLoad.indexOf("userModel.load(userDbFile)")
-        val userLearnLoad = initialLoad.indexOf("userLearning.load(userLearnFile)")
-        assertTrue("secondary learning must load after userdb", userDbLoad in 1 until userLearnLoad)
         assertTrue(svc.contains("controller.userLearning = userLearning"))
         assertTrue(svc.contains("octagram, userLearning)"))
-        assertTrue(svc.contains("if (userLearning.dirty) runCatching"))
-        assertTrue(svc.contains("userLearnFile.lastModified() > userLearnMtime"))
         val restored = svc.substringAfter("LiveUserData.onRestored = {").substringBefore("LiveUserData.registerClipboardPersistenceHooks")
-        assertTrue(restored.contains("userLearning.load(userLearnFile)"))
+        assertTrue(restored.contains("userModel.reloadFromStorage()"))
+        assertTrue(restored.contains("userLearning.reloadFromStorage()"))
     }
 
     @Test fun service_teardown_drains_clipboard_persistence_without_clearing_the_restore_guard() {

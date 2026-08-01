@@ -20,6 +20,7 @@ import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
+import java.util.PriorityQueue
 import kotlin.math.exp
 import kotlin.math.ln
 
@@ -41,8 +42,6 @@ class PinyinDecoder(
     private val userLearning: UserLearning? = null,
 ) {
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
-    private var edgeN =
-        if (lm != null || fuzzyRules.isNotEmpty() || initialsDict != null || octagram != null) EDGE_N else 1
 
     private var userIndexVersion = Long.MIN_VALUE
     private var learnIndexVersion = Long.MIN_VALUE
@@ -51,7 +50,6 @@ class PinyinDecoder(
 
     fun setFuzzyRules(rules: Set<String>) {
         fuzzyRules = rules
-        edgeN = if (lm != null || rules.isNotEmpty() || initialsDict != null || octagram != null) EDGE_N else 1
     }
 
     private class Edge(val word: String, val freq: Int, val penalty: Double)
@@ -68,12 +66,10 @@ class PinyinDecoder(
         penalty: Double,
         out: MutableList<Edge>,
         seen: MutableSet<String>,
-    ): Boolean {
-        for (wf in preferredExact(source, key, edgeN + seen.size)) {
+    ) {
+        for (wf in preferredExact(source, key)) {
             if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, penalty))
-            if (out.size >= edgeN) return true
         }
-        return false
     }
 
     private fun inputAliasWordFreqs(input: String): List<BinaryDict.WordFreq> {
@@ -158,9 +154,9 @@ class PinyinDecoder(
     }
 
     private fun edgesFor(sub: String): List<Edge> {
-        val out = ArrayList<Edge>(edgeN)
+        val out = ArrayList<Edge>()
         val seen = HashSet<String>()
-        val exactFull = addExactEdges(dict, sub, 0.0, out, seen)
+        addExactEdges(dict, sub, 0.0, out, seen)
         for ((word, freq) in learnedExactWordFreqs(sub)) {
             if (seen.add(word)) out.add(Edge(word, freq, 0.0))
         }
@@ -171,25 +167,80 @@ class PinyinDecoder(
             }
         }
         for (alias in inputAliases(sub)) {
-            var added = 0
-            for (wf in preferredExact(aliasSource, alias, edgeN + seen.size)) {
-                if (seen.add(wf.word)) { out.add(Edge(wf.word, wf.freq, ALIAS_PENALTY)); if (++added >= edgeN) break }
-            }
+            addExactEdges(aliasSource, alias, ALIAS_PENALTY, out, seen)
         }
-        if (exactFull || out.size >= edgeN) return out
         if (fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(sub, fuzzyRules)) {
                 if (variant == sub) continue
-                for (wf in preferredExact(dict, variant, edgeN + seen.size)) {
-                    if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, FUZZY_PENALTY))
-                    if (out.size >= edgeN) return out
+                addExactEdges(dict, variant, FUZZY_PENALTY, out, seen)
+            }
+        }
+        initialsDict?.let { addExactEdges(it, sub, INITIALS_PENALTY, out, seen) }
+        return out
+    }
+
+    private fun preferredExactLegacy(source: BinaryDict, key: String, limit: Int): List<BinaryDict.WordFreq> {
+        if (limit <= 0) return emptyList()
+        val scanLimit = minOf(Int.MAX_VALUE.toLong(), limit.toLong() + LEGACY_EXACT_TIE_LOOKAHEAD).toInt()
+        val preferred = preferredWordFreqs(source.exact(key, scanLimit))
+        return if (preferred.size <= limit) preferred else preferred.subList(0, limit)
+    }
+
+    private fun edgesForLegacy(sub: String): List<Edge> {
+        val edgeLimit = if (lm != null || fuzzyRules.isNotEmpty() || initialsDict != null || octagram != null) {
+            LEGACY_SENTENCE_EDGE_LIMIT
+        } else {
+            1
+        }
+        val out = ArrayList<Edge>(edgeLimit)
+        val seen = HashSet<String>()
+        fun addExact(source: BinaryDict, key: String, penalty: Double): Boolean {
+            for (wordFreq in preferredExactLegacy(source, key, edgeLimit + seen.size)) {
+                if (seen.add(wordFreq.word)) out.add(Edge(wordFreq.word, wordFreq.freq, penalty))
+                if (out.size >= edgeLimit) return true
+            }
+            return false
+        }
+        val exactFull = addExact(dict, sub, 0.0)
+        for ((word, frequency) in learnedExactWordFreqs(sub)) {
+            if (seen.add(word)) out.add(Edge(word, frequency, 0.0))
+        }
+        for (word in userWordsFor(sub)) {
+            if (seen.add(word)) {
+                val codePoints = word.codePointCount(0, word.length)
+                out.add(
+                    Edge(
+                        word,
+                        userWordFreq(word, sub).toInt().coerceAtLeast(1),
+                        (codePoints - 1).coerceAtLeast(0) * lnTotal,
+                    ),
+                )
+            }
+        }
+        for (alias in inputAliases(sub)) {
+            var added = 0
+            for (wordFreq in preferredExactLegacy(aliasSource, alias, edgeLimit + seen.size)) {
+                if (seen.add(wordFreq.word)) {
+                    out.add(Edge(wordFreq.word, wordFreq.freq, ALIAS_PENALTY))
+                    added++
+                }
+                if (added >= edgeLimit) break
+            }
+        }
+        if (exactFull || out.size >= edgeLimit) return out
+        if (fuzzyRules.isNotEmpty()) {
+            for (variant in Fuzzy.variants(sub, fuzzyRules)) {
+                if (variant == sub) continue
+                for (wordFreq in preferredExactLegacy(dict, variant, edgeLimit + seen.size)) {
+                    if (seen.add(wordFreq.word)) out.add(Edge(wordFreq.word, wordFreq.freq, FUZZY_PENALTY))
+                    if (out.size >= edgeLimit) return out
                 }
             }
         }
-        initialsDict?.let { id ->
-            for (wf in preferredExact(id, sub, edgeN + seen.size)) {
-                if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, INITIALS_PENALTY))
-                if (out.size >= edgeN) break
+        initialsDict?.let { initials ->
+            for (wordFreq in preferredExactLegacy(initials, sub, edgeLimit + seen.size)) {
+                if (seen.add(wordFreq.word)) out.add(Edge(wordFreq.word, wordFreq.freq, INITIALS_PENALTY))
+                if (out.size >= edgeLimit) break
             }
         }
         return out
@@ -298,8 +349,7 @@ class PinyinDecoder(
 
     private fun preferredExact(source: BinaryDict, key: String, limit: Int = Int.MAX_VALUE): List<BinaryDict.WordFreq> {
         if (limit <= 0) return emptyList()
-        val scanLimit = if (limit == Int.MAX_VALUE) limit else limit + EXACT_TIE_LOOKAHEAD
-        val preferred = preferredWordFreqs(source.exact(key, scanLimit))
+        val preferred = preferredWordFreqs(source.exact(key))
         return if (preferred.size <= limit) preferred else preferred.subList(0, limit)
     }
 
@@ -331,6 +381,8 @@ class PinyinDecoder(
         return Norm(clean.toString(), interiorCuts, origLen.copyOf(ci + 1), cleanLenAtOrig)
     }
 
+    private data class LayeredCandidates(val items: List<Cand>, val remainderStart: Int)
+
     fun decodeCovered(input: String, limit: Int, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
         decodeCoveredLayered(input, limit, cuts, context).first
 
@@ -341,11 +393,18 @@ class PinyinDecoder(
         context: CharSequence = "",
     ): Pair<List<Cand>, Int> {
         if (input.isEmpty() || limit <= 0) return emptyList<Cand>() to 0
-        val norm = normalizeSeparators(input) ?: return decodeCoveredClean(input, limit, cuts, context)
+        val norm = normalizeSeparators(input) ?: return decodeCoveredCleanLegacy(input, limit, cuts, context)
         if (norm.clean.isEmpty()) return emptyList<Cand>() to 0
         val passedClean = cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
-        val (cands, remainderStart) = decodeCoveredClean(norm.clean, limit, norm.cuts + passedClean, context)
-        return cands.map { Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length }) } to remainderStart
+        val (candidates, remainderStart) = decodeCoveredCleanLegacy(
+            norm.clean,
+            limit,
+            norm.cuts + passedClean,
+            context,
+        )
+        return candidates.map { candidate ->
+            Cand(candidate.word, norm.origLen.getOrElse(candidate.coveredLen) { input.length })
+        } to remainderStart
     }
 
     fun decodeCoveredAtomic(input: String, limit: Int, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> {
@@ -356,23 +415,147 @@ class PinyinDecoder(
         if (clean.isEmpty()) return emptyList()
         val passedClean = if (norm == null) cuts else cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
         val interior = ((norm?.cuts ?: emptySet()) + passedClean).filter { it in 1 until clean.length }.toSet()
-        val decoded = decodeAtomic(clean, interior, ctx)
-        return if (norm == null) {
-            decoded
-        } else {
-            decoded.map { Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length }) }
+        val decoded = decodeAtomicLegacy(clean, interior, ctx)
+        return if (norm == null) decoded else decoded.map { candidate ->
+            Cand(candidate.word, norm.origLen.getOrElse(candidate.coveredLen) { input.length })
         }
     }
 
-    private fun decodeCoveredClean(input: String, limit: Int, cuts: Set<Int>, context: CharSequence): Pair<List<Cand>, Int> {
+    internal fun coveredCandidateSource(
+        input: String,
+        cuts: Set<Int> = emptySet(),
+        context: CharSequence = "",
+        atomic: Boolean = false,
+    ): CandidatePageSource<Cand> {
+        if (input.isEmpty()) return ListCandidatePageSource(emptyList())
+        val norm = normalizeSeparators(input)
+        val clean = norm?.clean ?: input
+        if (clean.isEmpty()) return ListCandidatePageSource(emptyList())
+        val passedClean = if (norm == null) cuts else cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
+        val interior = ((norm?.cuts ?: emptySet()) + passedClean).filterTo(sortedSetOf()) { it in 1 until clean.length }
+        val source = if (atomic || interior.isNotEmpty()) {
+            atomicCandidateSource(clean, interior, parseContext(context))
+        } else {
+            ListCandidatePageSource(decodeCoveredClean(clean, context).items)
+        }
+        if (norm == null) return source
+        return object : CandidatePageSource<Cand> {
+            override fun next(pageSize: Int): CandidateSlice<Cand> {
+                val slice = source.next(pageSize)
+                return CandidateSlice(
+                    slice.items.map { Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length }) },
+                    slice.hasMore,
+                )
+            }
+        }
+    }
+
+    internal fun isAtomicCandidateReachable(
+        input: String,
+        word: String,
+        cuts: Set<Int> = emptySet(),
+    ): Boolean {
+        if (input.isEmpty() || word.isEmpty()) return false
+        val norm = normalizeSeparators(input)
+        val clean = norm?.clean ?: input
+        if (clean.isEmpty()) return false
+        val passedClean = if (norm == null) cuts else cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
+        val interior = ((norm?.cuts ?: emptySet()) + passedClean).filterTo(sortedSetOf()) { it in 1 until clean.length }
+        val bounds = atomicBounds(clean, interior)
+        val graph = buildAtomicGraph(clean, bounds, interior, HashMap())
+        val offsets = Array(graph.size + 1) { HashSet<Int>() }
+        offsets[0].add(0)
+        for (position in graph.indices) for (offset in offsets[position]) {
+            for (edge in graph[position]) {
+                if (word.startsWith(edge.word, offset)) offsets[edge.end].add(offset + edge.word.length)
+            }
+        }
+        return word.length in offsets[graph.size]
+    }
+
+    private fun decodeCoveredCleanLegacy(
+        input: String,
+        limit: Int,
+        cuts: Set<Int>,
+        context: CharSequence,
+    ): Pair<List<Cand>, Int> {
         val ctx = parseContext(context)
         val interior = cuts.filter { it in 1 until input.length }.toSortedSet()
-        if (interior.isNotEmpty()) return decodeAtomic(input, interior, ctx).let { it to it.size }
-
+        if (interior.isNotEmpty()) return decodeAtomicLegacy(input, interior, ctx).let { it to it.size }
         val ctxId = resolveCtxId(ctx.cp)
         val condMemo = HashMap<Long, Double>()
         val cover = LinkedHashMap<String, Int>()
         val completionCap = completionCap(limit)
+        bestSentence(input, emptySet(), ctx, legacyBounds = true)?.let { cover[it] = input.length }
+        val pool = ArrayList<RankedWord>()
+        val offered = HashSet<String>()
+        fun offer(wordFreq: BinaryDict.WordFreq, penalty: Double): Boolean {
+            if (!offered.add(wordFreq.word)) return false
+            pool.add(
+                RankedWord(
+                    wordFreq,
+                    wordModelScore(wordFreq.word, wordFreq.freq, ctxId, ctx, condMemo) - penalty,
+                ),
+            )
+            return true
+        }
+        val exactWords = HashSet<String>()
+        for (wordFreq in dict.exact(input)) {
+            if (!isSingleChar(wordFreq.word)) exactWords.add(wordFreq.word)
+            offer(wordFreq, 0.0)
+        }
+        inputAliasWordFreqs(input).forEach { offer(it, ALIAS_PENALTY) }
+        dict.prefixByFreq(input, completionCap).forEach { offer(it, 0.0) }
+        for (word in userWordsFor(input)) {
+            offer(BinaryDict.WordFreq(word, userWordFreq(word, input).toInt().coerceAtLeast(1)), 0.0)
+        }
+        if (fuzzyRules.isNotEmpty()) {
+            for (variant in Fuzzy.variants(input, fuzzyRules)) {
+                if (variant == input) continue
+                dict.prefixByFreq(variant, completionCap).forEach { offer(it, FUZZY_PENALTY) }
+            }
+        }
+        val reservedInitials = HashSet<String>()
+        initialsDict?.let { initials ->
+            if (input.length >= INITIALS_RESERVE_MIN_LEN) {
+                for (wordFreq in preferredExact(initials, input, INITIALS_RESERVE)) {
+                    if (wordFreq.freq <= ORDERING_RARE_FREQ) continue
+                    if (offer(wordFreq, INITIALS_PENALTY)) reservedInitials.add(wordFreq.word)
+                }
+            }
+            initials.prefixByFreq(input, completionCap).forEach { offer(it, INITIALS_PENALTY) }
+        }
+        pool.sortWith(
+            compareByDescending<RankedWord> { it.score }
+                .thenBy { supplementarySingleTieRank(it.wordFreq.word) },
+        )
+        enforceRareAfterCommon(
+            pool,
+            word = { it.wordFreq.word },
+            frequency = { it.wordFreq.freq.toDouble() },
+        )
+        var pendingInitials = reservedInitials.count { it !in cover }
+        for ((wordFreq, _) in pool) {
+            val reserved = wordFreq.word in reservedInitials
+            if (!reserved && cover.size >= completionCap - pendingInitials && wordFreq.word !in exactWords) continue
+            if (cover.putIfAbsent(wordFreq.word, input.length) == null && reserved) pendingInitials--
+        }
+        val out = ArrayList<Cand>(cover.size + 20)
+        for ((word, coveredLen) in cover) out.add(Cand(word, coveredLen))
+        if (userModel != null) {
+            val present = out.mapTo(HashSet()) { it.word }
+            for (word in userWordsFor(input)) if (present.add(word)) out.add(Cand(word, input.length))
+        }
+        val remainderStart = out.size
+        appendLeadingSingles(input, input.length, out, ctx)
+        return out to remainderStart
+    }
+
+    private fun decodeCoveredClean(input: String, context: CharSequence): LayeredCandidates {
+        val ctx = parseContext(context)
+        val ctxId = resolveCtxId(ctx.cp)
+        val condMemo = HashMap<Long, Double>()
+        val cover = LinkedHashMap<String, Int>()
         bestSentence(input, emptySet(), ctx)?.let { cover[it] = input.length }
         val pool = ArrayList<RankedWord>()
         val offered = HashSet<String>()
@@ -386,29 +569,24 @@ class PinyinDecoder(
             )
             return true
         }
-        val exactWords = HashSet<String>()
         for (wf in dict.exact(input)) {
-            if (!isSingleChar(wf.word)) exactWords.add(wf.word)
             offer(wf, 0.0)
         }
-        inputAliasWordFreqs(input).forEach { offer(it, ALIAS_PENALTY) }
-        dict.prefixByFreq(input, completionCap).forEach { offer(it, 0.0) }
-        for (uw in userWordsFor(input)) offer(BinaryDict.WordFreq(uw, userWordFreq(uw, input).toInt().coerceAtLeast(1)), 0.0)
+        inputAliasWordFreqs(input).forEach {
+            offer(it, ALIAS_PENALTY)
+        }
+        dict.prefixByFreq(input, Int.MAX_VALUE).forEach { offer(it, 0.0) }
+        for (uw in userWordsFor(input)) {
+            offer(BinaryDict.WordFreq(uw, userWordFreq(uw, input).toInt().coerceAtLeast(1)), 0.0)
+        }
         if (fuzzyRules.isNotEmpty()) {
             for (variant in Fuzzy.variants(input, fuzzyRules)) {
                 if (variant == input) continue
-                dict.prefixByFreq(variant, completionCap).forEach { offer(it, FUZZY_PENALTY) }
+                dict.prefixByFreq(variant, Int.MAX_VALUE).forEach { offer(it, FUZZY_PENALTY) }
             }
         }
-        val reservedInitials = HashSet<String>()
         initialsDict?.let { id ->
-            if (input.length >= INITIALS_RESERVE_MIN_LEN) {
-                for (wf in preferredExact(id, input, INITIALS_RESERVE)) {
-                    if (wf.freq <= ORDERING_RARE_FREQ) continue
-                    if (offer(wf, INITIALS_PENALTY)) reservedInitials.add(wf.word)
-                }
-            }
-            id.prefixByFreq(input, completionCap).forEach { offer(it, INITIALS_PENALTY) }
+            id.prefixByFreq(input, Int.MAX_VALUE).forEach { offer(it, INITIALS_PENALTY) }
         }
         pool.sortWith(
             compareByDescending<RankedWord> { it.score }
@@ -419,39 +597,111 @@ class PinyinDecoder(
             word = { it.wordFreq.word },
             frequency = { it.wordFreq.freq.toDouble() },
         )
-        var pendingInitials = reservedInitials.count { it !in cover }
-        for ((wf, _) in pool) {
-            val reserved = wf.word in reservedInitials
-            if (!reserved && cover.size >= completionCap - pendingInitials && wf.word !in exactWords) continue
-            if (cover.putIfAbsent(wf.word, input.length) == null && reserved) pendingInitials--
-        }
+        for ((wf, _) in pool) cover.putIfAbsent(wf.word, input.length)
         val out = ArrayList<Cand>(cover.size + 20)
         for ((w, len) in cover) out.add(Cand(w, len))
-        if (userModel != null) {
-            val present = out.mapTo(HashSet()) { it.word }
-            for (uw in userWordsFor(input)) if (present.add(uw)) out.add(Cand(uw, input.length))
-        }
         val remainderStart = out.size
         appendLeadingSingles(input, input.length, out, ctx)
-        return out to remainderStart
+        return LayeredCandidates(out, remainderStart)
     }
 
-    private fun decodeAtomic(input: String, interior: Set<Int>, ctx: Ctx): List<Cand> {
+    private fun decodeAtomicLegacy(input: String, interior: Set<Int>, ctx: Ctx): List<Cand> {
         val ctxId = resolveCtxId(ctx.cp)
         val condMemo = HashMap<Long, Double>()
-        val B = atomicBounds(input, interior)
-        val nSyl = B.size - 1
-
+        val bounds = atomicBounds(input, interior)
+        val nSyl = bounds.size - 1
         val singlesCache = HashMap<String, Set<String>>()
-        val sentences = atomicSentences(input, B, interior, ctx, singlesCache)
-
+        val sentences = atomicSentencesLegacy(input, bounds, interior, ctx, singlesCache)
         val best = sentences.firstOrNull()?.text
-
         val leadFreq = LinkedHashMap<String, Int>()
         val leadCov = HashMap<String, Int>()
-        for (j in 2..nSyl) for (wf in preferredExact(dict, input.substring(0, B[j]))) if (!isSingleChar(wf.word)) {
-            if (!admissibleUnderCuts(wf.word, 0, B[j], interior, input, singlesCache)) continue
-            if (leadFreq.put(wf.word, wf.freq) == null) leadCov[wf.word] = B[j]
+        for (end in 2..nSyl) {
+            for (wordFreq in preferredExact(dict, input.substring(0, bounds[end]))) {
+                if (isSingleChar(wordFreq.word)) continue
+                if (!admissibleUnderCuts(wordFreq.word, 0, bounds[end], interior, input, singlesCache)) continue
+                if (leadFreq.put(wordFreq.word, wordFreq.freq) == null) leadCov[wordFreq.word] = bounds[end]
+            }
+        }
+        for (word in userWordsFor(input)) {
+            if (word == best || word in leadFreq || word.codePointCount(0, word.length) < 2) continue
+            if (!admissibleUnderCuts(word, 0, input.length, interior, input, singlesCache)) continue
+            val frequency = userWordFreq(word, input).toInt().coerceAtLeast(1)
+            if (leadFreq.put(word, frequency) == null) leadCov[word] = input.length
+        }
+        val syllableCharFrequency = Array(nSyl) { index ->
+            val frequencies = HashMap<String, Double>()
+            for ((word, frequency) in homophoneFreqs(input.substring(bounds[index], bounds[index + 1]))) {
+                frequencies.putIfAbsent(word, frequency)
+            }
+            frequencies
+        }
+        fun commonnessFrequency(word: String, coveredSyllables: Int, carried: Double): Double {
+            var minimum = Double.MAX_VALUE
+            var offset = 0
+            var syllable = 0
+            while (offset < word.length && syllable < coveredSyllables) {
+                val cp = word.codePointAt(offset)
+                val frequency = syllableCharFrequency.getOrNull(syllable)
+                    ?.get(String(Character.toChars(cp))) ?: carried
+                minimum = minOf(minimum, frequency)
+                offset += Character.charCount(cp)
+                syllable++
+            }
+            return if (minimum == Double.MAX_VALUE) carried else minimum
+        }
+        val tailScore = HashMap<String, Double>()
+        val tailCandidate = LinkedHashMap<String, Cand>()
+        fun offerTail(word: String, coveredLen: Int, coveredSyllables: Int, carried: Double) {
+            if (word == best || word in leadFreq) return
+            val score = wordModelScore(
+                word,
+                commonnessFrequency(word, coveredSyllables, carried),
+                ctxId,
+                ctx,
+                condMemo,
+            )
+            val previous = tailScore[word]
+            if (previous == null || score > previous) {
+                tailScore[word] = score
+                tailCandidate[word] = Cand(word, coveredLen)
+            }
+        }
+        for (sentence in sentences) offerTail(sentence.text, input.length, nSyl, 1.0)
+        for ((word, _) in homophoneFreqs(input.substring(0, bounds[1]))) {
+            offerTail(word, bounds[1], 1, 0.0)
+        }
+        val tailRanked = tailCandidate.values.sortedWith(
+            compareBy<Cand> { isSingleChar(it.word) }
+                .thenByDescending { tailScore[it.word] ?: Double.NEGATIVE_INFINITY }
+                .thenBy { it.word.codePointCount(0, it.word.length) }
+                .thenBy { supplementarySingleTieRank(it.word) },
+        )
+        val out = ArrayList<Cand>(1 + leadFreq.size + tailRanked.size)
+        val seen = HashSet<String>()
+        best?.let { if (seen.add(it)) out.add(Cand(it, input.length)) }
+        for ((word, _) in leadFreq.entries.sortedByDescending {
+            wordModelScore(it.key, it.value, ctxId, ctx, condMemo)
+        }) {
+            if (seen.add(word)) out.add(Cand(word, leadCov.getValue(word)))
+        }
+        for (candidate in tailRanked) if (seen.add(candidate.word)) out.add(candidate)
+        return out
+    }
+
+    private fun atomicCandidateSource(input: String, interior: Set<Int>, ctx: Ctx): CandidatePageSource<Cand> {
+        val ctxId = resolveCtxId(ctx.cp)
+        val condMemo = HashMap<Long, Double>()
+        val bounds = atomicBounds(input, interior)
+        val nSyl = bounds.size - 1
+        val singlesCache = HashMap<String, Set<String>>()
+        val graph = buildAtomicGraph(input, bounds, interior, singlesCache)
+        val sentences = AtomicSentenceCursor(graph, ctx)
+        val best = sentences.next()?.text
+        val leadFreq = LinkedHashMap<String, Int>()
+        val leadCov = HashMap<String, Int>()
+        for (j in 2..nSyl) for (wf in preferredExact(dict, input.substring(0, bounds[j]))) if (!isSingleChar(wf.word)) {
+            if (!admissibleUnderCuts(wf.word, 0, bounds[j], interior, input, singlesCache)) continue
+            if (leadFreq.put(wf.word, wf.freq) == null) leadCov[wf.word] = bounds[j]
         }
         for (uw in userWordsFor(input)) {
             if (uw == best || uw in leadFreq || uw.codePointCount(0, uw.length) < 2) continue
@@ -459,50 +709,48 @@ class PinyinDecoder(
             val f = userWordFreq(uw, input).toInt().coerceAtLeast(1)
             if (leadFreq.put(uw, f) == null) leadCov[uw] = input.length
         }
-
-        val sylCharFreq = Array(nSyl) { i ->
-            val m = HashMap<String, Double>()
-            for ((w, f) in homophoneFreqs(input.substring(B[i], B[i + 1]))) m.putIfAbsent(w, f)
-            m
-        }
-        fun commonnessFreq(word: String, coveredSyls: Int, carried: Double): Double {
-            var mn = Double.MAX_VALUE
-            var ci = 0
-            var si = 0
-            while (ci < word.length && si < coveredSyls) {
-                val cp = word.codePointAt(ci)
-                val f = sylCharFreq.getOrNull(si)?.get(String(Character.toChars(cp))) ?: carried
-                if (f < mn) mn = f
-                ci += Character.charCount(cp)
-                si++
-            }
-            return if (mn == Double.MAX_VALUE) carried else mn
-        }
-        val tailScore = HashMap<String, Double>()
-        val tailCand = LinkedHashMap<String, Cand>()
-        fun offerTail(word: String, coveredLen: Int, coveredSyls: Int, carried: Double) {
-            if (word == best || word in leadFreq) return
-            val score = wordModelScore(word, commonnessFreq(word, coveredSyls, carried), ctxId, ctx, condMemo)
-            val prev = tailScore[word]
-            if (prev == null || score > prev) { tailScore[word] = score; tailCand[word] = Cand(word, coveredLen) }
-        }
-        for (sentence in sentences) offerTail(sentence.text, input.length, nSyl, 1.0)
-        for ((w, _) in homophoneFreqs(input.substring(0, B[1]))) offerTail(w, B[1], 1, 0.0)
-        val tailRanked = tailCand.values.sortedWith(
-            compareBy<Cand> { isSingleChar(it.word) }
-                .thenByDescending { tailScore[it.word] ?: Double.NEGATIVE_INFINITY }
-                .thenBy { it.word.codePointCount(0, it.word.length) }
-                .thenBy { supplementarySingleTieRank(it.word) },
+        val leading = leadFreq.entries.sortedWith(
+            compareByDescending<Map.Entry<String, Int>> {
+                wordModelScore(it.key, it.value, ctxId, ctx, condMemo)
+            }.thenBy { supplementarySingleTieRank(it.key) },
         )
+        val singles = if (nSyl == 0) emptyList() else homophoneFreqs(input.substring(0, bounds[1])).map { it.first }
+        return object : CandidatePageSource<Cand> {
+            private val pending = ArrayDeque<Cand>()
+            private val seen = HashSet<String>()
+            private var sentenceExhausted = false
+            private var singlesAdded = false
 
-        val out = ArrayList<Cand>(1 + leadFreq.size + tailRanked.size)
-        val seen = HashSet<String>()
-        best?.let { if (seen.add(it)) out.add(Cand(it, input.length)) }
-        for ((w, _) in leadFreq.entries.sortedByDescending { wordModelScore(it.key, it.value, ctxId, ctx, condMemo) }) {
-            if (seen.add(w)) out.add(Cand(w, leadCov.getValue(w)))
+            init {
+                best?.let { if (seen.add(it)) pending.addLast(Cand(it, input.length)) }
+                for ((word, _) in leading) {
+                    if (seen.add(word)) pending.addLast(Cand(word, leadCov.getValue(word)))
+                }
+            }
+
+            private fun fill(targetSize: Int) {
+                while (pending.size < targetSize && !sentenceExhausted) {
+                    val sentence = sentences.next()
+                    if (sentence == null) {
+                        sentenceExhausted = true
+                    } else if (seen.add(sentence.text)) {
+                        pending.addLast(Cand(sentence.text, input.length))
+                    }
+                }
+                if (pending.size < targetSize && sentenceExhausted && !singlesAdded) {
+                    for (word in singles) if (seen.add(word)) pending.addLast(Cand(word, bounds[1]))
+                    singlesAdded = true
+                }
+            }
+
+            override fun next(pageSize: Int): CandidateSlice<Cand> {
+                fill(pageSize + 1)
+                val count = minOf(pageSize, pending.size)
+                val items = ArrayList<Cand>(count)
+                repeat(count) { items.add(pending.removeFirst()) }
+                return CandidateSlice(items, pending.isNotEmpty())
+            }
         }
-        for (c in tailRanked) if (seen.add(c.word)) out.add(c)
-        return out
     }
 
     private fun admissibleUnderCuts(
@@ -552,89 +800,306 @@ class PinyinDecoder(
         return !parses(respectCuts = false)
     }
 
-    private class APath(val text: String, val lastCp: Int, val tail: String, val score: Double)
+    private data class LegacyAtomicPath(
+        val text: String,
+        val lastCp: Int,
+        val tail: String,
+        val score: Double,
+    )
 
     internal data class SentencePath(val text: String, val score: Double)
 
     internal fun rerankSentencePaths(paths: List<SentencePath>, contextTail: String): List<SentencePath> {
         if (octagram == null || paths.size < 2) return paths
-        val headSize = minOf(SENTENCE_RERANK_N, paths.size)
-        val scores = DoubleArray(headSize) {
+        val scores = DoubleArray(paths.size) {
             paths[it].score + octagramWeight * wholeSentenceArm(contextTail, paths[it].text)
         }
-        val order = (0 until headSize).sortedWith(
+        val order = paths.indices.sortedWith(
             compareByDescending<Int> { scores[it] }.thenBy { it },
         )
         val out = ArrayList<SentencePath>(paths.size)
         for (index in order) out.add(paths[index])
-        for (index in headSize until paths.size) out.add(paths[index])
         return out
     }
 
-    private fun atomicSentences(
+    private fun atomicSentencesLegacy(
         input: String,
-        B: List<Int>,
+        bounds: List<Int>,
         interior: Set<Int>,
         ctx: Ctx,
         singlesCache: HashMap<String, Set<String>>,
     ): List<SentencePath> {
         val model = lm
         val condMemo = HashMap<Long, Double>()
-        val nSyl = B.size - 1
-        val dp = Array(B.size) { ArrayList<APath>() }
-        dp[0].add(APath("", ctx.cp, if (octagram == null && userLearning == null) "" else ctx.tail, 0.0))
-        for (i in 0 until nSyl) {
-            if (dp[i].isEmpty()) continue
-            val src = dp[i].sortedByDescending { it.score }.take(BEAM_W)
-            for (j in i + 1..nSyl) {
-                val seg = input.substring(B[i], B[j])
-                val raw = preferredExact(dict, seg)
-                val eligible = if (j == i + 1) raw.filter { isSingleChar(it.word) }
-                else raw.filterNot { isSingleChar(it.word) }
-                    .filter { admissibleUnderCuts(it.word, B[i], B[j], interior, input, singlesCache) }
-                val edges = eligible.take(SENTENCE_EDGE_N).toMutableList()
-                val present = edges.mapTo(HashSet()) { it.word }
-                for ((word, freq) in learnedExactWordFreqs(seg)) {
-                    if (!present.add(word)) continue
-                    if (j == i + 1 && !isSingleChar(word)) continue
-                    if (j > i + 1 && isSingleChar(word)) continue
-                    if (j > i + 1 && !admissibleUnderCuts(word, B[i], B[j], interior, input, singlesCache)) continue
-                    edges.add(BinaryDict.WordFreq(word, freq))
+        val nSyl = bounds.size - 1
+        val paths = Array(bounds.size) { ArrayList<LegacyAtomicPath>() }
+        paths[0].add(
+            LegacyAtomicPath(
+                "",
+                ctx.cp,
+                if (octagram == null && userLearning == null) "" else ctx.tail,
+                0.0,
+            ),
+        )
+        for (start in 0 until nSyl) {
+            if (paths[start].isEmpty()) continue
+            val source = paths[start].sortedByDescending { it.score }.take(LEGACY_ATOMIC_BEAM_WIDTH)
+            for (end in start + 1..nSyl) {
+                val segment = input.substring(bounds[start], bounds[end])
+                val exact = preferredExact(dict, segment)
+                val eligible = if (end == start + 1) {
+                    exact.filter { isSingleChar(it.word) }
+                } else {
+                    exact.filterNot { isSingleChar(it.word) }
+                        .filter {
+                            admissibleUnderCuts(
+                                it.word,
+                                bounds[start],
+                                bounds[end],
+                                interior,
+                                input,
+                                singlesCache,
+                            )
+                        }
                 }
-                for (wf in edges) {
-                    val w = wf.word
-                    val firstCp = w.codePointAt(0)
-                    val idFirst = model?.charId(firstCp) ?: -1
-                    val lastCp = w.codePointBefore(w.length)
-                    val uni = ln(wf.freq.toDouble()) - lnTotal
-                    val boost = (userModel?.wordBoost(w) ?: 0.0) +
-                        (userLearning?.formedWeight(w) ?: 0.0)
-                    val inner = if (model == null) 0.0 else lambda * internalBigramScore(w, model, condMemo)
-                    for (p in src) {
-                        val bw = if (p.text.isEmpty() && p.lastCp != BOS) contextWeight else lambda
-                        val bi = if (model == null || p.lastCp == BOS) 0.0 else bw * logCondMemo(condMemo, model, model.charId(p.lastCp), idFirst)
-                        val og = octagramWeight * contextArm(p.tail, w)
-                        val follow = userLearning?.followBoost(p.tail, w) ?: 0.0
-                        dp[j].add(
-                            APath(
-                                p.text + w,
+                val entries = eligible.take(LEGACY_ATOMIC_EDGE_WIDTH).toMutableList()
+                val present = entries.mapTo(HashSet()) { it.word }
+                for ((word, frequency) in learnedExactWordFreqs(segment)) {
+                    if (!present.add(word)) continue
+                    if (end == start + 1 && !isSingleChar(word)) continue
+                    if (end > start + 1 && isSingleChar(word)) continue
+                    if (end > start + 1 && !admissibleUnderCuts(
+                            word,
+                            bounds[start],
+                            bounds[end],
+                            interior,
+                            input,
+                            singlesCache,
+                        )
+                    ) continue
+                    entries.add(BinaryDict.WordFreq(word, frequency))
+                }
+                for (entry in entries) {
+                    val word = entry.word
+                    val firstCp = word.codePointAt(0)
+                    val firstId = model?.charId(firstCp) ?: -1
+                    val lastCp = word.codePointBefore(word.length)
+                    val unigram = ln(entry.freq.toDouble()) - lnTotal
+                    val boost = (userModel?.wordBoost(word) ?: 0.0) +
+                        (userLearning?.formedWeight(word) ?: 0.0)
+                    val inner = if (model == null) 0.0 else lambda * internalBigramScore(word, model, condMemo)
+                    for (path in source) {
+                        val bigramWeight = if (path.text.isEmpty() && path.lastCp != BOS) contextWeight else lambda
+                        val bigram = if (model == null || path.lastCp == BOS) {
+                            0.0
+                        } else {
+                            bigramWeight * logCondMemo(
+                                condMemo,
+                                model,
+                                model.charId(path.lastCp),
+                                firstId,
+                            )
+                        }
+                        val grammar = octagramWeight * contextArm(path.tail, word)
+                        val follow = userLearning?.followBoost(path.tail, word) ?: 0.0
+                        paths[end].add(
+                            LegacyAtomicPath(
+                                path.text + word,
                                 lastCp,
-                                advanceRankingTail(p.tail, w),
-                                p.score + uni + bi + inner + boost + follow + og,
+                                advanceRankingTail(path.tail, word),
+                                path.score + unigram + bigram + inner + boost + follow + grammar,
                             ),
                         )
                     }
                 }
             }
         }
-        if (dp[nSyl].isEmpty()) return emptyList()
-        val emit = ATOMIC_BEAM_N + ATOMIC_BEAM_PER_SYL * (nSyl - 2).coerceAtLeast(0)
+        if (paths[nSyl].isEmpty()) return emptyList()
+        val emit = LEGACY_ATOMIC_BASE_RESULTS +
+            LEGACY_ATOMIC_RESULTS_PER_SYLLABLE * (nSyl - 2).coerceAtLeast(0)
         val ordered = ArrayList<SentencePath>(emit)
         val seen = HashSet<String>()
-        for (p in dp[nSyl].sortedByDescending { it.score }) {
-            if (seen.add(p.text)) { ordered.add(SentencePath(p.text, p.score)); if (ordered.size >= emit) break }
+        for (path in paths[nSyl].sortedByDescending { it.score }) {
+            if (!seen.add(path.text)) continue
+            ordered.add(SentencePath(path.text, path.score))
+            if (ordered.size >= emit) break
         }
-        return rerankSentencePaths(ordered, ctx.tail)
+        if (octagram == null || ordered.size < 2) return ordered
+        val headSize = minOf(LEGACY_SENTENCE_RERANK_RESULTS, ordered.size)
+        val scores = DoubleArray(headSize) { index ->
+            ordered[index].score + octagramWeight * wholeSentenceArm(ctx.tail, ordered[index].text)
+        }
+        val order = (0 until headSize).sortedWith(
+            compareByDescending<Int> { scores[it] }.thenBy { it },
+        )
+        val reranked = ArrayList<SentencePath>(ordered.size)
+        for (index in order) reranked.add(ordered[index])
+        for (index in headSize until ordered.size) reranked.add(ordered[index])
+        return reranked
+    }
+
+    private data class AtomicGraphEdge(
+        val end: Int,
+        val word: String,
+        val firstCp: Int,
+        val lastCp: Int,
+        val baseScore: Double,
+    )
+
+    private fun buildAtomicGraph(
+        input: String,
+        bounds: List<Int>,
+        interior: Set<Int>,
+        singlesCache: HashMap<String, Set<String>>,
+    ): Array<ArrayList<AtomicGraphEdge>> {
+        val model = lm
+        val condMemo = HashMap<Long, Double>()
+        val nSyl = bounds.size - 1
+        val graph = Array(nSyl) { ArrayList<AtomicGraphEdge>() }
+        for (i in 0 until nSyl) for (j in i + 1..nSyl) {
+            val segment = input.substring(bounds[i], bounds[j])
+            val exact = preferredExact(dict, segment)
+            val eligible = if (j == i + 1) {
+                exact.filter { isSingleChar(it.word) }
+            } else {
+                exact.filterNot { isSingleChar(it.word) }
+                    .filter { admissibleUnderCuts(it.word, bounds[i], bounds[j], interior, input, singlesCache) }
+            }
+            val entries = eligible.toMutableList()
+            val present = entries.mapTo(HashSet()) { it.word }
+            for ((word, freq) in learnedExactWordFreqs(segment)) {
+                if (!present.add(word)) continue
+                if (j == i + 1 && !isSingleChar(word)) continue
+                if (j > i + 1 && isSingleChar(word)) continue
+                if (j > i + 1 && !admissibleUnderCuts(word, bounds[i], bounds[j], interior, input, singlesCache)) continue
+                entries.add(BinaryDict.WordFreq(word, freq))
+            }
+            for (entry in entries) {
+                val word = entry.word
+                val firstCp = word.codePointAt(0)
+                val lastCp = word.codePointBefore(word.length)
+                val unigram = ln(entry.freq.toDouble()) - lnTotal
+                val boost = (userModel?.wordBoost(word) ?: 0.0) +
+                    (userLearning?.formedWeight(word) ?: 0.0)
+                val inner = if (model == null) 0.0 else lambda * internalBigramScore(word, model, condMemo)
+                graph[i].add(AtomicGraphEdge(j, word, firstCp, lastCp, unigram + boost + inner))
+            }
+        }
+        return graph
+    }
+
+    private data class AtomicGraphState(val position: Int, val lastCp: Int, val tail: String)
+
+    private data class AtomicTransition(val state: AtomicGraphState, val score: Double)
+
+    private data class AtomicQueuePath(
+        val state: AtomicGraphState,
+        val text: String,
+        val baseScore: Double,
+        val priority: Double,
+        val serial: Long,
+    )
+
+    private inner class AtomicSentenceCursor(
+        private val graph: Array<ArrayList<AtomicGraphEdge>>,
+        private val ctx: Ctx,
+    ) {
+        private val model = lm
+        private val condMemo = HashMap<Long, Double>()
+        private val nSyl = graph.size
+        private val suffixUpperBound = DoubleArray(nSyl + 1) { Double.NEGATIVE_INFINITY }
+        private val yielded = HashSet<String>()
+        private val queue = PriorityQueue<AtomicQueuePath> { a, b ->
+            val priority = b.priority.compareTo(a.priority)
+            if (priority != 0) priority
+            else {
+                val base = b.baseScore.compareTo(a.baseScore)
+                if (base != 0) base else a.serial.compareTo(b.serial)
+            }
+        }
+        private val grammarUpperBound = octagram?.let {
+            maxOf(0.0, octagramWeight * it.maximumRawScore)
+        } ?: 0.0
+        private val transitionUpperBound = grammarUpperBound + (userLearning?.maximumFollowBoost() ?: 0.0)
+        private var serial = 0L
+
+        init {
+            suffixUpperBound[nSyl] = 0.0
+            for (position in nSyl - 1 downTo 0) {
+                var best = Double.NEGATIVE_INFINITY
+                for (edge in graph[position]) {
+                    val suffix = suffixUpperBound[edge.end]
+                    if (!suffix.isFinite()) continue
+                    best = maxOf(best, edge.baseScore + transitionUpperBound + suffix)
+                }
+                suffixUpperBound[position] = best
+            }
+            val initial = AtomicGraphState(
+                0,
+                ctx.cp,
+                if (octagram == null && userLearning == null) "" else ctx.tail,
+            )
+            val remaining = suffixUpperBound[0]
+            if (remaining.isFinite()) {
+                queue.add(AtomicQueuePath(initial, "", 0.0, remaining + grammarUpperBound, serial++))
+            }
+        }
+
+        private fun transition(state: AtomicGraphState, edge: AtomicGraphEdge): AtomicTransition {
+            val bw = if (state.position == 0 && state.lastCp != BOS) contextWeight else lambda
+            val bi = if (model == null || state.lastCp == BOS) {
+                0.0
+            } else {
+                bw * logCondMemo(
+                    condMemo,
+                    model,
+                    model.charId(state.lastCp),
+                    model.charId(edge.firstCp),
+                )
+            }
+            val score = edge.baseScore + bi +
+                octagramWeight * contextArm(state.tail, edge.word) +
+                (userLearning?.followBoost(state.tail, edge.word) ?: 0.0)
+            return AtomicTransition(
+                AtomicGraphState(edge.end, edge.lastCp, advanceRankingTail(state.tail, edge.word)),
+                score,
+            )
+        }
+
+        private fun terminalScore(baseScore: Double, text: String): Double =
+            baseScore + octagramWeight * wholeSentenceArm(ctx.tail, text)
+
+        fun next(): SentencePath? {
+            while (queue.isNotEmpty()) {
+                val path = queue.remove()
+                if (path.state.position == nSyl) {
+                    if (yielded.add(path.text)) return SentencePath(path.text, path.baseScore)
+                    continue
+                }
+                for (edge in graph[path.state.position]) {
+                    val transition = transition(path.state, edge)
+                    val nextScore = path.baseScore + transition.score
+                    val nextText = path.text + edge.word
+                    val priority = if (transition.state.position == nSyl) {
+                        terminalScore(nextScore, nextText)
+                    } else {
+                        val remaining = suffixUpperBound[transition.state.position]
+                        if (!remaining.isFinite()) continue
+                        nextScore + remaining + grammarUpperBound
+                    }
+                    queue.add(
+                        AtomicQueuePath(
+                            transition.state,
+                            nextText,
+                            nextScore,
+                            priority,
+                            serial++,
+                        ),
+                    )
+                }
+            }
+            return null
+        }
     }
 
     private fun appendLeadingSingles(input: String, span: Int, out: ArrayList<Cand>, ctx: Ctx) {
@@ -855,7 +1320,12 @@ class PinyinDecoder(
 
     private class Cell(val score: Double, val prevPos: Int, val prevState: SentenceState?, val word: String)
 
-    private fun bestSentence(input: String, cuts: Set<Int> = emptySet(), ctx: Ctx = Ctx.EMPTY): String? {
+    private fun bestSentence(
+        input: String,
+        cuts: Set<Int> = emptySet(),
+        ctx: Ctx = Ctx.EMPTY,
+        legacyBounds: Boolean = false,
+    ): String? {
         val model = lm
         val condMemo = HashMap<Long, Double>()
         val n = input.length
@@ -870,7 +1340,11 @@ class PinyinDecoder(
                 val from = dp[p]
                 if (from.isEmpty()) continue
                 if (cuts.any { it > p && it < q }) continue
-                val edges = edgesFor(input.substring(p, q))
+                val edges = if (legacyBounds) {
+                    edgesForLegacy(input.substring(p, q))
+                } else {
+                    edgesFor(input.substring(p, q))
+                }
                 if (edges.isEmpty()) continue
                 for (e in edges) {
                     val w = e.word
@@ -896,10 +1370,10 @@ class PinyinDecoder(
                     }
                 }
             }
-            if ((octagram != null || userLearning != null) && dp[q].size > BEAM_W) {
+            if (legacyBounds && (octagram != null || userLearning != null) && dp[q].size > LEGACY_ATOMIC_BEAM_WIDTH) {
                 val keep = dp[q].entries
                     .sortedByDescending { it.value.score }
-                    .take(BEAM_W)
+                    .take(LEGACY_ATOMIC_BEAM_WIDTH)
                     .map { it.key to it.value }
                 dp[q].clear()
                 for ((state, cell) in keep) dp[q][state] = cell
@@ -932,7 +1406,6 @@ class PinyinDecoder(
         const val SEP = '\''
         const val BOS = -1
         const val NO_CTX = Int.MIN_VALUE
-        const val EDGE_N = 20
         const val DEFAULT_LAMBDA = 0.5
         const val FUZZY_PENALTY = 3.0
         const val ALIAS_PENALTY = 3.5
@@ -940,14 +1413,15 @@ class PinyinDecoder(
         const val INITIALS_RESERVE = 1
         const val INITIALS_RESERVE_MIN_LEN = 2
         const val DEFAULT_OCTAGRAM_WEIGHT = 0.1
-        const val BEAM_W = 12
-        const val SENTENCE_EDGE_N = 6
-        const val ATOMIC_BEAM_N = 8
-        const val ATOMIC_BEAM_PER_SYL = 40
-        const val SENTENCE_RERANK_N = 128
+        const val LEGACY_SENTENCE_EDGE_LIMIT = 20
+        const val LEGACY_EXACT_TIE_LOOKAHEAD = 16
+        const val LEGACY_ATOMIC_BEAM_WIDTH = 12
+        const val LEGACY_ATOMIC_EDGE_WIDTH = 6
+        const val LEGACY_ATOMIC_BASE_RESULTS = 8
+        const val LEGACY_ATOMIC_RESULTS_PER_SYLLABLE = 40
+        const val LEGACY_SENTENCE_RERANK_RESULTS = 128
         const val CTX_WORD_MAX = 4
         const val MAX_SYLLABLE_KEY_LEN = 6
-        const val EXACT_TIE_LOOKAHEAD = 16
         const val ORDERING_RARE_FREQ = 100.0
         const val ORDERING_COMMON_FREQ = 1000.0
         val ALIAS_FREQ_DISCOUNT = exp(-ALIAS_PENALTY)

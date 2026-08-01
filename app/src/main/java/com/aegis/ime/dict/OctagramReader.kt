@@ -28,6 +28,19 @@ class OctagramReader private constructor(
 ) {
     private val labelMask = (1 shl 31) or 0xFF
 
+    internal val maximumRawScore: Double by lazy {
+        val units = (buf.capacity() - imageStart) / 4
+        var maximum = 0
+        for (id in 0 until units) {
+            val u = unit(id)
+            if (!hasLeaf(u)) continue
+            val valueId = id xor offset(u)
+            if (valueId !in 0 until units) continue
+            maximum = maxOf(maximum, value(unit(valueId)))
+        }
+        maximum / VALUE_SCALE
+    }
+
     private fun unit(id: Int): Int = buf.getInt(imageStart + id * 4)
     private fun offset(u: Int): Int = (u ushr 10) shl ((u and (1 shl 9)) ushr 6)
     private fun hasLeaf(u: Int): Boolean = ((u ushr 8) and 1) == 1

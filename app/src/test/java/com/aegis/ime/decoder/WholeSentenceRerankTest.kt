@@ -17,13 +17,14 @@ package com.aegis.ime.decoder
 
 import com.aegis.ime.dict.OctagramFixture
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class WholeSentenceRerankTest {
 
     private val dict = EngineFixture.build(listOf(EngineFixture.Row("yi", "一", 1)))
 
-    @Test fun first128PathsRerankByTheBestWholeSentenceSuffix() {
+    @Test fun everyPathReranksByTheBestWholeSentenceSuffix() {
         val grammar = OctagramFixture.reader(
             mapOf(
                 "超市买东西" to 700.0,
@@ -38,13 +39,14 @@ class WholeSentenceRerankTest {
         val reranked = decoder.rerankSentencePaths(paths, "")
         assertEquals(140, reranked.size)
         assertEquals("去超市买东西", reranked.first().text)
-        assertEquals(paths.subList(128, paths.size), reranked.subList(128, reranked.size))
+        assertTrue("a grammar hit beyond the former 128-path window must move", reranked.indexOf(paths[128]) in 1 until 128)
+        assertEquals(paths.toSet(), reranked.toSet())
     }
 
     @Test fun equalScoresKeepTheOriginalHeadOrder() {
         val grammar = OctagramFixture.reader(mapOf("无关" to 10.0))
         val decoder = PinyinDecoder(dict, octagram = grammar)
-        val paths = (0 until 128).map { PinyinDecoder.SentencePath("候选$it", 1.0) }
+        val paths = (0 until 140).map { PinyinDecoder.SentencePath("候选$it", 1.0) }
         assertEquals(paths, decoder.rerankSentencePaths(paths, ""))
     }
 

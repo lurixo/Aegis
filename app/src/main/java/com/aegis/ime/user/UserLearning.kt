@@ -157,6 +157,16 @@ class UserLearning internal constructor(
     }
 
     @Synchronized
+    internal fun maximumFollowBoost(): Double {
+        val now = clock()
+        var maximum = 0.0
+        for (words in followsByPrev.values) for (usage in words.values) {
+            maximum = maxOf(maximum, decayed(usage.count, usage.lastSeen, now, FOLLOW_HALF_LIFE_MILLIS))
+        }
+        return if (maximum >= MIN_ACTIVE) FOLLOW_WEIGHT * ln(1.0 + maximum) else 0.0
+    }
+
+    @Synchronized
     fun followBoost(prevContext: String, word: String): Double {
         if (prevContext.isEmpty() || word.isEmpty()) return 0.0
         val now = clock()

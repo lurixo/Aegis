@@ -161,4 +161,46 @@ class BinaryDictTest {
         )
         assertEquals("a small limit still returns the leading slice", everyHit.take(3), dict.prefixByFreq("sh", 3))
     }
+
+    @Test
+    fun prefixPagesResumePastTheOneHundredTwentyEightItemCacheWithoutChangingOrder() {
+        val rows = (0 until 260).map { index ->
+            EngineFixture.Row("a${index.toString(36).padStart(2, '0')}", "前缀词$index", 10_000 - index)
+        }
+        val dict = EngineFixture.build(rows)
+        val reference = dict.prefixByFreq("a", Int.MAX_VALUE)
+        val paged = ArrayList<BinaryDict.WordFreq>()
+        var offset = 0
+        while (true) {
+            val page = dict.prefixByFreqPage("a", offset, 30)
+            assertTrue("every prefix page is bounded to 30", page.items.size <= 30)
+            paged.addAll(page.items)
+            offset += page.items.size
+            if (!page.hasMore) break
+        }
+
+        assertEquals(260, reference.size)
+        assertEquals(reference.take(128), dict.prefixByFreq("a", 128))
+        assertEquals(reference, paged)
+    }
+
+    @Test
+    fun exactPagesReachEveryEntryWithoutDuplicatingTheBoundaryRow() {
+        val rows = (0 until 75).map { index -> EngineFixture.Row("ce", "精确词$index", 5_000 - index) }
+        val dict = EngineFixture.build(rows)
+        val reference = dict.exact("ce")
+        val paged = ArrayList<BinaryDict.WordFreq>()
+        val pageSizes = ArrayList<Int>()
+        var offset = 0
+        while (true) {
+            val page = dict.exactPage("ce", offset, 30)
+            pageSizes.add(page.items.size)
+            paged.addAll(page.items)
+            offset += page.items.size
+            if (!page.hasMore) break
+        }
+
+        assertEquals(listOf(30, 30, 15), pageSizes)
+        assertEquals(reference, paged)
+    }
 }

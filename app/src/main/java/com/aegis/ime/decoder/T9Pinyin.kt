@@ -288,6 +288,16 @@ object T9Pinyin {
         return out.toList().take(limit)
     }
 
+    fun leftColumnReadingsPage(
+        digits: String,
+        inputEpoch: Long,
+        pageSize: Int = CANDIDATE_PAGE_SIZE,
+    ): CandidatePage<String> = firstCandidatePage(
+        ListCandidatePageSource(leftColumnReadings(digits, Int.MAX_VALUE)),
+        inputEpoch,
+        pageSize,
+    )
+
     fun leftColumnLetterReadings(letters: String, limit: Int): List<String> {
         if (letters.isEmpty() || letters.any { it !in 'a'..'z' }) return emptyList()
         val out = LinkedHashSet<String>()
@@ -295,6 +305,16 @@ object T9Pinyin {
         out.add(letters.first().toString())
         return out.toList().take(limit)
     }
+
+    fun leftColumnLetterReadingsPage(
+        letters: String,
+        inputEpoch: Long,
+        pageSize: Int = CANDIDATE_PAGE_SIZE,
+    ): CandidatePage<String> = firstCandidatePage(
+        ListCandidatePageSource(leftColumnLetterReadings(letters, Int.MAX_VALUE)),
+        inputEpoch,
+        pageSize,
+    )
 
     private fun firstLetterSyllableOptions(letters: String): List<String> {
         val reachable = BooleanArray(letters.length + 1)

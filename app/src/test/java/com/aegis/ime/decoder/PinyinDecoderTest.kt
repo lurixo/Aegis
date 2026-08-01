@@ -45,6 +45,16 @@ class PinyinDecoderTest {
             .map { it.word }
             .toSet()
 
+    private fun pagedCandidates(decoder: PinyinDecoder, input: String): List<Cand> {
+        val source = decoder.coveredCandidateSource(input)
+        val out = ArrayList<Cand>()
+        while (true) {
+            val page = source.next(CANDIDATE_PAGE_SIZE)
+            out.addAll(page.items)
+            if (!page.hasMore) return out
+        }
+    }
+
     @Test
     fun decodesSentences() {
         val d = decoder()
@@ -106,7 +116,7 @@ class PinyinDecoderTest {
         assumeTrue("T9 dict has the biang rare character", t9.exact(digits).any { it.word == rare })
 
         assertTrue("9-key reading list offers biang for $digits", "biang" in T9Pinyin.leftColumnReadings(digits, 24))
-        assertTrue("T9 free typing recalls the rare character", t9Decoder().decodeCovered(digits, 30).any { it.word == rare })
+        assertTrue("T9 free typing recalls the rare character", pagedCandidates(t9Decoder(), digits).any { it.word == rare })
         assertTrue("T9 homophone drill includes the rare character", rare in t9Decoder().homophonesAt(digits, 0))
     }
 

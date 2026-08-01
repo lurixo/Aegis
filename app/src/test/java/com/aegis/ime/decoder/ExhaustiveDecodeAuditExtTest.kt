@@ -829,8 +829,8 @@ class ExhaustiveDecodeAuditExtTest {
                             if (v > dp[q][i + k]) dp[q][i + k] = v
                         }
                     }
-                    tryWords(source.exact(span).take(PinyinDecoder.EDGE_N), 0.0)
-                    for (a in aliases(span)) tryWords(dict.exact(a).take(PinyinDecoder.EDGE_N), PinyinDecoder.ALIAS_PENALTY)
+                    tryWords(source.exact(span), 0.0)
+                    for (a in aliases(span)) tryWords(dict.exact(a), PinyinDecoder.ALIAS_PENALTY)
                 }
             }
             return dp[n][m]

@@ -16,8 +16,12 @@
 package com.aegis.ime.engine
 
 import com.aegis.ime.decoder.Cand
+import com.aegis.ime.decoder.CANDIDATE_PAGE_SIZE
+import com.aegis.ime.decoder.CandidatePage
+import com.aegis.ime.decoder.FilteringCandidatePageSource
 import com.aegis.ime.decoder.PinyinDecoder
 import com.aegis.ime.decoder.Syllable
+import com.aegis.ime.decoder.firstCandidatePage
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.OctagramReader
@@ -64,13 +68,44 @@ class DictEngine(
     override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> {
         if (composing.isEmpty()) return emptyList()
         val d = if (t9) t9Decoder else decoder
-        val out = d?.decodeCovered(composing, MAX_CANDIDATES, cuts, context) ?: emptyList()
+        val out = d?.decodeCovered(composing, CANDIDATE_PAGE_SIZE, cuts, context) ?: emptyList()
         return if (t9) out.filterNot { c -> c.word.all { it.code < 128 } } else out
+    }
+
+    override fun candidatesCoveredPage(
+        composing: String,
+        t9: Boolean,
+        inputEpoch: Long,
+        cuts: Set<Int>,
+        context: CharSequence,
+        pageSize: Int,
+    ): CandidatePage<Cand> {
+        if (composing.isEmpty()) return CandidatePage(emptyList(), null, inputEpoch)
+        val source = (if (t9) t9Decoder else decoder)
+            ?.coveredCandidateSource(composing, cuts, context)
+            ?: return CandidatePage(emptyList(), null, inputEpoch)
+        val visible = if (t9) FilteringCandidatePageSource(source) { candidate ->
+            !candidate.word.all { it.code < 128 }
+        } else source
+        return firstCandidatePage(visible, inputEpoch, pageSize)
     }
 
     override fun candidatesForLockedReadingCovered(letters: String, cuts: Set<Int>, context: CharSequence): List<Cand> {
         if (letters.isEmpty()) return emptyList()
-        return decoder?.decodeCoveredAtomic(letters, MAX_CANDIDATES, cuts, context) ?: emptyList()
+        return decoder?.decodeCoveredAtomic(letters, CANDIDATE_PAGE_SIZE, cuts, context) ?: emptyList()
+    }
+
+    override fun candidatesForLockedReadingCoveredPage(
+        letters: String,
+        inputEpoch: Long,
+        cuts: Set<Int>,
+        context: CharSequence,
+        pageSize: Int,
+    ): CandidatePage<Cand> {
+        if (letters.isEmpty()) return CandidatePage(emptyList(), null, inputEpoch)
+        val source = decoder?.coveredCandidateSource(letters, cuts, context, atomic = true)
+            ?: return CandidatePage(emptyList(), null, inputEpoch)
+        return firstCandidatePage(source, inputEpoch, pageSize)
     }
 
     override fun syllables(composing: String, t9: Boolean): List<Syllable> =
@@ -105,8 +140,8 @@ class DictEngine(
         if (prevWord.isNullOrEmpty()) return emptyList()
         val out = LinkedHashSet<String>()
         userLearning?.follows(prevWord)?.forEach { out.add(it.first) }
-        userModel?.successors(prevWord, MAX_PREDICTIONS)?.forEach(out::add)
-        return out.take(MAX_PREDICTIONS)
+        userModel?.successors(prevWord, Int.MAX_VALUE)?.forEach(out::add)
+        return out.toList()
     }
 
     override fun learn(prevWord: String?, word: String) {
@@ -120,10 +155,5 @@ class DictEngine(
 
     override fun setFuzzyRules(rules: Set<String>) {
         decoder?.setFuzzyRules(rules)
-    }
-
-    private companion object {
-        const val MAX_CANDIDATES = 30
-        const val MAX_PREDICTIONS = 8
     }
 }

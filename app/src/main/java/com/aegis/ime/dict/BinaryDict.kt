@@ -53,6 +53,8 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
 
     data class WordFreq(val word: String, val freq: Int)
 
+    data class Page<T>(val items: List<T>, val hasMore: Boolean)
+
     private data class PrefixHit(val word: String, val freq: Int, val tieRank: Int, val order: Int)
 
     fun exact(key: String, limit: Int = Int.MAX_VALUE): List<WordFreq> {
@@ -74,6 +76,30 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
             j++
         }
         return out
+    }
+
+    fun exactPage(key: String, offset: Int, limit: Int): Page<WordFreq> {
+        require(offset >= 0)
+        require(limit > 0)
+        if (key.isEmpty() || numKeys == 0) return Page(emptyList(), false)
+        val q = key.toByteArray(Charsets.US_ASCII)
+        val i = lowerBound(q)
+        if (i >= numKeys || compareKey(i, q) != 0) return Page(emptyList(), false)
+        val start = entryStart(i)
+        val end = if (i + 1 < numKeys) entryStart(i + 1) else numEntries
+        val pageStart = minOf(end.toLong(), start.toLong() + offset.toLong()).toInt()
+        val pageEnd = minOf(end.toLong(), pageStart.toLong() + limit.toLong()).toInt()
+        val out = ArrayList<WordFreq>(pageEnd - pageStart)
+        for (entry in pageStart until pageEnd) {
+            val entryOffset = entryArrOff + entry * 12
+            out.add(
+                WordFreq(
+                    readWord(buf.getInt(entryOffset), buf.getInt(entryOffset + 4)),
+                    buf.getInt(entryOffset + 8),
+                ),
+            )
+        }
+        return Page(out, pageEnd < end)
     }
 
     fun containsExactWord(key: String, word: String): Boolean = exactWordFreq(key, word) != null
@@ -99,7 +125,9 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
 
     fun prefixByFreq(prefix: String, limit: Int): List<WordFreq> {
         if (prefix.isEmpty() || limit <= 0 || numKeys == 0) return emptyList()
-        shortPrefixIndex(prefix)?.let { return it.take(limit) }
+        shortPrefixIndex(prefix)?.let { cached ->
+            if (limit <= cached.size || cached.size < SHORT_PREFIX_TOP_N) return cached.take(limit)
+        }
         val q = prefix.toByteArray(Charsets.US_ASCII)
         val top = PriorityQueue<PrefixHit>(Comparator { a, b -> comparePrefixWorstFirst(a, b) })
         val byWord = HashMap<String, PrefixHit>()
@@ -126,6 +154,16 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
             i++
         }
         return sortedPrefixHits(top)
+    }
+
+    fun prefixByFreqPage(prefix: String, offset: Int, limit: Int): Page<WordFreq> {
+        require(offset >= 0)
+        require(limit > 0)
+        val requested = minOf(Int.MAX_VALUE.toLong(), offset.toLong() + limit.toLong() + 1L).toInt()
+        val ranked = prefixByFreq(prefix, requested)
+        if (offset >= ranked.size) return Page(emptyList(), false)
+        val end = minOf(ranked.size.toLong(), offset.toLong() + limit.toLong()).toInt()
+        return Page(ranked.subList(offset, end).toList(), ranked.size > end)
     }
 
     fun query(input: String, limit: Int): List<String> {

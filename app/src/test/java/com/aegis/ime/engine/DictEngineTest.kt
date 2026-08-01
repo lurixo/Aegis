@@ -100,4 +100,82 @@ class DictEngineTest {
 
         assertEquals(listOf("甲", "乙", "丙"), engine.predict("前"))
     }
+
+    @Test
+    fun exactCandidatesContinueInThirtyItemPagesUntilTheReferenceOrderIsExhausted() {
+        val rows = (0 until 75).map { index -> EngineFixture.Row("ce", "候选$index", 10_000 - index) }
+        val engine = DictEngine(EngineFixture.build(rows), null, null)
+        val actual = ArrayList<Cand>()
+        val pageSizes = ArrayList<Int>()
+        var page = engine.candidatesCoveredPage("ce", t9 = false, inputEpoch = 31L)
+        while (true) {
+            pageSizes.add(page.items.size)
+            actual.addAll(page.items)
+            val continuation = page.continuation ?: break
+            page = engine.continuePage(continuation, inputEpoch = 31L)
+        }
+
+        assertEquals(listOf(30, 30, 15), pageSizes)
+        assertEquals(rows.map { Cand(it.word, 2) }, actual)
+    }
+
+    @Test
+    fun lockedAtomicPagesExhaustEveryPathInTheSameGlobalOrder() {
+        val firstWords = listOf("甲", "乙", "丙", "丁", "戊", "己", "庚", "辛")
+        val secondWords = listOf("天", "地", "玄", "黄", "宇", "宙", "洪", "荒")
+        val first = firstWords.mapIndexed { index, word ->
+            EngineFixture.Row("a", word, 1 shl (8 - index))
+        }
+        val second = secondWords.mapIndexed { index, word ->
+            EngineFixture.Row("ba", word, pow(3, 8 - index))
+        }
+        val engine = DictEngine(EngineFixture.build(first + second), null, null)
+        val actual = ArrayList<Cand>()
+        val pageSizes = ArrayList<Int>()
+        var page = engine.candidatesForLockedReadingCoveredPage(
+            "aba",
+            inputEpoch = 32L,
+            cuts = setOf(1),
+        )
+        while (true) {
+            pageSizes.add(page.items.size)
+            actual.addAll(page.items)
+            val continuation = page.continuation ?: break
+            page = engine.continuePage(continuation, inputEpoch = 32L)
+        }
+        val sentences = first.flatMap { left ->
+            second.map { right -> Triple(left.word + right.word, left.freq.toLong() * right.freq, 3) }
+        }.sortedByDescending { it.second }
+        val reference = sentences.map { Cand(it.first, it.third) } + first.map { Cand(it.word, 1) }
+
+        assertEquals(listOf(30, 30, 12), pageSizes)
+        assertEquals(reference, actual)
+    }
+
+    @Test
+    fun predictionsContinuePastTheFormerEightItemWindow() {
+        val model = UserModel { 1_000L }
+        repeat(75) { index -> model.record("前", "预测$index", 1_000L) }
+        val engine = DictEngine(null, null, null, model)
+        val reference = engine.predict("前")
+        val actual = ArrayList<String>()
+        val pageSizes = ArrayList<Int>()
+        var page = engine.predictPage("前", inputEpoch = 33L)
+        while (true) {
+            pageSizes.add(page.items.size)
+            actual.addAll(page.items)
+            val continuation = page.continuation ?: break
+            page = engine.continuePage(continuation, inputEpoch = 33L)
+        }
+
+        assertEquals(75, reference.size)
+        assertEquals(listOf(30, 30, 15), pageSizes)
+        assertEquals(reference, actual)
+    }
+
+    private fun pow(base: Int, exponent: Int): Int {
+        var value = 1
+        repeat(exponent) { value *= base }
+        return value
+    }
 }

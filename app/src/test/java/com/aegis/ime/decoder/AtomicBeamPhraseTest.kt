@@ -90,7 +90,7 @@ class AtomicBeamPhraseTest {
         val t9 = PinyinDecoder(BinaryDict.fromFile(t9File), lm, aliasDict = letterDict)
 
         val misses = ArrayList<String>()
-        val table = StringBuilder("phrase\tletters\t26k_index\t9k_index\n")
+        val table = StringBuilder("phrase\tletters\t26k_index\t9k_index\t26k_reachable\t9k_reachable\n")
         for ((phrase, syls) in phrases) {
             val letters = syls.joinToString("")
             val digits = syls.joinToString("") { T9Pinyin.toT9(it) }
@@ -98,9 +98,11 @@ class AtomicBeamPhraseTest {
             val digitCands = t9.decodeCoveredAtomic(digits, 30)
             val li = letterCands.indexOfFirst { it.word == phrase && it.coveredLen == letters.length }
             val di = digitCands.indexOfFirst { it.word == phrase && it.coveredLen == digits.length }
-            if (li < 0) misses.add("26-key $letters misses $phrase")
-            if (di < 0) misses.add("9-key $digits misses $phrase")
-            table.append("$phrase\t$letters\t$li\t$di\n")
+            val letterReachable = d.isAtomicCandidateReachable(letters, phrase)
+            val digitReachable = t9.isAtomicCandidateReachable(digits, phrase)
+            if (!letterReachable) misses.add("26-key $letters misses $phrase")
+            if (!digitReachable) misses.add("9-key $digits misses $phrase")
+            table.append("$phrase\t$letters\t$li\t$di\t$letterReachable\t$digitReachable\n")
         }
         File("build/atomic_beam_phrases.tsv").apply {
             parentFile?.mkdirs()
@@ -113,7 +115,7 @@ class AtomicBeamPhraseTest {
         )
     }
 
-    @Test fun pairInputsKeepTheCompactSentenceBlock() {
+    @Test fun pairInputsKeepEveryExactFullWordReachable() {
         assumeTrue("full dict assets present", dictFile.exists() && t9File.exists() && lmFile.exists())
         val lm = CharBigramLM.fromFile(lmFile)
         val d = PinyinDecoder(BinaryDict.fromFile(dictFile), lm)
@@ -125,8 +127,8 @@ class AtomicBeamPhraseTest {
             val fullWords = BinaryDict.fromFile(dictFile).exact(reading)
                 .count { it.word.codePointCount(0, it.word.length) > 1 }
             assertTrue(
-                "$reading: two-syllable inputs keep the compact sentence block, got $fullMulti composites",
-                fullMulti <= PinyinDecoder.ATOMIC_BEAM_N + fullWords,
+                "$reading: every exact full word must remain reachable, got $fullMulti of $fullWords",
+                fullMulti >= fullWords,
             )
         }
     }

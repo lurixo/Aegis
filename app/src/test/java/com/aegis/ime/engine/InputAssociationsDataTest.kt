@@ -16,6 +16,7 @@
 package com.aegis.ime.engine
 
 import com.aegis.ime.decoder.T9Pinyin
+import com.aegis.ime.decoder.continueCandidatePage
 import com.aegis.ime.layout.EmojiCatalog
 import com.aegis.ime.layout.SymbolCatalog
 import org.junit.Assert.assertEquals
@@ -91,10 +92,10 @@ class InputAssociationsDataTest {
         }
     }
 
-    @Test fun every_emoji_surfaces_within_cap_for_its_primary_key() {
+    @Test fun every_emoji_surfaces_for_its_primary_key() {
         for (row in EmojiAssociations.rows()) {
             assertTrue(
-                "${row.emoji} (${row.names}) must appear in lookup('${row.primaryKey}') within MAX_PER_QUERY",
+                "${row.emoji} (${row.names}) must appear in lookup('${row.primaryKey}')",
                 row.emoji in InputAssociations.lookup(row.primaryKey),
             )
         }
@@ -133,7 +134,7 @@ class InputAssociationsDataTest {
         println("emoji coverage: catalog=${catalogEmoji().size} rows=${EmojiAssociations.rows().size}")
     }
 
-    @Test fun every_symbol_row_glyph_surfaces_within_cap_for_its_primary_key() {
+    @Test fun every_symbol_row_glyph_surfaces_for_its_primary_key() {
         for (row in SymbolAssociations.rows()) {
             val hit = InputAssociations.lookup(row.primaryKey)
             for (g in row.glyphList) {
@@ -153,12 +154,11 @@ class InputAssociationsDataTest {
         }
     }
 
-    @Test fun symbol_rows_respect_the_reachability_cap() {
+    @Test fun everySymbolRowGlyphIsReachableWithoutAQueryCap() {
         for (row in SymbolAssociations.rows()) {
-            assertTrue(
-                "row '${row.keys}' lists ${row.glyphList.size} glyphs > MAX_PER_QUERY — unreachable tail",
-                row.glyphList.size <= InputAssociations.MAX_PER_QUERY,
-            )
+            for (key in row.keyList) {
+                assertTrue("row '$key' has unreachable glyphs", InputAssociations.lookup(key).containsAll(row.glyphList))
+            }
         }
     }
 
@@ -191,13 +191,29 @@ class InputAssociationsDataTest {
         }
     }
 
-    @Test fun lookup_is_case_insensitive_and_caps_at_max_per_query() {
+    @Test fun lookup_is_case_insensitive_and_returns_the_complete_merged_entry() {
         for ((key, glyphs) in InputAssociations.entriesForTest()) {
             val hit = InputAssociations.lookup(key)
-            assertTrue("lookup('$key') exceeds MAX_PER_QUERY", hit.size <= InputAssociations.MAX_PER_QUERY)
-            assertEquals("lookup must be the capped prefix of the merged entry", glyphs.take(InputAssociations.MAX_PER_QUERY), hit)
+            assertEquals("lookup must return the complete merged entry", glyphs, hit)
             assertEquals("uppercase form must hit the same entry", hit, InputAssociations.lookup(key.uppercase()))
         }
+    }
+
+    @Test fun mergedEntryContinuesPastTheFormerThreeGlyphWindow() {
+        val entry = InputAssociations.entriesForTest().maxBy { it.value.size }
+        assertTrue("fixture must exceed the former three-glyph window", entry.value.size > 3)
+        val actual = ArrayList<String>()
+        val pageSizes = ArrayList<Int>()
+        var page = InputAssociations.lookupPage(entry.key, inputEpoch = 17L, pageSize = 3)
+        while (true) {
+            pageSizes.add(page.items.size)
+            actual.addAll(page.items)
+            val continuation = page.continuation ?: break
+            page = continueCandidatePage(continuation, inputEpoch = 17L, pageSize = 3)
+        }
+
+        assertTrue(pageSizes.all { it in 1..3 })
+        assertEquals(entry.value, actual)
     }
 
 

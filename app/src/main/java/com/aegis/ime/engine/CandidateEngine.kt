@@ -16,7 +16,13 @@
 package com.aegis.ime.engine
 
 import com.aegis.ime.decoder.Cand
+import com.aegis.ime.decoder.CANDIDATE_PAGE_SIZE
+import com.aegis.ime.decoder.CandidateContinuation
+import com.aegis.ime.decoder.CandidatePage
+import com.aegis.ime.decoder.ListCandidatePageSource
 import com.aegis.ime.decoder.Syllable
+import com.aegis.ime.decoder.continueCandidatePage
+import com.aegis.ime.decoder.firstCandidatePage
 
 interface CandidateEngine {
     val supportsChinese: Boolean get() = false
@@ -26,8 +32,33 @@ interface CandidateEngine {
     fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
         candidates(composing, t9).map { Cand(it, composing.length) }
 
+    fun candidatesCoveredPage(
+        composing: String,
+        t9: Boolean,
+        inputEpoch: Long,
+        cuts: Set<Int> = emptySet(),
+        context: CharSequence = "",
+        pageSize: Int = CANDIDATE_PAGE_SIZE,
+    ): CandidatePage<Cand> = firstCandidatePage(
+        ListCandidatePageSource(candidatesCovered(composing, t9, cuts, context)),
+        inputEpoch,
+        pageSize,
+    )
+
     fun candidatesForLockedReadingCovered(letters: String, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
         emptyList()
+
+    fun candidatesForLockedReadingCoveredPage(
+        letters: String,
+        inputEpoch: Long,
+        cuts: Set<Int> = emptySet(),
+        context: CharSequence = "",
+        pageSize: Int = CANDIDATE_PAGE_SIZE,
+    ): CandidatePage<Cand> = firstCandidatePage(
+        ListCandidatePageSource(candidatesForLockedReadingCovered(letters, cuts, context)),
+        inputEpoch,
+        pageSize,
+    )
 
     fun syllables(composing: String, t9: Boolean): List<Syllable> = emptyList()
 
@@ -47,7 +78,35 @@ interface CandidateEngine {
     fun homophonesForReadingAt(letters: String, index: Int, cuts: Set<Int>): List<String> =
         homophonesForReadingAt(letters, index)
 
+    fun homophonesForReadingAtPage(
+        letters: String,
+        index: Int,
+        inputEpoch: Long,
+        cuts: Set<Int> = emptySet(),
+        pageSize: Int = CANDIDATE_PAGE_SIZE,
+    ): CandidatePage<String> = firstCandidatePage(
+        ListCandidatePageSource(homophonesForReadingAt(letters, index, cuts)),
+        inputEpoch,
+        pageSize,
+    )
+
     fun predict(prevWord: String?): List<String> = emptyList()
+
+    fun predictPage(
+        prevWord: String?,
+        inputEpoch: Long,
+        pageSize: Int = CANDIDATE_PAGE_SIZE,
+    ): CandidatePage<String> = firstCandidatePage(
+        ListCandidatePageSource(predict(prevWord)),
+        inputEpoch,
+        pageSize,
+    )
+
+    fun <T> continuePage(
+        continuation: CandidateContinuation<T>,
+        inputEpoch: Long,
+        pageSize: Int = CANDIDATE_PAGE_SIZE,
+    ): CandidatePage<T> = continueCandidatePage(continuation, inputEpoch, pageSize)
 
     fun learn(prevWord: String?, word: String) {}
 
