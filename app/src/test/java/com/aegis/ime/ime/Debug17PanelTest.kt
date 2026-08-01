@@ -853,9 +853,13 @@ class Debug17PanelTest {
         assertEquals(0f, (closedBody.parent as View).translationX, 0f)
         v.expandForTest("a long clip")
         layout(v)
-        val openBody = textViews(v).first { it.text?.toString() == "a long clip" }
+        val openBody = requireNotNull(v.expandedTextViewportForTest())
         assertEquals(0f, (openBody.parent as View).translationX, 0f)
-        assertEquals(2, openBody.maxLines)
+        assertEquals(
+            "a long clip",
+            (0 until openBody.adapter.count).joinToString(separator = "") { openBody.adapter.getItem(it) as String },
+        )
+        assertTrue(openBody.height <= v.expandedTextMaxHeightForTest())
         assertEquals(3, actionButtons(v).size)
     }
 }

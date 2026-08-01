@@ -42,10 +42,14 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 import java.util.WeakHashMap
 import android.widget.FrameLayout
+import android.widget.BaseAdapter
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
+import android.widget.ListView
 import android.widget.ScrollView
 import android.widget.TextView
+import android.icu.text.BreakIterator
+import androidx.core.graphics.drawable.toDrawable
 import com.aegis.ime.ime.ClipboardPanelState.Tab
 
 class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, CoversToolbar {
@@ -220,22 +224,26 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {
             super.onScrollChanged(l, t, oldl, oldt)
             if (!applyingListScroll && !listScrollRestoreActive) listScrollY = t
+            requestPendingListAppendIfNeeded()
         }
 
         override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
             super.onLayout(changed, l, t, r, b)
-            if (!listScrollRestoreActive) return
-            val max = (listColumn.height - height).coerceAtLeast(0)
-            val target = listScrollRestoreTarget.coerceIn(0, max)
-            if (scrollY != target) {
-                applyingListScroll = true
-                scrollTo(0, target)
-                applyingListScroll = false
+            if (listScrollRestoreActive) {
+                val max = (listColumn.height - height).coerceAtLeast(0)
+                val requested = listScrollRestoreTarget.coerceAtLeast(0)
+                val target = requested.coerceAtMost(max)
+                if (scrollY != target) {
+                    applyingListScroll = true
+                    scrollTo(0, target)
+                    applyingListScroll = false
+                }
+                if (scrollY == target && (requested <= max || pendingListAppend == null)) {
+                    listScrollRestoreActive = false
+                    listScrollY = target
+                }
             }
-            if (scrollY == target && pendingListAppend == null) {
-                listScrollRestoreActive = false
-                listScrollY = target
-            }
+            requestPendingListAppendIfNeeded()
         }
     }.apply { addView(listColumn) }
     private val fixedChromeOriginalHeights = WeakHashMap<View, Int>()
@@ -249,6 +257,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private var fixedChromeCompressed: Boolean? = null
     private var listRenderGeneration = 0
     private var pendingListAppend: Runnable? = null
+    private var pendingListAppendPosted = false
     private var selectAllAction: TextView? = null
     private var cancelSelectAction: TextView? = null
 
@@ -278,7 +287,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private companion object {
         const val MP = ViewGroup.LayoutParams.MATCH_PARENT
         const val WC = ViewGroup.LayoutParams.WRAP_CONTENT
-        const val DISPLAY_CAP = 2000
+        const val COLLAPSED_PREVIEW_CAP = 512
+        const val EXPANDED_TEXT_CHUNK_SIZE = 2000
+        const val EXPANDED_TEXT_MAX_HEIGHT_DP = 144
         const val INITIAL_SYNC_ROWS = 12
         const val APPEND_ROWS_PER_FRAME = 12
         const val SWIPE_ACTION_SIZE_DP = 44
@@ -292,7 +303,121 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         const val DRAG_HYSTERESIS_FRACTION = 0.25f
     }
 
-    private fun preview(s: String): CharSequence = if (s.length > DISPLAY_CAP) s.substring(0, DISPLAY_CAP) + "…" else s
+    private fun preview(s: String): CharSequence =
+        if (s.length > COLLAPSED_PREVIEW_CAP) s.substring(0, COLLAPSED_PREVIEW_CAP) + "…" else s
+
+    internal fun expandedTextChunksForTest(text: String): List<String> = expandedTextChunks(text)
+
+    private fun expandedTextChunks(text: String): List<String> {
+        if (text.isEmpty()) return listOf("")
+        val breaks = BreakIterator.getCharacterInstance()
+        breaks.setText(text)
+        val expected = ((text.length.toLong() + EXPANDED_TEXT_CHUNK_SIZE - 1L) / EXPANDED_TEXT_CHUNK_SIZE)
+            .coerceAtMost(Int.MAX_VALUE.toLong())
+            .toInt()
+        val out = ArrayList<String>(expected)
+        var start = 0
+        while (start < text.length) {
+            val target = minOf(text.length.toLong(), start.toLong() + EXPANDED_TEXT_CHUNK_SIZE).toInt()
+            var end = target
+            if (end < text.length && !breaks.isBoundary(end)) {
+                end = breaks.preceding(end)
+                if (end <= start) end = breaks.following(start)
+            }
+            val searchStart = maxOf(start, end - 256)
+            var preferred = end
+            var index = end - 1
+            while (index >= searchStart) {
+                if (text[index] == '\n' || text[index].isWhitespace()) {
+                    preferred = index + 1
+                    break
+                }
+                index--
+            }
+            if (preferred > start && breaks.isBoundary(preferred)) end = preferred
+            if (end <= start || end == BreakIterator.DONE) end = text.length
+            out.add(text.substring(start, end))
+            start = end
+        }
+        return out
+    }
+
+    private inner class ExpandedTextAdapter(
+        private val chunks: List<String>,
+        private val onClick: () -> Unit,
+        private val onLongClick: (() -> Unit)?,
+    ) : BaseAdapter() {
+        override fun getCount(): Int = chunks.size
+        override fun getItem(position: Int): String = chunks[position]
+        override fun getItemId(position: Int): Long = position.toLong()
+
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
+            val label = convertView as? TextView ?: TextView(context).apply {
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                setTextColor(TEXT_DARK)
+            }
+            label.text = chunks[position]
+            label.setTextColor(TEXT_DARK)
+            label.setPadding(
+                dp(14),
+                if (position == 0) dp(12) else 0,
+                dp(4),
+                if (position == chunks.lastIndex) dp(12) else 0,
+            )
+            Motion.applyTapFeedback(label, TEXT_DARK)
+            label.setOnClickListener { onClick() }
+            label.setOnLongClickListener(
+                onLongClick?.let { action -> View.OnLongClickListener { action(); true } },
+            )
+            return label
+        }
+    }
+
+    private inner class ExpandedTextViewport(
+        text: String,
+        onClick: () -> Unit,
+        onLongClick: (() -> Unit)?,
+    ) : ListView(context) {
+        init {
+            adapter = ExpandedTextAdapter(expandedTextChunks(text), onClick, onLongClick)
+            divider = Color.TRANSPARENT.toDrawable()
+            dividerHeight = 0
+            selector = Color.TRANSPARENT.toDrawable()
+            cacheColorHint = Color.TRANSPARENT
+            isVerticalScrollBarEnabled = true
+            isNestedScrollingEnabled = true
+            overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+        }
+
+        override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+            super.onMeasure(
+                widthMeasureSpec,
+                MeasureSpec.makeMeasureSpec(dp(EXPANDED_TEXT_MAX_HEIGHT_DP), MeasureSpec.AT_MOST),
+            )
+        }
+
+        override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE ->
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                    parent?.requestDisallowInterceptTouchEvent(false)
+            }
+            return super.dispatchTouchEvent(ev)
+        }
+    }
+
+    internal fun expandedTextViewportForTest(): ListView? {
+        fun find(view: View): ListView? {
+            if (view is ExpandedTextViewport) return view
+            val group = view as? ViewGroup ?: return null
+            for (index in 0 until group.childCount) find(group.getChildAt(index))?.let { return it }
+            return null
+        }
+        return find(this)
+    }
+
+    internal fun expandedTextMaxHeightForTest(): Int = dp(EXPANDED_TEXT_MAX_HEIGHT_DP)
 
     private fun ll(w: Int, h: Int, weight: Float = 0f) = LinearLayout.LayoutParams(w, h, weight)
 
@@ -564,10 +689,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     internal fun runPendingListAppendForTest(): Boolean {
         val r = pendingListAppend ?: return false
         removeCallbacks(r)
-        pendingListAppend = null
+        pendingListAppendPosted = false
         r.run()
         return true
     }
+    internal fun requestListAppendIfNeededForTest(): Boolean = requestPendingListAppendIfNeeded()
     internal fun disabledActionTextColorForTest(): Int = TEXT_DARK
     internal fun disabledActionBackgroundColorForTest(): Int = CARD
     internal fun selectAllActionForTest(): TextView? = selectAllAction
@@ -795,6 +921,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun cancelPendingListAppend() {
         pendingListAppend?.let { removeCallbacks(it) }
         pendingListAppend = null
+        pendingListAppendPosted = false
     }
 
     private fun invalidateListRender() {
@@ -818,15 +945,29 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     private fun scheduleListAppend(entries: List<String>, start: Int, generation: Int, row: (String, Int) -> View) {
-        val r = Runnable {
-            if (generation != listRenderGeneration) return@Runnable
-            pendingListAppend = null
-            val end = min(entries.size, start + APPEND_ROWS_PER_FRAME)
-            appendListRows(entries, start, end, row)
-            if (end < entries.size) scheduleListAppend(entries, end, generation, row)
+        val r = object : Runnable {
+            override fun run() {
+                if (pendingListAppend !== this) return
+                pendingListAppend = null
+                pendingListAppendPosted = false
+                if (generation != listRenderGeneration) return
+                val end = min(entries.size, start + APPEND_ROWS_PER_FRAME)
+                appendListRows(entries, start, end, row)
+                if (end < entries.size) scheduleListAppend(entries, end, generation, row)
+            }
         }
         pendingListAppend = r
-        postOnAnimation(r)
+    }
+
+    private fun requestPendingListAppendIfNeeded(): Boolean {
+        val append = pendingListAppend ?: return false
+        if (pendingListAppendPosted) return true
+        val viewportHeight = listScroll.height
+        val remaining = listColumn.height - listScroll.scrollY - viewportHeight
+        if (!listScrollRestoreActive && (viewportHeight <= 0 || remaining > viewportHeight)) return false
+        pendingListAppendPosted = true
+        postOnAnimation(append)
+        return true
     }
 
 
@@ -898,22 +1039,29 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             gravity = Gravity.CENTER_VERTICAL
             if (!expanded) background = rounded(CARD, ImeShapes.cardRadiusDp)
         }
-        val body = TextView(context).apply {
-            this.text = preview(display)
-            maxLines = 2
-            ellipsize = android.text.TextUtils.TruncateAt.END
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
-            setTextColor(TEXT_DARK)
-            setPadding(dp(14), dp(12), dp(4), dp(12))
-            Motion.applyTapFeedback(this, TEXT_DARK)
-            setOnClickListener {
-                when {
-                    swipeRevealed == text -> hideSwipe(text)
-                    st.expanded == text -> toggleExpandInPlace(text)
-                    else -> onPick(text)
+        val body: View = if (expanded) {
+            ExpandedTextViewport(
+                display,
+                onClick = { toggleExpandInPlace(text) },
+                onLongClick = if (phrase) null else ({ showLongPressMenu(text) }),
+            )
+        } else {
+            TextView(context).apply {
+                this.text = preview(display)
+                maxLines = 2
+                ellipsize = android.text.TextUtils.TruncateAt.END
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                setTextColor(TEXT_DARK)
+                setPadding(dp(14), dp(12), dp(4), dp(12))
+                Motion.applyTapFeedback(this, TEXT_DARK)
+                setOnClickListener {
+                    when {
+                        swipeRevealed == text -> hideSwipe(text)
+                        else -> onPick(text)
+                    }
                 }
+                if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
             }
-            if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
         }
         val chevron = glyphView(TEXT_DARK, 7) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = !expanded) }.apply {
             contentDescription = if (expanded) context.getString(R.string.clip_collapse) else context.getString(R.string.clip_expand)

@@ -163,10 +163,10 @@ class PhrasePanelTest {
         val gap = (4 * ctx.resources.displayMetrics.density).toInt()
         assertEquals(listOf(0, gap, gap), clipActions.map { (it.layoutParams as android.widget.LinearLayout.LayoutParams).marginStart })
         assertEquals(listOf(0, gap, gap, gap), phraseActions.map { (it.layoutParams as android.widget.LinearLayout.LayoutParams).marginStart })
-        for ((view, body, actions) in listOf(Triple(clip, "abc", clipActions), Triple(phrase, "你好", phraseActions))) {
+        for ((view, actions) in listOf(clip to clipActions, phrase to phraseActions)) {
             val row = actions.first().parent as View
             val surface = row.parent as View
-            val header = textViews(view).first { it.text?.toString() == body }.parent as View
+            val header = requireNotNull(view.expandedTextViewportForTest()).parent as View
             val headerFrame = header.parent as View
             assertTrue(headerFrame.parent === surface)
             assertTrue(surface.background is GradientDrawable)
