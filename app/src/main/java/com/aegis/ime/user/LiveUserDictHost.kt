@@ -35,6 +35,13 @@ class LiveUserDictHost internal constructor(
 
     override fun removeWord(reading: String, word: String): Boolean {
         if (word.isBlank()) return false
+        database?.let { backing ->
+            if (!backing.removeUserReadingAndLearning(reading, word)) return false
+            model.reloadFromStorage()
+            userLearning?.reloadFromStorage()
+            notifyDatabaseSaved()
+            return true
+        }
         if (!model.removeWord(reading, word)) return false
         userLearning?.removeWord(word)
         save()
@@ -69,8 +76,7 @@ class LiveUserDictHost internal constructor(
 
     override fun flush() {
         if (database != null) {
-            database.checkpointLastGood()
-            onSaved(File(userDb.absoluteFile.parentFile, UserDataDatabase.DATABASE_NAME).lastModified())
+            notifyDatabaseSaved()
             return
         }
         if (!model.dirty && userLearning?.dirty != true) return
@@ -83,8 +89,7 @@ class LiveUserDictHost internal constructor(
 
     private fun save() {
         if (database != null) {
-            database.checkpointLastGood()
-            onSaved(File(userDb.absoluteFile.parentFile, UserDataDatabase.DATABASE_NAME).lastModified())
+            notifyDatabaseSaved()
             return
         }
         model.save(userDb)
@@ -92,5 +97,11 @@ class LiveUserDictHost internal constructor(
             userLearnFile?.let { userLearning.save(it) }
         }
         onSaved(userDb.lastModified())
+    }
+
+    private fun notifyDatabaseSaved() {
+        runCatching {
+            onSaved(File(userDb.absoluteFile.parentFile, UserDataDatabase.DATABASE_NAME).lastModified())
+        }
     }
 }

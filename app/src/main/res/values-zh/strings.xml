@@ -156,6 +156,7 @@
     <string name="user_dict_toast_added">已添加</string>
     <string name="user_dict_toast_add_failed">请输入词和它的拼音（仅字母）</string>
     <string name="user_dict_toast_deleted">已删除</string>
+    <string name="user_dict_toast_write_failed">保存失败，词库未改动，请重试</string>
 
     <string name="app_version_card_title">应用版本</string>
     <string name="app_version_card_description">Aegis 应用发布标签。它与学习词库、主词库和模型文件版本相互独立。</string>

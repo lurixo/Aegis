@@ -381,7 +381,6 @@ class UserModel internal constructor(
             throw e
         }
         dirty = false
-        database?.checkpointLastGood()
     }
 
     @Synchronized

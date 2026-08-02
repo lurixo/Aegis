@@ -257,8 +257,6 @@ internal class UserSettingsPreferences private constructor(
                     }
                 }
                 database.updateSettings(writes, removals, clearRequested)
-                database.checkpointLastGood()
-                database.markSettingsCheckpointed()
                 val after = database.readSettings()
                 val changed = (before.keys + after.keys).filterTo(LinkedHashSet()) { before[it] != after[it] }
                 lastFailure = null
@@ -267,29 +265,7 @@ internal class UserSettingsPreferences private constructor(
                 true
             } catch (failure: Exception) {
                 lastFailure = failure.javaClass.simpleName + ": " + failure.message.orEmpty()
-                var rollbackComplete = false
-                if (beforeRead) database?.let { opened ->
-                    rollbackComplete = runCatching {
-                        opened.replaceSettings(before)
-                        opened.checkpointLastGood()
-                        opened.markSettingsCheckpointed()
-                    }.isSuccess
-                    val previousPrivacy = before[UserSettingsSchema.CLIPBOARD_HISTORY] as? StoredSettingValue.Bool
-                    if (previousPrivacy?.value == false) {
-                        runCatching {
-                            opened.updateSettings(
-                                mapOf(UserSettingsSchema.CLIPBOARD_HISTORY to StoredSettingValue.Bool(false)),
-                            )
-                            opened.checkpointLastGood()
-                            opened.markSettingsCheckpointed()
-                        }
-                    }
-                }
-                if (rollbackComplete) {
-                    UserSettingsSnapshotCache.publish(root, before)
-                } else if (database != null) {
-                    UserSettingsSnapshotCache.invalidate(root)
-                }
+                if (beforeRead || database != null) UserSettingsSnapshotCache.invalidate(root)
                 false
             } finally {
                 runCatching { database?.close() }
@@ -338,14 +314,6 @@ internal fun userSettings(context: Context): UserSettingsPreferences = UserSetti
     context.getSharedPreferences("aegis", Context.MODE_PRIVATE),
 )
 
-/**
- * Process-local, bounded read-through cache for the small settings table.
- *
- * SQLite remains the only persistent source of truth. Successful commits publish an immutable
- * snapshot before hot-apply listeners run, failed commits never publish their requested values,
- * and backup restore invalidates the snapshot before any subsequent read. The cache avoids doing
- * database recovery and integrity verification once per getter on the UI thread.
- */
 private object UserSettingsSnapshotCache {
     private const val MAX_ROOTS = 32
     private const val MAX_SETTINGS_PER_ROOT = 256

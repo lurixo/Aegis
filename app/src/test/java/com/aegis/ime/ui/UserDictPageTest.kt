@@ -16,6 +16,7 @@
 package com.aegis.ime.ui
 
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
@@ -37,6 +38,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.shadows.ShadowToast
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.io.File
@@ -75,6 +77,14 @@ class UserDictPageTest {
     private fun openUserDictPage() {
         scenario = ActivityScenario.launch(UserDictActivity::class.java)
         compose.onNodeWithTag("user_dict_search").assertExists()
+    }
+
+    private fun failingHost(entries: List<com.aegis.ime.user.UserModel.Entry>) = object : UserDictHot.Host {
+        override fun addWord(reading: String, word: String, now: Long): Boolean = false
+        override fun removeWord(reading: String, word: String): Boolean = false
+        override fun importUserDict(importFile: File, merge: Boolean, now: Long): Boolean = false
+        override fun entries(): List<com.aegis.ime.user.UserModel.Entry> = entries
+        override fun flush() = Unit
     }
 
     private fun seed(n: Int, vararg extras: Pair<String, String>) {
@@ -161,5 +171,30 @@ class UserDictPageTest {
         compose.onNodeWithText(s(R.string.user_dict_search_no_match)).assertExists()
         compose.onNodeWithText(ctx.getString(R.string.user_dict_count_format, 30)).assertExists()
         assertTrue(UserDictEdit.list(db).none { it.word == "删除词" })
+    }
+
+    @Test fun failed_add_keeps_the_input_and_never_shows_success() {
+        UserDictHot.host = failingHost(emptyList())
+        openUserDictPage()
+        compose.onNodeWithTag("user_dict_new_word").performTextInput("保留输入")
+        compose.onNodeWithTag("user_dict_new_reading").performTextInput("baoliu")
+        compose.onNodeWithTag("user_dict_add").performClick()
+        compose.waitForIdle()
+
+        compose.onNodeWithTag("user_dict_new_word").assert(hasText("保留输入"))
+        compose.onNodeWithTag("user_dict_new_reading").assert(hasText("baoliu"))
+        assertEquals(s(R.string.user_dict_toast_write_failed), ShadowToast.getTextOfLatestToast())
+    }
+
+    @Test fun failed_delete_keeps_the_row_and_never_shows_success() {
+        val entry = com.aegis.ime.user.UserModel.Entry("baoliu", "保留词", 1)
+        UserDictHot.host = failingHost(listOf(entry))
+        openUserDictPage()
+        compose.onNodeWithText(row("保留词", "baoliu")).assertExists()
+        compose.onNodeWithText(s(R.string.user_dict_delete_button)).performClick()
+        compose.waitForIdle()
+
+        compose.onNodeWithText(row("保留词", "baoliu")).assertExists()
+        assertEquals(s(R.string.user_dict_toast_write_failed), ShadowToast.getTextOfLatestToast())
     }
 }

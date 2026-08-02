@@ -28,7 +28,7 @@ object UserDictEdit {
         return runCatching {
             UserDataMigration.open(rootOf(userDb)).use { database ->
                 val model = UserModel(database = database)
-                model.addManualWord(reading, word, now).also { if (it) database.checkpointLastGood() }
+                model.addManualWord(reading, word, now)
             }
         }.getOrDefault(false)
     }
@@ -38,11 +38,7 @@ object UserDictEdit {
         UserDictHot.host?.let { return it.removeWord(reading, word) }
         return runCatching {
             UserDataMigration.open(rootOf(userDb)).use { database ->
-                val model = UserModel(database = database)
-                if (!model.removeWord(reading, word)) return@use false
-                UserLearning(database = database).removeWord(word)
-                database.checkpointLastGood()
-                true
+                database.removeUserReadingAndLearning(reading, word)
             }
         }.getOrDefault(false)
     }

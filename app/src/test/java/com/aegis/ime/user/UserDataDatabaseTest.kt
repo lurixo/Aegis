@@ -16,6 +16,7 @@
 package com.aegis.ime.user
 
 import android.database.sqlite.SQLiteDatabase
+import android.database.sqlite.SQLiteFullException
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -32,6 +33,8 @@ import java.nio.file.Files
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class UserDataDatabaseTest {
+
+    private class SimulatedProcessDeath : Error()
 
     private fun root() = Files.createTempDirectory("aegis-user-data").toFile().also { it.deleteOnExit() }
 
@@ -218,6 +221,7 @@ class UserDataDatabaseTest {
         }
         File(unrelatedRoot, UserDataDatabase.LAST_GOOD_NAME)
             .copyTo(File(root, UserDataDatabase.LAST_GOOD_NAME), overwrite = true)
+        File(root, "user-data-v2.last-good.previous.sha256").writeText("0".repeat(64))
         File(root, UserDataDatabase.DATABASE_NAME).writeText("corrupt")
 
         UserDataDatabase.open(root).use { recovered ->
@@ -233,9 +237,7 @@ class UserDataDatabaseTest {
         UserDataDatabase.open(root).use { database ->
             val model = UserModel(database = database)
             assertTrue(model.addManualWord("first", "第一", 1))
-            database.checkpointLastGood()
             assertTrue(model.addManualWord("second", "第二", 1))
-            database.checkpointLastGood()
         }
         File(root, "user-data-v2.last-good.sha256").writeText("0".repeat(64))
         File(root, UserDataDatabase.DATABASE_NAME).writeText("corrupt")
@@ -255,9 +257,7 @@ class UserDataDatabaseTest {
         UserDataDatabase.open(root).use { database ->
             val model = UserModel(database = database)
             assertTrue(model.addManualWord("first", "第一", 1))
-            database.checkpointLastGood()
             assertTrue(model.addManualWord("second", "第二", 2))
-            database.checkpointLastGood()
         }
         rewriteSchema(File(root, UserDataDatabase.LAST_GOOD_NAME), listOf("DROP TABLE recent_items"))
         rewriteSnapshotDigest(
@@ -281,9 +281,7 @@ class UserDataDatabaseTest {
         UserDataDatabase.open(root).use { database ->
             val model = UserModel(database = database)
             assertTrue(model.addManualWord("first", "第一", 1))
-            database.checkpointLastGood()
             assertTrue(model.addManualWord("second", "第二", 2))
-            database.checkpointLastGood()
         }
         rewriteSchema(File(root, UserDataDatabase.LAST_GOOD_NAME), listOf("DROP TABLE recent_items"))
         rewriteSnapshotDigest(root, UserDataDatabase.LAST_GOOD_NAME, "user-data-v2.last-good.sha256")
@@ -299,6 +297,144 @@ class UserDataDatabaseTest {
             assertEquals(UserDataRecoveryKind.EMPTY, recovered.recoveryReport.kind)
             assertTrue(recovered.isEmpty())
             assertTrue(recovered.integrityOk())
+        }
+    }
+
+    @Test
+    fun everyOrdinaryUserDataWriteIsPresentInTheImmediatelyRecoverableSnapshot() {
+        val cases = listOf(
+            Pair<(UserDataDatabase) -> Unit, (UserDataDatabase) -> Boolean>(
+                { database -> database.recordClipboard("latest clip") },
+                { database -> database.containsClipboard("latest clip") },
+            ),
+            Pair<(UserDataDatabase) -> Unit, (UserDataDatabase) -> Boolean>(
+                { database -> database.addPhrases("latest category", listOf("latest phrase")) },
+                { database -> database.phraseNote("latest category", "latest phrase") != null },
+            ),
+            Pair<(UserDataDatabase) -> Unit, (UserDataDatabase) -> Boolean>(
+                { database -> database.addCustomItem("symbol", "latest symbol") },
+                { database -> database.containsCustomItem("symbol", "latest symbol") },
+            ),
+            Pair<(UserDataDatabase) -> Unit, (UserDataDatabase) -> Boolean>(
+                { database -> database.recordRecentItem("emoji", "latest", StoredRecentItem("latest emoji", null)) },
+                { database -> database.recentItemOrigin("emoji", "latest") == null && database.recentItemCount("emoji") == 1L },
+            ),
+            Pair<(UserDataDatabase) -> Unit, (UserDataDatabase) -> Boolean>(
+                { database -> UserModel(database = database).addManualWord("latest", "最新用户词", 1L) },
+                { database -> database.hasUserReading("latest", "最新用户词") },
+            ),
+        )
+        for ((write, verify) in cases) {
+            val root = root()
+            UserDataDatabase.open(root).use(write)
+            File(root, UserDataDatabase.DATABASE_NAME).writeText("corrupt")
+            UserDataDatabase.open(root).use { recovered ->
+                assertEquals(UserDataRecoveryKind.LAST_GOOD, recovered.recoveryReport.kind)
+                assertTrue(verify(recovered))
+            }
+        }
+    }
+
+    @Test
+    fun checkpointIoAndEnospcFailuresRollBackTheCommittedDatabaseBeforeReturningFailure() {
+        for (failureStage in listOf(UserDataCommitStage.BEFORE_CHECKPOINT, UserDataCommitStage.AFTER_CHECKPOINT)) {
+            for (failure in listOf(IOException("I/O"), SQLiteFullException("ENOSPC"))) {
+                val root = root()
+                UserDataDatabase.open(root).use { database ->
+                    database.recordClipboard("keep")
+                    database.setCommitStageHookForTest { stage ->
+                        if (stage == failureStage) throw failure
+                    }
+                    try {
+                        database.recordClipboard("reject")
+                        throw AssertionError("expected durable write failure")
+                    } catch (actual: Exception) {
+                        assertTrue(actual === failure)
+                    }
+                    database.setCommitStageHookForTest(null)
+                    assertEquals(listOf("keep"), database.readClipboardHistory())
+                }
+                UserDataDatabase.open(root).use { reopened ->
+                    assertEquals(listOf("keep"), reopened.readClipboardHistory())
+                }
+            }
+        }
+    }
+
+    @Test
+    fun processDeathAfterDatabaseCommitRestoresTheUnacknowledgedPreviousState() {
+        val root = root()
+        try {
+            UserDataDatabase.open(root).use { database ->
+                database.recordClipboard("keep")
+                database.setCommitStageHookForTest { stage ->
+                    if (stage == UserDataCommitStage.AFTER_DATABASE_COMMIT) throw SimulatedProcessDeath()
+                }
+                database.recordClipboard("unacknowledged")
+            }
+            throw AssertionError("expected simulated process death")
+        } catch (_: SimulatedProcessDeath) {
+        }
+        assertTrue(File(root, UserDataDatabase.COMMIT_JOURNAL_NAME).isFile)
+        UserDataDatabase.open(root).use { reopened ->
+            assertEquals(UserDataRecoveryKind.LAST_GOOD, reopened.recoveryReport.kind)
+            assertEquals(listOf("keep"), reopened.readClipboardHistory())
+        }
+    }
+
+    @Test
+    fun privacyRemainsOffAfterCheckpointAndImmediateRollbackBothFail() {
+        val root = root()
+        UserDataDatabase.open(root).use { database ->
+            database.updateSettings(
+                mapOf(UserSettingsSchema.CLIPBOARD_HISTORY to StoredSettingValue.Bool(false)),
+            )
+            database.setCommitStageHookForTest { stage ->
+                when (stage) {
+                    UserDataCommitStage.BEFORE_CHECKPOINT -> throw IOException("checkpoint ENOSPC")
+                    UserDataCommitStage.BEFORE_ROLLBACK -> throw IOException("rollback ENOSPC")
+                    else -> Unit
+                }
+            }
+            try {
+                database.updateSettings(
+                    mapOf(UserSettingsSchema.CLIPBOARD_HISTORY to StoredSettingValue.Bool(true)),
+                )
+                throw AssertionError("expected durable settings failure")
+            } catch (_: IOException) {
+            }
+        }
+        assertTrue(File(root, UserDataDatabase.COMMIT_JOURNAL_NAME).isFile)
+        UserDataDatabase.open(root).use { reopened ->
+            assertEquals(
+                StoredSettingValue.Bool(false),
+                reopened.readSetting(UserSettingsSchema.CLIPBOARD_HISTORY),
+            )
+        }
+    }
+
+    @Test
+    fun userReadingAndLearningRemovalRollBackTogetherWhenDurabilityFails() {
+        val root = root()
+        UserDataDatabase.open(root).use { database ->
+            assertTrue(UserModel(database = database).addManualWord("ceshi", "测试", 1L))
+            database.upsertFormedUsage("测试", "ceshi", StoredUsage(3.0, 2L))
+            database.upsertPendingUsage("ceshi", "测试", StoredUsage(2.0, 2L))
+            database.upsertFollowUsage("前", "测试", StoredUsage(4.0, 2L))
+            val userBefore = database.readUserData()
+            val learningBefore = database.readLearning()
+            database.setCommitStageHookForTest { stage ->
+                if (stage == UserDataCommitStage.BEFORE_CHECKPOINT) throw IOException("ENOSPC")
+            }
+
+            try {
+                database.removeUserReadingAndLearning("ceshi", "测试")
+                throw AssertionError("expected durable removal failure")
+            } catch (_: IOException) {
+            }
+            database.setCommitStageHookForTest(null)
+            assertEquals(userBefore, database.readUserData())
+            assertEquals(learningBefore, database.readLearning())
         }
     }
 

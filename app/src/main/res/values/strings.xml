@@ -156,6 +156,7 @@
     <string name="user_dict_toast_added">Word added</string>
     <string name="user_dict_toast_add_failed">Enter a word and its pinyin (letters only)</string>
     <string name="user_dict_toast_deleted">Word deleted</string>
+    <string name="user_dict_toast_write_failed">Save failed; the dictionary was not changed. Try again.</string>
 
     <string name="app_version_card_title">App release</string>
     <string name="app_version_card_description">Aegis app release label. This is separate from the learning dictionary, main dictionary, and model files.</string>

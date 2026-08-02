@@ -105,6 +105,13 @@ internal enum class UserDataRestoreStage {
     AFTER_CHECKPOINT,
 }
 
+internal enum class UserDataCommitStage {
+    AFTER_DATABASE_COMMIT,
+    BEFORE_CHECKPOINT,
+    AFTER_CHECKPOINT,
+    BEFORE_ROLLBACK,
+}
+
 internal class UserDataDatabase private constructor(
     private val root: File,
     private val database: SQLiteDatabase,
@@ -117,10 +124,16 @@ internal class UserDataDatabase private constructor(
     private var scalarRankingReads = 0
     private var batchRankingReads = 0
     private val statusFile = File(root, STATUS_NAME)
+    private val commitJournalFile = File(root, COMMIT_JOURNAL_NAME)
+    private var commitStageHookForTest: ((UserDataCommitStage) -> Unit)? = null
 
     @Volatile
     var lastFailure: String? = null
         private set
+
+    internal fun setCommitStageHookForTest(hook: ((UserDataCommitStage) -> Unit)?) {
+        commitStageHookForTest = hook
+    }
 
     init {
         database.setForeignKeyConstraintsEnabled(true)
@@ -190,7 +203,6 @@ internal class UserDataDatabase private constructor(
             for ((key, value) in values) {
                 if (readSettingInTransaction(key) != value) throw IOException("setting verification failed: $key")
             }
-            putMetadataInTransaction(SETTINGS_CHECKPOINT_PENDING_KEY, "1")
         }
     }
 
@@ -215,10 +227,7 @@ internal class UserDataDatabase private constructor(
             val missingDefaults = UserSettingsSchema.defaults.filterKeys { readSetting(it) == null }
             if (missingDefaults.isNotEmpty()) {
                 updateSettings(missingDefaults)
-                checkpointLastGood()
-                markSettingsCheckpointed()
             } else if (metadata(SETTINGS_CHECKPOINT_PENDING_KEY) == "1") {
-                checkpointLastGood()
                 markSettingsCheckpointed()
             }
             stage?.invoke(SettingsMigrationStage.AFTER_DATABASE_COMMIT)
@@ -248,7 +257,6 @@ internal class UserDataDatabase private constructor(
             migrated = true
         }
         if (migrated) {
-            checkpointLastGood()
             markSettingsCheckpointed()
         }
         stage?.invoke(SettingsMigrationStage.AFTER_DATABASE_COMMIT)
@@ -613,6 +621,23 @@ internal class UserDataDatabase private constructor(
             }
             if (!remaining) removeWordRows(word)
         }
+    }
+
+    @Synchronized
+    fun removeUserReadingAndLearning(reading: String, word: String): Boolean {
+        if (!hasUserReading(reading, word)) return false
+        transaction {
+            database.delete("user_readings", "reading=? AND word=?", arrayOf(reading, word))
+            val remaining = database.rawQuery(
+                "SELECT 1 FROM user_readings WHERE word=? LIMIT 1",
+                arrayOf(word),
+            ).use { it.moveToFirst() }
+            if (!remaining) removeWordRows(word)
+            database.delete("learned_formed", "word=?", arrayOf(word))
+            database.delete("learned_pending", "word=?", arrayOf(word))
+            database.delete("learned_follows", "prev_word=? OR word=?", arrayOf(word, word))
+        }
+        return true
     }
 
     @Synchronized
@@ -1616,7 +1641,7 @@ internal class UserDataDatabase private constructor(
 
     private fun restoreRollbackSnapshot(rollback: File) {
         withRestoreSource(rollback) {
-            transaction {
+            transaction(durable = false) {
                 overwriteFromRestoreSource()
                 if (!integrityOk() || !foreignKeysOk()) throw IOException("restore rollback verification failed")
             }
@@ -2006,13 +2031,53 @@ internal class UserDataDatabase private constructor(
         }
     }
 
-    private fun transaction(block: () -> Unit) = synchronized(checkpointLock) {
+    private fun transaction(durable: Boolean = true, block: () -> Unit) = synchronized(checkpointLock) {
+        if (!durable) {
+            sqliteTransaction(block = block)
+            return@synchronized
+        }
+        if (commitJournalFile.isFile) throw IOException("interrupted commit requires database reopen")
+        val beforeVersion = dataVersion()
+        val baseline = ensureDurableBaseline(beforeVersion)
+        writeCommitJournal("pending", beforeVersion, baseline.second)
+        try {
+            sqliteTransaction(block = block)
+            commitStageHookForTest?.invoke(UserDataCommitStage.AFTER_DATABASE_COMMIT)
+            commitStageHookForTest?.invoke(UserDataCommitStage.BEFORE_CHECKPOINT)
+            checkpointLastGood()
+            commitStageHookForTest?.invoke(UserDataCommitStage.AFTER_CHECKPOINT)
+            val afterVersion = dataVersion()
+            val committed = verifiedSnapshotForVersion(afterVersion)
+                ?: throw IOException("committed last-good snapshot verification failed")
+            writeCommitJournal("committed", afterVersion, committed.second)
+            commitJournalFile.delete()
+        } catch (failure: Exception) {
+            val unchanged = runCatching { dataVersion() == beforeVersion && integrityOk() && foreignKeysOk() }
+                .getOrDefault(false)
+            var rollbackComplete = unchanged
+            if (!unchanged) {
+                rollbackComplete = runCatching {
+                    commitStageHookForTest?.invoke(UserDataCommitStage.BEFORE_ROLLBACK)
+                    val rollback = verifiedSnapshotForVersion(beforeVersion, baseline.second)
+                        ?: throw IOException("durable rollback snapshot is unavailable")
+                    restoreDurableSnapshot(rollback.first, beforeVersion)
+                }.onFailure(failure::addSuppressed).isSuccess
+            }
+            if (rollbackComplete) commitJournalFile.delete()
+            lastFailure = failure.javaClass.simpleName + ": " + failure.message.orEmpty()
+            throw failure
+        }
+    }
+
+    private fun sqliteTransaction(advanceVersion: Boolean = true, block: () -> Unit) {
         database.beginTransaction()
         try {
             block()
-            val dataVersion = (metadataInTransaction(DATA_VERSION_KEY)?.toLongOrNull() ?: 0L) + 1L
-            putMetadataInTransaction(DATA_VERSION_KEY, dataVersion.toString())
-            putMetadataInTransaction("last_commit_at", System.currentTimeMillis().toString())
+            if (advanceVersion) {
+                val dataVersion = (metadataInTransaction(DATA_VERSION_KEY)?.toLongOrNull() ?: 0L) + 1L
+                putMetadataInTransaction(DATA_VERSION_KEY, dataVersion.toString())
+                putMetadataInTransaction("last_commit_at", System.currentTimeMillis().toString())
+            }
             database.setTransactionSuccessful()
             lastFailure = null
         } catch (e: Exception) {
@@ -2020,6 +2085,48 @@ internal class UserDataDatabase private constructor(
             throw e
         } finally {
             database.endTransaction()
+        }
+    }
+
+    private fun ensureDurableBaseline(version: Long): Pair<File, String> {
+        verifiedSnapshotForVersion(version)?.let { return it }
+        checkpointLastGood()
+        return verifiedSnapshotForVersion(version)
+            ?: throw IOException("durable baseline snapshot verification failed")
+    }
+
+    private fun verifiedSnapshotForVersion(version: Long, expectedSha: String? = null): Pair<File, String>? {
+        val candidates = listOf(
+            lastGoodFile to File(root, LAST_GOOD_DIGEST_NAME),
+            File(root, LAST_GOOD_PREVIOUS_NAME) to File(root, LAST_GOOD_PREVIOUS_DIGEST_NAME),
+        )
+        for ((snapshot, digest) in candidates) {
+            if (!verifiedSnapshot(snapshot, digest)) continue
+            if (databaseVersion(snapshot) != version) continue
+            val actualSha = sha256(snapshot)
+            if (expectedSha != null && actualSha != expectedSha) continue
+            return snapshot to actualSha
+        }
+        return null
+    }
+
+    private fun writeCommitJournal(phase: String, version: Long, snapshotSha: String) {
+        writeTextAtomically(commitJournalFile, "$phase\t$version\t$snapshotSha\n")
+    }
+
+    private fun restoreDurableSnapshot(snapshot: File, version: Long) {
+        withRestoreSource(snapshot) {
+            sqliteTransaction(advanceVersion = false) {
+                for (table in DELETE_ORDER) database.delete(table, null, null)
+                database.delete("metadata", null, null)
+                for ((table, columns) in RESTORE_TABLES) {
+                    database.execSQL("INSERT INTO $table ($columns) SELECT $columns FROM restore_source.$table")
+                }
+                database.execSQL("INSERT INTO metadata (key,value) SELECT key,value FROM restore_source.metadata")
+                if (dataVersion() != version || !integrityOk() || !foreignKeysOk()) {
+                    throw IOException("durable transaction rollback verification failed")
+                }
+            }
         }
     }
 
@@ -2460,6 +2567,7 @@ internal class UserDataDatabase private constructor(
     companion object {
         const val DATABASE_NAME = "user-data-v2.db"
         const val LAST_GOOD_NAME = "user-data-v2.last-good.db"
+        internal const val COMMIT_JOURNAL_NAME = "user-data-v2.commit-state"
         const val STATUS_NAME = "user-data-recovery.txt"
         private const val LAST_GOOD_DIGEST_NAME = "user-data-v2.last-good.sha256"
         private const val LAST_GOOD_PREVIOUS_NAME = "user-data-v2.last-good.previous.db"
@@ -2526,7 +2634,8 @@ internal class UserDataDatabase private constructor(
             if (!root.exists() && !root.mkdirs()) throw IOException("user data directory creation failed")
             val main = File(root, DATABASE_NAME)
             val lastGood = File(root, LAST_GOOD_NAME)
-            var report = UserDataRecoveryReport(UserDataRecoveryKind.EXISTING, "database integrity verified")
+            var report = recoverInterruptedCommit(root, main)
+                ?: UserDataRecoveryReport(UserDataRecoveryKind.EXISTING, "database integrity verified")
             if (main.isFile && !isValidDatabase(main, allowLegacy = true)) {
                 val previous = File(root, LAST_GOOD_PREVIOUS_NAME)
                 val restored = when {
@@ -2563,8 +2672,9 @@ internal class UserDataDatabase private constructor(
                         mapOf(UserSettingsSchema.CLIPBOARD_HISTORY to StoredSettingValue.Bool(false)),
                     )
                     runCatching {
-                        opened.checkpointLastGood()
-                        opened.markSettingsCheckpointed()
+                        if (opened.metadata(SETTINGS_CHECKPOINT_PENDING_KEY) == "1") {
+                            opened.markSettingsCheckpointed()
+                        }
                     }
                 }
             }
@@ -2574,6 +2684,57 @@ internal class UserDataDatabase private constructor(
             "absent"
         } else {
             "${file.length()}:${sha256(file)}"
+        }
+
+        private fun recoverInterruptedCommit(root: File, main: File): UserDataRecoveryReport? {
+            val journal = File(root, COMMIT_JOURNAL_NAME)
+            if (!journal.isFile) return null
+            val fields = runCatching { journal.readText().trim().split('\t') }.getOrDefault(emptyList())
+            val phase = fields.getOrNull(0)
+            val version = fields.getOrNull(1)?.toLongOrNull()
+            val expectedSha = fields.getOrNull(2)?.takeIf { it.matches(Regex("[0-9a-f]{64}")) }
+            val lastGood = File(root, LAST_GOOD_NAME)
+            val lastGoodDigest = File(root, LAST_GOOD_DIGEST_NAME)
+            if (phase == "committed" && version != null && expectedSha != null &&
+                isValidDatabase(main, allowLegacy = true) && databaseVersion(main) == version &&
+                verifiedSnapshot(lastGood, lastGoodDigest, allowLegacy = true) && sha256(lastGood) == expectedSha
+            ) {
+                journal.delete()
+                return null
+            }
+            val candidates = listOf(
+                lastGood to lastGoodDigest,
+                File(root, LAST_GOOD_PREVIOUS_NAME) to File(root, LAST_GOOD_PREVIOUS_DIGEST_NAME),
+            )
+            val snapshot = candidates.firstOrNull { (file, digest) ->
+                verifiedSnapshot(file, digest, allowLegacy = true) &&
+                    (version == null || databaseVersion(file) == version) &&
+                    (expectedSha == null || sha256(file) == expectedSha)
+            }?.first ?: if (version == null || expectedSha == null) {
+                candidates.firstOrNull { (file, digest) ->
+                    verifiedSnapshot(file, digest, allowLegacy = true)
+                }?.first
+            } else {
+                null
+            }
+            if (snapshot == null) {
+                main.delete()
+                deleteCompanions(main)
+                journal.delete()
+                return UserDataRecoveryReport(
+                    UserDataRecoveryKind.EMPTY,
+                    "created verified empty database after unrecoverable interrupted commit",
+                )
+            }
+            val temporary = File(root, "$DATABASE_NAME.interrupted-commit")
+            copyFile(snapshot, temporary)
+            atomicReplace(temporary, main)
+            deleteCompanions(main)
+            journal.delete()
+            return UserDataRecoveryReport(
+                UserDataRecoveryKind.LAST_GOOD,
+                "restored verified snapshot after interrupted commit",
+            )
         }
 
         fun validateRestoreSource(file: File): Boolean = restoreSourceValidationFailure(file, false) == null
@@ -2622,6 +2783,16 @@ internal class UserDataDatabase private constructor(
             } catch (failure: Exception) {
                 failure.javaClass.simpleName + ": " + failure.message.orEmpty()
             }
+        }
+
+        private fun databaseVersion(file: File): Long? = try {
+            SQLiteDatabase.openDatabase(file.absolutePath, null, SQLiteDatabase.OPEN_READONLY).use { db ->
+                db.rawQuery("SELECT value FROM metadata WHERE key=?", arrayOf(DATA_VERSION_KEY)).use { cursor ->
+                    if (cursor.moveToFirst()) cursor.getString(0).toLongOrNull() else 0L
+                }
+            }
+        } catch (_: Exception) {
+            null
         }
 
         private fun createSchema(db: SQLiteDatabase) {
@@ -2715,11 +2886,15 @@ internal class UserDataDatabase private constructor(
 
         private fun writeTextAtomically(destination: File, value: String) {
             val temporary = File(destination.parentFile, destination.name + ".tmp")
-            FileOutputStream(temporary).use { output ->
-                output.write(value.toByteArray(Charsets.UTF_8))
-                output.fd.sync()
+            try {
+                FileOutputStream(temporary).use { output ->
+                    output.write(value.toByteArray(Charsets.UTF_8))
+                    output.fd.sync()
+                }
+                atomicReplace(temporary, destination)
+            } finally {
+                temporary.delete()
             }
-            atomicReplace(temporary, destination)
         }
 
         private fun verifiedSnapshot(lastGood: File, digestFile: File, allowLegacy: Boolean = false): Boolean {

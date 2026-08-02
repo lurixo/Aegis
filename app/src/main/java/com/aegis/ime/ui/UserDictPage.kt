@@ -72,6 +72,7 @@ internal fun UserDictPage(onBack: () -> Unit) {
     val addedToast = stringResource(R.string.user_dict_toast_added)
     val addFailedToast = stringResource(R.string.user_dict_toast_add_failed)
     val deletedToast = stringResource(R.string.user_dict_toast_deleted)
+    val writeFailedToast = stringResource(R.string.user_dict_toast_write_failed)
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
 
     var query by remember { mutableStateOf("") }
@@ -137,14 +138,24 @@ internal fun UserDictPage(onBack: () -> Unit) {
             Toast.makeText(context, addFailedToast, Toast.LENGTH_SHORT).show()
             return
         }
-        UserDictEdit.add(userDb, word, newReading, System.currentTimeMillis())
+        val saved = runCatching {
+            UserDictEdit.add(userDb, word, newReading, System.currentTimeMillis())
+        }.getOrDefault(false)
+        if (!saved) {
+            Toast.makeText(context, writeFailedToast, Toast.LENGTH_SHORT).show()
+            return
+        }
         newWord = ""; newReading = ""
         reload()
         Toast.makeText(context, addedToast, Toast.LENGTH_SHORT).show()
     }
 
     fun deleteWord(reading: String, word: String) {
-        UserDictEdit.remove(userDb, reading, word)
+        val removed = runCatching { UserDictEdit.remove(userDb, reading, word) }.getOrDefault(false)
+        if (!removed) {
+            Toast.makeText(context, writeFailedToast, Toast.LENGTH_SHORT).show()
+            return
+        }
         reload()
         Toast.makeText(context, deletedToast, Toast.LENGTH_SHORT).show()
     }
