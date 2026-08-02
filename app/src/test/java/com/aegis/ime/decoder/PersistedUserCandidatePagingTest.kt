@@ -24,6 +24,7 @@ import com.aegis.ime.user.UserLearningSnapshot
 import com.aegis.ime.user.UserModel
 import java.nio.file.Files
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -69,6 +70,110 @@ class PersistedUserCandidatePagingTest {
                 decoder.singleFrequencyCacheMissesForTest <= 16,
             )
             assertTrue(decoder.singleFrequencyCacheSizeForTest() <= PinyinDecoder.SINGLE_FREQUENCY_CACHE_SIZE)
+        }
+    }
+
+    @Test
+    fun ordinaryUserWordContinuationStopsInsteadOfMixingDatabaseVersions() {
+        val root = Files.createTempDirectory("persisted-ordinary-user-version").toFile().also { it.deleteOnExit() }
+        UserDataDatabase.open(root).use { database ->
+            val original = (0 until 300).map { "普通用户${it.toString().padStart(4, '0')}" }
+            database.replaceUserData(
+                UserDataSnapshot(
+                    words = original.mapIndexed { index, word ->
+                        word to StoredWord(original.size - index, 1_000L)
+                    }.toMap(LinkedHashMap()),
+                    bigrams = emptyMap(),
+                    readings = mapOf("ma" to original.toCollection(LinkedHashSet())),
+                ),
+            )
+            val decoder = PinyinDecoder(
+                EngineFixture.build(listOf(EngineFixture.Row("ma", "吗", 1_000))),
+                userModel = UserModel({ 1_000L }, database),
+            )
+            val source = decoder.coveredCandidateSource("ma")
+            val first = source.next(30)
+            assertTrue(first.hasMore)
+
+            database.recordWord("并发新普通用户词", "ma", null, 1_001L, incrementCount = true)
+            val staleContinuation = source.next(30)
+
+            assertTrue(first.items.isNotEmpty())
+            assertEquals(emptyList<Cand>(), staleContinuation.items)
+            assertFalse(staleContinuation.hasMore)
+        }
+    }
+
+    @Test
+    fun ordinaryLearnedWordContinuationStopsInsteadOfMixingDatabaseVersions() {
+        val root = Files.createTempDirectory("persisted-ordinary-learning-version").toFile().also { it.deleteOnExit() }
+        UserDataDatabase.open(root).use { database ->
+            val original = (0 until 300).map { "普通学习${it.toString().padStart(4, '0')}" }
+            fun learningSnapshot(words: List<String>) = UserLearningSnapshot(
+                formed = words.mapIndexed { index, word ->
+                    word to mapOf("ma" to StoredUsage((words.size - index).toDouble(), 1_000L))
+                }.toMap(LinkedHashMap()),
+                pending = emptyMap(),
+                follows = emptyMap(),
+            )
+            database.replaceLearning(learningSnapshot(original))
+            val decoder = PinyinDecoder(
+                EngineFixture.build(listOf(EngineFixture.Row("ma", "吗", 1_000))),
+                userLearning = UserLearning({ 1_000L }, database),
+            )
+            val source = decoder.coveredCandidateSource("ma")
+            val first = source.next(30)
+            assertTrue(first.hasMore)
+
+            database.replaceLearning(learningSnapshot(listOf("并发新普通学习词") + original))
+            val staleContinuation = source.next(30)
+
+            assertTrue(first.items.isNotEmpty())
+            assertEquals(emptyList<Cand>(), staleContinuation.items)
+            assertFalse(staleContinuation.hasMore)
+        }
+    }
+
+    @Test
+    fun ordinaryCrossPhaseDeduplicationStopsWhenALearnedWordBecomesAUserWord() {
+        val root = Files.createTempDirectory("persisted-ordinary-cross-phase-version").toFile().also { it.deleteOnExit() }
+        UserDataDatabase.open(root).use { database ->
+            val users = (0 until 8).map { "已有用户${it.toString().padStart(4, '0')}" }
+            val learned = (0 until 220).map { "跨阶段学习${it.toString().padStart(4, '0')}" }
+            val promoted = learned[200]
+            database.replaceUserData(
+                UserDataSnapshot(
+                    words = users.mapIndexed { index, word ->
+                        word to StoredWord(users.size - index, 1_000L)
+                    }.toMap(LinkedHashMap()),
+                    bigrams = emptyMap(),
+                    readings = mapOf("ma" to users.toCollection(LinkedHashSet())),
+                ),
+            )
+            database.replaceLearning(
+                UserLearningSnapshot(
+                    formed = learned.mapIndexed { index, word ->
+                        word to mapOf("ma" to StoredUsage((learned.size - index).toDouble(), 1_000L))
+                    }.toMap(LinkedHashMap()),
+                    pending = emptyMap(),
+                    follows = emptyMap(),
+                ),
+            )
+            val decoder = PinyinDecoder(
+                EngineFixture.build(listOf(EngineFixture.Row("ma", "吗", 1_000))),
+                userModel = UserModel({ 1_000L }, database),
+                userLearning = UserLearning({ 1_000L }, database),
+            )
+            val source = decoder.coveredCandidateSource("ma")
+            val first = source.next(30)
+            assertTrue(first.hasMore)
+
+            database.recordWord(promoted, "ma", null, 1_001L, incrementCount = true)
+            val staleContinuation = source.next(30)
+
+            assertTrue(promoted !in first.items.map { it.word })
+            assertEquals(emptyList<Cand>(), staleContinuation.items)
+            assertFalse(staleContinuation.hasMore)
         }
     }
 

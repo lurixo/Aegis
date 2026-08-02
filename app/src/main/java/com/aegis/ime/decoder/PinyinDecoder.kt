@@ -127,11 +127,79 @@ class PinyinDecoder(
         return out.toList()
     }
 
-    private fun userWordCursor(key: String): BinaryDict.WordFreqCursor {
-        var phase = if (userModel == null) 1 else 0
-        var offset = 0
-        val pending = ArrayDeque<String>()
-        fun pull(): BinaryDict.WordFreq? {
+    private fun candidateVersions(
+        key: String,
+        expectedModel: Long?,
+        expectedLearning: Long?,
+    ): Pair<Long?, Long?>? {
+        val modelDatabase = userModel?.databaseIdentity
+        val sharedDatabase = modelDatabase != null && modelDatabase === userLearning?.databaseIdentity
+        val modelVersion = userModel?.wordsForKeyPageSnapshot(
+            key,
+            offset = 0,
+            limit = 0,
+            expectedVersion = expectedModel,
+        )?.let { page ->
+            if (page.restartRequired) return null
+            page.version
+        }
+        val learningVersion = userLearning?.formedWordsForPageSnapshot(
+            key,
+            offset = 0,
+            limit = 0,
+            expectedVersion = if (sharedDatabase) modelVersion else expectedLearning,
+        )?.let { page ->
+            if (page.restartRequired) return null
+            page.version
+        }
+        if (sharedDatabase && modelVersion != learningVersion) return null
+        return modelVersion to learningVersion
+    }
+
+    private inner class VersionedUserWordCursor(private val key: String) {
+        private val sharedDatabase = userModel?.databaseIdentity?.let {
+            it === userLearning?.databaseIdentity
+        } == true
+        private var phase = if (userModel == null) 1 else 0
+        private var offset = 0
+        private val pending = ArrayDeque<String>()
+        private var modelVersion: Long? = null
+        private var learningVersion: Long? = null
+        private var invalidated = false
+
+        init {
+            val versions = candidateVersions(key, null, null)
+            if (versions == null) {
+                invalidate()
+            } else {
+                modelVersion = versions.first
+                learningVersion = versions.second
+            }
+        }
+
+        val cursor: BinaryDict.WordFreqCursor by lazy(LazyThreadSafetyMode.NONE) {
+            BinaryDict.WordFreqCursor(::pull)
+        }
+
+        fun verify(): Boolean {
+            if (invalidated) return false
+            val versions = candidateVersions(key, modelVersion, learningVersion)
+            if (versions == null) {
+                invalidate()
+                return false
+            }
+            modelVersion = versions.first
+            learningVersion = versions.second
+            return true
+        }
+
+        private fun invalidate() {
+            invalidated = true
+            pending.clear()
+            phase = 3
+        }
+
+        private fun pull(): BinaryDict.WordFreq? {
             while (true) {
                 ensureDecodeActive()
                 val word = pending.removeFirstOrNull()
@@ -140,30 +208,60 @@ class PinyinDecoder(
                 }
                 when (phase) {
                     0 -> {
-                        val page = userModel?.wordsForKeyPage(key, offset, USER_CURSOR_PAGE_SIZE).orEmpty()
-                        if (page.isEmpty()) {
+                        val model = userModel
+                        if (model == null) {
+                            phase = 1
+                            offset = 0
+                            continue
+                        }
+                        val page = model.wordsForKeyPageSnapshot(
+                            key,
+                            offset,
+                            USER_CURSOR_PAGE_SIZE,
+                            modelVersion,
+                        )
+                        if (page.restartRequired) {
+                            invalidate()
+                            return null
+                        }
+                        modelVersion = page.version
+                        if (page.items.isEmpty()) {
                             phase = 1
                             offset = 0
                         } else {
-                            pending.addAll(page)
-                            offset += page.size
+                            pending.addAll(page.items)
+                            offset += page.items.size
                         }
                     }
                     1 -> {
-                        val page = userLearning?.formedWordsForPage(key, offset, USER_CURSOR_PAGE_SIZE).orEmpty()
-                        if (page.isEmpty()) {
+                        val learning = userLearning
+                        if (learning == null) {
+                            phase = 3
+                            continue
+                        }
+                        val page = learning.formedWordsForPageSnapshot(
+                            key,
+                            offset,
+                            USER_CURSOR_PAGE_SIZE,
+                            if (sharedDatabase) modelVersion else learningVersion,
+                        )
+                        if (page.restartRequired) {
+                            invalidate()
+                            return null
+                        }
+                        learningVersion = page.version
+                        if (page.items.isEmpty()) {
                             phase = 3
                         } else {
-                            val duplicates = userModel?.wordsForKeyIn(key, page).orEmpty()
-                            pending.addAll(page.filterNot { it in duplicates })
-                            offset += page.size
+                            val duplicates = userModel?.wordsForKeyIn(key, page.items).orEmpty()
+                            pending.addAll(page.items.filterNot { it in duplicates })
+                            offset += page.items.size
                         }
                     }
                     else -> return null
                 }
             }
         }
-        return BinaryDict.WordFreqCursor(::pull)
     }
 
     private fun learnedExactWordFreqs(key: String, words: List<String> = userWordsFor(key)): Map<String, Int> {
@@ -592,6 +690,7 @@ class PinyinDecoder(
         } else {
             Fuzzy.variantCursor(input, fuzzyRules, dict.maximumKeyLength)
         }
+        private val userWords = VersionedUserWordCursor(input)
         private val maximumAdjustment =
                 (userModel?.maximumWordBoost() ?: 0.0) +
                 (userLearning?.maximumFormedBoost() ?: 0.0) +
@@ -617,7 +716,7 @@ class PinyinDecoder(
             }
             sources.add(
                 RawPoolSource(
-                    userWordCursor(input),
+                    userWords.cursor,
                     0.0,
                     sourceOrder++,
                     activeLimit = USER_CURSOR_PAGE_SIZE,
@@ -628,6 +727,8 @@ class PinyinDecoder(
         fun beginPage() {
             fuzzyBatchAvailable = true
         }
+
+        fun verifyUserData(): Boolean = userWords.verify()
 
         fun next(): RankedPoolItem? {
             ensureDecodeActive()
@@ -814,6 +915,10 @@ class PinyinDecoder(
 
             override fun next(pageSize: Int): CandidateSlice<Cand> {
                 ensureDecodeActive()
+                if (!pool.verifyUserData()) {
+                    exhausted = true
+                    return CandidateSlice(emptyList(), false)
+                }
                 if (headResultBudget < 0) headResultBudget = completionCap(pageSize)
                 pool.beginPage()
                 val items = ArrayList<Cand>(pageSize)
@@ -862,6 +967,10 @@ class PinyinDecoder(
                             exhausted = true
                         }
                     }
+                }
+                if (!pool.verifyUserData()) {
+                    exhausted = true
+                    return CandidateSlice(emptyList(), false)
                 }
                 return CandidateSlice(items, !exhausted)
             }
@@ -1109,33 +1218,7 @@ class PinyinDecoder(
     private fun atomicCandidateSource(input: String, interior: Set<Int>, ctx: Ctx): CandidatePageSource<Cand> {
         val modelDatabase = userModel?.databaseIdentity
         val sharedDatabase = modelDatabase != null && modelDatabase === userLearning?.databaseIdentity
-        fun candidateVersions(
-            expectedModel: Long?,
-            expectedLearning: Long?,
-        ): Pair<Long?, Long?>? {
-            val modelVersion = userModel?.wordsForKeyPageSnapshot(
-                input,
-                offset = 0,
-                limit = 0,
-                expectedVersion = expectedModel,
-            )?.let { page ->
-                if (page.restartRequired) return null
-                page.version
-            }
-            val learningVersion = userLearning?.formedWordsForPageSnapshot(
-                input,
-                offset = 0,
-                limit = 0,
-                expectedVersion = if (sharedDatabase) modelVersion else expectedLearning,
-            )?.let { page ->
-                if (page.restartRequired) return null
-                page.version
-            }
-            if (sharedDatabase && modelVersion != learningVersion) return null
-            return modelVersion to learningVersion
-        }
-
-        val initialVersions = candidateVersions(null, null)
+        val initialVersions = candidateVersions(input, null, null)
             ?: return ListCandidatePageSource(emptyList())
         val ctxId = resolveCtxId(ctx.cp)
         val condMemo = HashMap<Long, Double>()
@@ -1151,7 +1234,7 @@ class PinyinDecoder(
             if (!admissibleUnderCuts(wf.word, 0, bounds[j], interior, input, singlesCache)) continue
             if (leadFreq.put(wf.word, wf.freq) == null) leadCov[wf.word] = bounds[j]
         }
-        val stableVersions = candidateVersions(initialVersions.first, initialVersions.second)
+        val stableVersions = candidateVersions(input, initialVersions.first, initialVersions.second)
             ?: return ListCandidatePageSource(emptyList())
         val leadOrder = Comparator<RankedAtomicLead> { left, right -> compareAtomicLeads(left, right) }
         var staticSerial = 0L
@@ -1178,7 +1261,7 @@ class PinyinDecoder(
 
             fun verify(): Boolean {
                 if (invalidated) return false
-                val versions = candidateVersions(modelVersion, learningVersion)
+                val versions = candidateVersions(input, modelVersion, learningVersion)
                 if (versions == null) {
                     invalidated = true
                     pending.clear()
