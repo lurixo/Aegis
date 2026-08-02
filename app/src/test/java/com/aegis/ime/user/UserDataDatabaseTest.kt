@@ -465,12 +465,14 @@ class UserDataDatabaseTest {
     @Test
     fun invalidLegacyDataBlocksTheSwitchAndCanBeRetriedAfterRepair() {
         val root = root()
+        val preferences = RuntimeEnvironment.getApplication()
+            .getSharedPreferences("invalid-legacy-${root.name}", 0)
         val legacy = File(root, "userdb.txt")
         legacy.writeText("invalid")
 
         var failed = false
         try {
-            UserDataMigration.open(root).close()
+            UserDataMigration.open(root, preferences).close()
         } catch (_: Exception) {
             failed = true
         }
@@ -483,11 +485,88 @@ class UserDataDatabaseTest {
         }
 
         UserModel().apply { assertTrue(addManualWord("retry", "重试", 4)); save(legacy) }
-        UserDataMigration.open(root).use { database ->
+        UserDataMigration.open(root, preferences).use { database ->
             assertEquals(listOf("重试"), UserModel(database = database).readingSnapshot()["retry"])
             assertEquals("complete", database.metadata("beta29_migration"))
             assertTrue(File(root, UserDataMigration.STATUS_NAME).readText().contains("status=complete"))
         }
+        assertFalse(legacy.exists())
+    }
+
+    @Test
+    fun everyLegacyMigrationBoundaryRetriesWithoutLossOrReplay() {
+        for (interruptedAt in LegacyDataMigrationStage.entries) {
+            val root = root()
+            val preferences = RuntimeEnvironment.getApplication()
+                .getSharedPreferences("legacy-stage-${root.name}", 0)
+            val legacy = File(root, "userdb.txt")
+            legacy.writeText("aegis-userdb 1\nW\t重试\t4\t9\nR\tretry\t重试\n")
+            var failed = false
+            try {
+                UserDataMigration.openWithLegacyStage(root, preferences) { stage ->
+                    if (stage == interruptedAt) throw IOException("simulated $stage interruption")
+                }.close()
+            } catch (_: IOException) {
+                failed = true
+            }
+            assertTrue("stage was not reached: $interruptedAt", failed)
+
+            UserDataDatabase.open(root).use { database ->
+                val committed = interruptedAt >= LegacyDataMigrationStage.AFTER_DATABASE_COMMIT
+                assertEquals(
+                    "unexpected marker state after $interruptedAt",
+                    if (committed) "complete" else null,
+                    database.metadata("beta29_migration"),
+                )
+                assertEquals(committed, database.hasUserReading("retry", "重试"))
+            }
+            assertEquals(
+                "legacy source lifecycle mismatch after $interruptedAt",
+                interruptedAt != LegacyDataMigrationStage.AFTER_LEGACY_CLEANUP,
+                legacy.isFile,
+            )
+
+            UserDataMigration.open(root, preferences).use { database ->
+                assertEquals("complete", database.metadata("beta29_migration"))
+                assertTrue(database.hasUserReading("retry", "重试"))
+                assertEquals(1L, database.userWordEntryCount())
+                assertTrue(database.integrityOk())
+                assertTrue(database.foreignKeysOk())
+            }
+            assertFalse(legacy.exists())
+            assertTrue(File(root, UserDataMigration.STATUS_NAME).readText().contains("status=complete"))
+        }
+    }
+
+    @Test
+    fun committedLegacyMigrationNeverReplaysAStaleSourceDuringCleanupRetry() {
+        val root = root()
+        val preferences = RuntimeEnvironment.getApplication()
+            .getSharedPreferences("legacy-cleanup-gap-${root.name}", 0)
+        val legacy = File(root, "userdb.txt")
+        legacy.writeText("aegis-userdb 1\nW\t原始\t2\t3\nR\tyuanshi\t原始\n")
+        try {
+            UserDataMigration.openWithLegacyStage(root, preferences) { stage ->
+                if (stage == LegacyDataMigrationStage.BEFORE_LEGACY_CLEANUP) {
+                    throw IOException("simulated cleanup interruption")
+                }
+            }.close()
+            throw AssertionError("expected cleanup interruption")
+        } catch (_: IOException) {
+        }
+
+        UserDataDatabase.open(root).use { database ->
+            assertTrue(UserModel(database = database).addManualWord("new", "新值", 10L))
+        }
+        legacy.writeText("aegis-userdb 1\nW\t陈旧\t9\t9\nR\tchenjiu\t陈旧\n")
+
+        UserDataMigration.open(root, preferences).use { database ->
+            assertTrue(database.hasUserReading("yuanshi", "原始"))
+            assertTrue(database.hasUserReading("new", "新值"))
+            assertFalse(database.hasUserReading("chenjiu", "陈旧"))
+            assertEquals(2L, database.userWordEntryCount())
+        }
+        assertFalse(legacy.exists())
     }
 
     @Test
@@ -528,9 +607,9 @@ class UserDataDatabaseTest {
             assertTrue(database.integrityOk())
         }
 
-        assertTrue(File(root, "clipboard.txt").isFile)
-        assertTrue(File(root, "phrases.txt").isFile)
-        File(root, "clipboard.txt").appendText("\nlate-legacy-change")
+        assertFalse(File(root, "clipboard.txt").exists())
+        assertFalse(File(root, "phrases.txt").exists())
+        File(root, "clipboard.txt").writeText("late-legacy-change\n")
         preferences.edit().putString("custom_symbols", "late-legacy-change").commit()
 
         UserDataMigration.open(root, preferences).use { database ->
@@ -538,6 +617,8 @@ class UserDataDatabaseTest {
             assertFalse(database.containsClipboard("late-legacy-change"))
             assertEquals(customSymbols, database.readCustomItems("custom_symbols"))
         }
+        assertFalse(File(root, "clipboard.txt").exists())
+        assertFalse(preferences.contains("custom_symbols"))
     }
 
     @Test

@@ -194,6 +194,35 @@ class UserSettingsPreferencesTest {
         assertTrue("a clean completed migration must not rerun detailed migration stages", stages.isEmpty())
     }
 
+    @Test fun unavailable_legacy_preferences_are_deferred_instead_of_marked_empty() {
+        val root = temporary.newFolder("deferred-preference-source")
+        File(root, "userdb.txt").writeText("aegis-userdb 1\nW\t迁移\t2\t3\nR\tqianyi\t迁移\n")
+        val legacy = preferences()
+        legacy.edit()
+            .putString("pref_default_lang", "en")
+            .putString("custom_symbols", "甲\n乙")
+            .commit()
+
+        UserDataMigration.open(root).use { database ->
+            assertTrue(database.hasUserReading("qianyi", "迁移"))
+            assertNull(database.metadata(UserDataDatabase.SETTINGS_MIGRATION_KEY))
+            assertNull(database.metadata("beta29_custom_migration_custom_symbols"))
+        }
+        assertTrue(legacy.contains("pref_default_lang"))
+        assertTrue(legacy.contains("custom_symbols"))
+        assertTrue(File(root, UserDataMigration.STATUS_NAME).readText().contains("status=cleanup-pending"))
+
+        UserDataMigration.open(root, legacy).use { database ->
+            assertEquals(StoredSettingValue.StringValue("en"), database.readSetting("pref_default_lang"))
+            assertEquals(listOf("甲", "乙"), database.readCustomItems("custom_symbols"))
+            assertEquals("complete", database.metadata(UserDataDatabase.SETTINGS_MIGRATION_KEY))
+            assertEquals("complete", database.metadata("beta29_custom_migration_custom_symbols"))
+        }
+        assertFalse(legacy.contains("pref_default_lang"))
+        assertFalse(legacy.contains("custom_symbols"))
+        assertTrue(File(root, UserDataMigration.STATUS_NAME).readText().contains("status=complete"))
+    }
+
     @Test fun completed_migration_falls_back_when_a_stale_legacy_value_reappears() {
         val root = temporary.newFolder("completed-stale-fallback")
         val legacy = preferences()

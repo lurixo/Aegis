@@ -18,11 +18,9 @@ package com.aegis.ime.user
 import android.content.SharedPreferences
 import java.io.File
 import java.io.FileOutputStream
-import java.io.IOException
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
 
 internal object UserDataMigration {
 
@@ -32,103 +30,90 @@ internal object UserDataMigration {
         root: File,
         preferences: SharedPreferences? = null,
         settingsStage: ((SettingsMigrationStage) -> Unit)? = null,
+    ): UserDataDatabase = openInternal(root, preferences, settingsStage, null)
+
+    internal fun openWithLegacyStage(
+        root: File,
+        preferences: SharedPreferences? = null,
+        legacyStage: ((LegacyDataMigrationStage) -> Unit)? = null,
+    ): UserDataDatabase = openInternal(root, preferences, null, legacyStage)
+
+    private fun openInternal(
+        root: File,
+        preferences: SharedPreferences?,
+        settingsStage: ((SettingsMigrationStage) -> Unit)?,
+        legacyStage: ((LegacyDataMigrationStage) -> Unit)?,
     ): UserDataDatabase = synchronized(migrationLock(root)) {
         val database = UserDataDatabase.open(root)
         try {
             if (canSkipCompletedMigration(root, preferences, database)) return@synchronized database
-            val legacySettings = UserSettingsSchema.legacyValues(preferences)
-            val migratedSettings = LinkedHashMap(UserSettingsSchema.defaults).apply {
-                if (database.recoveryReport.kind != UserDataRecoveryKind.EXISTING &&
-                    UserSettingsSchema.CLIPBOARD_HISTORY !in legacySettings
-                ) {
-                    put(UserSettingsSchema.CLIPBOARD_HISTORY, StoredSettingValue.Bool(false))
+            if (database.metadata(UserDataDatabase.SETTINGS_MIGRATION_KEY) != "complete" && preferences != null) {
+                val legacySettings = UserSettingsSchema.legacyValues(preferences)
+                val migratedSettings = LinkedHashMap(UserSettingsSchema.defaults).apply {
+                    if (database.recoveryReport.kind != UserDataRecoveryKind.EXISTING &&
+                        UserSettingsSchema.CLIPBOARD_HISTORY !in legacySettings
+                    ) {
+                        put(UserSettingsSchema.CLIPBOARD_HISTORY, StoredSettingValue.Bool(false))
+                    }
+                    putAll(legacySettings)
                 }
-                putAll(legacySettings)
+                database.migrateLegacySettings(
+                    migratedSettings,
+                    legacySettings.size,
+                    UserSettingsSchema.digest(legacySettings),
+                    settingsStage,
+                )
             }
-            database.migrateLegacySettings(
-                migratedSettings,
-                legacySettings.size,
-                UserSettingsSchema.digest(legacySettings),
-                settingsStage,
-            )
-            settingsStage?.invoke(SettingsMigrationStage.BEFORE_LEGACY_CLEANUP)
-            val settingsCleanupComplete = cleanupLegacySettings(preferences)
+            val settingsMigrated = database.metadata(UserDataDatabase.SETTINGS_MIGRATION_KEY) == "complete"
+            if (settingsMigrated) settingsStage?.invoke(SettingsMigrationStage.BEFORE_LEGACY_CLEANUP)
+            val settingsCleanupComplete = settingsMigrated && cleanupLegacySettings(preferences)
             if (settingsCleanupComplete) settingsStage?.invoke(SettingsMigrationStage.AFTER_LEGACY_CLEANUP)
-            val userDb = File(root, "userdb.txt")
-            val userLearn = File(root, "userlearn.txt")
-            val identities = linkedMapOf(
-                "userdb" to UserDataDatabase.fileIdentity(userDb),
-                "userlearn" to UserDataDatabase.fileIdentity(userLearn),
+            val sources = LegacyDataSources(
+                root = root,
+                userDictionary = File(root, "userdb.txt"),
+                userLearning = File(root, "userlearn.txt"),
+                clipboard = File(root, "clipboard.txt"),
+                phrases = File(root, "phrases.txt"),
+                recentSymbols = File(root, "symbol_usage.txt"),
+                recentEmoji = File(File(root, "emoji"), "symbol_usage.txt"),
             )
-            val baseMigrationPending = database.metadata("beta29_migration") == null
-            val legacyUser = if (baseMigrationPending && userDb.isFile) {
-                runCatching { UserModel().apply { load(userDb) }.storageSnapshot() }
-                    .onFailure { identities["userdb_status"] = "invalid:${it.javaClass.simpleName}" }
-                    .getOrElse { throw IOException("legacy user dictionary is invalid", it) }
-            } else {
-                null
+            val identities = LinkedHashMap<String, String>()
+            if (database.metadata("beta29_migration") == null) {
+                identities["userdb"] = UserDataDatabase.fileIdentity(sources.userDictionary)
+                identities["userlearn"] = UserDataDatabase.fileIdentity(sources.userLearning)
             }
-            val legacyLearning = if (baseMigrationPending && userLearn.isFile) {
-                UserLearning().let { model ->
-                    model.load(userLearn)
-                    if (model.lastFailure == null) model.storageSnapshot()
-                    else {
-                        identities["userlearn_status"] = "invalid"
-                        throw IOException("legacy user learning data is invalid: ${model.lastFailure}")
-                    }
-                }
-            } else {
-                null
-            }
-            database.migrateLegacy(legacyUser, legacyLearning, identities)
-            val collectionIdentities = LinkedHashMap<String, String>()
-            val clipboardSource = database.metadata("beta29_clipboard_migration") == null &&
-                (File(root, "clipboard.txt").isFile || File(root, "phrases.txt").isFile)
-            val legacyClipboard = if (clipboardSource) {
-                runCatching {
-                    ClipboardStore(root).apply {
-                        if (!load(purgeLegacyImages = false)) throw IllegalStateException(lastFailure)
-                    }.storageSnapshot()
-                }.onFailure { collectionIdentities["clipboard_status"] = "invalid:${it.javaClass.simpleName}" }
-                    .getOrElse { throw IOException("legacy clipboard data is invalid", it) }
-                    .also {
-                        collectionIdentities["clipboard"] = UserDataDatabase.fileIdentity(File(root, "clipboard.txt"))
-                        collectionIdentities["phrases"] = UserDataDatabase.fileIdentity(File(root, "phrases.txt"))
-                    }
-            } else {
-                null
-            }
-            if (legacyClipboard != null) {
-                val phraseCount = legacyClipboard.categories.sumOf { it.phrases.size }
-                collectionIdentities["clipboard_records"] =
-                    "history=${legacyClipboard.history.size},categories=${legacyClipboard.categories.size},phrases=$phraseCount"
-                collectionIdentities["clipboard_snapshot"] = collectionIdentity(legacyClipboard)
+            if (database.metadata("beta29_clipboard_migration") == null) {
+                identities["clipboard"] = UserDataDatabase.fileIdentity(sources.clipboard)
+                identities["phrases"] = UserDataDatabase.fileIdentity(sources.phrases)
             }
             val customItems = LinkedHashMap<String, List<String>>()
             if (preferences != null) {
                 for (key in listOf("custom_symbols", "custom_operators")) {
                     val store = CustomSymbolStore(preferences, key)
-                    if (database.metadata("beta29_custom_migration_$key") == null && store.hasLegacyValue()) {
-                        customItems[store.storageKind()] = store.legacyItems()
-                        collectionIdentities[key] = store.legacyIdentity()
+                    if (database.metadata("beta29_custom_migration_$key") == null) {
+                        customItems[store.storageKind()] = if (store.hasLegacyValue()) store.legacyItems() else emptyList()
+                        identities[key] = if (store.hasLegacyValue()) store.legacyIdentity() else "absent"
                     }
                 }
             }
-            val recentItems = LinkedHashMap<String, List<Pair<String, StoredRecentItem>>>()
             if (database.metadata("beta29_recent_migration_symbols") == null) {
-                migrateRecent(root, "symbols", collectionIdentities)?.let { recentItems["symbols"] = it }
+                identities["recent_symbols"] = UserDataDatabase.fileIdentity(sources.recentSymbols)
             }
             if (database.metadata("beta29_recent_migration_emoji") == null) {
-                migrateRecent(File(root, "emoji"), "emoji", collectionIdentities)?.let { recentItems["emoji"] = it }
+                identities["recent_emoji"] = UserDataDatabase.fileIdentity(sources.recentEmoji)
             }
-            database.migrateLegacyCollections(legacyClipboard, customItems, recentItems, collectionIdentities)
+            database.migrateLegacyStreams(sources, customItems, identities, legacyStage)
+            legacyStage?.invoke(LegacyDataMigrationStage.BEFORE_LEGACY_CLEANUP)
+            val legacyFileCleanupComplete = cleanupLegacyFiles(root, database)
             val collectionCleanupComplete = cleanupLegacyCollections(preferences, database)
-            val cleanupComplete = settingsCleanupComplete && collectionCleanupComplete
+            val cleanupComplete = settingsCleanupComplete && collectionCleanupComplete && legacyFileCleanupComplete &&
+                allMigrationMarkersComplete(database)
+            if (cleanupComplete) legacyStage?.invoke(LegacyDataMigrationStage.AFTER_LEGACY_CLEANUP)
             val status = if (cleanupComplete) "complete" else "cleanup-pending"
             val detail = if (cleanupComplete) {
                 "beta.29 user data and settings migration verified"
             } else {
-                "beta.29 user data migration verified; legacy preference cleanup pending"
+                "beta.29 user data migration verified; legacy cleanup pending"
             }
             writeStatus(root, status, detail)
             database
@@ -152,13 +137,22 @@ internal object UserDataMigration {
         val status = File(root, STATUS_NAME)
         if (!status.isFile || status.bufferedReader().use { it.readLine() } != "status=complete") return false
         if (database.metadata(UserDataDatabase.SETTINGS_MIGRATION_KEY) != "complete") return false
-        if (database.metadata("beta29_migration") != "complete") return false
+        if (!allMigrationMarkersComplete(database)) return false
         if (preferences != null) {
             if (runCatching { UserSettingsSchema.legacyValues(preferences).isNotEmpty() }.getOrDefault(true)) return false
             if (preferences.contains("custom_symbols") || preferences.contains("custom_operators")) return false
         }
         return legacyInputs(root).none(File::isFile)
     }
+
+    private fun allMigrationMarkersComplete(database: UserDataDatabase): Boolean = listOf(
+        "beta29_migration",
+        "beta29_clipboard_migration",
+        "beta29_custom_migration_custom_symbols",
+        "beta29_custom_migration_custom_operators",
+        "beta29_recent_migration_symbols",
+        "beta29_recent_migration_emoji",
+    ).all { database.metadata(it) == "complete" }
 
     private fun legacyInputs(root: File): List<File> = listOf(
         File(root, "userdb.txt"),
@@ -194,46 +188,31 @@ internal object UserDataMigration {
         return keys.none(preferences::contains)
     }
 
-    private fun migrateRecent(
-        directory: File,
-        kind: String,
-        identities: MutableMap<String, String>,
-    ): List<Pair<String, StoredRecentItem>>? {
-        val source = File(directory, "symbol_usage.txt")
-        if (!source.isFile) return null
-        identities["recent_$kind"] = UserDataDatabase.fileIdentity(source)
-        val store = SymbolUsageStore(directory)
-        store.load()
-        if (store.lastFailure != null) {
-            identities["recent_${kind}_status"] = "invalid"
-            throw IOException("legacy recent data is invalid: $kind: ${store.lastFailure}")
-        }
-        return store.storageEntries()
-    }
-
-    private fun collectionIdentity(snapshot: ClipboardDataSnapshot): String {
-        val digest = MessageDigest.getInstance("SHA-256")
-        var records = 0L
-        fun update(type: Byte, value: String) {
-            val bytes = value.toByteArray(Charsets.UTF_8)
-            digest.update(type)
-            digest.update((bytes.size ushr 24).toByte())
-            digest.update((bytes.size ushr 16).toByte())
-            digest.update((bytes.size ushr 8).toByte())
-            digest.update(bytes.size.toByte())
-            digest.update(bytes)
-            records++
-        }
-        for (entry in snapshot.history) update(1, entry)
-        for (category in snapshot.categories) {
-            update(2, category.name)
-            for (phrase in category.phrases) {
-                update(3, phrase.text)
-                update(4, phrase.note)
+    private fun cleanupLegacyFiles(root: File, database: UserDataDatabase): Boolean {
+        val sources = linkedMapOf(
+            "beta29_migration" to listOf(File(root, "userdb.txt"), File(root, "userlearn.txt")),
+            "beta29_clipboard_migration" to listOf(File(root, "clipboard.txt"), File(root, "phrases.txt")),
+            "beta29_recent_migration_symbols" to listOf(File(root, "symbol_usage.txt")),
+            "beta29_recent_migration_emoji" to listOf(File(File(root, "emoji"), "symbol_usage.txt")),
+        )
+        var complete = true
+        for ((marker, files) in sources) {
+            if (database.metadata(marker) != "complete") {
+                complete = false
+                continue
+            }
+            for (file in files) {
+                if (file.exists() && (!file.isFile || !file.delete())) complete = false
             }
         }
-        val hash = digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
-        return "$records:$hash"
+        if (database.metadata("beta29_clipboard_migration") == "complete") {
+            val clips = File(root, "clips")
+            for (file in clips.listFiles().orEmpty()) {
+                if (file.isFile && file.extension == "txt" && !file.delete()) complete = false
+            }
+            if (clips.isDirectory && clips.list().orEmpty().isEmpty() && !clips.delete()) complete = false
+        }
+        return complete
     }
 
     private fun writeStatus(root: File, status: String, detail: String) {

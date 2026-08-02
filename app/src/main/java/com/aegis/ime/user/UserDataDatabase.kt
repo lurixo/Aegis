@@ -17,6 +17,7 @@ package com.aegis.ime.user
 
 import android.content.ContentValues
 import android.database.sqlite.SQLiteDatabase
+import com.aegis.ime.layout.SymbolCatalog
 import java.io.Closeable
 import java.io.File
 import java.io.FileInputStream
@@ -111,6 +112,32 @@ internal enum class UserDataCommitStage {
     AFTER_CHECKPOINT,
     BEFORE_ROLLBACK,
 }
+
+internal enum class LegacyDataMigrationStage {
+    AFTER_STREAM_PARSE,
+    AFTER_STAGING_VALIDATION,
+    BEFORE_DATABASE_COMMIT,
+    AFTER_DATABASE_COMMIT,
+    BEFORE_LEGACY_CLEANUP,
+    AFTER_LEGACY_CLEANUP,
+}
+
+internal data class LegacyDataSources(
+    val root: File,
+    val userDictionary: File,
+    val userLearning: File,
+    val clipboard: File,
+    val phrases: File,
+    val recentSymbols: File,
+    val recentEmoji: File,
+)
+
+private data class LegacyDigestTable(
+    val name: String,
+    val stageQuery: String,
+    val targetQuery: String,
+    val args: Array<String>? = null,
+)
 
 internal class UserDataDatabase private constructor(
     private val root: File,
@@ -1432,6 +1459,538 @@ internal class UserDataDatabase private constructor(
     }
 
     @Synchronized
+    fun migrateLegacyStreams(
+        sources: LegacyDataSources,
+        customItems: Map<String, List<String>>,
+        identities: Map<String, String>,
+        stage: ((LegacyDataMigrationStage) -> Unit)? = null,
+    ): Boolean {
+        val basePending = metadata(MIGRATION_KEY) == null
+        val clipboardPending = metadata(CLIPBOARD_MIGRATION_KEY) == null
+        val pendingCustomKinds = LEGACY_CUSTOM_KINDS.filterTo(LinkedHashSet()) {
+            it in customItems && metadata("$CUSTOM_MIGRATION_PREFIX$it") == null
+        }
+        val pendingRecentKinds = LEGACY_RECENT_KINDS.filterTo(LinkedHashSet()) {
+            metadata("$RECENT_MIGRATION_PREFIX$it") == null
+        }
+        if (!basePending && !clipboardPending && pendingCustomKinds.isEmpty() && pendingRecentKinds.isEmpty()) {
+            return false
+        }
+        var changed = false
+        transaction {
+            createLegacyStageTables()
+            val digestTables = ArrayList<LegacyDigestTable>()
+            if (basePending) {
+                parseLegacyUserDictionary(sources.userDictionary)
+                parseLegacyLearning(sources.userLearning)
+                requireEmptyTables(
+                    "user_words",
+                    "user_readings",
+                    "user_bigrams",
+                    "learned_formed",
+                    "learned_pending",
+                    "learned_follows",
+                )
+                digestTables.addAll(LEGACY_BASE_DIGEST_TABLES)
+            }
+            if (clipboardPending) {
+                parseLegacyClipboard(sources.root, sources.clipboard)
+                parseLegacyPhrases(sources.phrases, sources.clipboard.isFile || sources.phrases.isFile)
+                requireEmptyTables("clipboard_history", "phrase_categories", "phrases")
+                digestTables.addAll(LEGACY_CLIPBOARD_DIGEST_TABLES)
+            }
+            for (kind in pendingCustomKinds) {
+                parseLegacyCustomItems(kind, customItems[kind].orEmpty())
+                if (customItemCount(kind) != 0L) throw IOException("unmarked custom target is not empty: $kind")
+                digestTables.add(
+                    LegacyDigestTable(
+                        "custom:$kind",
+                        "SELECT value,position FROM legacy_custom_items WHERE kind=? ORDER BY position,value",
+                        "SELECT value,position FROM custom_items WHERE kind=? ORDER BY position,value",
+                        arrayOf(kind),
+                    ),
+                )
+            }
+            for (kind in pendingRecentKinds) {
+                val source = if (kind == "symbols") sources.recentSymbols else sources.recentEmoji
+                parseLegacyRecent(source, kind)
+                normalizeLegacyRecentRecency(kind)
+                if (recentItemCount(kind) != 0L) throw IOException("unmarked recent target is not empty: $kind")
+                digestTables.add(
+                    LegacyDigestTable(
+                        "recent:$kind",
+                        "SELECT identity,value,origin,recency FROM legacy_recent_items WHERE kind=? " +
+                            "ORDER BY recency DESC,identity",
+                        "SELECT identity,value,origin,recency FROM recent_items WHERE kind=? " +
+                            "ORDER BY recency DESC,identity",
+                        arrayOf(kind),
+                    ),
+                )
+            }
+            stage?.invoke(LegacyDataMigrationStage.AFTER_STREAM_PARSE)
+            validateLegacyStageRelations()
+            val expected = legacyDigest(digestTables, staged = true)
+            stage?.invoke(LegacyDataMigrationStage.AFTER_STAGING_VALIDATION)
+            if (basePending) copyLegacyBaseFromStage()
+            if (clipboardPending) copyLegacyClipboardFromStage()
+            for (kind in pendingCustomKinds) copyLegacyCustomFromStage(kind)
+            for (kind in pendingRecentKinds) copyLegacyRecentFromStage(kind)
+            val actual = legacyDigest(digestTables, staged = false)
+            if (actual != expected) throw IOException("legacy migration readback mismatch")
+            if (basePending) putMetadataInTransaction(MIGRATION_KEY, "complete")
+            if (clipboardPending) putMetadataInTransaction(CLIPBOARD_MIGRATION_KEY, "complete")
+            for (kind in pendingCustomKinds) {
+                putMetadataInTransaction("$CUSTOM_MIGRATION_PREFIX$kind", "complete")
+            }
+            for (kind in pendingRecentKinds) {
+                putMetadataInTransaction("$RECENT_MIGRATION_PREFIX$kind", "complete")
+            }
+            for ((key, value) in identities) putMetadataInTransaction("legacy_$key", value)
+            putMetadataInTransaction("legacy_stream_records", expected.first.toString())
+            putMetadataInTransaction("legacy_stream_digest", expected.second)
+            stage?.invoke(LegacyDataMigrationStage.BEFORE_DATABASE_COMMIT)
+            dropLegacyStageTables()
+            changed = true
+        }
+        if (changed) stage?.invoke(LegacyDataMigrationStage.AFTER_DATABASE_COMMIT)
+        return changed
+    }
+
+    private fun createLegacyStageTables() {
+        dropLegacyStageTables()
+        database.execSQL("CREATE TEMP TABLE legacy_user_words (word TEXT PRIMARY KEY,count INTEGER NOT NULL,last_used INTEGER NOT NULL)")
+        database.execSQL("CREATE TEMP TABLE legacy_user_readings (reading TEXT NOT NULL,word TEXT NOT NULL,PRIMARY KEY(reading,word))")
+        database.execSQL("CREATE TEMP TABLE legacy_user_bigrams (prev_word TEXT NOT NULL,word TEXT NOT NULL,count INTEGER NOT NULL,PRIMARY KEY(prev_word,word))")
+        database.execSQL("CREATE TEMP TABLE legacy_learned_formed (word TEXT NOT NULL,reading TEXT NOT NULL,count REAL NOT NULL,last_seen INTEGER NOT NULL,PRIMARY KEY(word,reading))")
+        database.execSQL("CREATE TEMP TABLE legacy_learned_pending (reading TEXT NOT NULL,word TEXT NOT NULL,count REAL NOT NULL,last_seen INTEGER NOT NULL,PRIMARY KEY(reading,word))")
+        database.execSQL("CREATE TEMP TABLE legacy_learned_follows (prev_word TEXT NOT NULL,word TEXT NOT NULL,count REAL NOT NULL,last_seen INTEGER NOT NULL,PRIMARY KEY(prev_word,word))")
+        database.execSQL("CREATE TEMP TABLE legacy_clipboard_history (text TEXT PRIMARY KEY,recency INTEGER NOT NULL UNIQUE)")
+        database.execSQL("CREATE TEMP TABLE legacy_phrase_categories (name TEXT PRIMARY KEY,position INTEGER NOT NULL UNIQUE,next_phrase_position INTEGER NOT NULL)")
+        database.execSQL("CREATE TEMP TABLE legacy_phrases (category TEXT NOT NULL,text TEXT NOT NULL,note TEXT NOT NULL,position INTEGER NOT NULL,PRIMARY KEY(category,text),UNIQUE(category,position))")
+        database.execSQL("CREATE TEMP TABLE legacy_custom_items (kind TEXT NOT NULL,value TEXT NOT NULL,position INTEGER NOT NULL,PRIMARY KEY(kind,value),UNIQUE(kind,position))")
+        database.execSQL("CREATE TEMP TABLE legacy_recent_items (kind TEXT NOT NULL,identity TEXT NOT NULL,value TEXT NOT NULL,origin TEXT,recency INTEGER NOT NULL,PRIMARY KEY(kind,identity),UNIQUE(kind,recency))")
+    }
+
+    private fun dropLegacyStageTables() {
+        for (table in LEGACY_STAGE_TABLES) database.execSQL("DROP TABLE IF EXISTS temp.$table")
+    }
+
+    private fun parseLegacyUserDictionary(file: File) {
+        if (!file.isFile || file.length() == 0L) return
+        file.bufferedReader().use { reader ->
+            require(reader.readLine() == "aegis-userdb 1") { "unsupported userdb header" }
+            while (true) {
+                val fields = reader.readLine()?.split('\t') ?: break
+                when (fields.firstOrNull()) {
+                    "W" -> {
+                        require(fields.size == 4 && isLegacyStorableWord(fields[1])) { "invalid userdb word row" }
+                        val count = fields[2].toIntOrNull()
+                        val lastUsed = fields[3].toLongOrNull()
+                        require(count != null && count in 1..MAX_COUNT && lastUsed != null && lastUsed >= 0L) {
+                            "invalid userdb word values"
+                        }
+                        val values = ContentValues().apply {
+                            put("word", fields[1]); put("count", count); put("last_used", lastUsed)
+                        }
+                        database.insertOrThrow("legacy_user_words", null, values)
+                    }
+                    "R" -> {
+                        require(
+                            fields.size == 3 && fields[1].isNotEmpty() &&
+                                fields[1] == sanitizeLegacyReading(fields[1]) && isLegacyStorableWord(fields[2]),
+                        ) { "invalid userdb reading row" }
+                        val values = ContentValues().apply { put("reading", fields[1]); put("word", fields[2]) }
+                        database.insertOrThrow("legacy_user_readings", null, values)
+                    }
+                    "B" -> {
+                        require(
+                            fields.size == 4 && isLegacyStorableWord(fields[1]) &&
+                                isLegacyStorableWord(fields[2]),
+                        ) { "invalid userdb bigram row" }
+                        val count = fields[3].toIntOrNull()
+                        require(count != null && count in 1..MAX_COUNT) { "invalid userdb bigram count" }
+                        val values = ContentValues().apply {
+                            put("prev_word", fields[1]); put("word", fields[2]); put("count", count)
+                        }
+                        database.insertOrThrow("legacy_user_bigrams", null, values)
+                    }
+                    else -> throw IllegalArgumentException("invalid userdb row")
+                }
+            }
+        }
+    }
+
+    private fun parseLegacyLearning(file: File) {
+        if (!file.isFile || file.length() == 0L) return
+        file.bufferedReader().use { reader ->
+            require(reader.readLine() == "aegis-userlearn 1") { "unsupported userlearn header" }
+            while (true) {
+                val fields = reader.readLine()?.split('\t') ?: break
+                require(fields.size == 5) { "invalid userlearn row" }
+                val count = fields[3].toDoubleOrNull()
+                val lastSeen = fields[4].toLongOrNull()
+                require(count != null && count.isFinite() && count > 0.0 && count <= 1.0e12 &&
+                    lastSeen != null && lastSeen >= 0L) { "invalid userlearn values" }
+                val table: String
+                val values = ContentValues().apply { put("count", count); put("last_seen", lastSeen) }
+                when (fields[0]) {
+                    "F" -> {
+                        require(isLegacyFormedReading(fields[1]) && isLegacyFormableWord(fields[2])) {
+                            "invalid userlearn formed row"
+                        }
+                        table = "legacy_learned_formed"
+                        values.put("word", fields[2]); values.put("reading", fields[1])
+                    }
+                    "P" -> {
+                        require(isLegacyFormedReading(fields[1]) && isLegacyFormableWord(fields[2])) {
+                            "invalid userlearn pending row"
+                        }
+                        table = "legacy_learned_pending"
+                        values.put("reading", fields[1]); values.put("word", fields[2])
+                    }
+                    "C" -> {
+                        require(isLegacyHanWord(fields[1]) && isLegacyHanWord(fields[2])) {
+                            "invalid userlearn follow row"
+                        }
+                        table = "legacy_learned_follows"
+                        values.put("prev_word", fields[1]); values.put("word", fields[2])
+                    }
+                    else -> throw IllegalArgumentException("invalid userlearn row")
+                }
+                database.insertOrThrow(table, null, values)
+            }
+        }
+    }
+
+    private fun parseLegacyClipboard(root: File, file: File) {
+        if (!file.isFile) return
+        var accepted = 0L
+        file.bufferedReader().useLines { lines ->
+            lines.forEach { line ->
+                val text = legacyClipboardEntry(root, line)
+                if (text == null || text.isBlank() || ClipboardStore.isLegacyImageEntry(text)) return@forEach
+                val values = ContentValues().apply {
+                    put("text", text); put("recency", -accepted)
+                }
+                val inserted = database.insertWithOnConflict(
+                    "legacy_clipboard_history",
+                    null,
+                    values,
+                    SQLiteDatabase.CONFLICT_IGNORE,
+                )
+                if (inserted != -1L) accepted++
+            }
+        }
+        if (accepted > 0L) {
+            database.execSQL("UPDATE legacy_clipboard_history SET recency=recency+?", arrayOf<Any>(accepted))
+        }
+    }
+
+    private fun parseLegacyPhrases(file: File, legacyClipboardPresent: Boolean) {
+        if (!file.isFile) {
+            if (legacyClipboardPresent) insertLegacyCategory(ClipboardStore.DEFAULT_CATEGORY_ID)
+            return
+        }
+        val structured = file.bufferedReader().useLines { lines -> lines.any { it.startsWith("C\t") } }
+        if (!structured) {
+            insertLegacyCategory(ClipboardStore.DEFAULT_CATEGORY_ID)
+            file.bufferedReader().useLines { lines ->
+                lines.forEach { line -> decodeLegacyValue(line)?.let { insertLegacyPhrase(ClipboardStore.DEFAULT_CATEGORY_ID, it) } }
+            }
+            return
+        }
+        var category: String? = null
+        var lastPhrase: Pair<String, String>? = null
+        file.bufferedReader().useLines { lines ->
+            lines.forEach { line ->
+                when {
+                    line.startsWith("C\t") -> {
+                        val decoded = decodeLegacyValue(line.substring(2)).orEmpty()
+                        category = decoded.takeIf(String::isNotBlank)
+                        category?.let(::insertLegacyCategory)
+                        lastPhrase = null
+                    }
+                    line.startsWith("P\t") -> {
+                        val current = category
+                        val phrase = decodeLegacyValue(line.substring(2))
+                        lastPhrase = if (current != null && !phrase.isNullOrBlank()) {
+                            insertLegacyPhrase(current, phrase)
+                            current to phrase
+                        } else {
+                            null
+                        }
+                    }
+                    line.startsWith("N\t") -> {
+                        val note = decodeLegacyValue(line.substring(2))
+                        val target = lastPhrase
+                        if (target != null && !note.isNullOrEmpty()) {
+                            val values = ContentValues().apply { put("note", note) }
+                            database.update(
+                                "legacy_phrases",
+                                values,
+                                "category=? AND text=? AND note=''",
+                                arrayOf(target.first, target.second),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        val hasDefault = database.rawQuery(
+            "SELECT 1 FROM legacy_phrase_categories WHERE name=?",
+            arrayOf(ClipboardStore.DEFAULT_CATEGORY_ID),
+        ).use { it.moveToFirst() }
+        if (!hasDefault) {
+            val legacyPosition = database.rawQuery(
+                "SELECT position FROM legacy_phrase_categories WHERE name=?",
+                arrayOf(LEGACY_DEFAULT_PHRASE_CATEGORY),
+            ).use { cursor -> if (cursor.moveToFirst()) cursor.getInt(0) else null }
+            if (legacyPosition != null) {
+                database.execSQL(
+                    "UPDATE legacy_phrase_categories SET name=? WHERE name=?",
+                    arrayOf(ClipboardStore.DEFAULT_CATEGORY_ID, LEGACY_DEFAULT_PHRASE_CATEGORY),
+                )
+                database.execSQL(
+                    "UPDATE legacy_phrases SET category=? WHERE category=?",
+                    arrayOf(ClipboardStore.DEFAULT_CATEGORY_ID, LEGACY_DEFAULT_PHRASE_CATEGORY),
+                )
+            }
+        }
+        if (scalarLong("SELECT COUNT(*) FROM legacy_phrase_categories") == 0L) {
+            insertLegacyCategory(ClipboardStore.DEFAULT_CATEGORY_ID)
+        }
+    }
+
+    private fun insertLegacyCategory(name: String) {
+        if (name.isBlank()) return
+        val values = ContentValues().apply {
+            put("name", name)
+            put("position", scalarLong("SELECT COUNT(*) FROM legacy_phrase_categories"))
+            put("next_phrase_position", 0)
+        }
+        database.insertWithOnConflict(
+            "legacy_phrase_categories",
+            null,
+            values,
+            SQLiteDatabase.CONFLICT_IGNORE,
+        )
+    }
+
+    private fun insertLegacyPhrase(category: String, text: String) {
+        if (text.isBlank()) return
+        val position = database.rawQuery(
+            "SELECT next_phrase_position FROM legacy_phrase_categories WHERE name=?",
+            arrayOf(category),
+        ).use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else return }
+        val values = ContentValues().apply {
+            put("category", category); put("text", text); put("note", ""); put("position", position)
+        }
+        val inserted = database.insertWithOnConflict(
+            "legacy_phrases",
+            null,
+            values,
+            SQLiteDatabase.CONFLICT_IGNORE,
+        )
+        if (inserted != -1L) {
+            database.execSQL(
+                "UPDATE legacy_phrase_categories SET next_phrase_position=next_phrase_position+1 WHERE name=?",
+                arrayOf(category),
+            )
+        }
+    }
+
+    private fun parseLegacyCustomItems(kind: String, items: List<String>) {
+        var position = 0L
+        for (item in items) {
+            if (item.isEmpty()) continue
+            val values = ContentValues().apply { put("kind", kind); put("value", item); put("position", position) }
+            val inserted = database.insertWithOnConflict(
+                "legacy_custom_items",
+                null,
+                values,
+                SQLiteDatabase.CONFLICT_IGNORE,
+            )
+            if (inserted != -1L) position++
+        }
+    }
+
+    private fun parseLegacyRecent(file: File, kind: String) {
+        if (!file.isFile) return
+        var position = 0L
+        file.bufferedReader().useLines { lines ->
+            lines.forEach { line ->
+                if (line.isEmpty()) return@forEach
+                val tab = line.indexOf('\t')
+                val value = if (tab >= 0) line.substring(0, tab) else line
+                val origin = if (tab >= 0) line.substring(tab + 1).ifEmpty { null } else null
+                if (value.isEmpty()) return@forEach
+                val values = ContentValues().apply {
+                    put("kind", kind)
+                    put("identity", SymbolCatalog.foldFullWidth(value))
+                    put("value", value)
+                    if (origin == null) putNull("origin") else put("origin", origin)
+                    put("recency", -position)
+                }
+                val inserted = database.insertWithOnConflict(
+                    "legacy_recent_items",
+                    null,
+                    values,
+                    SQLiteDatabase.CONFLICT_IGNORE,
+                )
+                if (inserted != -1L) position++
+            }
+        }
+    }
+
+    private fun normalizeLegacyRecentRecency(kind: String) {
+        val count = database.rawQuery(
+            "SELECT COUNT(*) FROM legacy_recent_items WHERE kind=?",
+            arrayOf(kind),
+        ).use { cursor -> cursor.moveToFirst(); cursor.getLong(0) }
+        if (count > 0L) {
+            database.execSQL(
+                "UPDATE legacy_recent_items SET recency=recency+? WHERE kind=?",
+                arrayOf<Any>(count, kind),
+            )
+        }
+    }
+
+    private fun validateLegacyStageRelations() {
+        val missingReading = database.rawQuery(
+            "SELECT 1 FROM legacy_user_readings relation LEFT JOIN legacy_user_words word " +
+                "ON word.word=relation.word WHERE word.word IS NULL LIMIT 1",
+            null,
+        ).use { it.moveToFirst() }
+        val missingBigram = database.rawQuery(
+            "SELECT 1 FROM legacy_user_bigrams relation LEFT JOIN legacy_user_words word " +
+                "ON word.word=relation.word WHERE word.word IS NULL LIMIT 1",
+            null,
+        ).use { it.moveToFirst() }
+        if (missingReading || missingBigram) throw IOException("legacy user relation target is missing")
+    }
+
+    private fun requireEmptyTables(vararg tables: String) {
+        for (table in tables) if (scalarLong("SELECT COUNT(*) FROM $table") != 0L) {
+            throw IOException("unmarked migration target is not empty: $table")
+        }
+    }
+
+    private fun copyLegacyBaseFromStage() {
+        database.execSQL("INSERT INTO user_words (word,count,last_used) SELECT word,count,last_used FROM legacy_user_words")
+        database.execSQL("INSERT INTO user_readings (reading,word) SELECT reading,word FROM legacy_user_readings")
+        database.execSQL("INSERT INTO user_bigrams (prev_word,word,count) SELECT prev_word,word,count FROM legacy_user_bigrams")
+        database.execSQL("INSERT INTO learned_formed (word,reading,count,last_seen) SELECT word,reading,count,last_seen FROM legacy_learned_formed")
+        database.execSQL("INSERT INTO learned_pending (reading,word,count,last_seen) SELECT reading,word,count,last_seen FROM legacy_learned_pending")
+        database.execSQL("INSERT INTO learned_follows (prev_word,word,count,last_seen) SELECT prev_word,word,count,last_seen FROM legacy_learned_follows")
+    }
+
+    private fun copyLegacyClipboardFromStage() {
+        database.execSQL("INSERT INTO clipboard_history (text,recency) SELECT text,recency FROM legacy_clipboard_history")
+        database.execSQL("INSERT INTO phrase_categories (name,position) SELECT name,position FROM legacy_phrase_categories")
+        database.execSQL("INSERT INTO phrases (category,text,note,position) SELECT category,text,note,position FROM legacy_phrases")
+    }
+
+    private fun copyLegacyCustomFromStage(kind: String) {
+        database.execSQL(
+            "INSERT INTO custom_items (kind,value,position) SELECT kind,value,position " +
+                "FROM legacy_custom_items WHERE kind=?",
+            arrayOf(kind),
+        )
+    }
+
+    private fun copyLegacyRecentFromStage(kind: String) {
+        database.execSQL(
+            "INSERT INTO recent_items (kind,identity,value,origin,recency) " +
+                "SELECT kind,identity,value,origin,recency FROM legacy_recent_items WHERE kind=?",
+            arrayOf(kind),
+        )
+    }
+
+    private fun legacyDigest(tables: List<LegacyDigestTable>, staged: Boolean): Pair<Long, String> {
+        val digest = MessageDigest.getInstance("SHA-256")
+        var records = 0L
+        for (table in tables) {
+            updateLegacyDigest(digest, table.name)
+            val query = if (staged) table.stageQuery else table.targetQuery
+            database.rawQuery(query, table.args).use { cursor ->
+                while (cursor.moveToNext()) {
+                    records++
+                    digest.update(cursor.columnCount.toByte())
+                    for (column in 0 until cursor.columnCount) {
+                        if (cursor.isNull(column)) digest.update(0.toByte()) else {
+                            digest.update(1.toByte())
+                            updateLegacyDigest(digest, cursor.getString(column))
+                        }
+                    }
+                }
+            }
+        }
+        return records to digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xff) }
+    }
+
+    private fun updateLegacyDigest(digest: MessageDigest, value: String) {
+        val bytes = value.toByteArray(Charsets.UTF_8)
+        digest.update((bytes.size ushr 24).toByte())
+        digest.update((bytes.size ushr 16).toByte())
+        digest.update((bytes.size ushr 8).toByte())
+        digest.update(bytes.size.toByte())
+        digest.update(bytes)
+    }
+
+    private fun legacyClipboardEntry(root: File, line: String): String? = if (line.startsWith("B\t")) {
+        val sidecar = File(File(root, "clips"), line.substring(2) + ".txt")
+        if (sidecar.isFile) sidecar.bufferedReader().use { it.readText() } else decodeLegacyValue(line)
+    } else {
+        decodeLegacyValue(line)
+    }
+
+    private fun decodeLegacyValue(value: String): String? {
+        if (value.isEmpty()) return null
+        val decoded = StringBuilder(value.length)
+        var index = 0
+        while (index < value.length) {
+            val character = value[index]
+            if (character == '\\' && index + 1 < value.length) {
+                when (value[index + 1]) {
+                    'n' -> decoded.append('\n')
+                    'r' -> decoded.append('\r')
+                    '\\' -> decoded.append('\\')
+                    else -> decoded.append(value[index + 1])
+                }
+                index += 2
+            } else {
+                decoded.append(character)
+                index++
+            }
+        }
+        return decoded.toString()
+    }
+
+    private fun isLegacyStorableWord(word: String): Boolean =
+        word.isNotEmpty() && word.none { it == '\t' || it == '\n' || it == '\r' }
+
+    private fun sanitizeLegacyReading(reading: String): String = buildString(reading.length) {
+        for (character in reading.lowercase(Locale.ROOT)) if (character in 'a'..'z') append(character)
+    }
+
+    private fun isLegacyHanWord(word: String): Boolean {
+        if (word.isEmpty()) return false
+        var offset = 0
+        while (offset < word.length) {
+            val codePoint = word.codePointAt(offset)
+            if (!Character.isIdeographic(codePoint)) return false
+            offset += Character.charCount(codePoint)
+        }
+        return true
+    }
+
+    private fun isLegacyFormableWord(word: String): Boolean =
+        isLegacyHanWord(word) && word.codePointCount(0, word.length) >= 2
+
+    private fun isLegacyFormedReading(reading: String): Boolean =
+        reading.length >= 2 && reading.all { it in 'a'..'z' }
+
+    @Synchronized
     fun migrateLegacyCollections(
         clipboard: ClipboardDataSnapshot?,
         customItems: Map<String, List<String>>,
@@ -2629,6 +3188,70 @@ internal class UserDataDatabase private constructor(
             .filterNotTo(LinkedHashSet()) { it == "user_settings" || it == "user_setting_set_values" }
             .plus(setOf("metadata", "android_metadata"))
         private val EXPECTED_TABLES = RESTORE_TABLES.keys + setOf("metadata", "android_metadata")
+        private val LEGACY_CUSTOM_KINDS = listOf("custom_symbols", "custom_operators")
+        private val LEGACY_RECENT_KINDS = listOf("symbols", "emoji")
+        private val LEGACY_STAGE_TABLES = listOf(
+            "legacy_user_readings",
+            "legacy_user_bigrams",
+            "legacy_user_words",
+            "legacy_learned_formed",
+            "legacy_learned_pending",
+            "legacy_learned_follows",
+            "legacy_clipboard_history",
+            "legacy_phrases",
+            "legacy_phrase_categories",
+            "legacy_custom_items",
+            "legacy_recent_items",
+        )
+        private val LEGACY_BASE_DIGEST_TABLES = listOf(
+            LegacyDigestTable(
+                "user_words",
+                "SELECT word,count,last_used FROM legacy_user_words ORDER BY word",
+                "SELECT word,count,last_used FROM user_words ORDER BY word",
+            ),
+            LegacyDigestTable(
+                "user_readings",
+                "SELECT reading,word FROM legacy_user_readings ORDER BY reading,word",
+                "SELECT reading,word FROM user_readings ORDER BY reading,word",
+            ),
+            LegacyDigestTable(
+                "user_bigrams",
+                "SELECT prev_word,word,count FROM legacy_user_bigrams ORDER BY prev_word,word",
+                "SELECT prev_word,word,count FROM user_bigrams ORDER BY prev_word,word",
+            ),
+            LegacyDigestTable(
+                "learned_formed",
+                "SELECT word,reading,count,last_seen FROM legacy_learned_formed ORDER BY word,reading",
+                "SELECT word,reading,count,last_seen FROM learned_formed ORDER BY word,reading",
+            ),
+            LegacyDigestTable(
+                "learned_pending",
+                "SELECT reading,word,count,last_seen FROM legacy_learned_pending ORDER BY reading,word",
+                "SELECT reading,word,count,last_seen FROM learned_pending ORDER BY reading,word",
+            ),
+            LegacyDigestTable(
+                "learned_follows",
+                "SELECT prev_word,word,count,last_seen FROM legacy_learned_follows ORDER BY prev_word,word",
+                "SELECT prev_word,word,count,last_seen FROM learned_follows ORDER BY prev_word,word",
+            ),
+        )
+        private val LEGACY_CLIPBOARD_DIGEST_TABLES = listOf(
+            LegacyDigestTable(
+                "clipboard_history",
+                "SELECT text,recency FROM legacy_clipboard_history ORDER BY recency DESC,text",
+                "SELECT text,recency FROM clipboard_history ORDER BY recency DESC,text",
+            ),
+            LegacyDigestTable(
+                "phrase_categories",
+                "SELECT name,position FROM legacy_phrase_categories ORDER BY position,name",
+                "SELECT name,position FROM phrase_categories ORDER BY position,name",
+            ),
+            LegacyDigestTable(
+                "phrases",
+                "SELECT category,text,note,position FROM legacy_phrases ORDER BY category,position,text",
+                "SELECT category,text,note,position FROM phrases ORDER BY category,position,text",
+            ),
+        )
 
         fun open(root: File): UserDataDatabase {
             if (!root.exists() && !root.mkdirs()) throw IOException("user data directory creation failed")
