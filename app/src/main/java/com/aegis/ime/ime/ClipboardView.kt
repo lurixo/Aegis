@@ -51,6 +51,7 @@ import android.widget.TextView
 import android.icu.text.BreakIterator
 import androidx.core.graphics.drawable.toDrawable
 import com.aegis.ime.ime.ClipboardPanelState.Tab
+import com.aegis.ime.user.PersistedPage
 
 class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, CoversToolbar {
 
@@ -68,10 +69,14 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     var categoriesProvider: () -> List<String> = { emptyList() }
     var phrasesInProvider: (String) -> List<String> = { emptyList() }
     var historyPageProvider: ((Int, Int) -> List<String>)? = null
+    var historyPageSnapshotProvider: ((Int, Int, Long?) -> PersistedPage<String>)? = null
     var historyCountProvider: (() -> Long)? = null
     var categoryPageProvider: ((Int, Int) -> List<String>)? = null
+    var categoryPageSnapshotProvider: ((Int, Int, Long?) -> PersistedPage<String>)? = null
     var categoryCountProvider: (() -> Long)? = null
+    var categoryIndexProvider: ((String) -> Long?)? = null
     var phrasePageProvider: ((String, Int, Int) -> List<String>)? = null
+    var phrasePageSnapshotProvider: ((String, Int, Int, Long?) -> PersistedPage<String>)? = null
     var phraseCountProvider: ((String) -> Long)? = null
     var phraseNoteProvider: (String, String) -> String = { _, _ -> "" }
     var onDeleteClips: (List<String>) -> Unit = {}
@@ -140,6 +145,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private var applyingListScroll = false
     private var listTouchActive = false
     private var entryPage = 0
+    private var entryVersion: Long? = null
+    private var entryTotalCount: Long? = null
+    private var categoryPage = 0
+    private var categoryVersion: Long? = null
+    private var categoryTotalCount: Long? = null
 
     private var sortMode = false
     private var categorySortMode = false
@@ -165,9 +175,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     fun showPhraseTab(category: String) {
         val switching = st.switchTab(ClipboardPanelState.Tab.PHRASE)
         st.collapse(); swipeRevealed = null; sortMode = false; categorySortMode = false
-        val retarget = category.isNotEmpty() && phraseCat != category && category in currentCategories()
-        if (retarget) phraseCat = category
-        if (switching || retarget) entryPage = 0
+        val retarget = category.isNotEmpty() && phraseCat != category && retargetCategory(category)
+        if (switching || retarget) resetEntryPaging()
         if (switching || retarget) forceNextRebuild = true
         refresh(animate = false)
     }
@@ -175,8 +184,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     fun reopenAfterInline(category: String) {
         st.collapse(); swipeRevealed = null; sortMode = false; categorySortMode = false
         if (st.tab == ClipboardPanelState.Tab.PHRASE) {
-            if (category.isNotEmpty() && category in currentCategories()) phraseCat = category
-            entryPage = 0
+            if (category.isNotEmpty()) retargetCategory(category)
+            resetEntryPaging()
             forceNextRebuild = true
         }
         refresh(animate = false)
@@ -302,7 +311,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         const val INITIAL_SYNC_ROWS = 12
         const val APPEND_ROWS_PER_FRAME = 12
         const val PERSISTED_ENTRY_PAGE_SIZE = 60
-        const val PERSISTED_CATEGORY_LIMIT = 128
+        const val PERSISTED_CATEGORY_PAGE_SIZE = 24
         const val SWIPE_ACTION_SIZE_DP = 44
         const val SWIPE_ACTION_GAP_DP = 4
         const val COMPACT_ACTION_HEIGHT_DP = 36
@@ -658,7 +667,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     fun reset() {
         invalidateListRender()
         listTouchActive = false
-        entryPage = 0
+        resetEntryPaging()
+        categoryPage = 0
+        categoryVersion = null
+        categoryTotalCount = null
         st.reset(); hideOverlayImmediately(); swipeRevealed = null; sortMode = false; categorySortMode = false
     }
 
@@ -676,7 +688,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     internal fun switchTabForTest(toClipboard: Boolean) {
         if (st.switchTab(if (toClipboard) ClipboardPanelState.Tab.CLIPBOARD else ClipboardPanelState.Tab.PHRASE)) {
             swipeRevealed = null
-            entryPage = 0
+            resetEntryPaging()
         }
         refresh()
     }
@@ -932,6 +944,31 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     internal fun overlayVisibleForTest(): Boolean = overlay.visibility == VISIBLE
     internal fun hideOverlayForTest() = hideOverlay()
     internal fun selectPhraseCategoryForTest(name: String) = selectPhraseCategory(name)
+    internal fun categoryPageForTest(): Int = categoryPage
+    internal fun categoryNamesForTest(): List<String> = currentCategories()
+    internal fun nextCategoryPageForTest(): Boolean {
+        currentCategories()
+        if (categoryPage >= categoryMaximumPage()) return false
+        changeCategoryPage(1)
+        return true
+    }
+    internal fun previousCategoryPageForTest(): Boolean {
+        currentCategories()
+        if (categoryPage <= 0) return false
+        changeCategoryPage(-1)
+        return true
+    }
+    internal fun entryPageForTest(): Int = entryPage
+    internal fun entryTextsForTest(): List<String> = currentEntries()
+    internal fun nextEntryPageForTest(): Boolean {
+        currentEntries()
+        if (entryPage >= entryMaximumPage()) return false
+        entryPage++
+        listScrollY = 0
+        forceNextRebuild = true
+        refresh(animate = false)
+        return true
+    }
 
     private fun cancelPendingListAppend() {
         pendingListAppend?.let { removeCallbacks(it) }
@@ -1605,7 +1642,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         val settleTarget = if (lifted != null && from in 0 until listColumn.childCount && to in 0 until listColumn.childCount)
             (listColumn.getChildAt(to).top - lifted.top).toFloat() else 0f
         if (reordered) {
-            if (kind == DragKind.CATEGORY) onReorderCategory(from, to)
+            if (kind == DragKind.CATEGORY) onReorderCategory(
+                from + categoryPage * PERSISTED_CATEGORY_PAGE_SIZE,
+                to + categoryPage * PERSISTED_CATEGORY_PAGE_SIZE,
+            )
             else onReorderPhrase(
                 currentCategory(),
                 from + entryPage * PERSISTED_ENTRY_PAGE_SIZE,
@@ -1782,6 +1822,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         recordRenderSignature(cats, current, cats)
         populateListRows(cats) { name, i -> catSortRowFor(name, i, current) }
         main.addView(listScroll, ll(MP, 0, 1f))
+        if (categoryMaximumPage() > 0) main.addView(categoryPageBar(), ll(MP, dp(36)))
     }
 
     private fun catSortRowFor(name: String, index: Int, current: String): View {
@@ -1812,6 +1853,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(4), 0, dp(4), 0)
         background = rounded(CARD, ImeShapes.toolbarPillRadiusDp)
+        if (categoryMaximumPage() > 0) addView(categoryPageButton(previous = true), ll(dp(34), dp(40)))
         val chips = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
@@ -1832,6 +1874,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             isHorizontalScrollBarEnabled = false
             addView(chips, FrameLayout.LayoutParams(WC, MP))
         }, ll(0, dp(34), 1f))
+        if (categoryMaximumPage() > 0) addView(categoryPageButton(previous = false), ll(dp(34), dp(40)))
         addView(TextView(context).apply {
             text = context.getString(R.string.clip_edit)
             gravity = Gravity.CENTER
@@ -1842,6 +1885,46 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             Motion.applyTapFeedback(this, TEXT_DARK)
             setOnClickListener { showPhraseManageMenu() }
         }, ll(dp(48), dp(40)))
+    }
+
+    private fun categoryPageButton(previous: Boolean): View = TextView(context).apply {
+        text = if (previous) "‹" else "›"
+        gravity = Gravity.CENTER
+        contentDescription = context.getString(if (previous) R.string.clip_previous_page else R.string.clip_next_page)
+        val enabled = if (previous) categoryPage > 0 else categoryPage < categoryMaximumPage()
+        isEnabled = enabled
+        setTextColor(if (enabled) TEXT_DARK else HINT)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
+        if (enabled) {
+            Motion.applyTapFeedback(this, TEXT_DARK)
+            setOnClickListener { changeCategoryPage(if (previous) -1 else 1) }
+        }
+    }
+
+    private fun categoryPageBar(): View = LinearLayout(context).apply {
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER
+        addView(categoryPageButton(previous = true), ll(dp(48), MP))
+        addView(TextView(context).apply {
+            text = context.getString(R.string.clip_page_format, categoryPage + 1, categoryMaximumPage() + 1)
+            gravity = Gravity.CENTER
+            setTextColor(TEXT_SECONDARY)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.caption)
+        }, ll(0, MP, 1f))
+        addView(categoryPageButton(previous = false), ll(dp(48), MP))
+    }
+
+    private fun changeCategoryPage(delta: Int) {
+        val target = (categoryPage + delta).coerceIn(0, categoryMaximumPage())
+        if (target == categoryPage) return
+        categoryPage = target
+        phraseCat = ""
+        categoryScrollX = 0
+        resetEntryPaging()
+        st.collapse()
+        swipeRevealed = null
+        forceNextRebuild = true
+        refresh()
     }
 
     private fun showPhraseManageMenu() {
@@ -1895,7 +1978,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             pendingCategoryFade = true
         }
         phraseCat = name
-        entryPage = 0
+        resetEntryPaging()
         refresh()
     }
 
@@ -2144,12 +2227,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun chooseMoveCategoryThen(current: String, moveTexts: List<String>, after: () -> Unit = {}, action: (String) -> Unit) {
         val targets = currentCategories().filter { it != current }
         val card = menuCard()
-        if (targets.isEmpty()) {
+        if (targets.isEmpty() && categoryMaximumPage() == 0) {
             card.addView(menuTitle(context.getString(R.string.clip_no_other_categories)))
             card.addView(menuItem(context.getString(R.string.clip_new_category)) { hideOverlay(); after(); onAddCategoryThenMove(current, moveTexts) })
         } else {
             card.addView(menuTitle(context.getString(R.string.clip_move_to_category)))
             for (c in targets) { card.addView(moveTargetRow(c, current, moveTexts, after, action)) }
+            addCategoryChooserPaging(card) { chooseMoveCategoryThen(current, moveTexts, after, action) }
             card.addView(menuItem(context.getString(R.string.clip_new_category)) { hideOverlay(); after(); onAddCategoryThenMove(current, moveTexts) })
         }
         showOverlay(card)
@@ -2194,12 +2278,33 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
     private fun chooseCategoryThen(pending: List<String>, after: () -> Unit = {}) {
         val cats = currentCategories()
-        if (cats.isEmpty()) { after(); onAddCategoryThenAdd(pending); return }
+        if (cats.isEmpty() && categoryMaximumPage() == 0) { after(); onAddCategoryThenAdd(pending); return }
         val card = menuCard()
         card.addView(menuTitle(context.getString(R.string.clip_choose_category)))
         for (c in cats) { card.addView(menuItem(displayCat(c)) { hideOverlay(); onSaveAsPhrasesTo(c, pending); after(); refresh() }) }
+        addCategoryChooserPaging(card) { chooseCategoryThen(pending, after) }
         card.addView(menuItem(context.getString(R.string.clip_new_category)) { hideOverlay(); after(); onAddCategoryThenAdd(pending) })
         showOverlay(card)
+    }
+
+    private fun addCategoryChooserPaging(card: LinearLayout, reopen: () -> Unit) {
+        val maximumPage = categoryMaximumPage()
+        if (maximumPage == 0) return
+        if (categoryPage > 0) card.addView(menuItem(context.getString(R.string.clip_previous_page)) {
+            categoryPage--
+            phraseCat = ""
+            resetEntryPaging()
+            categoryScrollX = 0
+            reopen()
+        })
+        card.addView(menuTitle(context.getString(R.string.clip_page_format, categoryPage + 1, maximumPage + 1)))
+        if (categoryPage < maximumPage) card.addView(menuItem(context.getString(R.string.clip_next_page)) {
+            categoryPage++
+            phraseCat = ""
+            resetEntryPaging()
+            categoryScrollX = 0
+            reopen()
+        })
     }
 
     private fun showSplit(text: String) {
@@ -2271,12 +2376,75 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
 
-    private fun currentCategories(): List<String> = categoryPageProvider
-        ?.invoke(0, PERSISTED_CATEGORY_LIMIT)
-        ?: categoriesProvider()
+    private fun currentCategories(): List<String> {
+        categoryPageSnapshotProvider?.let { provider ->
+            var page = provider(
+                categoryPage * PERSISTED_CATEGORY_PAGE_SIZE,
+                PERSISTED_CATEGORY_PAGE_SIZE,
+                categoryVersion,
+            )
+            if (page.restartRequired) {
+                categoryPage = 0
+                categoryVersion = null
+                page = provider(0, PERSISTED_CATEGORY_PAGE_SIZE, null)
+            }
+            categoryVersion = page.version
+            categoryTotalCount = page.totalCount
+            val maximumPage = categoryMaximumPage()
+            if (categoryPage > maximumPage) {
+                categoryPage = maximumPage
+                page = provider(
+                    categoryPage * PERSISTED_CATEGORY_PAGE_SIZE,
+                    PERSISTED_CATEGORY_PAGE_SIZE,
+                    page.version,
+                )
+                categoryVersion = page.version
+                categoryTotalCount = page.totalCount
+            }
+            return page.items
+        }
+        categoryPageProvider?.let { provider ->
+            categoryTotalCount = categoryCountProvider?.invoke()
+            val maximumPage = categoryMaximumPage()
+            if (categoryPage > maximumPage) categoryPage = maximumPage
+            return provider(categoryPage * PERSISTED_CATEGORY_PAGE_SIZE, PERSISTED_CATEGORY_PAGE_SIZE)
+        }
+        val categories = categoriesProvider()
+        categoryTotalCount = categories.size.toLong()
+        return categories
+    }
 
     private fun entriesForPage(category: String): List<String> {
         val offset = entryPage * PERSISTED_ENTRY_PAGE_SIZE
+        val snapshotProvider: ((Int, Int, Long?) -> PersistedPage<String>)? = if (st.tab == Tab.CLIPBOARD) {
+            historyPageSnapshotProvider
+        } else {
+            phrasePageSnapshotProvider?.let { provider ->
+                { pageOffset, limit, version -> provider(category, pageOffset, limit, version) }
+            }
+        }
+        snapshotProvider?.let { provider ->
+            var page = provider(offset, PERSISTED_ENTRY_PAGE_SIZE, entryVersion)
+            if (page.restartRequired) {
+                entryPage = 0
+                entryVersion = null
+                page = provider(0, PERSISTED_ENTRY_PAGE_SIZE, null)
+            }
+            entryVersion = page.version
+            entryTotalCount = page.totalCount
+            val maximumPage = entryMaximumPage()
+            if (entryPage > maximumPage) {
+                entryPage = maximumPage
+                page = provider(
+                    entryPage * PERSISTED_ENTRY_PAGE_SIZE,
+                    PERSISTED_ENTRY_PAGE_SIZE,
+                    page.version,
+                )
+                entryVersion = page.version
+                entryTotalCount = page.totalCount
+            }
+            return page.items
+        }
         val entries = if (st.tab == Tab.CLIPBOARD) {
             historyPageProvider?.invoke(offset, PERSISTED_ENTRY_PAGE_SIZE) ?: historyProvider()
         } else {
@@ -2287,16 +2455,44 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         return entriesForPage(category)
     }
 
-    private fun currentEntryCount(category: String): Long = if (st.tab == Tab.CLIPBOARD) {
+    private fun currentEntryCount(category: String): Long = entryTotalCount ?: if (st.tab == Tab.CLIPBOARD) {
         historyCountProvider?.invoke() ?: historyProvider().size.toLong()
     } else {
         phraseCountProvider?.invoke(category) ?: phrasesInProvider(category).size.toLong()
     }
 
     private fun isPersistedPagingEnabled(): Boolean = if (st.tab == Tab.CLIPBOARD) {
-        historyPageProvider != null && historyCountProvider != null
+        historyPageSnapshotProvider != null || (historyPageProvider != null && historyCountProvider != null)
     } else {
-        phrasePageProvider != null && phraseCountProvider != null
+        phrasePageSnapshotProvider != null || (phrasePageProvider != null && phraseCountProvider != null)
+    }
+
+    private fun resetEntryPaging() {
+        entryPage = 0
+        entryVersion = null
+        entryTotalCount = null
+    }
+
+    private fun entryMaximumPage(): Int =
+        (((entryTotalCount ?: 0L) - 1L).coerceAtLeast(0L) / PERSISTED_ENTRY_PAGE_SIZE).toInt()
+
+    private fun categoryMaximumPage(): Int =
+        (((categoryTotalCount ?: 0L) - 1L).coerceAtLeast(0L) / PERSISTED_CATEGORY_PAGE_SIZE).toInt()
+
+    private fun retargetCategory(name: String): Boolean {
+        val index = categoryIndexProvider?.invoke(name)
+        if (index != null) {
+            categoryPage = (index / PERSISTED_CATEGORY_PAGE_SIZE).toInt()
+            categoryVersion = null
+            categoryTotalCount = null
+            phraseCat = name
+            return true
+        }
+        if (name in currentCategories()) {
+            phraseCat = name
+            return true
+        }
+        return false
     }
 
     private fun entryPageBar(category: String): View {
@@ -2370,8 +2566,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         background = rounded(CARD, ImeShapes.toolbarPillRadiusDp)
-        addView(pill(context.getString(R.string.clip_clipboard), st.tab == Tab.CLIPBOARD, true) { if (st.switchTab(Tab.CLIPBOARD)) { swipeRevealed = null; sortMode = false; categorySortMode = false; entryPage = 0; refresh() } }, ll(dp(84), MP))
-        addView(pill(context.getString(R.string.clip_phrases), st.tab == Tab.PHRASE, false) { if (st.switchTab(Tab.PHRASE)) { swipeRevealed = null; sortMode = false; categorySortMode = false; entryPage = 0; refresh() } }, ll(dp(84), MP))
+        addView(pill(context.getString(R.string.clip_clipboard), st.tab == Tab.CLIPBOARD, true) { if (st.switchTab(Tab.CLIPBOARD)) { swipeRevealed = null; sortMode = false; categorySortMode = false; resetEntryPaging(); refresh() } }, ll(dp(84), MP))
+        addView(pill(context.getString(R.string.clip_phrases), st.tab == Tab.PHRASE, false) { if (st.switchTab(Tab.PHRASE)) { swipeRevealed = null; sortMode = false; categorySortMode = false; resetEntryPaging(); refresh() } }, ll(dp(84), MP))
     }
 
     private fun pill(label: String, on: Boolean, left: Boolean, onClick: () -> Unit): TextView = TextView(context).apply {

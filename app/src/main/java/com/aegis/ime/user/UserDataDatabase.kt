@@ -1265,6 +1265,12 @@ internal class UserDataDatabase private constructor(
     ).use { it.moveToFirst() }
 
     @Synchronized
+    fun phraseCategoryIndex(name: String): Long? = database.rawQuery(
+        "SELECT position FROM phrase_categories WHERE name=?",
+        arrayOf(name),
+    ).use { cursor -> if (cursor.moveToFirst()) cursor.getLong(0) else null }
+
+    @Synchronized
     fun phraseCount(category: String): Long = database.rawQuery(
         "SELECT COUNT(*) FROM phrases WHERE category=?",
         arrayOf(category),

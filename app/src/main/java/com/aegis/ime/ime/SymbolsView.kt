@@ -42,6 +42,7 @@ import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.layout.SymbolCatalog
+import com.aegis.ime.user.PersistedPage
 
 class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar {
 
@@ -50,6 +51,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
     var onBackspace: () -> Unit = {}
     var onBack: () -> Unit = {}
     var recentProvider: () -> List<String> = { emptyList() }
+    var recentPageProvider: ((Int, Int, Long?) -> PersistedPage<String>)? = null
     var recentOriginOf: (String) -> String? = { null }
 
     private val density = resources.displayMetrics.density
@@ -67,6 +69,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
     private var showingUrlCompletions = false
     private var measuringWidthOverride = 0
     private var lastFlowWidth = -1
+    private var recentPage = 0
+    private var recentVersion: Long? = null
 
     private var palette = ImePalette.STATIC_LIGHT
     private val rail = LinearLayout(context).apply { orientation = VERTICAL }
@@ -76,10 +80,16 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         val p = dp(4); setPadding(p, p, p, p)
     }
     private val netBar = LinearLayout(context).apply { orientation = VERTICAL; visibility = View.GONE }
+    private val recentPageBar = LinearLayout(context).apply {
+        orientation = HORIZONTAL
+        gravity = Gravity.CENTER
+        visibility = View.GONE
+    }
     private val gridHolder = LinearLayout(context).apply {
         orientation = VERTICAL
         addView(netBar, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(grid, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        addView(recentPageBar, LayoutParams(LayoutParams.MATCH_PARENT, dp(36)))
     }
     private val gridScroll = ScrollView(context).apply { addView(gridHolder); isFillViewport = true }
     private val clearDialog = PanelConfirmationOverlay(context)
@@ -109,6 +119,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         const val COLUMNS = 7
         const val WIDE_GLYPH_SCALE = 0.82f
         const val BADGE_CLEARANCE_DP = 6
+        const val RECENT_PAGE_SIZE = 70
 
         private val CELL_PLACEMENT: Map<String, Pair<Float, Float>> = mapOf(
             "，" to (-0.20f to 0.24f),
@@ -188,6 +199,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         Motion.reset(lockBtn)
         clearDialog.dismissImmediately()
         Motion.reset(gridScroll)
+        recentPage = 0
+        recentVersion = null
         showCategory(0, animate = false)
         gridScroll.scrollTo(0, 0)
         railScroll.scrollTo(0, 0)
@@ -212,6 +225,12 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
             (tile.getChildAt(1) as TextView).setTextColor(p.keyLabelSecondary)
         }
         emptySpanView?.setTextColor(p.keyHint)
+        for (index in 0 until recentPageBar.childCount) {
+            val label = recentPageBar.getChildAt(index) as? TextView ?: continue
+            val color = if (index == 1 || !label.isEnabled) p.keyLabelSecondary else p.keyLabel
+            label.setTextColor(color)
+            if (index != 1 && label.isEnabled) Motion.applyTapFeedback(label, color)
+        }
         updateLockFace()
         styleRail(-1)
     }
@@ -241,6 +260,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         grid.removeAllViews()
         netBar.removeAllViews()
         val symbols = symbolsFor(index)
+        if (index != 0) recentPageBar.visibility = View.GONE
         if (symbols.isEmpty()) { netBar.visibility = View.GONE; grid.addView(obtainEmptySpan()); return }
         val isNet = index != 0 && SymbolCatalog.categories.getOrNull(index - 1)?.id == "net"
         if (isNet) {
@@ -358,7 +378,70 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
     private fun isUrlLike(s: String): Boolean = s.any { it == '/' || it == ':' || it == '.' }
 
     private fun symbolsFor(index: Int): List<String> =
-        if (index == 0) recentProvider() else SymbolCatalog.categories[index - 1].symbols
+        if (index == 0) loadRecentPage() else SymbolCatalog.categories[index - 1].symbols
+
+    private fun loadRecentPage(): List<String> {
+        val provider = recentPageProvider
+        if (provider == null) {
+            recentPageBar.visibility = View.GONE
+            return recentProvider()
+        }
+        var page = provider(recentPage * RECENT_PAGE_SIZE, RECENT_PAGE_SIZE, recentVersion)
+        if (page.restartRequired) {
+            recentPage = 0
+            recentVersion = null
+            page = provider(0, RECENT_PAGE_SIZE, null)
+        }
+        recentVersion = page.version
+        val maximumPage = maximumPage(page.totalCount)
+        if (recentPage > maximumPage) {
+            recentPage = maximumPage
+            page = provider(recentPage * RECENT_PAGE_SIZE, RECENT_PAGE_SIZE, null)
+            recentVersion = page.version
+        }
+        rebuildRecentPageBar(page.totalCount)
+        return page.items
+    }
+
+    private fun rebuildRecentPageBar(totalCount: Long?) {
+        recentPageBar.removeAllViews()
+        val maximumPage = maximumPage(totalCount)
+        recentPageBar.visibility = if (maximumPage > 0) View.VISIBLE else View.GONE
+        if (maximumPage == 0) return
+        fun button(label: String, description: Int, enabled: Boolean, move: () -> Unit) = TextView(context).apply {
+            text = label
+            gravity = Gravity.CENTER
+            contentDescription = context.getString(description)
+            setTextColor(if (enabled) palette.keyLabel else palette.keyLabelSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
+            isEnabled = enabled
+            if (enabled) {
+                Motion.applyTapFeedback(this, palette.keyLabel)
+                setOnClickListener {
+                    move()
+                    gridScroll.scrollTo(0, 0)
+                    bindGrid(0)
+                }
+            }
+        }
+        recentPageBar.addView(
+            button("‹", R.string.clip_previous_page, recentPage > 0) { recentPage-- },
+            LayoutParams(dp(48), LayoutParams.MATCH_PARENT),
+        )
+        recentPageBar.addView(TextView(context).apply {
+            text = context.getString(R.string.clip_page_format, recentPage + 1, maximumPage + 1)
+            gravity = Gravity.CENTER
+            setTextColor(palette.keyLabelSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.caption)
+        }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        recentPageBar.addView(
+            button("›", R.string.clip_next_page, recentPage < maximumPage) { recentPage++ },
+            LayoutParams(dp(48), LayoutParams.MATCH_PARENT),
+        )
+    }
+
+    private fun maximumPage(totalCount: Long?): Int =
+        (((totalCount ?: 0L) - 1L).coerceAtLeast(0L) / RECENT_PAGE_SIZE).toInt()
 
     private fun originForCurrent(symbol: String): String? =
         if (selected == 0) recentOriginOf(symbol) else SymbolCatalog.categories.getOrNull(selected - 1)?.id
@@ -497,6 +580,9 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
     internal fun confirmClearForTest(): Boolean = clearDialog.confirmForTest()
     internal fun cancelClearForTest(): Boolean = clearDialog.cancelForTest()
     internal fun dismissClearForTest(): Boolean = clearDialog.performClick()
+    internal fun recentPageForTest(): Int = recentPage
+    internal fun nextRecentPageForTest(): Boolean = recentPageBar.getChildAt(2)?.performClick() ?: false
+    internal fun previousRecentPageForTest(): Boolean = recentPageBar.getChildAt(0)?.performClick() ?: false
 
     internal fun netBarVisibleForTest(): Boolean = showingUrlCompletions
     internal fun chipBarVisibleForTest(): Boolean = netBar.visibility == View.VISIBLE
@@ -571,6 +657,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
             palette,
         ) {
             onClearRecents()
+            recentPage = 0
+            recentVersion = null
             showCategory(selected)
         }
     }

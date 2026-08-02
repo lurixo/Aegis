@@ -102,6 +102,8 @@ class CustomSymbolStore private constructor(
 
     fun count(): Long = database?.customItemCount(key) ?: legacyItems().size.toLong()
 
+    fun contains(symbol: String): Boolean = database?.containsCustomItem(key, symbol) ?: (symbol in legacyItems())
+
     private fun save(items: List<String>): Boolean = runCatching {
         val saved = if (database == null) {
             prefs.edit().putString(key, items.joinToString("\n")).commit()

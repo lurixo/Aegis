@@ -45,6 +45,7 @@ import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.layout.EmojiCatalog
 import com.aegis.ime.layout.EmojiVariants
+import com.aegis.ime.user.PersistedPage
 
 class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar {
 
@@ -53,6 +54,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
     var onBackspace: () -> Unit = {}
     var onBack: () -> Unit = {}
     var recentProvider: () -> List<String> = { emptyList() }
+    var recentPageProvider: ((Int, Int, Long?) -> PersistedPage<String>)? = null
 
     private val titles: List<String> = listOf(context.getString(EmojiCatalog.RECENT_TITLE_RES)) + EmojiCatalog.categories.map { context.getString(it.titleRes) }
 
@@ -68,8 +70,14 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         val p = dp(4); setPadding(p, p, p, p)
     }
     private val gridScroll = ScrollView(context).apply { addView(grid); isFillViewport = true }
+    private val recentPageBar = LinearLayout(context).apply {
+        orientation = HORIZONTAL
+        gravity = Gravity.CENTER
+        visibility = GONE
+    }
     private val clearDialog = PanelConfirmationOverlay(context)
     private val gridFrame = FrameLayout(context)
+    private val gridColumn = LinearLayout(context).apply { orientation = VERTICAL }
     private val variantGenderRow = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER }
     private val variantSkinRow = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER }
     private val variantCard = LinearLayout(context).apply {
@@ -95,6 +103,8 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
     private var variantGenderForm = ""
     private var variantOwnsPointer = false
     private var locked = false
+    private var recentPage = 0
+    private var recentVersion: Long? = null
     private val backGlyph = IconDrawable(density, 0.41f) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }
     private val backBtn = barButton("") { onBack() }
     private val lockBtn = barButton("") { toggleLock() }
@@ -142,13 +152,15 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
 
         gridFrame.addView(gridScroll, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         gridFrame.addView(variantScrim, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        gridColumn.addView(gridFrame, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        gridColumn.addView(recentPageBar, LayoutParams(LayoutParams.MATCH_PARENT, dp(36)))
         variantCard.addView(variantGenderRow)
         variantCard.addView(variantSkinRow)
         val content = LinearLayout(context).apply {
             orientation = HORIZONTAL
             railScroll.setBackgroundColor(palette.keyboardBg)
             addView(railScroll, LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
-            addView(gridFrame, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+            addView(gridColumn, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         }
         val panelColumn = LinearLayout(context).apply {
             orientation = VERTICAL
@@ -177,6 +189,12 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         backspaceGlyph.tint(p.keyLabelSecondary)
         for (cell in emojiPool) retintRipple(cell, p.keyLabel)
         emptyHintView?.setTextColor(p.keyHint)
+        for (index in 0 until recentPageBar.childCount) {
+            val label = recentPageBar.getChildAt(index) as? TextView ?: continue
+            val color = if (index == 1 || !label.isEnabled) p.keyLabelSecondary else p.keyLabel
+            label.setTextColor(color)
+            if (index != 1 && label.isEnabled) Motion.applyTapFeedback(label, color)
+        }
         updateLockFace()
         styleRail(-1)
     }
@@ -188,6 +206,8 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         variantOwnsPointer = false
         clearDialog.dismissImmediately()
         Motion.reset(gridScroll)
+        recentPage = 0
+        recentVersion = null
         showCategory(0, animate = false)
         gridScroll.scrollTo(0, 0)
         railScroll.scrollTo(0, 0)
@@ -229,6 +249,9 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
     internal fun confirmClearForTest(): Boolean = clearDialog.confirmForTest()
     internal fun cancelClearForTest(): Boolean = clearDialog.cancelForTest()
     internal fun dismissClearForTest(): Boolean = clearDialog.performClick()
+    internal fun recentPageForTest(): Int = recentPage
+    internal fun nextRecentPageForTest(): Boolean = recentPageBar.getChildAt(2)?.performClick() ?: false
+    internal fun previousRecentPageForTest(): Boolean = recentPageBar.getChildAt(0)?.performClick() ?: false
 
     private fun showCategory(index: Int, animate: Boolean = true) {
         dismissVariants()
@@ -254,7 +277,9 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
 
     private fun bindGrid(index: Int) {
         grid.removeAllViews()
-        val emoji = if (index == 0) recentProvider() else EmojiCatalog.categories[index - 1].emoji
+        val emoji = if (index == 0) loadRecentPage() else EmojiCatalog.categories[index - 1].emoji.also {
+            recentPageBar.visibility = GONE
+        }
         if (emoji.isEmpty()) { grid.addView(obtainEmptyHint()); return }
         for (i in emoji.indices) {
             val cell = obtainEmojiCell(i)
@@ -263,6 +288,69 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
             grid.addView(cell)
         }
     }
+
+    private fun loadRecentPage(): List<String> {
+        val provider = recentPageProvider
+        if (provider == null) {
+            recentPageBar.visibility = GONE
+            return recentProvider()
+        }
+        var page = provider(recentPage * RECENT_PAGE_SIZE, RECENT_PAGE_SIZE, recentVersion)
+        if (page.restartRequired) {
+            recentPage = 0
+            recentVersion = null
+            page = provider(0, RECENT_PAGE_SIZE, null)
+        }
+        recentVersion = page.version
+        val maximumPage = maximumPage(page.totalCount)
+        if (recentPage > maximumPage) {
+            recentPage = maximumPage
+            page = provider(recentPage * RECENT_PAGE_SIZE, RECENT_PAGE_SIZE, null)
+            recentVersion = page.version
+        }
+        rebuildRecentPageBar(page.totalCount)
+        return page.items
+    }
+
+    private fun rebuildRecentPageBar(totalCount: Long?) {
+        recentPageBar.removeAllViews()
+        val maximumPage = maximumPage(totalCount)
+        recentPageBar.visibility = if (maximumPage > 0) VISIBLE else GONE
+        if (maximumPage == 0) return
+        fun button(label: String, description: Int, enabled: Boolean, move: () -> Unit) = TextView(context).apply {
+            text = label
+            gravity = Gravity.CENTER
+            contentDescription = context.getString(description)
+            setTextColor(if (enabled) palette.keyLabel else palette.keyLabelSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
+            isEnabled = enabled
+            if (enabled) {
+                Motion.applyTapFeedback(this, palette.keyLabel)
+                setOnClickListener {
+                    move()
+                    gridScroll.scrollTo(0, 0)
+                    bindGrid(0)
+                }
+            }
+        }
+        recentPageBar.addView(
+            button("‹", R.string.clip_previous_page, recentPage > 0) { recentPage-- },
+            LayoutParams(dp(48), LayoutParams.MATCH_PARENT),
+        )
+        recentPageBar.addView(TextView(context).apply {
+            text = context.getString(R.string.clip_page_format, recentPage + 1, maximumPage + 1)
+            gravity = Gravity.CENTER
+            setTextColor(palette.keyLabelSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.caption)
+        }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        recentPageBar.addView(
+            button("›", R.string.clip_next_page, recentPage < maximumPage) { recentPage++ },
+            LayoutParams(dp(48), LayoutParams.MATCH_PARENT),
+        )
+    }
+
+    private fun maximumPage(totalCount: Long?): Int =
+        (((totalCount ?: 0L) - 1L).coerceAtLeast(0L) / RECENT_PAGE_SIZE).toInt()
 
     private fun obtainEmptyHint(): TextView = emptyHintView ?: TextView(context).apply {
         text = context.getString(R.string.emoji_empty_hint)
@@ -459,6 +547,8 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
             palette,
         ) {
             onClearRecents()
+            recentPage = 0
+            recentVersion = null
             showCategory(selected)
         }
     }
@@ -532,5 +622,6 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
 
     private companion object {
         const val COLUMNS = 7
+        const val RECENT_PAGE_SIZE = 70
     }
 }

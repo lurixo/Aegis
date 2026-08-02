@@ -29,11 +29,14 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import com.aegis.ime.layout.SymbolCatalog
+import com.aegis.ime.user.PersistedPage
 import kotlin.math.roundToInt
 
 class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePanel {
 
     var current: () -> List<String> = { emptyList() }
+    var currentPageProvider: ((Int, Int, Long?) -> PersistedPage<String>)? = null
+    var containsCurrent: ((String) -> Boolean)? = null
     var onAdd: (String) -> Unit = {}
     var onRemove: (String) -> Unit = {}
     var onBack: () -> Unit = {}
@@ -42,6 +45,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     private fun dp(v: Int) = (v * density).toInt()
     private var colors = ImePalette.STATIC_LIGHT
     private val addedRows = LinearLayout(context).apply { orientation = VERTICAL }
+    private val addedPageBar = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER }
     private val paletteRows = LinearLayout(context).apply { orientation = VERTICAL }
     private val contentColumn = LinearLayout(context).apply { orientation = VERTICAL }
     private val contentScroll = ScrollView(context).apply { addView(contentColumn) }
@@ -61,6 +65,10 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     private val minimumHeaderHeight = dp(20)
     private val intactChipHeight = dp(44)
     private val normalBackVerticalPadding = dp(10)
+    private var addedPage = 0
+    private var addedVersion: Long? = null
+    private var cachedAddedPage = -1
+    private var cachedAdded: PersistedPage<String>? = null
 
     var backTitle: String = context.getString(R.string.csp_back_title)
         set(v) { field = v; backText.text = v }
@@ -79,6 +87,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
 
         contentColumn.addView(sectionLabel(context.getString(R.string.csp_added_tap_to_remove)))
         contentColumn.addView(addedRows, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        contentColumn.addView(addedPageBar, LayoutParams(LayoutParams.MATCH_PARENT, dp(36)))
         contentColumn.addView(sectionLabel(context.getString(R.string.csp_tap_to_add)))
         contentColumn.addView(paletteRows, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(contentScroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
@@ -87,6 +96,10 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     override fun resetToDefault() {
         Motion.reset(contentColumn)
         contentScroll.scrollTo(0, 0)
+        addedPage = 0
+        addedVersion = null
+        invalidateAddedPage()
+        rebuildFlows()
     }
 
     fun applyPalette(p: ImePalette) {
@@ -108,13 +121,87 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     }
 
     fun refresh() {
+        invalidateAddedPage()
         rebuildFlows()
     }
 
     private fun rebuildFlows() {
-        val added = current()
+        val page = loadAddedPage()
+        val added = page.items
         fillFlow(addedRows, added) { sym -> chip("$sym ✕", removable = true) { onRemove(sym) } }
-        fillFlow(paletteRows, addPalette.filter { it !in added }) { sym -> chip(sym, removable = false) { onAdd(sym) } }
+        rebuildAddedPageBar(page.totalCount ?: added.size.toLong())
+        val fallback = if (containsCurrent == null) current().toHashSet() else emptySet()
+        fillFlow(paletteRows, addPalette.filter { sym -> containsCurrent?.invoke(sym) != true && sym !in fallback }) { sym ->
+            chip(sym, removable = false) { onAdd(sym) }
+        }
+    }
+
+    private fun invalidateAddedPage() {
+        cachedAddedPage = -1
+        cachedAdded = null
+    }
+
+    private fun loadAddedPage(): PersistedPage<String> {
+        if (cachedAddedPage == addedPage) cachedAdded?.let { return it }
+        val provider = currentPageProvider
+        var page = if (provider == null) {
+            val all = current()
+            PersistedPage(
+                all.drop(addedPage * ADDED_PAGE_SIZE).take(ADDED_PAGE_SIZE),
+                0L,
+                all.size.toLong(),
+            )
+        } else {
+            provider(addedPage * ADDED_PAGE_SIZE, ADDED_PAGE_SIZE, addedVersion)
+        }
+        if (page.restartRequired && provider != null) {
+            addedPage = 0
+            addedVersion = null
+            page = provider(0, ADDED_PAGE_SIZE, null)
+        }
+        addedVersion = page.version
+        val maximumPage = (((page.totalCount ?: 0L) - 1L).coerceAtLeast(0L) / ADDED_PAGE_SIZE).toInt()
+        if (addedPage > maximumPage && provider != null) {
+            addedPage = maximumPage
+            page = provider(addedPage * ADDED_PAGE_SIZE, ADDED_PAGE_SIZE, null)
+            addedVersion = page.version
+        }
+        cachedAddedPage = addedPage
+        cachedAdded = page
+        return page
+    }
+
+    private fun rebuildAddedPageBar(totalCount: Long) {
+        addedPageBar.removeAllViews()
+        val maximumPage = ((totalCount - 1L).coerceAtLeast(0L) / ADDED_PAGE_SIZE).toInt()
+        addedPageBar.visibility = if (maximumPage > 0) View.VISIBLE else View.GONE
+        if (maximumPage == 0) return
+        fun pageButton(label: String, description: Int, enabled: Boolean, move: () -> Unit) = TextView(context).apply {
+            text = label
+            gravity = Gravity.CENTER
+            contentDescription = context.getString(description)
+            setTextColor(if (enabled) colors.keyLabel else colors.keyLabelSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
+            isEnabled = enabled
+            if (enabled) {
+                Motion.applyTapFeedback(this, colors.keyLabel)
+                setOnClickListener { move(); invalidateAddedPage(); rebuildFlows(); contentScroll.scrollTo(0, 0) }
+            }
+        }
+        addedPageBar.addView(
+            pageButton("‹", R.string.clip_previous_page, addedPage > 0) { addedPage-- },
+            LayoutParams(dp(48), LayoutParams.MATCH_PARENT),
+        )
+        addedPageBar.addView(TextView(context).apply {
+            text = context.getString(R.string.clip_page_format, addedPage + 1, maximumPage + 1)
+            gravity = Gravity.CENTER
+            setTextColor(colors.keyLabelSecondary)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.caption)
+        }, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addedPageBar.addView(
+            pageButton("›", R.string.clip_next_page, addedPage < maximumPage) { addedPage++ },
+            LayoutParams(dp(48), LayoutParams.MATCH_PARENT),
+        )
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -173,6 +260,13 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     }
     internal fun contentScrollYForTest(): Int = contentScroll.scrollY
     internal fun contentViewportForTest(): View = contentScroll
+    internal fun addedPageForTest(): Int = addedPage
+    internal fun nextAddedPageForTest(): Boolean = addedPageBar.getChildAt(2)?.performClick() ?: false
+    internal fun previousAddedPageForTest(): Boolean = addedPageBar.getChildAt(0)?.performClick() ?: false
+    internal fun addedChipLabelsForTest(): List<String> = (0 until addedRows.childCount).flatMap { rowIndex ->
+        val row = addedRows.getChildAt(rowIndex) as? ViewGroup ?: return@flatMap emptyList()
+        (0 until row.childCount).mapNotNull { (row.getChildAt(it) as? TextView)?.text?.toString() }
+    }
     internal fun backButtonForTest(): TextView = backText
     internal fun paletteChipForTest(symbol: String): View? {
         for (r in 0 until paletteRows.childCount) {
@@ -199,5 +293,9 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         isClickable = true
         Motion.applyTapFeedback(this, if (removable) colors.deletable else colors.keyLabel)
         setOnClickListener { onClick() }
+    }
+
+    private companion object {
+        const val ADDED_PAGE_SIZE = 56
     }
 }

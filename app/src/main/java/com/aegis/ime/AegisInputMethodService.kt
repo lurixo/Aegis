@@ -785,6 +785,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (iv.isPanelShowing(emojiView)) { iv.showPanel(null); return }
         val ev = emojiView ?: EmojiView(this).also {
             it.recentProvider = { emojiUsageStore.recent() }
+            it.recentPageProvider = { offset, limit, version ->
+                emojiUsageStore.recentPageSnapshot(offset, limit, version).map { entry -> entry.symbol }
+            }
             it.onEmoji = { e -> emojiUsageStore.record(e); commitExternalText(e) }
             it.onClearRecents = { emojiUsageStore.clear() }
             it.onBackspace = { panelBackspace() }
@@ -809,10 +812,20 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.categoriesProvider = { clipboardStore.categories() }
             it.phrasesInProvider = { cat -> clipboardStore.phrasesIn(cat) }
             it.historyPageProvider = { offset, limit -> clipboardStore.historyPage(offset, limit) }
+            it.historyPageSnapshotProvider = { offset, limit, version ->
+                clipboardStore.historyPageSnapshot(offset, limit, version)
+            }
             it.historyCountProvider = { clipboardStore.historyCount() }
             it.categoryPageProvider = { offset, limit -> clipboardStore.categoryPage(offset, limit) }
+            it.categoryPageSnapshotProvider = { offset, limit, version ->
+                clipboardStore.categoryPageSnapshot(offset, limit, version)
+            }
             it.categoryCountProvider = { clipboardStore.categoryCount() }
+            it.categoryIndexProvider = { category -> clipboardStore.categoryIndex(category) }
             it.phrasePageProvider = { category, offset, limit -> clipboardStore.phrasesPage(category, offset, limit) }
+            it.phrasePageSnapshotProvider = { category, offset, limit, version ->
+                clipboardStore.phrasesPageSnapshot(category, offset, limit, version)
+            }
             it.phraseCountProvider = { category -> clipboardStore.phraseCount(category) }
             it.phraseNoteProvider = { cat, text -> clipboardStore.noteFor(cat, text) }
             it.onPick = { t -> commitLargeText(t); inputView?.showPanel(null) }
@@ -877,8 +890,20 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val panel = customSymbolView ?: CustomSymbolPanel(this).also {
             it.addPalette = zhSymbolPalette
             it.current = { customSymbolStore.list() }
-            it.onAdd = { s -> customSymbolStore.add(s); controller.setCustomSymbols(customSymbolStore.list()); it.refresh() }
-            it.onRemove = { s -> customSymbolStore.remove(s); controller.setCustomSymbols(customSymbolStore.list()); it.refresh() }
+            it.currentPageProvider = { offset, limit, version -> customSymbolStore.pageSnapshot(offset, limit, version) }
+            it.containsCurrent = { symbol -> customSymbolStore.contains(symbol) }
+            it.onAdd = { s ->
+                if (customSymbolStore.add(s)) {
+                    controller.setCustomSymbols(customSymbolStore.list())
+                    it.refresh()
+                }
+            }
+            it.onRemove = { s ->
+                if (customSymbolStore.remove(s)) {
+                    controller.setCustomSymbols(customSymbolStore.list())
+                    it.refresh()
+                }
+            }
             it.onBack = { inputView?.showPanel(null) }
             customSymbolView = it
         }
@@ -893,8 +918,20 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.backTitle = getString(R.string.svc_custom_operators_back)
             it.addPalette = mathOperatorPalette
             it.current = { customOperatorStore.list() }
-            it.onAdd = { s -> customOperatorStore.add(s); controller.setCustomOperators(customOperatorStore.list()); it.refresh() }
-            it.onRemove = { s -> customOperatorStore.remove(s); controller.setCustomOperators(customOperatorStore.list()); it.refresh() }
+            it.currentPageProvider = { offset, limit, version -> customOperatorStore.pageSnapshot(offset, limit, version) }
+            it.containsCurrent = { symbol -> customOperatorStore.contains(symbol) }
+            it.onAdd = { s ->
+                if (customOperatorStore.add(s)) {
+                    controller.setCustomOperators(customOperatorStore.list())
+                    it.refresh()
+                }
+            }
+            it.onRemove = { s ->
+                if (customOperatorStore.remove(s)) {
+                    controller.setCustomOperators(customOperatorStore.list())
+                    it.refresh()
+                }
+            }
             it.onBack = { inputView?.showPanel(null) }
             customOperatorView = it
         }
@@ -907,6 +944,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (iv.isPanelShowing(symbolsView)) { iv.showPanel(null); return }
         val sv = symbolsView ?: SymbolsView(this).also {
             it.recentProvider = { symbolUsageStore.recent() }
+            it.recentPageProvider = { offset, limit, version ->
+                symbolUsageStore.recentPageSnapshot(offset, limit, version).map { entry -> entry.symbol }
+            }
             it.recentOriginOf = { s -> symbolUsageStore.originOf(s) }
             it.onClearRecents = { symbolUsageStore.clear() }
             it.onSymbol = { s, origin -> symbolUsageStore.record(s, origin); commitExternalSymbol(s) }

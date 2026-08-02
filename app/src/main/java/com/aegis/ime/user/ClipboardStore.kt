@@ -348,6 +348,9 @@ class ClipboardStore private constructor(
 
     fun categoryCount(): Long = database?.phraseCategoryCount() ?: phraseCats.size.toLong()
 
+    fun categoryIndex(name: String): Long? = database?.phraseCategoryIndex(name) ?:
+        phraseCats.indexOfFirst { it.name == name }.takeIf { it >= 0 }?.toLong()
+
     fun phrasesIn(category: String): List<String> = database?.let { backing ->
         runCatching { backing.readPhrases(category, 0, RUNTIME_PAGE_SIZE).map { it.text } }
             .onSuccess { phrasePageCache.put(category, it); lastFailure = null }
