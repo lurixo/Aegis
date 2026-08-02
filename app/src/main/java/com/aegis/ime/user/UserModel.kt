@@ -26,6 +26,8 @@ class UserModel internal constructor(
     private val clock: () -> Long = System::currentTimeMillis,
     private val database: UserDataDatabase? = null,
 ) {
+    internal data class RankedSuccessor(val word: String, val score: Double)
+
     constructor(clock: () -> Long = System::currentTimeMillis) : this(clock, null)
     private val count = HashMap<String, Int>()
     private val lastUsed = HashMap<String, Long>()
@@ -303,6 +305,95 @@ class UserModel internal constructor(
     }
 
     @Synchronized
+    internal fun successorsPageSnapshot(
+        previousWord: String,
+        offset: Int,
+        limit: Int,
+        expectedVersion: Long? = null,
+    ): PersistedPage<String> {
+        require(offset >= 0)
+        require(limit in 0..RUNTIME_PAGE_SIZE)
+        database?.let { backing ->
+            return backing.readUserSuccessorsPage(previousWord, offset, limit, expectedVersion)
+                .map { it.word }
+        }
+        val current = version
+        if (expectedVersion != null && expectedVersion != current) {
+            return PersistedPage(emptyList(), current, restartRequired = true)
+        }
+        val items = successors(previousWord, Int.MAX_VALUE)
+        return PersistedPage(items.drop(offset).take(limit), current, items.size.toLong())
+    }
+
+    @Synchronized
+    internal fun rankedSuccessorsPageSnapshot(
+        previousWord: String,
+        after: RankedSuccessor?,
+        limit: Int,
+        rankingNow: Long,
+        expectedVersion: Long? = null,
+    ): PersistedPage<RankedSuccessor> {
+        require(limit in 0..RUNTIME_PAGE_SIZE)
+        val order = compareByDescending<RankedSuccessor> { it.score }.thenBy { it.word }
+        fun followsAfter(candidate: RankedSuccessor): Boolean = after == null || order.compare(candidate, after) > 0
+        val worstFirst = java.util.PriorityQueue(order.reversed())
+        fun offer(rows: Sequence<StoredUserWordEntry>) {
+            if (limit == 0) return
+            for (entry in rows) {
+                val candidate = RankedSuccessor(
+                    entry.word,
+                    usageScore(entry.count, entry.lastUsed, rankingNow),
+                )
+                if (!followsAfter(candidate)) continue
+                if (worstFirst.size < limit) {
+                    worstFirst.add(candidate)
+                } else if (order.compare(candidate, worstFirst.peek()) < 0) {
+                    worstFirst.remove()
+                    worstFirst.add(candidate)
+                }
+            }
+        }
+        fun selectedPage(): List<RankedSuccessor> = worstFirst.toList().sortedWith(order)
+
+        database?.let { backing ->
+            var offset = 0
+            var versionToken = expectedVersion
+            while (true) {
+                val page = backing.readUserSuccessorsPage(
+                    previousWord,
+                    offset,
+                    RUNTIME_PAGE_SIZE,
+                    versionToken,
+                )
+                if (page.restartRequired) {
+                    return PersistedPage(emptyList(), page.version, restartRequired = true)
+                }
+                versionToken = page.version
+                offer(page.items.asSequence())
+                val total = page.totalCount ?: (offset + page.items.size).toLong()
+                if (offset.toLong() + RUNTIME_PAGE_SIZE >= total || offset > Int.MAX_VALUE - RUNTIME_PAGE_SIZE) break
+                offset += RUNTIME_PAGE_SIZE
+            }
+            val verification = backing.readUserSuccessorsPage(previousWord, 0, 0, versionToken)
+            if (verification.restartRequired) {
+                return PersistedPage(emptyList(), verification.version, restartRequired = true)
+            }
+            return PersistedPage(selectedPage(), verification.version)
+        }
+        val current = version
+        if (expectedVersion != null && expectedVersion != current) {
+            return PersistedPage(emptyList(), current, restartRequired = true)
+        }
+        val rows = bigram[previousWord].orEmpty().asSequence().map { (word, value) ->
+            StoredUserWordEntry("", word, value, lastUsed[word] ?: 0L)
+        }
+        offer(rows)
+        return PersistedPage(selectedPage(), current)
+    }
+
+    internal fun rankingNow(): Long = clock()
+
+    @Synchronized
     fun isEmpty(): Boolean = database?.userDataIsEmpty() ?: (count.isEmpty() && readings.isEmpty())
 
     @Synchronized
@@ -396,8 +487,23 @@ class UserModel internal constructor(
     @Synchronized
     internal fun containsWordForKey(key: String, word: String): Boolean {
         if (key.isEmpty() || word.isEmpty()) return false
-        return database?.hasUserWordForKey(key, key[0] in '2'..'9', word) ?:
-            (word in wordsForKeyPage(key, 0, RUNTIME_PAGE_SIZE))
+        database?.let { return it.hasUserWordForKey(key, key[0] in '2'..'9', word) }
+        return if (key[0] in '2'..'9') {
+            readings.any { (reading, words) ->
+                com.aegis.ime.decoder.T9Pinyin.toT9(reading) == key && word in words
+            }
+        } else {
+            word in readings[key].orEmpty()
+        }
+    }
+
+    @Synchronized
+    internal fun wordsForKeyIn(key: String, words: Collection<String>): Set<String> {
+        val unique = words.asSequence().filter { it.isNotEmpty() }.distinct().toList()
+        require(unique.size < UserDataDatabase.MAX_RUNTIME_PAGE_SIZE)
+        if (key.isEmpty() || unique.isEmpty()) return emptySet()
+        return database?.userWordsForKeyIn(key, key[0] in '2'..'9', unique) ?:
+            unique.filterTo(HashSet()) { containsWordForKey(key, it) }
     }
 
 
@@ -558,6 +664,9 @@ class UserModel internal constructor(
 
     internal val isDatabaseBacked: Boolean
         get() = database != null
+
+    internal val databaseIdentity: Any?
+        get() = database
 
     internal fun runtimeCacheSizesForTest(): Pair<Int, Int> =
         wordBoostCache.sizeForTest() to readingCache.sizeForTest()

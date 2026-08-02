@@ -694,8 +694,22 @@ class UserDataDatabaseTest {
             assertEquals((100 until 110).map { "phrase-$it" }, clipboard.phrasesPage("large", 100, 10))
 
             val custom = CustomSymbolStore(preferences, "custom_symbols", database)
-            repeat(240) { assertTrue(custom.add("custom-$it")) }
-            assertEquals("runtime custom list is explicitly bounded", 128, custom.list().size)
+            val expectedCustom = (0 until 240).map { "custom-$it" }
+            expectedCustom.forEach { assertTrue(custom.add(it)) }
+            val allCustom = ArrayList<String>()
+            var customVersion: Long? = null
+            while (allCustom.size < expectedCustom.size) {
+                val page = custom.pageSnapshot(allCustom.size, 53, customVersion)
+                assertFalse(page.restartRequired)
+                if (customVersion == null) customVersion = page.version else assertEquals(customVersion, page.version)
+                assertTrue(page.items.isNotEmpty())
+                allCustom.addAll(page.items)
+            }
+            assertEquals(expectedCustom, allCustom)
+            assertEquals(expectedCustom.size, allCustom.toSet().size)
+            val runtimeCustom = custom.pagedList()
+            assertEquals(expectedCustom.size, runtimeCustom.size)
+            assertEquals(expectedCustom, runtimeCustom.indices.map(runtimeCustom::get))
             assertEquals(240L, custom.count())
             assertEquals((200 until 210).map { "custom-$it" }, custom.page(200, 10))
             assertTrue(custom.remove("custom-205"))

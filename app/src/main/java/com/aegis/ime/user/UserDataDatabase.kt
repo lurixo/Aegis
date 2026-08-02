@@ -580,6 +580,26 @@ internal class UserDataDatabase private constructor(
     }
 
     @Synchronized
+    internal fun userWordsForKeyIn(key: String, t9: Boolean, words: Collection<String>): Set<String> {
+        val unique = words.asSequence().filter { it.isNotEmpty() }.distinct().toList()
+        require(unique.size < MAX_RUNTIME_PAGE_SIZE)
+        if (key.isEmpty() || unique.isEmpty()) return emptySet()
+        val reading = if (t9) t9Glob(key) ?: return emptySet() else key
+        val operator = if (t9) "GLOB" else "="
+        val args = ArrayList<String>(unique.size + 1).apply {
+            add(reading)
+            addAll(unique)
+        }
+        val out = HashSet<String>()
+        database.rawQuery(
+            "SELECT word FROM user_readings WHERE reading $operator ? " +
+                "AND word IN (${placeholders(unique.size)})",
+            args.toTypedArray(),
+        ).use { cursor -> while (cursor.moveToNext()) out.add(cursor.getString(0)) }
+        return out
+    }
+
+    @Synchronized
     fun readStoredWord(word: String): StoredWord? {
         scalarRankingReads++
         return database.rawQuery(
@@ -644,9 +664,17 @@ internal class UserDataDatabase private constructor(
         offset: Int,
         limit: Int,
         expectedVersion: Long? = null,
-    ): PersistedPage<StoredUserWordEntry> = consistentPage(expectedVersion) {
-        readUserSuccessors(previousWord, offset, limit)
-    }
+    ): PersistedPage<StoredUserWordEntry> = consistentPage(
+        expectedVersion,
+        total = { userSuccessorCount(previousWord) },
+        read = { readUserSuccessors(previousWord, offset, limit) },
+    )
+
+    @Synchronized
+    fun userSuccessorCount(previousWord: String): Long = scalarLong(
+        "SELECT COUNT(*) FROM user_bigrams WHERE prev_word=?",
+        arrayOf(previousWord),
+    )
 
     @Synchronized
     fun replaceUserData(snapshot: UserDataSnapshot) {
@@ -935,9 +963,17 @@ internal class UserDataDatabase private constructor(
         offset: Int,
         limit: Int,
         expectedVersion: Long? = null,
-    ): PersistedPage<Pair<String, StoredUsage>> = consistentPage(expectedVersion) {
-        readFollows(previousWord, offset, limit)
-    }
+    ): PersistedPage<Pair<String, StoredUsage>> = consistentPage(
+        expectedVersion,
+        total = { followCount(previousWord) },
+        read = { readFollows(previousWord, offset, limit) },
+    )
+
+    @Synchronized
+    fun followCount(previousWord: String): Long = scalarLong(
+        "SELECT COUNT(*) FROM learned_follows WHERE prev_word=?",
+        arrayOf(previousWord),
+    )
 
     @Synchronized
     fun maximumFormedCount(): Double = scalarDouble("SELECT COALESCE(MAX(count),0) FROM learned_formed")
@@ -1492,6 +1528,55 @@ internal class UserDataDatabase private constructor(
         total = { customItemCount(kind) },
         read = { readCustomItems(kind, offset, limit) },
     )
+
+    @Synchronized
+    internal fun readCustomItemsPageExcluding(
+        kind: String,
+        excluded: Collection<String>,
+        offset: Int,
+        limit: Int,
+        expectedVersion: Long? = null,
+    ): PersistedPage<String> {
+        require(offset >= 0)
+        require(limit >= 0)
+        val unique = excluded.asSequence().filter { it.isNotEmpty() }.distinct().toList()
+        require(unique.size < MAX_RUNTIME_PAGE_SIZE)
+        if (unique.isEmpty()) return readCustomItemsPage(kind, offset, limit, expectedVersion)
+        return consistentPage(
+            expectedVersion,
+            total = {
+                val args = ArrayList<String>(unique.size + 1).apply {
+                    add(kind)
+                    addAll(unique)
+                }
+                scalarLong(
+                    "SELECT COUNT(*) FROM custom_items WHERE kind=? " +
+                        "AND value NOT IN (${placeholders(unique.size)})",
+                    args.toTypedArray(),
+                )
+            },
+            read = {
+                if (limit == 0) {
+                    emptyList()
+                } else {
+                    val args = ArrayList<String>(unique.size + 3).apply {
+                        add(kind)
+                        addAll(unique)
+                        add(limit.toString())
+                        add(offset.toString())
+                    }
+                    val out = ArrayList<String>(limit)
+                    database.rawQuery(
+                        "SELECT value FROM custom_items WHERE kind=? " +
+                            "AND value NOT IN (${placeholders(unique.size)}) " +
+                            "ORDER BY position,value LIMIT ? OFFSET ?",
+                        args.toTypedArray(),
+                    ).use { cursor -> while (cursor.moveToNext()) out.add(cursor.getString(0)) }
+                    out
+                }
+            },
+        )
+    }
 
     @Synchronized
     fun customItemCount(kind: String): Long = database.rawQuery(
@@ -3254,7 +3339,7 @@ internal class UserDataDatabase private constructor(
         )
     }
 
-    private fun scalarLong(sql: String): Long = database.rawQuery(sql, null).use { cursor ->
+    private fun scalarLong(sql: String, args: Array<String>? = null): Long = database.rawQuery(sql, args).use { cursor ->
         if (cursor.moveToFirst()) cursor.getLong(0) else 0L
     }
 

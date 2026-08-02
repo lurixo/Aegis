@@ -18,6 +18,8 @@ package com.aegis.ime.engine
 import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.CANDIDATE_PAGE_SIZE
 import com.aegis.ime.decoder.CandidatePage
+import com.aegis.ime.decoder.CandidatePageSource
+import com.aegis.ime.decoder.CandidateSlice
 import com.aegis.ime.decoder.FilteringCandidatePageSource
 import com.aegis.ime.decoder.PinyinDecoder
 import com.aegis.ime.decoder.Syllable
@@ -150,6 +152,106 @@ class DictEngine(
         return out.toList()
     }
 
+    override fun predictPage(
+        prevWord: String?,
+        inputEpoch: Long,
+        pageSize: Int,
+    ): CandidatePage<String> {
+        if (prevWord.isNullOrEmpty()) return CandidatePage(emptyList(), null, inputEpoch)
+        return firstCandidatePage(predictionSource(prevWord), inputEpoch, pageSize)
+    }
+
+    private fun predictionSource(previousWord: String): CandidatePageSource<String> = object : CandidatePageSource<String> {
+        private val pending = ArrayDeque<String>()
+        private var phase = if (userLearning == null) MODEL_PHASE else LEARNING_PHASE
+        private var learningAfter: UserLearning.RankedFollow? = null
+        private var learningVersion: Long? = null
+        private var modelAfter: UserModel.RankedSuccessor? = null
+        private var modelVersion: Long? = null
+        private val learningRankingNow = userLearning?.rankingNow() ?: 0L
+        private val modelRankingNow = userModel?.rankingNow() ?: 0L
+        private var invalidated = false
+        private val sharedDatabase = userLearning?.databaseIdentity?.let { identity ->
+            identity === userModel?.databaseIdentity
+        } == true
+
+        override fun next(pageSize: Int): CandidateSlice<String> {
+            while (pending.size < pageSize && phase < EXHAUSTED_PHASE && !invalidated) loadStoragePage()
+            val count = minOf(pageSize, pending.size)
+            val items = ArrayList<String>(count)
+            repeat(count) { items.add(pending.removeFirst()) }
+            return CandidateSlice(items, pending.isNotEmpty() || (!invalidated && phase < EXHAUSTED_PHASE))
+        }
+
+        private fun loadStoragePage() {
+            when (phase) {
+                LEARNING_PHASE -> loadLearningPage()
+                MODEL_PHASE -> loadModelPage()
+                else -> Unit
+            }
+        }
+
+        private fun loadLearningPage() {
+            val learning = userLearning ?: run { phase = MODEL_PHASE; return }
+            val page = learning.rankedFollowsPageSnapshot(
+                previousWord,
+                learningAfter,
+                PREDICTION_STORAGE_PAGE_SIZE,
+                learningRankingNow,
+                learningVersion,
+            )
+            if (page.restartRequired) {
+                invalidated = true
+                return
+            }
+            learningVersion = page.version
+            for (item in page.items) pending.addLast(item.word)
+            learningAfter = page.items.lastOrNull() ?: learningAfter
+            if (page.items.size < PREDICTION_STORAGE_PAGE_SIZE) {
+                phase = MODEL_PHASE
+                if (sharedDatabase) modelVersion = learningVersion
+            }
+        }
+
+        private fun loadModelPage() {
+            val model = userModel ?: run { phase = EXHAUSTED_PHASE; return }
+            val page = model.rankedSuccessorsPageSnapshot(
+                previousWord,
+                modelAfter,
+                PREDICTION_STORAGE_PAGE_SIZE,
+                modelRankingNow,
+                modelVersion,
+            )
+            if (page.restartRequired) {
+                invalidated = true
+                return
+            }
+            modelVersion = page.version
+            val words = page.items.map { it.word }
+            val learnedDuplicates = userLearning
+                ?.activeFollowWords(previousWord, words, learningRankingNow)
+                .orEmpty()
+            userLearning?.let { learning ->
+                val verification = learning.followsPageSnapshot(
+                    previousWord,
+                    offset = 0,
+                    limit = 0,
+                    expectedVersion = if (sharedDatabase) modelVersion else learningVersion,
+                )
+                if (verification.restartRequired || sharedDatabase && verification.version != modelVersion) {
+                    invalidated = true
+                    return
+                }
+                learningVersion = verification.version
+            }
+            for (word in words) if (word !in learnedDuplicates) pending.addLast(word)
+            modelAfter = page.items.lastOrNull() ?: modelAfter
+            if (page.items.size < PREDICTION_STORAGE_PAGE_SIZE) {
+                phase = EXHAUSTED_PHASE
+            }
+        }
+    }
+
     override fun learn(prevWord: String?, word: String) {
         userModel?.record(prevWord, word, System.currentTimeMillis())
     }
@@ -161,5 +263,12 @@ class DictEngine(
 
     override fun setFuzzyRules(rules: Set<String>) {
         decoder?.setFuzzyRules(rules)
+    }
+
+    private companion object {
+        const val PREDICTION_STORAGE_PAGE_SIZE = 64
+        const val LEARNING_PHASE = 0
+        const val MODEL_PHASE = 1
+        const val EXHAUSTED_PHASE = 2
     }
 }

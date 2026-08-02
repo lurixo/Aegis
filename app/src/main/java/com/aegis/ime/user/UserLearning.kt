@@ -27,6 +27,8 @@ class UserLearning internal constructor(
     private val clock: () -> Long = System::currentTimeMillis,
     private val database: UserDataDatabase? = null,
 ) {
+    internal data class RankedFollow(val word: String, val rankKey: Double)
+
     constructor(clock: () -> Long = System::currentTimeMillis) : this(clock, null)
 
     private class Usage(var count: Double, var lastSeen: Long)
@@ -318,6 +320,31 @@ class UserLearning internal constructor(
     }
 
     @Synchronized
+    internal fun activeFollowWords(
+        previousWord: String,
+        words: Collection<String>,
+        rankingNow: Long,
+    ): Set<String> {
+        val unique = words.asSequence().filter { it.isNotEmpty() }.distinct().toList()
+        require(unique.size < UserDataDatabase.MAX_RUNTIME_PAGE_SIZE)
+        if (unique.isEmpty()) return emptySet()
+        database?.let { backing ->
+            val active = HashSet<String>()
+            backing.forEachFollowUsage(listOf(previousWord), unique) { word, usage ->
+                if (decayed(usage.count, usage.lastSeen, rankingNow, FOLLOW_HALF_LIFE_MILLIS) >= MIN_ACTIVE) {
+                    active.add(word)
+                }
+            }
+            return active
+        }
+        val follows = followsByPrev[previousWord].orEmpty()
+        return unique.filterTo(HashSet()) { word ->
+            val usage = follows[word] ?: return@filterTo false
+            decayed(usage.count, usage.lastSeen, rankingNow, FOLLOW_HALF_LIFE_MILLIS) >= MIN_ACTIVE
+        }
+    }
+
+    @Synchronized
     internal fun followsPageSnapshot(
         previousWord: String,
         offset: Int,
@@ -340,8 +367,75 @@ class UserLearning internal constructor(
         if (expectedVersion != null && expectedVersion != current) {
             return PersistedPage(emptyList(), current, restartRequired = true)
         }
-        return PersistedPage(follows(previousWord).drop(offset).take(limit), current)
+        val items = follows(previousWord)
+        return PersistedPage(items.drop(offset).take(limit), current, items.size.toLong())
     }
+
+    @Synchronized
+    internal fun rankedFollowsPageSnapshot(
+        previousWord: String,
+        after: RankedFollow?,
+        limit: Int,
+        rankingNow: Long,
+        expectedVersion: Long? = null,
+    ): PersistedPage<RankedFollow> {
+        require(limit in 0..RUNTIME_PAGE_SIZE)
+        val order = compareByDescending<RankedFollow> { it.rankKey }.thenBy { it.word }
+        fun followsAfter(candidate: RankedFollow): Boolean = after == null || order.compare(candidate, after) > 0
+        val worstFirst = java.util.PriorityQueue(order.reversed())
+        fun offer(rows: Sequence<Pair<String, StoredUsage>>, now: Long) {
+            if (limit == 0) return
+            for ((word, usage) in rows) {
+                if (decayed(usage.count, usage.lastSeen, now, FOLLOW_HALF_LIFE_MILLIS) < MIN_ACTIVE) continue
+                val candidate = RankedFollow(word, followRankKey(usage))
+                if (!followsAfter(candidate)) continue
+                if (worstFirst.size < limit) {
+                    worstFirst.add(candidate)
+                } else if (order.compare(candidate, worstFirst.peek()) < 0) {
+                    worstFirst.remove()
+                    worstFirst.add(candidate)
+                }
+            }
+        }
+        fun selectedPage(): List<RankedFollow> = worstFirst.toList().sortedWith(order)
+
+        database?.let { backing ->
+            var offset = 0
+            var versionToken = expectedVersion
+            while (true) {
+                val page = backing.readFollowsPage(
+                    previousWord,
+                    offset,
+                    RUNTIME_PAGE_SIZE,
+                    versionToken,
+                )
+                if (page.restartRequired) {
+                    return PersistedPage(emptyList(), page.version, restartRequired = true)
+                }
+                versionToken = page.version
+                offer(page.items.asSequence(), rankingNow)
+                val total = page.totalCount ?: (offset + page.items.size).toLong()
+                if (offset.toLong() + RUNTIME_PAGE_SIZE >= total || offset > Int.MAX_VALUE - RUNTIME_PAGE_SIZE) break
+                offset += RUNTIME_PAGE_SIZE
+            }
+            val verification = backing.readFollowsPage(previousWord, 0, 0, versionToken)
+            if (verification.restartRequired) {
+                return PersistedPage(emptyList(), verification.version, restartRequired = true)
+            }
+            return PersistedPage(selectedPage(), verification.version)
+        }
+        val current = version
+        if (expectedVersion != null && expectedVersion != current) {
+            return PersistedPage(emptyList(), current, restartRequired = true)
+        }
+        val rows = followsByPrev[previousWord].orEmpty().asSequence().map { (word, usage) ->
+            word to StoredUsage(usage.count, usage.lastSeen)
+        }
+        offer(rows, rankingNow)
+        return PersistedPage(selectedPage(), current)
+    }
+
+    internal fun rankingNow(): Long = clock()
 
     @Synchronized
     internal fun maximumFollowBoost(): Double {
@@ -841,6 +935,9 @@ class UserLearning internal constructor(
             return count * exp(-LN_2 * age.toDouble() / halfLifeMillis)
         }
 
+        private fun followRankKey(usage: StoredUsage): Double =
+            ln(usage.count) + LN_2 * usage.lastSeen.toDouble() / FOLLOW_HALF_LIFE_MILLIS
+
         private fun touch(u: Usage, now: Long, halfLifeMillis: Long) {
             u.count = (decayed(u.count, u.lastSeen, now, halfLifeMillis) + 1.0).coerceAtMost(MAX_COUNT)
             u.lastSeen = now
@@ -993,6 +1090,9 @@ class UserLearning internal constructor(
 
     internal val isDatabaseBacked: Boolean
         get() = database != null
+
+    internal val databaseIdentity: Any?
+        get() = database
 
     internal fun runtimeCacheSizesForTest(): Pair<Int, Int> =
         formedWeightCache.sizeForTest() to followBoostCache.sizeForTest()

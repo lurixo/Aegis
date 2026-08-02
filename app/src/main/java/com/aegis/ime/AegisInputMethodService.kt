@@ -280,6 +280,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                     userModel.reloadFromStorage()
                     userLearning.reloadFromStorage()
                 }
+                runCatching { controller.setCustomSymbols(customSymbolStore.pagedList()) }
+                runCatching {
+                    controller.setCustomOperators(
+                        customOperatorStore.pagedList(Layouts.defaultNumpadOperators.toSet()),
+                        prefiltered = true,
+                    )
+                }
                 runCatching { UserSettingsPreferences.notifyRestored(filesDir) }
                 LiveUserData.restoreInProgress = false
             }
@@ -297,8 +304,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.onShowCustomOperators = { showCustomOperatorPanel() }
         controller.onClosePanel = { inputView?.showPanel(null) }
         controller.userLearning = userLearning
-        controller.setCustomSymbols(customSymbolStore.list())
-        controller.setCustomOperators(customOperatorStore.list())
+        controller.setCustomSymbols(customSymbolStore.pagedList())
+        controller.setCustomOperators(
+            customOperatorStore.pagedList(Layouts.defaultNumpadOperators.toSet()),
+            prefiltered = true,
+        )
         Thread {
             runCatching { com.aegis.ime.engine.InputAssociations.lookup("nihao") }
             UserDictHot.host = liveUserDictHost
@@ -894,13 +904,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.containsCurrent = { symbol -> customSymbolStore.contains(symbol) }
             it.onAdd = { s ->
                 if (customSymbolStore.add(s)) {
-                    controller.setCustomSymbols(customSymbolStore.list())
+                    controller.setCustomSymbols(customSymbolStore.pagedList())
                     it.refresh()
                 }
             }
             it.onRemove = { s ->
                 if (customSymbolStore.remove(s)) {
-                    controller.setCustomSymbols(customSymbolStore.list())
+                    controller.setCustomSymbols(customSymbolStore.pagedList())
                     it.refresh()
                 }
             }
@@ -922,13 +932,19 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.containsCurrent = { symbol -> customOperatorStore.contains(symbol) }
             it.onAdd = { s ->
                 if (customOperatorStore.add(s)) {
-                    controller.setCustomOperators(customOperatorStore.list())
+                    controller.setCustomOperators(
+                        customOperatorStore.pagedList(Layouts.defaultNumpadOperators.toSet()),
+                        prefiltered = true,
+                    )
                     it.refresh()
                 }
             }
             it.onRemove = { s ->
                 if (customOperatorStore.remove(s)) {
-                    controller.setCustomOperators(customOperatorStore.list())
+                    controller.setCustomOperators(
+                        customOperatorStore.pagedList(Layouts.defaultNumpadOperators.toSet()),
+                        prefiltered = true,
+                    )
                     it.refresh()
                 }
             }

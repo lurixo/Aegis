@@ -53,6 +53,8 @@ class PinyinDecoder(
     }
     internal var peakActivePoolSizeForTest: Int = 0
         private set
+    internal var peakAtomicLeadPoolSizeForTest: Int = 0
+        private set
     internal var singleFrequencyCacheMissesForTest: Int = 0
         private set
 
@@ -134,7 +136,6 @@ class PinyinDecoder(
                 ensureDecodeActive()
                 val word = pending.removeFirstOrNull()
                 if (word != null) {
-                    if (phase == 2 && userModel?.containsWordForKey(key, word) == true) continue
                     return BinaryDict.WordFreq(word, userWordFreq(word, key).toInt().coerceAtLeast(1))
                 }
                 when (phase) {
@@ -153,12 +154,11 @@ class PinyinDecoder(
                         if (page.isEmpty()) {
                             phase = 3
                         } else {
-                            phase = 2
-                            pending.addAll(page)
+                            val duplicates = userModel?.wordsForKeyIn(key, page).orEmpty()
+                            pending.addAll(page.filterNot { it in duplicates })
                             offset += page.size
                         }
                     }
-                    2 -> phase = 1
                     else -> return null
                 }
             }
@@ -554,6 +554,25 @@ class PinyinDecoder(
         val serial: Long,
         val source: RawPoolSource,
     )
+
+    private data class RankedAtomicLead(
+        val word: String,
+        val coveredLen: Int,
+        val score: Double,
+        val tieRank: Int,
+        val sourceOrder: Int,
+        val serial: Long,
+    )
+
+    private fun compareAtomicLeads(left: RankedAtomicLead, right: RankedAtomicLead): Int {
+        val score = right.score.compareTo(left.score)
+        if (score != 0) return score
+        val tie = left.tieRank.compareTo(right.tieRank)
+        if (tie != 0) return tie
+        val source = left.sourceOrder.compareTo(right.sourceOrder)
+        if (source != 0) return source
+        return left.serial.compareTo(right.serial)
+    }
 
     private inner class IncrementalPoolCursor(
         private val input: String,
@@ -1088,6 +1107,36 @@ class PinyinDecoder(
     }
 
     private fun atomicCandidateSource(input: String, interior: Set<Int>, ctx: Ctx): CandidatePageSource<Cand> {
+        val modelDatabase = userModel?.databaseIdentity
+        val sharedDatabase = modelDatabase != null && modelDatabase === userLearning?.databaseIdentity
+        fun candidateVersions(
+            expectedModel: Long?,
+            expectedLearning: Long?,
+        ): Pair<Long?, Long?>? {
+            val modelVersion = userModel?.wordsForKeyPageSnapshot(
+                input,
+                offset = 0,
+                limit = 0,
+                expectedVersion = expectedModel,
+            )?.let { page ->
+                if (page.restartRequired) return null
+                page.version
+            }
+            val learningVersion = userLearning?.formedWordsForPageSnapshot(
+                input,
+                offset = 0,
+                limit = 0,
+                expectedVersion = if (sharedDatabase) modelVersion else expectedLearning,
+            )?.let { page ->
+                if (page.restartRequired) return null
+                page.version
+            }
+            if (sharedDatabase && modelVersion != learningVersion) return null
+            return modelVersion to learningVersion
+        }
+
+        val initialVersions = candidateVersions(null, null)
+            ?: return ListCandidatePageSource(emptyList())
         val ctxId = resolveCtxId(ctx.cp)
         val condMemo = HashMap<Long, Double>()
         val bounds = atomicBounds(input, interior)
@@ -1102,32 +1151,184 @@ class PinyinDecoder(
             if (!admissibleUnderCuts(wf.word, 0, bounds[j], interior, input, singlesCache)) continue
             if (leadFreq.put(wf.word, wf.freq) == null) leadCov[wf.word] = bounds[j]
         }
-        for (uw in userWordsFor(input)) {
-            if (uw == best || uw in leadFreq || uw.codePointCount(0, uw.length) < 2) continue
-            if (!admissibleUnderCuts(uw, 0, input.length, interior, input, singlesCache)) continue
-            val f = userWordFreq(uw, input).toInt().coerceAtLeast(1)
-            if (leadFreq.put(uw, f) == null) leadCov[uw] = input.length
+        val stableVersions = candidateVersions(initialVersions.first, initialVersions.second)
+            ?: return ListCandidatePageSource(emptyList())
+        val leadOrder = Comparator<RankedAtomicLead> { left, right -> compareAtomicLeads(left, right) }
+        var staticSerial = 0L
+        val leading = leadFreq.entries.map { entry ->
+            RankedAtomicLead(
+                word = entry.key,
+                coveredLen = leadCov.getValue(entry.key),
+                score = wordModelScore(entry.key, entry.value, ctxId, ctx, condMemo),
+                tieRank = supplementarySingleTieRank(entry.key),
+                sourceOrder = 0,
+                serial = staticSerial++,
+            )
+        }.sortedWith(leadOrder)
+
+        class RankedUserLeadCursor(
+            private var modelVersion: Long?,
+            private var learningVersion: Long?,
+        ) {
+            private val pending = ArrayDeque<RankedAtomicLead>()
+            private var after: RankedAtomicLead? = null
+            private var exhausted = userModel == null && userLearning == null
+            var invalidated = false
+                private set
+
+            fun verify(): Boolean {
+                if (invalidated) return false
+                val versions = candidateVersions(modelVersion, learningVersion)
+                if (versions == null) {
+                    invalidated = true
+                    pending.clear()
+                    return false
+                }
+                modelVersion = versions.first
+                learningVersion = versions.second
+                return true
+            }
+
+            private fun loadPage() {
+                if (exhausted || !verify()) return
+                val worstFirst = PriorityQueue(leadOrder.reversed())
+                var serial = 0L
+
+                fun offerWords(words: List<String>) {
+                    val eligible = ArrayList<Pair<String, Long>>(words.size)
+                    for (word in words) {
+                        val candidateSerial = serial++
+                        if (word == best || word in leadFreq || word.codePointCount(0, word.length) < 2) continue
+                        if (!admissibleUnderCuts(word, 0, input.length, interior, input, singlesCache)) continue
+                        eligible.add(word to candidateSerial)
+                    }
+                    prefetchRanking(eligible.map { it.first }, ctx.tail)
+                    val rankingMemo = HashMap<Long, Double>()
+                    for ((word, candidateSerial) in eligible) {
+                        ensureDecodeActive()
+                        val frequency = userWordFreq(word, input).toInt().coerceAtLeast(1)
+                        val candidate = RankedAtomicLead(
+                            word = word,
+                            coveredLen = input.length,
+                            score = wordModelScore(word, frequency, ctxId, ctx, rankingMemo),
+                            tieRank = supplementarySingleTieRank(word),
+                            sourceOrder = 1,
+                            serial = candidateSerial,
+                        )
+                        if (after != null && leadOrder.compare(candidate, after) <= 0) continue
+                        if (worstFirst.size < USER_QUERY_LIMIT) {
+                            worstFirst.add(candidate)
+                        } else if (leadOrder.compare(candidate, worstFirst.peek()) < 0) {
+                            worstFirst.remove()
+                            worstFirst.add(candidate)
+                        }
+                        peakAtomicLeadPoolSizeForTest = maxOf(peakAtomicLeadPoolSizeForTest, worstFirst.size)
+                    }
+                }
+
+                var offset = 0
+                while (userModel != null) {
+                    ensureDecodeActive()
+                    val page = userModel.wordsForKeyPageSnapshot(
+                        input,
+                        offset,
+                        USER_QUERY_LIMIT,
+                        modelVersion,
+                    )
+                    if (page.restartRequired) {
+                        invalidated = true
+                        break
+                    }
+                    modelVersion = page.version
+                    offerWords(page.items)
+                    if (page.items.size < USER_QUERY_LIMIT || offset > Int.MAX_VALUE - USER_QUERY_LIMIT) break
+                    offset += USER_QUERY_LIMIT
+                }
+
+                offset = 0
+                while (!invalidated && userLearning != null) {
+                    ensureDecodeActive()
+                    val page = userLearning.formedWordsForPageSnapshot(
+                        input,
+                        offset,
+                        USER_QUERY_LIMIT,
+                        if (sharedDatabase) modelVersion else learningVersion,
+                    )
+                    if (page.restartRequired) {
+                        invalidated = true
+                        break
+                    }
+                    learningVersion = page.version
+                    val duplicates = userModel?.wordsForKeyIn(input, page.items).orEmpty()
+                    offerWords(page.items.filterNot { it in duplicates })
+                    if (page.items.size < USER_QUERY_LIMIT || offset > Int.MAX_VALUE - USER_QUERY_LIMIT) break
+                    offset += USER_QUERY_LIMIT
+                }
+
+                if (invalidated || !verify()) {
+                    worstFirst.clear()
+                    return
+                }
+                val selected = worstFirst.toList().sortedWith(leadOrder)
+                pending.addAll(selected)
+                after = selected.lastOrNull() ?: after
+                exhausted = selected.size < USER_QUERY_LIMIT
+            }
+
+            fun peek(): RankedAtomicLead? {
+                if (pending.isEmpty()) loadPage()
+                return pending.firstOrNull()
+            }
+
+            fun next(): RankedAtomicLead? {
+                val candidate = peek() ?: return null
+                pending.removeFirst()
+                return candidate
+            }
         }
-        val leading = leadFreq.entries.sortedWith(
-            compareByDescending<Map.Entry<String, Int>> {
-                wordModelScore(it.key, it.value, ctxId, ctx, condMemo)
-            }.thenBy { supplementarySingleTieRank(it.key) },
-        )
+
+        val userLeads = RankedUserLeadCursor(stableVersions.first, stableVersions.second)
         val singles = if (nSyl == 0) emptyList() else homophoneFreqs(input.substring(0, bounds[1])).map { it.first }
         return object : CandidatePageSource<Cand> {
             private val pending = ArrayDeque<Cand>()
             private val seen = HashSet<String>()
+            private var leadingOffset = 0
+            private var leadingExhausted = false
             private var sentenceExhausted = false
             private var singlesAdded = false
+            private var invalidated = false
 
             init {
                 best?.let { if (seen.add(it)) pending.addLast(Cand(it, input.length)) }
-                for ((word, _) in leading) {
-                    if (seen.add(word)) pending.addLast(Cand(word, leadCov.getValue(word)))
-                }
             }
 
             private fun fill(targetSize: Int) {
+                while (pending.size < targetSize && !leadingExhausted) {
+                    ensureDecodeActive()
+                    val static = leading.getOrNull(leadingOffset)
+                    val user = userLeads.peek()
+                    if (userLeads.invalidated) {
+                        invalidated = true
+                        pending.clear()
+                        return
+                    }
+                    val candidate = when {
+                        static == null && user == null -> null
+                        static == null -> userLeads.next()
+                        user == null || leadOrder.compare(static, user) <= 0 -> {
+                            leadingOffset++
+                            static
+                        }
+                        else -> userLeads.next()
+                    }
+                    if (candidate == null) {
+                        leadingExhausted = true
+                    } else {
+                        if (seen.add(candidate.word)) {
+                            pending.addLast(Cand(candidate.word, candidate.coveredLen))
+                        }
+                    }
+                }
                 while (pending.size < targetSize && !sentenceExhausted) {
                     val sentence = sentences.next()
                     if (sentence == null) {
@@ -1143,7 +1344,17 @@ class PinyinDecoder(
             }
 
             override fun next(pageSize: Int): CandidateSlice<Cand> {
+                if (invalidated || !userLeads.verify()) {
+                    invalidated = true
+                    pending.clear()
+                    return CandidateSlice(emptyList(), false)
+                }
                 fill(pageSize + 1)
+                if (invalidated || !userLeads.verify()) {
+                    invalidated = true
+                    pending.clear()
+                    return CandidateSlice(emptyList(), false)
+                }
                 val count = minOf(pageSize, pending.size)
                 val items = ArrayList<Cand>(count)
                 repeat(count) { items.add(pending.removeFirst()) }
@@ -1351,9 +1562,6 @@ class PinyinDecoder(
         val graph = Array(input.length) { ArrayList<AtomicGraphEdge>() }
         for (start in input.indices) for (end in start + 1..input.length) {
             ensureDecodeActive()
-            // Initials entries already have their own complete, pageable candidate source. Combining every
-            // initials hit into the sentence graph multiplies ambiguous pinyin prefixes such as z/zh and
-            // makes the first page depend on scanning the whole abbreviation dictionary.
             val edges = edgesFor(input.substring(start, end), includeInitials = false)
             for (offset in edges.indices step RANKING_PREFETCH_SIZE) {
                 val batch = edges.subList(offset, minOf(edges.size, offset + RANKING_PREFETCH_SIZE))

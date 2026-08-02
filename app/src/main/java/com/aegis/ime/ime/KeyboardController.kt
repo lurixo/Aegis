@@ -113,9 +113,9 @@ class KeyboardController(
 
     private val drillChoices = HashMap<Int, String>()
 
-    private var customSymbols: List<String> = emptyList()
+    private var customSymbolKeys: List<Key> = Layouts.ninePunctuation()
 
-    private var customOperators: List<String> = emptyList()
+    private var customOperatorKeys: List<Key> = Layouts.numpadOperators()
 
     private var directCommitCands: Set<Cand> = emptySet()
     private var predictionCands: Set<Cand> = emptySet()
@@ -164,12 +164,12 @@ class KeyboardController(
     }
 
     fun setCustomSymbols(symbols: List<String>) {
-        customSymbols = symbols
+        customSymbolKeys = Layouts.ninePunctuation(symbols)
         render()
     }
 
-    fun setCustomOperators(operators: List<String>) {
-        customOperators = operators
+    fun setCustomOperators(operators: List<String>, prefiltered: Boolean = false) {
+        customOperatorKeys = Layouts.numpadOperators(operators, prefiltered)
         render()
     }
 
@@ -1289,7 +1289,7 @@ class KeyboardController(
 
     internal fun nineLeftColumn(): List<Key> {
         val w = 0.85f
-        if (composing.isEmpty()) return Layouts.ninePunctuation(customSymbols)
+        if (composing.isEmpty()) return customSymbolKeys
         val active = activeInput()
         if (active.isEmpty()) {
             if (lockedReadings.isEmpty()) return emptyList()
@@ -1308,7 +1308,7 @@ class KeyboardController(
         val v = view ?: return
         val layout = when (layoutId) {
             LayoutId.NINE -> Layouts.nine(lang, nineLeftColumn(), composing.isNotEmpty())
-            LayoutId.NUMPAD -> Layouts.numpad(Layouts.numpadOperators(customOperators))
+            LayoutId.NUMPAD -> Layouts.numpad(customOperatorKeys)
             else -> Layouts.forId(layoutId, lang, composing.isNotEmpty())
         }
         v.showKeyboard(layout, shifted, shiftState == ShiftState.LOCK, lang)

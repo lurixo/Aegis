@@ -15,6 +15,8 @@
 
 package com.aegis.ime.ime
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
@@ -431,5 +433,32 @@ class KeyboardViewInteractionTest {
         v.send(MotionEvent.ACTION_MOVE, x, y0 - 40f, 16)
         assertEquals("the operator strip tracks the finger 1:1", 40f, v.scrollOffsetForTest(), 0.5f)
         v.send(MotionEvent.ACTION_UP, x, y0 - 40f, 32)
+    }
+
+    @Test fun a_large_virtual_column_draws_a_bounded_window_and_reaches_its_tail() {
+        val reads = LinkedHashSet<Int>()
+        val items = object : AbstractList<Key>() {
+            override val size: Int = 300
+
+            override fun get(index: Int): Key {
+                reads.add(index)
+                return Key("item-$index", direct = true)
+            }
+        }
+        val v = nineView(items, composing = true)
+        val bitmap = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
+        v.draw(Canvas(bitmap))
+        assertTrue(reads.size < 32)
+        assertFalse(299 in reads)
+
+        val x = v.cx()
+        val y = v.regTop() + v.cellH() * 2f
+        v.send(MotionEvent.ACTION_DOWN, x, y, 0)
+        v.send(MotionEvent.ACTION_MOVE, x, y - v.maxScrollForTest() - v.height, 16)
+        v.send(MotionEvent.ACTION_UP, x, y - v.maxScrollForTest() - v.height, 32)
+        v.draw(Canvas(bitmap))
+
+        assertTrue(299 in reads)
+        assertTrue(reads.size < 64)
     }
 }

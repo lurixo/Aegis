@@ -72,6 +72,11 @@ class CustomSymbolStore private constructor(
         }
     }
 
+    internal fun pagedList(excluded: Set<String> = emptySet()): List<String> {
+        val backing = database ?: return legacyItems().filterNot { it in excluded }
+        return DatabasePagedList(backing, excluded.toSet())
+    }
+
     fun add(symbol: String): Boolean {
         val s = symbol.filterNot { it.isISOControl() }.trim()
         database?.let { backing ->
@@ -133,6 +138,82 @@ class CustomSymbolStore private constructor(
         val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
             .joinToString("") { "%02x".format(it.toInt() and 0xff) }
         return bytes.size.toString() + ":" + digest
+    }
+
+    private inner class DatabasePagedList(
+        private val backing: UserDataDatabase,
+        private val excluded: Set<String>,
+    ) : AbstractList<String>() {
+        private val pages = BoundedLruCache<Int, List<String>>(2)
+        private var version: Long? = null
+        private var total = -1
+
+        override val size: Int
+            @Synchronized get() {
+                ensureMetadata()
+                return total.coerceAtLeast(0)
+            }
+
+        @Synchronized
+        override fun get(index: Int): String {
+            if (index < 0) throw IndexOutOfBoundsException(index.toString())
+            ensureMetadata()
+            if (index >= total) throw IndexOutOfBoundsException("$index >= $total")
+            val pageOffset = index / RUNTIME_PAGE_SIZE * RUNTIME_PAGE_SIZE
+            pages[pageOffset]?.let { page ->
+                return page.getOrElse(index - pageOffset) { throw IndexOutOfBoundsException(index.toString()) }
+            }
+            repeat(2) {
+                val page = runCatching {
+                    backing.readCustomItemsPageExcluding(
+                        key,
+                        excluded,
+                        pageOffset,
+                        RUNTIME_PAGE_SIZE,
+                        version,
+                    )
+                }.onFailure {
+                    lastFailure = it.javaClass.simpleName + ": " + it.message.orEmpty()
+                }.getOrNull() ?: throw IndexOutOfBoundsException(index.toString())
+                if (page.restartRequired) {
+                    pages.clear()
+                    version = null
+                    total = -1
+                    ensureMetadata()
+                    if (index >= total) throw IndexOutOfBoundsException("$index >= $total")
+                } else {
+                    version = page.version
+                    total = page.totalCount?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt() ?: total
+                    pages.put(pageOffset, page.items)
+                    if (pageOffset == 0) {
+                        lastValid.clear()
+                        lastValid.addAll(page.items)
+                    }
+                    lastFailure = null
+                    return page.items.getOrElse(index - pageOffset) {
+                        throw IndexOutOfBoundsException(index.toString())
+                    }
+                }
+            }
+            throw IndexOutOfBoundsException(index.toString())
+        }
+
+        private fun ensureMetadata() {
+            if (total >= 0) return
+            val page = runCatching {
+                backing.readCustomItemsPageExcluding(key, excluded, 0, 0, version)
+            }.onFailure {
+                lastFailure = it.javaClass.simpleName + ": " + it.message.orEmpty()
+            }.getOrNull()
+            if (page == null || page.restartRequired) {
+                version = null
+                total = lastValid.count { it !in excluded }
+                return
+            }
+            version = page.version
+            total = page.totalCount?.coerceAtMost(Int.MAX_VALUE.toLong())?.toInt() ?: 0
+            lastFailure = null
+        }
     }
 
     private companion object {

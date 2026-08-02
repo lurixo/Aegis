@@ -207,11 +207,11 @@ class KeyboardView(context: Context) : View(context) {
     private data class Placed(val rect: RectF, val key: Key, val groupId: Int = 0, val hitRect: RectF? = null)
 
     fun setLayout(newLayout: KeyboardLayout, isShifted: Boolean, isLocked: Boolean, language: Lang) {
-        if (newLayout == layout && isShifted == shifted && isLocked == shiftLocked && language == lang) return
+        if (sameLayout(newLayout, layout) && isShifted == shifted && isLocked == shiftLocked && language == lang) return
         val faceSwap = newLayout.id != layout.id || language != lang
         val snap = if (faceSwap && width > 0) Motion.snapshot(this, palette.keyboardBg) else null
         layoutApplies++
-        val sameColumn = newLayout.scrollColumn?.items?.map { it.label } == layout.scrollColumn?.items?.map { it.label }
+        val sameColumn = sameColumnItems(newLayout.scrollColumn?.items, layout.scrollColumn?.items)
         val modeChanged = newLayout.id != layout.id
         layout = newLayout
         shifted = isShifted
@@ -224,6 +224,26 @@ class KeyboardView(context: Context) : View(context) {
         invalidate()
         if (modeChanged && width > 0) { modeSwitches++ }
         if (snap != null) Motion.coverWith(this, snap)
+    }
+
+    private fun sameLayout(left: KeyboardLayout, right: KeyboardLayout): Boolean {
+        if (left === right) return true
+        if (left.id != right.id || left.rows != right.rows || left.cells != right.cells || left.rowCount != right.rowCount) {
+            return false
+        }
+        val leftColumn = left.scrollColumn
+        val rightColumn = right.scrollColumn
+        if (leftColumn == null || rightColumn == null) return leftColumn == null && rightColumn == null
+        return leftColumn.x == rightColumn.x && leftColumn.y == rightColumn.y &&
+            leftColumn.w == rightColumn.w && leftColumn.h == rightColumn.h &&
+            leftColumn.cellHFrac == rightColumn.cellHFrac &&
+            sameColumnItems(leftColumn.items, rightColumn.items)
+    }
+
+    private fun sameColumnItems(left: List<Key>?, right: List<Key>?): Boolean {
+        if (left === right) return true
+        if (left == null || right == null || left.size > 32 || right.size > 32) return false
+        return left == right
     }
 
     internal fun modeSwitchesForTest(): Int = modeSwitches
@@ -425,7 +445,10 @@ class KeyboardView(context: Context) : View(context) {
         val baseTextSize = paint.textSize
         val avail = scrollRegion.width() - 12f * density
         val minTextSize = 11f * density
-        for ((i, key) in sc.items.withIndex()) {
+        val first = (scrollY / scrollCellH).toInt().coerceIn(0, sc.items.lastIndex)
+        val last = ((scrollY + scrollRegion.height()) / scrollCellH).toInt().coerceIn(first, sc.items.lastIndex)
+        for (i in first..last) {
+            val key = runCatching { sc.items[i] }.getOrNull() ?: continue
             val top = scrollRegion.top - scrollY + i * scrollCellH
             val bottom = top + scrollCellH
             if (bottom < scrollRegion.top || top > scrollRegion.bottom) continue
@@ -1071,7 +1094,9 @@ class KeyboardView(context: Context) : View(context) {
             if (col != null && fling.fling(scrollY, maxScroll())) postInvalidateOnAnimation()
         } else if (col != null && !fling.stopArmed) {
             val idx = scrollIndexAt(y)
-            if (idx >= 0 && idx == scrollPressedIndex) { performClick(); onKey(col.items[idx]) }
+            if (idx >= 0 && idx == scrollPressedIndex) {
+                runCatching { col.items[idx] }.getOrNull()?.let { performClick(); onKey(it) }
+            }
         }
         scrollPressedIndex = -1; scrolling = false
         scrollPress.release()
@@ -1092,7 +1117,7 @@ class KeyboardView(context: Context) : View(context) {
         if (idx !in sc.items.indices || scrollCellH <= 0f) return
         val top = scrollRegion.top - scrollY + idx * scrollCellH
         tmpRect.set(scrollRegion.left, top, scrollRegion.right, top + scrollCellH)
-        showPreview(sc.items[idx], tmpRect)
+        runCatching { sc.items[idx] }.getOrNull()?.let { showPreview(it, tmpRect) }
     }
 
     internal fun scrollOffsetForTest(): Float = scrollY

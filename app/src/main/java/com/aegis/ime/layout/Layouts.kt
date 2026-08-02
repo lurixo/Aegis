@@ -50,9 +50,11 @@ object Layouts {
 
     val nineFixedPunctuation: List<String> = listOf("，", "。", "？", "！", "…", "：", "；", "~", ".", "-", "@")
 
-    fun ninePunctuation(custom: List<String> = emptyList()): List<Key> =
-        nineFixedPunctuation.map { Key(it, direct = true) } +
-            custom.map { Key(it, direct = true) } + Key(labelRes = R.string.kbd_custom, action = CUSTOM_SYMBOL)
+    fun ninePunctuation(custom: List<String> = emptyList()): List<Key> = directKeys(
+        nineFixedPunctuation,
+        custom,
+        Key(labelRes = R.string.kbd_custom, action = CUSTOM_SYMBOL),
+    )
 
     private fun row(vararg keys: Key) = KeyboardRow(keys.toList())
 
@@ -166,9 +168,26 @@ object Layouts {
 
     val defaultNumpadOperators: List<String> = listOf("+", "-", "×", "÷", "=", "(", ")", "%", ".")
 
-    fun numpadOperators(custom: List<String> = emptyList()): List<Key> =
-        (defaultNumpadOperators + custom).distinct().map { Key(it, direct = true) } +
-            Key(labelRes = R.string.kbd_custom, action = CUSTOM_OPERATOR)
+    fun numpadOperators(custom: List<String> = emptyList(), prefiltered: Boolean = false): List<Key> {
+        val additional = if (prefiltered) custom else (defaultNumpadOperators + custom).distinct()
+        val fixed = if (prefiltered) defaultNumpadOperators else emptyList()
+        return directKeys(fixed, additional, Key(labelRes = R.string.kbd_custom, action = CUSTOM_OPERATOR))
+    }
+
+    private fun directKeys(fixed: List<String>, additional: List<String>, terminal: Key): List<Key> =
+        object : AbstractList<Key>() {
+            override val size: Int
+                get() = fixed.size + additional.size + 1
+
+            override fun get(index: Int): Key {
+                if (index !in indices) throw IndexOutOfBoundsException(index.toString())
+                return when {
+                    index < fixed.size -> Key(fixed[index], direct = true)
+                    index - fixed.size < additional.size -> Key(additional[index - fixed.size], direct = true)
+                    else -> terminal
+                }
+            }
+        }
 
     fun numpad(operators: List<Key> = numpadOperators()): KeyboardLayout {
         val u = 1f / NINE_TOTAL_U

@@ -80,6 +80,7 @@ class UserDataTransferTest {
             database.removeWord("旧词")
             assertTrue(UserModel(database = database).addManualWord("new", "新词", 2_000L))
         }
+        legacy.writeText("aegis-userdb 1\nW\t旧词\t9\t10\nR\told\t旧词\n")
         assertTrue(legacy.readText().contains("旧词"))
 
         val output = ByteArrayOutputStream()

@@ -17,6 +17,8 @@ package com.aegis.ime.user
 
 import androidx.test.core.app.ApplicationProvider
 import com.aegis.ime.decoder.T9Pinyin
+import com.aegis.ime.layout.KeyAction
+import com.aegis.ime.layout.Layouts
 import java.io.File
 import java.nio.file.Files
 import java.util.concurrent.Executors
@@ -34,6 +36,25 @@ import org.robolectric.annotation.Config
 class PersistedPagingTest {
 
     private fun root(): File = Files.createTempDirectory("persisted-paging").toFile().also { it.deleteOnExit() }
+
+    private fun <T> drainStablePages(
+        pageSize: Int,
+        read: (offset: Int, limit: Int, expectedVersion: Long?) -> PersistedPage<T>,
+    ): List<T> {
+        val result = ArrayList<T>()
+        var version: Long? = null
+        var total: Long? = null
+        while (total == null || result.size.toLong() < total) {
+            val page = read(result.size, pageSize, version)
+            assertFalse(page.restartRequired)
+            if (version == null) version = page.version else assertEquals(version, page.version)
+            if (total == null) total = page.totalCount else assertEquals(total, page.totalCount)
+            assertTrue(page.items.isNotEmpty())
+            result.addAll(page.items)
+        }
+        assertEquals(total, result.size.toLong())
+        return result
+    }
 
     @Test
     fun batchedRankingReadsMatchScalarSemanticsAndCacheMisses() {
@@ -174,8 +195,17 @@ class PersistedPagingTest {
             assertTrue(clipboard.reorderPhrase("large", 250, 10))
             assertEquals("phrase-250", clipboard.phrasesPage("large", 10, 1).single())
             val custom = CustomSymbolStore(preferences, "custom_symbols", database)
-            repeat(300) { assertTrue(custom.add("custom-$it")) }
-            assertEquals(128, custom.list().size)
+            val expectedCustom = (0 until 300).map { "custom-$it" }
+            expectedCustom.forEach { assertTrue(custom.add(it)) }
+            val allCustom = drainStablePages(47, custom::pageSnapshot)
+            assertEquals(expectedCustom, allCustom)
+            assertEquals(expectedCustom.size, allCustom.toSet().size)
+            val runtimeCustom = custom.pagedList()
+            assertEquals(expectedCustom.size, runtimeCustom.size)
+            assertEquals(expectedCustom, runtimeCustom.indices.map(runtimeCustom::get))
+            val keyboardKeys = Layouts.ninePunctuation(runtimeCustom)
+            assertEquals("custom-299", keyboardKeys[Layouts.nineFixedPunctuation.size + 299].label)
+            assertEquals(KeyAction.CUSTOM_SYMBOL, keyboardKeys.last().action)
             assertEquals("custom-250", custom.page(250, 1).single())
             val versionBeforeConcurrentWrites = database.dataVersion()
             val pool = Executors.newFixedThreadPool(4)
@@ -193,6 +223,29 @@ class PersistedPagingTest {
             assertTrue(database.dataVersion() > versionBeforeConcurrentWrites)
             assertTrue(database.integrityOk())
             assertTrue(database.foreignKeysOk())
+        }
+    }
+
+    @Test
+    fun databaseBackedOperatorKeyboardReachesEveryFilteredCustomItem() {
+        val root = root()
+        val preferences = ApplicationProvider.getApplicationContext<android.content.Context>()
+            .getSharedPreferences("operator-paging-${root.name}", 0)
+        UserDataDatabase.open(root).use { database ->
+            val store = CustomSymbolStore(preferences, "custom_operators", database)
+            Layouts.defaultNumpadOperators.forEach { assertTrue(store.add(it)) }
+            val expected = (0 until 300).map { "operator-$it" }
+            expected.forEach { assertTrue(store.add(it)) }
+            val runtime = store.pagedList(Layouts.defaultNumpadOperators.toSet())
+            assertEquals(expected.size, runtime.size)
+            assertEquals(expected, runtime.indices.map(runtime::get))
+            assertEquals(expected.size, runtime.toSet().size)
+            val keys = Layouts.numpadOperators(runtime, prefiltered = true)
+            assertEquals("operator-299", keys[Layouts.defaultNumpadOperators.size + 299].label)
+            assertEquals(KeyAction.CUSTOM_OPERATOR, keys.last().action)
+            Layouts.defaultNumpadOperators.forEach { builtIn ->
+                assertEquals(1, keys.count { it.label == builtIn })
+            }
         }
     }
 
