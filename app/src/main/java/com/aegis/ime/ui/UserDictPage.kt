@@ -43,6 +43,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -78,14 +79,37 @@ internal fun UserDictPage(onBack: () -> Unit) {
     var query by remember { mutableStateOf("") }
     var pageIndex by remember { mutableStateOf(0) }
     var revision by remember { mutableStateOf(0) }
-    val totalCount = remember(revision) { UserDictEdit.count(userDb, "") }
-    val matchCount = remember(query, revision) {
-        if (query.isBlank()) totalCount else UserDictEdit.count(userDb, query)
+    val totalSnapshot = remember(revision) {
+        UserDictEdit.pageSnapshot(userDb, "", 0, 0)
     }
+    val requestedPage = pageIndex.coerceAtLeast(0)
+    val pageSnapshot = remember(query, requestedPage, revision, totalSnapshot.version) {
+        UserDictEdit.pageSnapshot(
+            userDb,
+            query,
+            requestedPage * USER_DICT_PAGE_SIZE,
+            USER_DICT_PAGE_SIZE,
+            totalSnapshot.version,
+        )
+    }
+    val totalCount = totalSnapshot.totalCount ?: 0L
+    val matchCount = pageSnapshot.totalCount ?: 0L
     val maximumPage = ((matchCount - 1L).coerceAtLeast(0L) / USER_DICT_PAGE_SIZE).toInt()
-    val currentPage = pageIndex.coerceAtMost(maximumPage)
-    val entries = remember(query, currentPage, revision) {
-        UserDictEdit.page(userDb, query, currentPage * USER_DICT_PAGE_SIZE, USER_DICT_PAGE_SIZE)
+    val currentPage = requestedPage.coerceAtMost(maximumPage)
+    val entries = if (currentPage == requestedPage) pageSnapshot.items else emptyList()
+    LaunchedEffect(
+        totalSnapshot.restartRequired,
+        pageSnapshot.restartRequired,
+        pageSnapshot.version,
+        currentPage,
+        requestedPage,
+    ) {
+        if (totalSnapshot.restartRequired || pageSnapshot.restartRequired) {
+            pageIndex = 0
+            revision++
+        } else if (currentPage != requestedPage) {
+            pageIndex = currentPage
+        }
     }
     var newWord by remember { mutableStateOf("") }
     var newReading by remember { mutableStateOf("") }

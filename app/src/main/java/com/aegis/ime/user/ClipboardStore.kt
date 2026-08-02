@@ -281,6 +281,21 @@ class ClipboardStore private constructor(
         } ?: history.drop(offset).take(limit)
     }
 
+    fun historyPageSnapshot(offset: Int, limit: Int, expectedVersion: Long? = null): PersistedPage<String> {
+        require(offset >= 0)
+        require(limit >= 0)
+        return database?.let { backing ->
+            runCatching {
+                backing.readClipboardHistoryPage(offset, minOf(limit, RUNTIME_PAGE_SIZE), expectedVersion)
+            }.onFailure { lastFailure = failureText(it) }
+                .getOrElse { PersistedPage(emptyList(), backing.dataVersion(), restartRequired = true) }
+        } ?: if (expectedVersion != null && expectedVersion != 0L) {
+            PersistedPage(emptyList(), 0L, restartRequired = true)
+        } else {
+            PersistedPage(history.drop(offset).take(limit), 0L, history.size.toLong())
+        }
+    }
+
     fun historyCount(): Long = database?.clipboardHistoryCount() ?: history.size.toLong()
 
     internal fun latest(): String? = database?.readClipboardHistory(limit = 1)?.firstOrNull() ?: history.firstOrNull()
@@ -313,6 +328,24 @@ class ClipboardStore private constructor(
         } ?: phraseCats.drop(offset).take(limit).map { it.name }
     }
 
+    fun categoryPageSnapshot(offset: Int, limit: Int, expectedVersion: Long? = null): PersistedPage<String> {
+        require(offset >= 0)
+        require(limit in 0..RUNTIME_PAGE_SIZE)
+        return database?.let { backing ->
+            runCatching { backing.readPhraseCategoryNamesPage(offset, limit, expectedVersion) }
+                .onFailure { lastFailure = failureText(it) }
+                .getOrElse { PersistedPage(emptyList(), backing.dataVersion(), restartRequired = true) }
+        } ?: if (expectedVersion != null && expectedVersion != 0L) {
+            PersistedPage(emptyList(), 0L, restartRequired = true)
+        } else {
+            PersistedPage(
+                phraseCats.drop(offset).take(limit).map { it.name },
+                0L,
+                phraseCats.size.toLong(),
+            )
+        }
+    }
+
     fun categoryCount(): Long = database?.phraseCategoryCount() ?: phraseCats.size.toLong()
 
     fun phrasesIn(category: String): List<String> = database?.let { backing ->
@@ -333,6 +366,28 @@ class ClipboardStore private constructor(
                 .onFailure { lastFailure = failureText(it) }
                 .getOrElse { phrasePageCache[category].orEmpty().drop(offset).take(limit) }
         } ?: phrasesIn(category).drop(offset).take(limit)
+    }
+
+    fun phrasesPageSnapshot(
+        category: String,
+        offset: Int,
+        limit: Int,
+        expectedVersion: Long? = null,
+    ): PersistedPage<String> {
+        require(offset >= 0)
+        require(limit >= 0)
+        return database?.let { backing ->
+            runCatching {
+                backing.readPhrasesPage(category, offset, minOf(limit, RUNTIME_PAGE_SIZE), expectedVersion)
+                    .map { it.text }
+            }.onFailure { lastFailure = failureText(it) }
+                .getOrElse { PersistedPage(emptyList(), backing.dataVersion(), restartRequired = true) }
+        } ?: if (expectedVersion != null && expectedVersion != 0L) {
+            PersistedPage(emptyList(), 0L, restartRequired = true)
+        } else {
+            val phrases = find(category)?.phrases.orEmpty()
+            PersistedPage(phrases.drop(offset).take(limit).map { it.text }, 0L, phrases.size.toLong())
+        }
     }
 
     fun phraseCount(category: String): Long = database?.phraseCount(category) ?:

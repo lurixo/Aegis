@@ -33,6 +33,18 @@ object UserDictHot {
         fun entryPage(query: String, offset: Int, limit: Int): List<UserModel.Entry> =
             UserDictSearch.filter(entries(), query).drop(offset).take(limit)
 
+        fun entryPageSnapshot(
+            query: String,
+            offset: Int,
+            limit: Int,
+            expectedVersion: Long? = null,
+        ): PersistedPage<UserModel.Entry> = if (expectedVersion != null && expectedVersion != 0L) {
+            PersistedPage(emptyList(), 0L, restartRequired = true)
+        } else {
+            val filtered = UserDictSearch.filter(entries(), query)
+            PersistedPage(filtered.drop(offset).take(limit), 0L, filtered.size.toLong())
+        }
+
         fun flush()
     }
 

@@ -165,6 +165,22 @@ class SymbolUsageStore private constructor(
         }
     }
 
+    fun recentPageSnapshot(offset: Int, limit: Int, expectedVersion: Long? = null): PersistedPage<Entry> {
+        require(offset >= 0)
+        require(limit >= 0)
+        return database?.let { backing ->
+            runCatching {
+                backing.readRecentItemsPage(kind, offset, minOf(limit, RUNTIME_PAGE_SIZE), expectedVersion)
+                    .map { Entry(it.value, it.origin) }
+            }.onFailure { lastFailure = failureText(it) }
+                .getOrElse { PersistedPage(emptyList(), backing.dataVersion(), restartRequired = true) }
+        } ?: if (expectedVersion != null && expectedVersion != 0L) {
+            PersistedPage(emptyList(), 0L, restartRequired = true)
+        } else {
+            PersistedPage(used.drop(offset).take(limit), 0L, used.size.toLong())
+        }
+    }
+
     fun originOf(symbol: String): String? {
         val key = SymbolCatalog.foldFullWidth(symbol)
         database?.let { return it.recentItemOrigin(kind, key) }

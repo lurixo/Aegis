@@ -74,6 +74,20 @@ internal data class ClipboardDataSnapshot(
 
 internal data class StoredRecentItem(val value: String, val origin: String?)
 
+data class PersistedPage<T>(
+    val items: List<T>,
+    val version: Long,
+    val totalCount: Long? = null,
+    val restartRequired: Boolean = false,
+) {
+    fun <R> map(transform: (T) -> R): PersistedPage<R> = PersistedPage(
+        items = items.map(transform),
+        version = version,
+        totalCount = totalCount,
+        restartRequired = restartRequired,
+    )
+}
+
 internal sealed class StoredSettingValue {
     data class Bool(val value: Boolean) : StoredSettingValue()
     data class Integer(val value: Int) : StoredSettingValue()
@@ -187,6 +201,23 @@ internal class UserDataDatabase private constructor(
 
     @Synchronized
     fun dataVersion(): Long = metadataInTransaction(DATA_VERSION_KEY)?.toLongOrNull() ?: 0L
+
+    private fun <T> consistentPage(
+        expectedVersion: Long?,
+        total: (() -> Long)? = null,
+        read: () -> List<T>,
+    ): PersistedPage<T> = synchronized(checkpointLock) {
+        require(expectedVersion == null || expectedVersion >= 0L)
+        val before = dataVersion()
+        if (expectedVersion != null && expectedVersion != before) {
+            return@synchronized PersistedPage(emptyList(), before, restartRequired = true)
+        }
+        val count = total?.invoke()
+        val items = read()
+        val after = dataVersion()
+        if (after != before) PersistedPage(emptyList(), after, restartRequired = true)
+        else PersistedPage(items, before, count)
+    }
 
     @Synchronized
     fun putMetadata(key: String, value: String) {
@@ -487,6 +518,18 @@ internal class UserDataDatabase private constructor(
     }
 
     @Synchronized
+    fun readUserWordEntriesPage(
+        query: String = "",
+        offset: Int,
+        limit: Int,
+        expectedVersion: Long? = null,
+    ): PersistedPage<StoredUserWordEntry> = consistentPage(
+        expectedVersion,
+        total = { userWordEntryCount(query) },
+        read = { readUserWordEntries(query, offset, limit) },
+    )
+
+    @Synchronized
     fun readUserWordsForKey(key: String, t9: Boolean, offset: Int, limit: Int): List<StoredUserWordEntry> {
         require(offset >= 0)
         require(limit in 0..MAX_RUNTIME_PAGE_SIZE)
@@ -512,6 +555,17 @@ internal class UserDataDatabase private constructor(
             }
         }
         return out
+    }
+
+    @Synchronized
+    fun readUserWordsForKeyPage(
+        key: String,
+        t9: Boolean,
+        offset: Int,
+        limit: Int,
+        expectedVersion: Long? = null,
+    ): PersistedPage<StoredUserWordEntry> = consistentPage(expectedVersion) {
+        readUserWordsForKey(key, t9, offset, limit)
     }
 
     @Synchronized
@@ -582,6 +636,16 @@ internal class UserDataDatabase private constructor(
             }
         }
         return out
+    }
+
+    @Synchronized
+    fun readUserSuccessorsPage(
+        previousWord: String,
+        offset: Int,
+        limit: Int,
+        expectedVersion: Long? = null,
+    ): PersistedPage<StoredUserWordEntry> = consistentPage(expectedVersion) {
+        readUserSuccessors(previousWord, offset, limit)
     }
 
     @Synchronized
@@ -724,6 +788,17 @@ internal class UserDataDatabase private constructor(
     }
 
     @Synchronized
+    fun readFormedWordsForKeyPage(
+        key: String,
+        t9: Boolean,
+        offset: Int,
+        limit: Int,
+        expectedVersion: Long? = null,
+    ): PersistedPage<StoredLearningEntry> = consistentPage(expectedVersion) {
+        readFormedWordsForKey(key, t9, offset, limit)
+    }
+
+    @Synchronized
     fun readFormedEntries(offset: Int, limit: Int): List<StoredLearningEntry> {
         require(offset >= 0)
         require(limit in 0..MAX_RUNTIME_PAGE_SIZE)
@@ -745,6 +820,15 @@ internal class UserDataDatabase private constructor(
             }
         }
         return out
+    }
+
+    @Synchronized
+    fun readFormedEntriesPage(
+        offset: Int,
+        limit: Int,
+        expectedVersion: Long? = null,
+    ): PersistedPage<StoredLearningEntry> = consistentPage(expectedVersion) {
+        readFormedEntries(offset, limit)
     }
 
     @Synchronized
@@ -843,6 +927,16 @@ internal class UserDataDatabase private constructor(
             }
         }
         return out
+    }
+
+    @Synchronized
+    fun readFollowsPage(
+        previousWord: String,
+        offset: Int,
+        limit: Int,
+        expectedVersion: Long? = null,
+    ): PersistedPage<Pair<String, StoredUsage>> = consistentPage(expectedVersion) {
+        readFollows(previousWord, offset, limit)
     }
 
     @Synchronized
@@ -947,6 +1041,17 @@ internal class UserDataDatabase private constructor(
         ).use { cursor -> while (cursor.moveToNext()) out.add(cursor.getString(0)) }
         return out
     }
+
+    @Synchronized
+    fun readClipboardHistoryPage(
+        offset: Int,
+        limit: Int,
+        expectedVersion: Long? = null,
+    ): PersistedPage<String> = consistentPage(
+        expectedVersion,
+        total = ::clipboardHistoryCount,
+        read = { readClipboardHistory(offset, limit) },
+    )
 
     @Synchronized
     fun recordClipboard(text: String) {
@@ -1143,6 +1248,17 @@ internal class UserDataDatabase private constructor(
     }
 
     @Synchronized
+    fun readPhraseCategoryNamesPage(
+        offset: Int,
+        limit: Int,
+        expectedVersion: Long? = null,
+    ): PersistedPage<String> = consistentPage(
+        expectedVersion,
+        total = ::phraseCategoryCount,
+        read = { readPhraseCategoryNames(offset, limit) },
+    )
+
+    @Synchronized
     fun phraseCategoryExists(name: String): Boolean = database.rawQuery(
         "SELECT 1 FROM phrase_categories WHERE name=? LIMIT 1",
         arrayOf(name),
@@ -1330,6 +1446,18 @@ internal class UserDataDatabase private constructor(
     }
 
     @Synchronized
+    fun readPhrasesPage(
+        category: String,
+        offset: Int,
+        limit: Int,
+        expectedVersion: Long? = null,
+    ): PersistedPage<StoredPhrase> = consistentPage(
+        expectedVersion,
+        total = { phraseCount(category) },
+        read = { readPhrases(category, offset, limit) },
+    )
+
+    @Synchronized
     fun replacePhraseCategories(categories: List<StoredPhraseCategory>) {
         transaction { replacePhraseCategoriesInTransaction(categories) }
     }
@@ -1346,6 +1474,18 @@ internal class UserDataDatabase private constructor(
         ).use { cursor -> while (cursor.moveToNext()) out.add(cursor.getString(0)) }
         return out
     }
+
+    @Synchronized
+    fun readCustomItemsPage(
+        kind: String,
+        offset: Int,
+        limit: Int,
+        expectedVersion: Long? = null,
+    ): PersistedPage<String> = consistentPage(
+        expectedVersion,
+        total = { customItemCount(kind) },
+        read = { readCustomItems(kind, offset, limit) },
+    )
 
     @Synchronized
     fun customItemCount(kind: String): Long = database.rawQuery(
@@ -1418,6 +1558,18 @@ internal class UserDataDatabase private constructor(
         }
         return out
     }
+
+    @Synchronized
+    fun readRecentItemsPage(
+        kind: String,
+        offset: Int,
+        limit: Int,
+        expectedVersion: Long? = null,
+    ): PersistedPage<StoredRecentItem> = consistentPage(
+        expectedVersion,
+        total = { recentItemCount(kind) },
+        read = { readRecentItems(kind, offset, limit) },
+    )
 
     @Synchronized
     fun recentItemCount(kind: String): Long = database.rawQuery(

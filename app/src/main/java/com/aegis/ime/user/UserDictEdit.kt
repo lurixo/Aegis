@@ -94,4 +94,19 @@ object UserDictEdit {
             }
         }.getOrDefault(emptyList())
     }
+
+    fun pageSnapshot(
+        userDb: File,
+        query: String,
+        offset: Int,
+        limit: Int,
+        expectedVersion: Long? = null,
+    ): PersistedPage<UserModel.Entry> {
+        UserDictHot.host?.let { return it.entryPageSnapshot(query, offset, limit, expectedVersion) }
+        return runCatching {
+            UserDataMigration.open(rootOf(userDb)).use { database ->
+                UserModel(database = database).entryPageSnapshot(query, offset, limit, expectedVersion)
+            }
+        }.getOrElse { PersistedPage(emptyList(), expectedVersion ?: 0L, restartRequired = true) }
+    }
 }

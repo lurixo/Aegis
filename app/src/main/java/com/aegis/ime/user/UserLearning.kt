@@ -169,6 +169,34 @@ class UserLearning internal constructor(
     }
 
     @Synchronized
+    internal fun formedWordsForPageSnapshot(
+        key: String,
+        offset: Int,
+        limit: Int,
+        expectedVersion: Long? = null,
+    ): PersistedPage<String> {
+        require(offset >= 0)
+        require(limit in 0..RUNTIME_PAGE_SIZE)
+        if (key.isEmpty() || limit == 0) {
+            val current = database?.dataVersion() ?: version
+            return if (expectedVersion != null && expectedVersion != current) {
+                PersistedPage(emptyList(), current, restartRequired = true)
+            } else {
+                PersistedPage(emptyList(), current)
+            }
+        }
+        database?.let { backing ->
+            return backing.readFormedWordsForKeyPage(key, key[0] in '2'..'9', offset, limit, expectedVersion)
+                .map { it.word }
+        }
+        val current = version
+        if (expectedVersion != null && expectedVersion != current) {
+            return PersistedPage(emptyList(), current, restartRequired = true)
+        }
+        return PersistedPage(formedWordsForPage(key, offset, limit), current)
+    }
+
+    @Synchronized
     fun formedWeight(word: String): Double {
         database?.let { backing ->
             formedWeightCache[word]?.let { return it }
@@ -287,6 +315,32 @@ class UserLearning internal constructor(
             if (eff >= MIN_ACTIVE) out.add(word to eff)
         }
         return out.sortedWith(compareByDescending<Pair<String, Double>> { it.second }.thenBy { it.first })
+    }
+
+    @Synchronized
+    internal fun followsPageSnapshot(
+        previousWord: String,
+        offset: Int,
+        limit: Int,
+        expectedVersion: Long? = null,
+    ): PersistedPage<Pair<String, Double>> {
+        require(offset >= 0)
+        require(limit in 0..RUNTIME_PAGE_SIZE)
+        val backing = database
+        if (backing != null) {
+            val now = clock()
+            val page = backing.readFollowsPage(previousWord, offset, limit, expectedVersion)
+            val items = page.items.mapNotNull { (word, usage) ->
+                val effective = decayed(usage.count, usage.lastSeen, now, FOLLOW_HALF_LIFE_MILLIS)
+                if (effective >= MIN_ACTIVE) word to effective else null
+            }.sortedWith(compareByDescending<Pair<String, Double>> { it.second }.thenBy { it.first })
+            return PersistedPage(items, page.version, page.totalCount, page.restartRequired)
+        }
+        val current = version
+        if (expectedVersion != null && expectedVersion != current) {
+            return PersistedPage(emptyList(), current, restartRequired = true)
+        }
+        return PersistedPage(follows(previousWord).drop(offset).take(limit), current)
     }
 
     @Synchronized

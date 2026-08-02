@@ -320,6 +320,28 @@ class UserModel internal constructor(
     }
 
     @Synchronized
+    internal fun entryPageSnapshot(
+        query: String = "",
+        offset: Int,
+        limit: Int,
+        expectedVersion: Long? = null,
+    ): PersistedPage<Entry> {
+        require(offset >= 0)
+        require(limit in 0..RUNTIME_PAGE_SIZE)
+        database?.let { backing ->
+            return backing.readUserWordEntriesPage(query, offset, limit, expectedVersion).map {
+                Entry(it.reading, it.word, it.count)
+            }
+        }
+        val current = version
+        if (expectedVersion != null && expectedVersion != current) {
+            return PersistedPage(emptyList(), current, restartRequired = true)
+        }
+        val filtered = UserDictSearch.filter(userWordEntries(), query)
+        return PersistedPage(filtered.drop(offset).take(limit), current, filtered.size.toLong())
+    }
+
+    @Synchronized
     internal fun wordsForKeyPage(key: String, offset: Int, limit: Int): List<String> {
         require(offset >= 0)
         require(limit in 0..RUNTIME_PAGE_SIZE)
@@ -341,6 +363,34 @@ class UserModel internal constructor(
                 if (t9) snapshot.entries.filter { com.aegis.ime.decoder.T9Pinyin.toT9(it.key) == key }.flatMap { it.value }
                 else snapshot[key].orEmpty()
             }.distinct().drop(offset).take(limit)
+    }
+
+    @Synchronized
+    internal fun wordsForKeyPageSnapshot(
+        key: String,
+        offset: Int,
+        limit: Int,
+        expectedVersion: Long? = null,
+    ): PersistedPage<String> {
+        require(offset >= 0)
+        require(limit in 0..RUNTIME_PAGE_SIZE)
+        if (key.isEmpty() || limit == 0) {
+            val current = database?.dataVersion() ?: version
+            return if (expectedVersion != null && expectedVersion != current) {
+                PersistedPage(emptyList(), current, restartRequired = true)
+            } else {
+                PersistedPage(emptyList(), current)
+            }
+        }
+        database?.let { backing ->
+            return backing.readUserWordsForKeyPage(key, key[0] in '2'..'9', offset, limit, expectedVersion)
+                .map { it.word }
+        }
+        val current = version
+        if (expectedVersion != null && expectedVersion != current) {
+            return PersistedPage(emptyList(), current, restartRequired = true)
+        }
+        return PersistedPage(wordsForKeyPage(key, offset, limit), current)
     }
 
     @Synchronized

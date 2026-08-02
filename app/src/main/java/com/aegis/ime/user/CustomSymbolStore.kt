@@ -57,6 +57,21 @@ class CustomSymbolStore private constructor(
         }.getOrElse { lastValid.drop(offset).take(limit) }
     }
 
+    fun pageSnapshot(offset: Int, limit: Int, expectedVersion: Long? = null): PersistedPage<String> {
+        require(offset >= 0)
+        require(limit >= 0)
+        return database?.let { backing ->
+            runCatching { backing.readCustomItemsPage(key, offset, minOf(limit, RUNTIME_PAGE_SIZE), expectedVersion) }
+                .onFailure { lastFailure = it.javaClass.simpleName + ": " + it.message.orEmpty() }
+                .getOrElse { PersistedPage(emptyList(), backing.dataVersion(), restartRequired = true) }
+        } ?: if (expectedVersion != null && expectedVersion != 0L) {
+            PersistedPage(emptyList(), 0L, restartRequired = true)
+        } else {
+            val items = legacyItems()
+            PersistedPage(items.drop(offset).take(limit), 0L, items.size.toLong())
+        }
+    }
+
     fun add(symbol: String): Boolean {
         val s = symbol.filterNot { it.isISOControl() }.trim()
         database?.let { backing ->

@@ -74,6 +74,13 @@ class LiveUserDictHost internal constructor(
     override fun entryPage(query: String, offset: Int, limit: Int): List<UserModel.Entry> =
         model.entryPage(query, offset, limit)
 
+    override fun entryPageSnapshot(
+        query: String,
+        offset: Int,
+        limit: Int,
+        expectedVersion: Long?,
+    ): PersistedPage<UserModel.Entry> = model.entryPageSnapshot(query, offset, limit, expectedVersion)
+
     override fun flush() {
         if (database != null) {
             notifyDatabaseSaved()

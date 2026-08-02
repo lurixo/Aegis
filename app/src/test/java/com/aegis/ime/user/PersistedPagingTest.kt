@@ -197,6 +197,115 @@ class PersistedPagingTest {
     }
 
     @Test
+    fun everyPersistedPageRejectsAContinuationFromAnOlderDatabaseVersion() {
+        val root = root()
+        UserDataDatabase.open(root).use { database ->
+            database.replaceUserData(
+                UserDataSnapshot(
+                    words = mapOf("甲" to StoredWord(3, 3L), "乙" to StoredWord(2, 2L)),
+                    bigrams = mapOf("前" to mapOf("甲" to 3, "乙" to 2)),
+                    readings = mapOf("same" to setOf("甲", "乙")),
+                ),
+            )
+            database.replaceLearning(
+                UserLearningSnapshot(
+                    formed = mapOf(
+                        "学习甲" to mapOf("xuexi" to StoredUsage(3.0, 3L)),
+                        "学习乙" to mapOf("xuexi" to StoredUsage(2.0, 2L)),
+                    ),
+                    pending = emptyMap(),
+                    follows = mapOf("前" to mapOf("甲" to StoredUsage(3.0, 3L))),
+                ),
+            )
+            database.replaceClipboardHistory(listOf("剪贴一", "剪贴二"), merge = false)
+            database.replacePhraseCategories(
+                listOf(StoredPhraseCategory("常用", listOf(StoredPhrase("短语一", ""), StoredPhrase("短语二", "")))),
+            )
+            database.replaceCustomItems("custom_symbols", listOf("符号一", "符号二"))
+            database.replaceRecentItems(
+                "emoji",
+                listOf("one" to StoredRecentItem("表情一", null), "two" to StoredRecentItem("表情二", "分类")),
+                merge = false,
+            )
+            val reads: List<(Long?) -> PersistedPage<*>> = listOf(
+                { version -> database.readUserWordEntriesPage("", 0, 1, version) },
+                { version -> database.readUserWordsForKeyPage("same", false, 0, 1, version) },
+                { version -> database.readUserSuccessorsPage("前", 0, 1, version) },
+                { version -> database.readFormedWordsForKeyPage("xuexi", false, 0, 1, version) },
+                { version -> database.readFormedEntriesPage(0, 1, version) },
+                { version -> database.readFollowsPage("前", 0, 1, version) },
+                { version -> database.readClipboardHistoryPage(0, 1, version) },
+                { version -> database.readPhraseCategoryNamesPage(0, 1, version) },
+                { version -> database.readPhrasesPage("常用", 0, 1, version) },
+                { version -> database.readCustomItemsPage("custom_symbols", 0, 1, version) },
+                { version -> database.readRecentItemsPage("emoji", 0, 1, version) },
+            )
+            val version = database.dataVersion()
+            for (read in reads) {
+                val first = read(null)
+                assertEquals(version, first.version)
+                assertFalse(first.restartRequired)
+                assertEquals(1, first.items.size)
+            }
+
+            database.putMetadata("concurrent-page-write", "done")
+            assertTrue(database.dataVersion() > version)
+            for (read in reads) {
+                val continuation = read(version)
+                assertTrue(continuation.restartRequired)
+                assertTrue(continuation.items.isEmpty())
+                assertTrue(continuation.version > version)
+            }
+        }
+    }
+
+    @Test
+    fun offsetTraversalExplicitlyRestartsAfterAnInterleavedWriteAndThenHasNoGapsOrDuplicates() {
+        val root = root()
+        val beforeWords = LinkedHashMap<String, StoredWord>()
+        val beforeReadings = LinkedHashMap<String, Set<String>>()
+        repeat(500) { index ->
+            val word = "词${index.toString().padStart(3, '0')}"
+            beforeWords[word] = StoredWord(500 - index, index.toLong())
+            beforeReadings["reading${index.toString().padStart(3, '0')}"] = setOf(word)
+        }
+        UserDataDatabase.open(root).use { reader ->
+            reader.replaceUserData(UserDataSnapshot(beforeWords, emptyMap(), beforeReadings))
+            val first = reader.readUserWordEntriesPage("", 0, 37)
+            assertFalse(first.restartRequired)
+            assertEquals(37, first.items.size)
+
+            UserDataDatabase.open(root).use { writer ->
+                val afterWords = LinkedHashMap(beforeWords)
+                val afterReadings = LinkedHashMap(beforeReadings)
+                afterWords["新首项"] = StoredWord(10_000, 10_000L)
+                afterReadings["aaaa"] = setOf("新首项")
+                writer.replaceUserData(UserDataSnapshot(afterWords, emptyMap(), afterReadings))
+            }
+
+            val rejected = reader.readUserWordEntriesPage("", 37, 37, first.version)
+            assertTrue(rejected.restartRequired)
+            assertTrue(rejected.items.isEmpty())
+
+            val all = ArrayList<StoredUserWordEntry>()
+            var offset = 0
+            var version: Long? = null
+            while (true) {
+                val page = reader.readUserWordEntriesPage("", offset, 37, version)
+                assertFalse(page.restartRequired)
+                if (version == null) version = page.version else assertEquals(version, page.version)
+                all.addAll(page.items)
+                if (page.items.size < 37) break
+                offset += page.items.size
+            }
+            assertEquals(501, all.size)
+            assertEquals(501, all.map { it.reading to it.word }.distinct().size)
+            assertEquals("新首项", all.first().word)
+            assertEquals(reader.userWordEntryCount(), all.size.toLong())
+        }
+    }
+
+    @Test
     fun productionStartupAndManagementUsePagedSources() {
         val sourceRoot = File(System.getProperty("user.dir"), "src/main/java/com/aegis/ime")
         val model = File(sourceRoot, "user/UserModel.kt").readText()
@@ -210,7 +319,8 @@ class PersistedPagingTest {
         assertFalse(clipboard.contains("backing.readPhraseCategories().mapTo"))
         assertTrue(service.contains("historyPageProvider ="))
         assertTrue(service.contains("phrasePageProvider ="))
-        assertTrue(page.contains("UserDictEdit.page"))
+        assertTrue(page.contains("UserDictEdit.pageSnapshot"))
+        assertTrue(page.contains("restartRequired"))
         assertTrue(page.contains("USER_DICT_PAGE_SIZE = 100"))
         assertFalse(page.contains("UserDictSearch.index"))
         assertFalse(page.contains("UserDictEdit.list(userDb)"))
