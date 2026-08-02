@@ -68,17 +68,40 @@ import com.aegis.ime.user.UserSettingsPreferences
 import com.aegis.ime.user.userSettings
 import java.io.File
 
+internal class ImeServiceLifetime {
+    private val lock = Any()
+    private var active = true
+
+    fun runIfActive(block: () -> Unit): Boolean = synchronized(lock) {
+        if (!active) return@synchronized false
+        block()
+        true
+    }
+
+    fun <T : Any> valueIfActive(block: () -> T): T? = synchronized(lock) {
+        if (!active) return@synchronized null
+        block()
+    }
+
+    fun invalidate() = synchronized(lock) {
+        active = false
+    }
+
+    fun isActive(): Boolean = synchronized(lock) { active }
+}
+
 class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private lateinit var controller: KeyboardController
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val serviceLifetime = ImeServiceLifetime()
     private val decodeWorker: java.util.concurrent.ExecutorService =
         java.util.concurrent.Executors.newSingleThreadExecutor { r ->
             Thread(r, "aegis-decode").apply { isDaemon = true }
         }
     private val decodeLane = DecodeLane(
         worker = decodeWorker,
-        main = java.util.concurrent.Executor { r -> mainHandler.post(r) },
+        main = java.util.concurrent.Executor { r -> postWhileAlive { r.run() } },
         logError = { Log.e("Aegis", "decode failed", it) },
     )
     @Volatile private var panelTextSnapshot: String? = null
@@ -92,6 +115,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val userLearning by lazy { UserLearning(database = userDatabase) }
 
     private var inputView: InputView? = null
+
+    private fun postWhileAlive(block: () -> Unit) {
+        mainHandler.post { serviceLifetime.runIfActive(block) }
+    }
 
     private var backCallback: OnBackInvokedCallback? = null
     private var backRegistered = false
@@ -224,37 +251,38 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private val settingsHotApply = SettingsHotApply(
         onCnLayout = { id ->
-            Handler(Looper.getMainLooper()).post {
+            postWhileAlive {
                 if (::controller.isInitialized) controller.setCnDefaultLayout(id)
             }
         },
         onDefaultLang = { l ->
-            Handler(Looper.getMainLooper()).post {
+            postWhileAlive {
                 if (::controller.isInitialized) controller.setDefaultLang(l)
             }
         },
         onAssociations = { on ->
-            Handler(Looper.getMainLooper()).post {
+            postWhileAlive {
                 if (::controller.isInitialized) controller.setAssociationsEnabled(on)
             }
         },
         onFuzzyRules = { rules ->
-            Handler(Looper.getMainLooper()).post {
+            postWhileAlive {
                 if (::controller.isInitialized) controller.setFuzzyRules(rules)
             }
         },
         onEngineAssetsChanged = {
-            Handler(Looper.getMainLooper()).post { maybeReloadEngine() }
+            postWhileAlive { maybeReloadEngine() }
         },
-        onKeyHaptics = { on -> mainHandler.post { inputView?.setKeyHaptics(on) } },
-        onKeyPreviewNine = { on -> mainHandler.post { inputView?.setKeyPreviewNine(on) } },
-        onKeyPreviewAlpha = { on -> mainHandler.post { inputView?.setKeyPreviewAlpha(on) } },
-        onLetterCase = { mode -> mainHandler.post { inputView?.setLetterCase(mode) } },
+        onKeyHaptics = { on -> postWhileAlive { inputView?.setKeyHaptics(on) } },
+        onKeyPreviewNine = { on -> postWhileAlive { inputView?.setKeyPreviewNine(on) } },
+        onKeyPreviewAlpha = { on -> postWhileAlive { inputView?.setKeyPreviewAlpha(on) } },
+        onLetterCase = { mode -> postWhileAlive { inputView?.setLetterCase(mode) } },
     )
 
-    private val liveUserDictHost by lazy {
+    private val liveUserDictHostDelegate = lazy {
         LiveUserDictHost(userModel, userDbFile, userLearning, userLearnFile, database = userDatabase)
     }
+    private val liveUserDictHost by liveUserDictHostDelegate
 
     private fun openUserDataDatabase(): UserDataDatabase {
         val database = UserDataMigration.open(filesDir, legacyPreferences)
@@ -273,21 +301,23 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         LiveUserData.onRestored = {
             mainHandler.post {
-                runCatching { clipboardStore.load() }
-                runCatching { symbolUsageStore.load() }
-                runCatching { emojiUsageStore.load() }
-                runCatching {
-                    userModel.reloadFromStorage()
-                    userLearning.reloadFromStorage()
+                serviceLifetime.runIfActive {
+                    runCatching { clipboardStore.load() }
+                    runCatching { symbolUsageStore.load() }
+                    runCatching { emojiUsageStore.load() }
+                    runCatching {
+                        userModel.reloadFromStorage()
+                        userLearning.reloadFromStorage()
+                    }
+                    runCatching { controller.setCustomSymbols(customSymbolStore.pagedList()) }
+                    runCatching {
+                        controller.setCustomOperators(
+                            customOperatorStore.pagedList(Layouts.defaultNumpadOperators.toSet()),
+                            prefiltered = true,
+                        )
+                    }
+                    runCatching { UserSettingsPreferences.notifyRestored(filesDir) }
                 }
-                runCatching { controller.setCustomSymbols(customSymbolStore.pagedList()) }
-                runCatching {
-                    controller.setCustomOperators(
-                        customOperatorStore.pagedList(Layouts.defaultNumpadOperators.toSet()),
-                        prefiltered = true,
-                    )
-                }
-                runCatching { UserSettingsPreferences.notifyRestored(filesDir) }
                 LiveUserData.restoreInProgress = false
             }
         }
@@ -311,23 +341,23 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         )
         Thread {
             runCatching { com.aegis.ime.engine.InputAssociations.lookup("nihao") }
-            UserDictHot.host = liveUserDictHost
-            val engine = buildEngine()
-            Handler(Looper.getMainLooper()).post {
+            if (!serviceLifetime.runIfActive { UserDictHot.host = liveUserDictHost }) return@Thread
+            val engine = buildEngine() ?: return@Thread
+            postWhileAlive {
                 controller.setEngine(engine)
                 maybeReloadEngine()
             }
         }.apply { name = "aegis-dict-load"; isDaemon = true }.start()
     }
 
-    private fun buildEngine(): DictEngine {
+    private fun buildEngine(): DictEngine? {
         com.aegis.ime.dict.ModelDownload.recoverInterruptedDictionaryInstall(filesDir)
         val (sig, dictionaries) = com.aegis.ime.dict.ModelDownload.withDictionaryGeneration {
             EngineAssets.signature(File(filesDir, "downloaded")) to
                 com.aegis.ime.dict.ModelDownload.DICT_PACK_FILES.map(::loadDict)
         }
         val (dict, t9Dict, initialsDict) = dictionaries
-        val fuzzyRules = currentFuzzyRules()
+        val fuzzyRules = serviceLifetime.valueIfActive { currentFuzzyRules() } ?: return null
         val lm = loadLm("aegis_lm.bin")
         val octagram = runCatching { OctagramReader.fromDownloads(this, "wanxiang-lts-zh-hans.gram") }
             .onFailure { Log.e("Aegis", "octagram load failed", it) }.getOrNull()
@@ -340,6 +370,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         SettingsHotApply.fuzzyRules(settingsPreferences)
 
     private fun maybeReloadEngine() {
+        if (!serviceLifetime.isActive()) return
         if (engineSig.isEmpty() || engineReloading) return
         if (com.aegis.ime.dict.ModelDownload.installInProgress(filesDir)) return
         val current = EngineAssets.signature(File(filesDir, "downloaded"))
@@ -348,11 +379,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         try {
             Thread {
                 val ok = runCatching {
-                    val engine = buildEngine()
-                    Handler(Looper.getMainLooper()).post { controller.setEngine(engine) }
-                }.onFailure { Log.e("Aegis", "engine hot-reload failed", it) }.isSuccess
+                    val engine = buildEngine() ?: return@runCatching false
+                    postWhileAlive { controller.setEngine(engine) }
+                    true
+                }.onFailure { Log.e("Aegis", "engine hot-reload failed", it) }.getOrDefault(false)
                 engineReloading = false
-                if (ok) Handler(Looper.getMainLooper()).post { maybeReloadEngine() }
+                if (ok) postWhileAlive { maybeReloadEngine() }
             }.apply { name = "aegis-dict-reload"; isDaemon = true }.start()
         } catch (t: Throwable) {
             Log.e("Aegis", "engine hot-reload thread start failed", t)
@@ -1197,6 +1229,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     override fun onDestroy() {
+        serviceLifetime.invalidate()
         clearEditorTransientState(resetController = true)
         currentEditorTarget = null
         layoutSessionPackage = null
@@ -1206,7 +1239,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         unregisterBackCallback()
         runCatching { decodeWorker.shutdownNow() }
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
-        if (UserDictHot.host === liveUserDictHost) UserDictHot.host = null
+        if (liveUserDictHostDelegate.isInitialized()) {
+            if (UserDictHot.host === liveUserDictHost) UserDictHot.host = null
+        }
         LiveUserData.unregisterClipboardPersistenceHooks(clipboardPendingWriteFlush)
         LiveUserData.onRestored = null
         if (userDatabaseDelegate.isInitialized()) {
