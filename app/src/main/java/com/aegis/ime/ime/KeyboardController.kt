@@ -1059,8 +1059,9 @@ class KeyboardController(
         if (decodeLane?.pending == true) return
         val readings = expandedReadings()
         if (index !in readings.indices) return
-        expirePreeditChoiceUndo()
         val reading = readings[index]
+        if (drillSyllable >= 0 && reading == currentSyllables().getOrNull(drillSyllable)?.reading) return
+        expirePreeditChoiceUndo()
         val recentLockedReading = lockedReadings.lastOrNull()
         val lockedIndex = recentLockedReading?.let(readings::indexOf) ?: -1
         if (mode() == Mode.PINYIN && composing.isNotEmpty() &&
