@@ -28,7 +28,22 @@ object LmBuilder {
         val inputs = args.positionals.map { File(it) }
         require(inputs.isNotEmpty()) { "no input dict files for lm" }
         val minBigram = args.optional("--min-bigram")?.toLong() ?: 1L
-        val t2s = args.optional("--t2s-data")?.let { T2SMerge.load(File(it), collectSourceReadings(inputs)) }
+        val compatibilityProfile = args.optional("--compatibility-profile") ?: "current"
+        require(compatibilityProfile == "current" || compatibilityProfile == Beta31LmNormalization.PROFILE) {
+            "unsupported LM compatibility profile: $compatibilityProfile"
+        }
+        val t2sDirectory = args.optional("--t2s-data")?.let(::File)
+        val currentT2s = if (compatibilityProfile == "current") {
+            t2sDirectory?.let { T2SMerge.load(it, collectSourceReadings(inputs)) }
+        } else {
+            null
+        }
+        val beta31T2s = if (compatibilityProfile == Beta31LmNormalization.PROFILE) {
+            t2sDirectory?.let { Beta31LmNormalization.Converter.load(it) }
+        } else {
+            null
+        }
+        println("lm compatibility profile: $compatibilityProfile minBigram=$minBigram")
 
         val uni = HashMap<Int, Long>(1 shl 16)
         val bi = HashMap<Long, Long>(1 shl 22)
@@ -41,7 +56,7 @@ object LmBuilder {
             for (file in inputs) {
                 println("lm: normalizing ${file.name} ...")
                 file.bufferedReader().use { r ->
-                    scanNormalizedDict(r, t2s, { row ->
+                    val onRow: (NormalizedDictRow) -> Unit = { row ->
                         w.write(row.syllables.joinToString(""))
                         w.write("\t")
                         w.write(row.word)
@@ -52,7 +67,14 @@ object LmBuilder {
                             w.write(row.sourceTag)
                         }
                         w.write("\n")
-                    }, { reason -> rejected[reason.ordinal]++ })
+                    }
+                    if (compatibilityProfile == Beta31LmNormalization.PROFILE) {
+                        Beta31LmNormalization.scan(r, beta31T2s, onRow) {
+                            rejected[NormalizedRowReject.NON_ASCII.ordinal]++
+                        }
+                    } else {
+                        scanNormalizedDict(r, currentT2s, onRow) { reason -> rejected[reason.ordinal]++ }
+                    }
                 }
             }
         }
@@ -77,13 +99,20 @@ object LmBuilder {
                 for (i in 0 until cps.size - 1) bi.merge(pack(cps[i], cps[i + 1]), freq, Long::plus)
             }
         }
-        if (t2s != null) {
+        if (currentT2s != null) {
             println(
-                "lm t2s: converted words=${t2s.convertedWords} phraseHits=${t2s.phraseHits} " +
-                    "charHits=${t2s.charHits} readingOverrides=${t2s.overrideHits} " +
-                    "rejectedMisaligned=${t2s.rejectedMisaligned} " +
-                    "rejectedMissingReading=${t2s.rejectedMissingReading} " +
-                    "rejectedIncompatibleReading=${t2s.rejectedIncompatibleReading}"
+                "lm t2s: converted words=${currentT2s.convertedWords} phraseHits=${currentT2s.phraseHits} " +
+                    "charHits=${currentT2s.charHits} readingOverrides=${currentT2s.overrideHits} " +
+                    "rejectedMisaligned=${currentT2s.rejectedMisaligned} " +
+                    "rejectedMissingReading=${currentT2s.rejectedMissingReading} " +
+                    "rejectedIncompatibleReading=${currentT2s.rejectedIncompatibleReading}"
+            )
+        }
+        if (beta31T2s != null) {
+            println(
+                "lm t2s: converted words=${beta31T2s.convertedWords} phraseHits=${beta31T2s.phraseHits} " +
+                    "charHits=${beta31T2s.charHits} readingOverrides=${beta31T2s.overrideHits} " +
+                    "misaligned=${beta31T2s.misaligned}"
             )
         }
 
