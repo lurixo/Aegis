@@ -145,6 +145,32 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         if (changed) { dirty = true; version++; readingsVersion++ }
     }
 
+    @Synchronized
+    fun addTombstone(word: String, reading: String): Boolean {
+        val w = word.trim()
+        val r = sanitizeReading(reading)
+        if (!isValidWord(w) || r.length > MAX_READING_LENGTH) return false
+        if (tombstones.add(w to r)) {
+            dirty = true
+            version++
+        }
+        return true
+    }
+
+    @Synchronized
+    fun tombstones(): List<Pair<String, String>> = ArrayList(tombstones)
+
+    @Synchronized
+    fun hasTombstones(): Boolean = tombstones.isNotEmpty()
+
+    @Synchronized
+    fun dropTombstones(done: Collection<Pair<String, String>>): Boolean {
+        if (!tombstones.removeAll(done.toSet())) return false
+        dirty = true
+        version++
+        return true
+    }
+
     data class Entry(val reading: String, val word: String, val count: Int)
 
     @Synchronized

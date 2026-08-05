@@ -264,6 +264,19 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     }
 
     @Synchronized
+    fun removeFormed(word: String, reading: String) {
+        val m = formedByWord[word] ?: return
+        if (m.remove(reading) == null) return
+        formedPairs--
+        formedVersion++
+        if (m.isEmpty()) formedByWord.remove(word)
+        pendingCounts.remove(pendingKey(reading, word))
+        ripe.removeAll { it.chars.joinToString("") == word && it.readings.joinToString("") == reading }
+        dirty = true
+        version++
+    }
+
+    @Synchronized
     fun clear() {
         val had = !isEmpty() || !readable
         sourceReadable = true
