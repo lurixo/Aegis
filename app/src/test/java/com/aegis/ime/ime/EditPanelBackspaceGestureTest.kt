@@ -200,16 +200,36 @@ class EditPanelBackspaceGestureTest {
         assertEquals(listOf(EditAction.DELETE), p.actions)
     }
 
-    @Test fun a_release_outside_the_key_commits_nothing() = withPanel { p ->
+    @Test fun a_release_off_the_key_still_commits_one_delete() = withPanel { p ->
         val (x, y) = p.centerOf(EditAction.DELETE)
         val button = p.deleteButton()
-        val outside = button.width.toFloat()
+        val outside = x + button.width
         p.send(MotionEvent.ACTION_DOWN, x, y, 0)
-        p.send(MotionEvent.ACTION_MOVE, x + outside, y, 12)
-        p.send(MotionEvent.ACTION_UP, x + outside, y, 24)
+        p.send(MotionEvent.ACTION_MOVE, outside, y, 12)
+        p.send(MotionEvent.ACTION_UP, outside, y, 24)
 
         assertTrue(p.swipes.isEmpty())
-        assertTrue(p.actions.isEmpty())
+        assertEquals(listOf(EditAction.DELETE), p.actions)
+    }
+
+    @Test fun a_finger_that_left_the_key_settles_as_a_delete_on_every_pointer_path() = withPanel { p ->
+        val (x, y) = p.centerOf(EditAction.DELETE)
+        val button = p.deleteButton()
+        val outside = x + button.width
+        p.dispatch(MotionEvent.ACTION_DOWN, 0, intArrayOf(0), floatArrayOf(x), floatArrayOf(y))
+        p.dispatch(MotionEvent.ACTION_MOVE, 8, intArrayOf(0), floatArrayOf(outside), floatArrayOf(y))
+        p.dispatch(pointerDown(1), 16, intArrayOf(0, 1), floatArrayOf(outside, outside), floatArrayOf(y, y))
+        assertEquals("the first finger settles as a delete off the key", listOf(EditAction.DELETE), p.actions)
+
+        p.dispatch(pointerUp(1), 32, intArrayOf(0, 1), floatArrayOf(outside, outside), floatArrayOf(y, y))
+        assertEquals("the second finger settles as a delete off the key", 2, p.actions.size)
+
+        p.dispatch(MotionEvent.ACTION_UP, 48, intArrayOf(0), floatArrayOf(outside), floatArrayOf(y))
+        p.advance(600)
+
+        assertEquals("a settled gesture leaves no repeat behind", 2, p.actions.size)
+        assertTrue(p.actions.all { it == EditAction.DELETE })
+        assertTrue(p.swipes.isEmpty())
     }
 
     @Test fun a_swipe_after_the_repeat_started_stays_a_repeat() = withPanel { p ->
