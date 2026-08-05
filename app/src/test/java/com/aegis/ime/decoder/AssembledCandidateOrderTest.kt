@@ -33,6 +33,8 @@ class AssembledCandidateOrderTest {
 
     private val clock = 1_700_000_000_000L
 
+    private val CHAIN_REPS = 128
+
     private fun assets() = assumeTrue(
         "production dictionary, T9 table, language model and jianpin table present",
         FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile),
@@ -56,7 +58,7 @@ class AssembledCandidateOrderTest {
 
     private fun chain(vararg steps: Pair<String, String>): UserLearning {
         val learning = UserLearning { clock }
-        repeat(8) {
+        repeat(CHAIN_REPS) {
             var prev: String? = null
             for ((word, reading) in steps) {
                 learning.observeCommit(prev, word, reading, clock)
@@ -88,10 +90,21 @@ class AssembledCandidateOrderTest {
 
     @Test fun aGluedWordNeverLeadsTheDictionaryWordOfTheSameReadingOnBothKeyboards() {
         assets()
-        val learning = chain("你" to "ni", "呢" to "ne", "嗯" to "n")
-        assumeTrue("the chain forms the glued word", "你呢嗯" in learning.formedWordsFor("ninen"))
-        assertLeads("26-key", "你们", "你呢嗯", paths(letters(ul = learning), "nimen", setOf(2)))
-        assertLeads("9-key", "你们", "你呢嗯", paths(digits(ul = learning), "64636", setOf(2)))
+        val sameReading = chain("你" to "ni", "门" to "men")
+        assertTrue("the chain forms the glued word", "你门" in sameReading.formedWordsFor("nimen"))
+        val letterRuns = paths(letters(ul = sameReading), "nimen", setOf(2))
+        for ((path, got) in letterRuns) {
+            assertTrue("26-key/$path: the glued word must be in the list at all, was ${got.take(6)}", "你门" in got)
+        }
+        assertLeads("26-key", "你们", "你门", letterRuns)
+
+        val collided = chain("你" to "ni", "呢" to "ne", "嗯" to "n")
+        assertTrue("the chain forms the colliding word", "你呢嗯" in collided.formedWordsFor("ninen"))
+        val digitRuns = paths(digits(ul = collided), "64636", setOf(2))
+        for ((path, got) in digitRuns) {
+            assertTrue("9-key/$path: the colliding word must be in the list at all, was ${got.take(6)}", "你呢嗯" in got)
+        }
+        assertLeads("9-key", "你们", "你呢嗯", digitRuns)
     }
 
     @Test fun theGluedWordStaysReachableRightBehindTheDictionaryWord() {
