@@ -879,7 +879,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun showCustomOperatorPanel() {
         val iv = inputView ?: return
         val panel = customOperatorView ?: CustomSymbolPanel(this).also {
-            it.backTitle = getString(R.string.svc_custom_operators_back)
+            it.backTitle = getString(R.string.csp_operators_title)
+            it.paletteTitle = getString(R.string.csp_section_all_operators)
             it.addPalette = mathOperatorPalette
             it.current = { customOperatorStore.list() }
             it.onAdd = { s -> customOperatorStore.add(s); controller.setCustomOperators(customOperatorStore.list()); it.refresh() }

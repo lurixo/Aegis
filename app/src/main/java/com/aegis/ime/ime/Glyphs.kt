@@ -252,6 +252,12 @@ object Glyphs {
         c.drawLine(cx, cy - r, cx, cy + r, paint)
     }
 
+    fun drawClose(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val r = s * 0.72f
+        c.drawLine(cx - r, cy - r, cx + r, cy + r, paint)
+        c.drawLine(cx - r, cy + r, cx + r, cy - r, paint)
+    }
+
     fun drawList(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val w = s * 0.78f; val g = s * 0.5f
         c.drawLine(cx - w, cy - g, cx + w, cy - g, paint)
