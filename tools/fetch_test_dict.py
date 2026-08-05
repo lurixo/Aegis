@@ -16,7 +16,8 @@ DICT_LATEST_TAG = "dict-latest"
 MANIFEST_URL = (
     f"https://github.com/lurixo/Aegis/releases/download/{DICT_LATEST_TAG}/aegis-dictionary-update.json"
 )
-RUNTIME_BINS = ("aegis_dict.bin", "aegis_t9.bin", "aegis_jianpin.bin")
+LM_NAME = "aegis_lm.bin"
+RUNTIME_BINS = ("aegis_dict.bin", "aegis_t9.bin", "aegis_jianpin.bin", LM_NAME)
 
 
 def normalize_sha256(value):
@@ -86,6 +87,8 @@ def ensure_pack(url, expected_sha256, zip_path, local_zip, timeout):
 
 def target_for(entry_name):
     name = entry_name.replace("\\", "/").rsplit("/", 1)[-1].lower()
+    if name == LM_NAME:
+        return LM_NAME
     if "jianpin" in name:
         return "aegis_jianpin.bin"
     if "t9" in name:
@@ -132,7 +135,7 @@ def main(argv):
     parser.add_argument(
         "--assets-dir",
         default=str(repo_root / "app" / "src" / "main" / "assets"),
-        help="Directory that receives aegis_dict.bin / aegis_t9.bin / aegis_jianpin.bin.",
+        help="Directory that receives " + " / ".join(RUNTIME_BINS) + ".",
     )
     parser.add_argument(
         "--cache-dir",

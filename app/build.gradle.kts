@@ -41,7 +41,12 @@ android {
     }
 
     androidResources {
-        ignoreAssetsPatterns += listOf("aegis_dict.bin", "aegis_t9.bin", "aegis_jianpin.bin")
+        ignoreAssetsPatterns += listOf(
+            "aegis_dict.bin",
+            "aegis_t9.bin",
+            "aegis_jianpin.bin",
+            "aegis_lm.bin",
+        )
     }
 
     testOptions {
@@ -63,6 +68,7 @@ tasks.withType<Test>().configureEach {
         layout.projectDirectory.file("src/main/assets/aegis_dict.bin"),
         layout.projectDirectory.file("src/main/assets/aegis_t9.bin"),
         layout.projectDirectory.file("src/main/assets/aegis_jianpin.bin"),
+        layout.projectDirectory.file("src/main/assets/aegis_lm.bin"),
     ).withPropertyName("runtimeDictionaryAssets")
         .withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.files(
