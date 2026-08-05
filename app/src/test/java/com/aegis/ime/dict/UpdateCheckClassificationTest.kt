@@ -152,6 +152,22 @@ class UpdateCheckClassificationTest {
     }
 
     @Test
+    fun matchingShaWithAnIncompletePackStillOffersTheDownload() {
+        val incomplete = ModelDownload.dictionaryUpdateFromFetch(
+            { dictionaryManifest(sha2) },
+            ModelDownload.DictionaryInstallMetadata(sha256 = sha2, publishedAt = PUBLISHED, complete = false),
+        )
+        assertEquals(ModelDownload.UpdateCheck.UPDATE, incomplete.state)
+        assertEquals(sha2, incomplete.asset?.sha256)
+
+        val unidentified = ModelDownload.dictionaryUpdateFromFetch(
+            { dictionaryManifest(sha2) },
+            ModelDownload.DictionaryInstallMetadata(complete = false),
+        )
+        assertEquals(ModelDownload.UpdateCheck.UNKNOWN, unidentified.state)
+    }
+
+    @Test
     fun trulyOfflineDictionaryCheckReportsOffline() {
         val result = ModelDownload.dictionaryUpdateFromFetch(
             { throw UnknownHostException("api.github.com") },
