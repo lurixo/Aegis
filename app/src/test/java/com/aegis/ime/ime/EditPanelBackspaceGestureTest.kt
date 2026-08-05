@@ -18,6 +18,7 @@ package com.aegis.ime.ime
 import android.app.Activity
 import android.graphics.Rect
 import android.os.Looper
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -318,6 +319,49 @@ class EditPanelBackspaceGestureTest {
 
         assertEquals(listOf(EditAction.DELETE), p.actions)
         assertTrue(p.swipes.isEmpty())
+    }
+
+    @Test fun pressing_delete_vibrates_when_key_haptics_are_enabled() = withPanel { p ->
+        p.view.hapticEnabled = true
+        val (x, y) = p.centerOf(EditAction.DELETE)
+        p.send(MotionEvent.ACTION_DOWN, x, y, 0)
+
+        assertEquals(
+            "the panel delete performs the same KEYBOARD_TAP feedback as the keyboard",
+            HapticFeedbackConstants.KEYBOARD_TAP,
+            shadowOf(p.deleteButton()).lastHapticFeedbackPerformed(),
+        )
+        p.send(MotionEvent.ACTION_UP, x, y, 10)
+    }
+
+    @Test fun pressing_delete_does_not_vibrate_when_key_haptics_are_disabled() = withPanel { p ->
+        p.view.hapticEnabled = false
+        val (x, y) = p.centerOf(EditAction.DELETE)
+        p.send(MotionEvent.ACTION_DOWN, x, y, 0)
+
+        assertEquals(
+            "no feedback when the toggle is off",
+            -1,
+            shadowOf(p.deleteButton()).lastHapticFeedbackPerformed(),
+        )
+        p.send(MotionEvent.ACTION_UP, x, y, 10)
+    }
+
+    @Test fun delete_only_vibrates_on_the_press() = withPanel { p ->
+        p.view.hapticEnabled = false
+        val (x, y) = p.centerOf(EditAction.DELETE)
+        val button = p.deleteButton()
+        p.send(MotionEvent.ACTION_DOWN, x, y, 0)
+        assertEquals("precondition: a press with the toggle off is silent", -1, shadowOf(button).lastHapticFeedbackPerformed())
+
+        p.view.hapticEnabled = true
+        p.advance(600)
+        assertTrue("precondition: the repeat is running", p.actions.size >= 2)
+        assertEquals("a repeat never buzzes", -1, shadowOf(button).lastHapticFeedbackPerformed())
+
+        p.send(MotionEvent.ACTION_UP, x, y, 600)
+
+        assertEquals("a release never buzzes", -1, shadowOf(button).lastHapticFeedbackPerformed())
     }
 
     @Test fun only_the_shared_keyboard_keys_carry_a_key_action() {
