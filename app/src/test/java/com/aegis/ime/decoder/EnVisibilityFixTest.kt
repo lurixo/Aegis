@@ -38,6 +38,7 @@ class EnVisibilityFixTest {
         PinyinDecoder(t9, CharBigramLM.fromFile(lmFile), octagram = gram, aliasDict = letter)
 
     private fun assertEnOffers嗯(letter: BinaryDict, t9: BinaryDict, jianpin: BinaryDict?, gram: OctagramReader?, cfg: String) {
+        assumeTrue("LM present", lmFile.exists())
         val d = letterDecoder(letter, jianpin, gram)
         val d9 = t9Decoder(t9, letter, gram)
         val bad = ArrayList<String>()

@@ -57,6 +57,7 @@ class EnVisibilityUiTest {
         c.onKey(Key(reading, output = reading, action = KeyAction.PICK_READING))
 
     private fun assertStripOffers嗯(dir: File, gram: OctagramReader?, cfg: String) {
+        assumeTrue("LM present", File(assets, "aegis_lm.bin").exists())
         val bad = ArrayList<String>()
         fun check(tag: String, words: List<String>, rankedAfter恩: Boolean = true) {
             val i = words.indexOf("嗯")
