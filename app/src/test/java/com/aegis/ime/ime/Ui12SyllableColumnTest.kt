@@ -610,6 +610,31 @@ class Ui12SyllableColumnTest {
     private fun isSingleChar(word: String): Boolean = word.codePointCount(0, word.length) == 1
     private fun biangChar(): String = String(Character.toChars(0x30EDD))
 
+    @Test fun tapping_the_drilled_reading_again_leaves_every_locked_reading_alone() {
+        val eng = realEngine(); assumeTrue("dict assets present", eng != null)
+        for (letters in listOf("niniu", "guguo")) {
+            val c = KeyboardController(RecordingHost(), eng!!)
+            c.onKey(act(KeyAction.SWITCH_ALPHA))
+            letters.forEach { c.onKey(out(it.toString())) }
+            val whole = letters.substring(0, 2)
+            val tail = letters.substring(2)
+            c.onPickReadingIndex(c.expandedReadings().indexOf(whole))
+            c.onPickReadingIndex(c.expandedReadings().indexOf(tail))
+            val locked = c.preeditForTest()
+            val first = whole
+            val second = tail
+            assertEquals("$letters: both readings are locked", "$first'$second", locked)
+
+            c.onPickReadingIndex(0)
+            assertEquals("$letters: the drill opens on the first reading", 0, c.drilledSyllableForTest())
+            val drilled = c.candidateWords()
+            c.onPickReadingIndex(0)
+            assertEquals("$letters: tapping the drilled reading again keeps the locks", locked, c.preeditForTest())
+            assertEquals("$letters: and keeps the drill", 0, c.drilledSyllableForTest())
+            assertEquals("$letters: and keeps its homophones", drilled, c.candidateWords())
+        }
+    }
+
     @Test fun real_dict_drill_surfaces_every_homophone_the_dict_holds() {
         val eng = realEngine(); assumeTrue("dict assets present", eng != null)
         val dict = BinaryDict.fromFile(File("src/main/assets/aegis_dict.bin"))
