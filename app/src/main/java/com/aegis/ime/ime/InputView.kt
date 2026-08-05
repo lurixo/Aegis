@@ -80,6 +80,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private var pendingGridBind: Any? = null
     private var composingNow = false
     private var currentPanel: View? = null
+    private var keyHaptics = false
     private var copyBarActive = false
     private var editBarActive = false
     private var palette = ImePalette.STATIC_LIGHT
@@ -317,7 +318,11 @@ class InputView(context: Context) : LinearLayout(context) {
         keyboardView.setLayout(layout, shifted, locked, lang)
     }
 
-    fun setKeyHaptics(on: Boolean) { keyboardView.hapticEnabled = on }
+    fun setKeyHaptics(on: Boolean) {
+        keyHaptics = on
+        keyboardView.hapticEnabled = on
+        (currentPanel as? EditPanelView)?.hapticEnabled = on
+    }
     fun setKeyPreviewNine(on: Boolean) { keyboardView.previewNineEnabled = on }
     fun setKeyPreviewAlpha(on: Boolean) { keyboardView.previewAlphaEnabled = on }
     fun setLetterCase(mode: com.aegis.ime.ui.LetterCase) { keyboardView.caseMode = mode }
@@ -477,6 +482,7 @@ class InputView(context: Context) : LinearLayout(context) {
         (outgoing as? ResettablePanel)?.takeIf { it !== panel }?.resetToDefault()
         if (outgoing === gridView && panel !== gridView) onExpandClosed()
         currentPanel = panel
+        (panel as? EditPanelView)?.hapticEnabled = keyHaptics
         if (panel !== gridView) pendingGridBind = null
         candidateView.setExpanded(panel === gridView)
         val coversBar = panel is CoversToolbar

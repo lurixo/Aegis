@@ -28,6 +28,7 @@ import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -57,6 +58,8 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
     var onAction: (EditAction) -> Unit = {}
 
     var onBackspaceSwipe: (Boolean) -> Unit = {}
+
+    var hapticEnabled = false
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
@@ -463,6 +466,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
     private fun beginBackspace(view: View, pointerId: Int, x: Float, y: Float) {
         backspacePointerId = pointerId
         view.isPressed = true
+        if (hapticEnabled) view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         backspace.begin(x, y)
     }
 

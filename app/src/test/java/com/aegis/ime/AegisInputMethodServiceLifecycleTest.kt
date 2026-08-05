@@ -49,7 +49,9 @@ import com.aegis.ime.ime.SelectionMath
 import com.aegis.ime.ime.SymbolsView
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
+import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
+import com.aegis.ime.layout.Layouts
 import com.aegis.ime.ui.DictDownloadWork
 import com.aegis.ime.user.ClipboardStore
 import org.junit.Assert.assertEquals
@@ -422,6 +424,32 @@ class AegisInputMethodServiceLifecycleTest {
         assertEquals("", connection.editable.toString())
         assertTrue(connection.committedChunks.isEmpty())
         assertTrue(connection.contextMenuActions.isEmpty())
+    }
+
+    @Test fun the_edit_panel_delete_tracks_the_key_haptics_toggle_on_both_faces() {
+        val faces = listOf(
+            Lang.EN to Layouts.forId(LayoutId.ALPHA, Lang.EN),
+            Lang.CN to Layouts.nine(Lang.CN, Layouts.ninePunctuation(), false),
+        )
+        for ((lang, layout) in faces) {
+            val f = fixture()
+            f.view.showKeyboard(layout, false, false, lang)
+
+            f.view.setKeyHaptics(false)
+            val panel = showEditPanel(f.service)
+            assertFalse("${layout.id}: a panel opened with the toggle off starts silent", panel.hapticEnabled)
+
+            f.view.setKeyHaptics(true)
+            assertTrue("${layout.id}: switching the toggle on reaches the open panel", panel.hapticEnabled)
+
+            f.view.setKeyHaptics(false)
+            assertFalse("${layout.id}: switching it back off reaches the open panel", panel.hapticEnabled)
+
+            showEditPanel(f.service)
+            f.view.setKeyHaptics(true)
+            showEditPanel(f.service)
+            assertTrue("${layout.id}: a reopened panel picks up the current toggle", panel.hapticEnabled)
+        }
     }
 
     @Test fun edit_delete_runs_the_keyboard_backspace_chain_instead_of_a_raw_key_event() {
