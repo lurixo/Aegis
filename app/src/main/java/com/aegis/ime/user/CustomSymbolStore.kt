@@ -28,7 +28,7 @@ class CustomSymbolStore(
     fun add(symbol: String): Boolean {
         val s = symbol.filterNot { it.isISOControl() }.trim()
         val cur = list()
-        if (s.isEmpty() || s in cur || cur.size >= MAX) return false
+        if (s.isEmpty() || s in cur) return false
         save(cur + s)
         return true
     }
@@ -40,9 +40,5 @@ class CustomSymbolStore(
 
     private fun save(items: List<String>) {
         prefs.edit().putString(key, items.joinToString("\n")).apply()
-    }
-
-    private companion object {
-        const val MAX = 200
     }
 }

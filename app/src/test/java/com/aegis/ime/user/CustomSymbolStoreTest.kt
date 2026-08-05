@@ -59,10 +59,17 @@ class CustomSymbolStoreTest {
         assertEquals(listOf("→←"), s.list())
     }
 
-    @Test fun capped_at_the_max() {
-        val s = freshStore()
-        repeat(250) { s.add("x$it") }
-        assertEquals(200, s.list().size)
+    @Test fun no_capacity_limit_on_either_store_key() {
+        for (key in listOf("custom_symbols", "custom_operators")) {
+            val prefs = RuntimeEnvironment.getApplication().getSharedPreferences("uncapped-$key", 0)
+            val s = CustomSymbolStore(prefs, key)
+            val wanted = (0 until 250).map { "x$it" }
+            wanted.forEach { assertTrue("$key must accept $it", s.add(it)) }
+            assertEquals(250, s.list().size)
+            assertTrue("$key keeps adding past the old 200 cap", s.add("x250"))
+            assertEquals(wanted + "x250", s.list())
+            assertEquals("$key survives a persistence round trip", wanted + "x250", CustomSymbolStore(prefs, key).list())
+        }
     }
 
     @Test fun persists_across_instances_on_the_same_prefs() {
