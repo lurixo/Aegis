@@ -99,6 +99,7 @@ class PinyinDecoder(
                 if (reading.isEmpty()) continue
                 val dk = T9Pinyin.toT9(reading)
                 for (w in words) {
+                    if (!readsAs(w, reading)) continue
                     letter.getOrPut(reading) { ArrayList() }.let { if (w !in it) it.add(w) }
                     digit.getOrPut(dk) { ArrayList() }.let { if (w !in it) it.add(w) }
                 }
@@ -108,6 +109,40 @@ class PinyinDecoder(
         userDigitIndex = digit
         userIndexVersion = userVersion
         learnIndexVersion = learnVersion
+    }
+
+    private fun readsAs(word: String, reading: String): Boolean {
+        if (reading.isEmpty() || word.isEmpty()) return false
+        val cps = ArrayList<String>(4)
+        var ci = 0
+        while (ci < word.length) {
+            val cp = word.codePointAt(ci)
+            cps.add(String(Character.toChars(cp)))
+            ci += Character.charCount(cp)
+        }
+        val n = reading.length
+        val m = cps.size
+        if (m > n) return false
+        val ref = aliasDict ?: dict
+        val cache = HashMap<String, Set<String>>()
+        fun singles(key: String): Set<String> = cache.getOrPut(key) {
+            val out = HashSet<String>()
+            for (wf in ref.exact(key)) if (isSingleChar(wf.word)) out.add(wf.word)
+            out
+        }
+        val dp = Array(n + 1) { BooleanArray(m + 1) }
+        dp[0][0] = true
+        for (p in 0 until n) for (i in 0 until m) {
+            if (!dp[p][i]) continue
+            var q = p + 1
+            while (q <= n && q - p <= MAX_SYLLABLE_KEY_LEN) {
+                val key = reading.substring(p, q)
+                val known = singles(key)
+                if (cps[i] in known || (known.isEmpty() && key in T9Pinyin.SYLLABLES)) dp[q][i + 1] = true
+                q++
+            }
+        }
+        return dp[n][m]
     }
 
     private fun userWordsFor(key: String): List<String> {
