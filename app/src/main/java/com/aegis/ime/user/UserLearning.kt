@@ -49,8 +49,21 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     var version: Long = 0L
         private set
 
+    @Volatile
+    var enabled: Boolean = true
+        @Synchronized set(value) {
+            if (field == value) return
+            field = value
+            chainRun.clear()
+            ripe.clear()
+            coveredRanges.clear()
+            chainPos = 0L
+            version++
+        }
+
     @Synchronized
     fun observeCommit(prevWord: String?, word: String, reading: String, now: Long) {
+        if (!enabled) return
         val t = now.coerceAtLeast(0L)
         var changed = false
         if (prevWord == null) {
@@ -72,6 +85,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
 
     @Synchronized
     fun observeBreak() {
+        if (!enabled) return
         if (closeChain(clock())) {
             dirty = true
             version++
@@ -80,6 +94,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
 
     @Synchronized
     fun readingSnapshot(): Map<String, List<String>> {
+        if (!enabled) return emptyMap()
         val now = clock()
         val byReading = HashMap<String, ArrayList<Pair<String, Double>>>()
         for ((word, m) in formedByWord) {
@@ -99,7 +114,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
 
     @Synchronized
     fun formedWordsFor(key: String): List<String> {
-        if (key.isEmpty()) return emptyList()
+        if (!enabled || key.isEmpty()) return emptyList()
         val t9 = key[0] in '2'..'9'
         val now = clock()
         val out = ArrayList<Pair<String, Double>>()
@@ -117,6 +132,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
 
     @Synchronized
     fun formedWeight(word: String): Double {
+        if (!enabled) return 0.0
         val m = formedByWord[word] ?: return 0.0
         val now = clock()
         var bestCount = 0.0
@@ -136,6 +152,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
 
     @Synchronized
     fun follows(prevWord: String): List<Pair<String, Double>> {
+        if (!enabled) return emptyList()
         val m = followsByPrev[prevWord] ?: return emptyList()
         val now = clock()
         val out = ArrayList<Pair<String, Double>>(m.size)
@@ -148,7 +165,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
 
     @Synchronized
     fun followBoost(prevContext: String, word: String): Double {
-        if (prevContext.isEmpty() || word.isEmpty()) return 0.0
+        if (!enabled || prevContext.isEmpty() || word.isEmpty()) return 0.0
         val now = clock()
         var best = 0.0
         var start = prevContext.length

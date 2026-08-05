@@ -162,6 +162,8 @@
     <string name="user_dict_auto_clear_confirm">清空</string>
     <string name="user_dict_auto_clear_cancel">取消</string>
     <string name="user_dict_toast_auto_cleared">已清空学习数据</string>
+    <string name="auto_learn_title">自动学习</string>
+    <string name="auto_learn_description">把你逐字拼出的词记下来并作为候选。关闭后不再记录，已学到的词也不再进候选；数据仍保留，直到你清空。</string>
 
     <string name="app_version_card_title">应用版本</string>
     <string name="app_version_card_description">Aegis 应用发布标签。它与学习词库、主词库和模型文件版本相互独立。</string>

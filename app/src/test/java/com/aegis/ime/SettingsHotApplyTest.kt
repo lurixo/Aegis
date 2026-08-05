@@ -23,12 +23,14 @@ import com.aegis.ime.dict.ModelDownload
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON
+import com.aegis.ime.ui.AUTO_LEARN_DEFAULT_ON
 import com.aegis.ime.ui.KEY_HAPTICS_DEFAULT
 import com.aegis.ime.ui.KEY_PREVIEW_MASTER_DEFAULT
 import com.aegis.ime.ui.KEY_PREVIEW_SUB_DEFAULT
 import com.aegis.ime.ui.LETTER_CASE_DEFAULT
 import com.aegis.ime.ui.LetterCase
 import com.aegis.ime.ui.PREF_ASSOCIATIONS_ON
+import com.aegis.ime.ui.PREF_AUTO_LEARN_ON
 import com.aegis.ime.ui.PREF_DEFAULT_LANG
 import com.aegis.ime.ui.PREF_KEY_HAPTICS
 import com.aegis.ime.ui.PREF_KEY_PREVIEW_ALPHA
@@ -57,6 +59,7 @@ class SettingsHotApplyTest {
     private val cnLayouts = mutableListOf<LayoutId>()
     private val defaultLangs = mutableListOf<Lang>()
     private val associations = mutableListOf<Boolean>()
+    private val autoLearns = mutableListOf<Boolean>()
     private val fuzzySets = mutableListOf<Set<String>>()
     private var engineAssetChanges = 0
     private val keyHaptics = mutableListOf<Boolean>()
@@ -68,6 +71,7 @@ class SettingsHotApplyTest {
         onCnLayout = { cnLayouts += it },
         onDefaultLang = { defaultLangs += it },
         onAssociations = { associations += it },
+        onAutoLearn = { autoLearns += it },
         onFuzzyRules = { fuzzySets += it },
         onEngineAssetsChanged = { engineAssetChanges++ },
         onKeyHaptics = { keyHaptics += it },
@@ -94,8 +98,8 @@ class SettingsHotApplyTest {
     }
 
     private fun totalActions() =
-        cnLayouts.size + defaultLangs.size + associations.size + fuzzySets.size + engineAssetChanges + keyHaptics.size +
-            keyPreviewsNine.size + keyPreviewsAlpha.size + letterCases.size
+        cnLayouts.size + defaultLangs.size + associations.size + autoLearns.size + fuzzySets.size +
+            engineAssetChanges + keyHaptics.size + keyPreviewsNine.size + keyPreviewsAlpha.size + letterCases.size
 
     private val allRuleKeys = Fuzzy.RULES.mapTo(LinkedHashSet()) { it.key }
 
@@ -137,6 +141,20 @@ class SettingsHotApplyTest {
         assertEquals(listOf(true, ASSOCIATIONS_DEFAULT_ON), associations)
     }
 
+
+    @Test fun auto_learn_toggle_hot_applies_both_directions_immediately() {
+        assertTrue("auto learning is ON by default", SettingsHotApply.autoLearnOn(prefs))
+        put { putBoolean(PREF_AUTO_LEARN_ON, false) }
+        put { putBoolean(PREF_AUTO_LEARN_ON, true) }
+        assertEquals(listOf(false, true), autoLearns)
+        assertEquals("no other channel may fire", 2, totalActions())
+    }
+
+    @Test fun auto_learn_pref_removal_resolves_to_the_production_default() {
+        put { putBoolean(PREF_AUTO_LEARN_ON, false) }
+        put { remove(PREF_AUTO_LEARN_ON) }
+        assertEquals(listOf(false, AUTO_LEARN_DEFAULT_ON), autoLearns)
+    }
 
     @Test fun key_vibration_toggle_hot_applies_both_directions_immediately() {
         put { putBoolean(PREF_KEY_HAPTICS, true) }

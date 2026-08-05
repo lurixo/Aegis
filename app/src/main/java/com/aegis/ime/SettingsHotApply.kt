@@ -25,6 +25,7 @@ internal class SettingsHotApply(
     private val onCnLayout: (LayoutId) -> Unit,
     private val onDefaultLang: (Lang) -> Unit,
     private val onAssociations: (Boolean) -> Unit,
+    private val onAutoLearn: (Boolean) -> Unit,
     private val onFuzzyRules: (Set<String>) -> Unit,
     private val onEngineAssetsChanged: () -> Unit,
     private val onKeyHaptics: (Boolean) -> Unit = {},
@@ -39,6 +40,7 @@ internal class SettingsHotApply(
             key == CN_LAYOUT_PREF -> onCnLayout(cnLayout(prefs))
             key == com.aegis.ime.ui.PREF_DEFAULT_LANG -> onDefaultLang(defaultLang(prefs))
             key == com.aegis.ime.ui.PREF_ASSOCIATIONS_ON -> onAssociations(associationsOn(prefs))
+            key == com.aegis.ime.ui.PREF_AUTO_LEARN_ON -> onAutoLearn(autoLearnOn(prefs))
             key == FUZZY_MASTER_PREF || key in FUZZY_RULE_PREF_KEYS -> onFuzzyRules(fuzzyRules(prefs))
             key == com.aegis.ime.ui.PREF_KEY_HAPTICS -> onKeyHaptics(keyHaptics(prefs))
             key == com.aegis.ime.ui.PREF_KEY_PREVIEW_MASTER -> {
@@ -83,6 +85,9 @@ internal class SettingsHotApply(
 
         fun associationsOn(prefs: SharedPreferences): Boolean =
             prefs.getBoolean(com.aegis.ime.ui.PREF_ASSOCIATIONS_ON, com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON)
+
+        fun autoLearnOn(prefs: SharedPreferences): Boolean =
+            prefs.getBoolean(com.aegis.ime.ui.PREF_AUTO_LEARN_ON, com.aegis.ime.ui.AUTO_LEARN_DEFAULT_ON)
 
         fun keyHaptics(prefs: SharedPreferences): Boolean =
             prefs.getBoolean(com.aegis.ime.ui.PREF_KEY_HAPTICS, com.aegis.ime.ui.KEY_HAPTICS_DEFAULT)

@@ -162,6 +162,8 @@
     <string name="user_dict_auto_clear_confirm">Clear</string>
     <string name="user_dict_auto_clear_cancel">Cancel</string>
     <string name="user_dict_toast_auto_cleared">Learned data cleared</string>
+    <string name="auto_learn_title">Auto learning</string>
+    <string name="auto_learn_description">Learn the words you assemble character by character and offer them as candidates. Off stops new learning and keeps learned words out of the candidate bar; what was learned already is kept until you clear it.</string>
 
     <string name="app_version_card_title">App release</string>
     <string name="app_version_card_description">Aegis app release label. This is separate from the learning dictionary, main dictionary, and model files.</string>

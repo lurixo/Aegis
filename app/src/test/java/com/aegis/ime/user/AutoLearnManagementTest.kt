@@ -126,6 +126,69 @@ class AutoLearnManagementTest {
         assertTrue("a reload sees an empty store", UserLearning().apply { load(file) }.isEmpty())
     }
 
+    @Test fun turning_auto_learning_off_records_nothing_new() {
+        val learning = UserLearning { clock }
+        learning.enabled = false
+        repeat(8) {
+            var prev: String? = null
+            for ((word, reading) in listOf("你" to "ni", "呢" to "ne", "嗯" to "n")) {
+                learning.observeCommit(prev, word, reading, clock)
+                prev = word
+            }
+            learning.observeBreak()
+        }
+        assertEquals("nothing was recorded while the switch was off", emptyList<UserLearning.Formed>(), learning.formedEntries())
+        assertTrue("nothing was recorded while the switch was off", learning.isEmpty())
+        assertFalse("no write is owed", learning.dirty)
+    }
+
+    @Test fun turning_auto_learning_off_keeps_the_data_and_takes_it_out_of_the_candidates() {
+        val learning = chain("你" to "ni", "呢" to "ne", "嗯" to "n")
+        val d = decoder(learning)
+        assertTrue("the glued word is offered while the switch is on", "你呢嗯" in words(d, "ninen"))
+
+        learning.enabled = false
+
+        assertFalse("the glued word leaves the candidates", "你呢嗯" in words(d, "ninen"))
+        assertEquals(
+            "the learned data itself is kept so the page can still show and clear it",
+            listOf("你呢嗯"),
+            learning.formedEntries().map { it.word },
+        )
+        assertEquals("the boost goes with it", 0.0, learning.formedWeight("你呢嗯"), 0.0)
+
+        learning.enabled = true
+
+        assertTrue("turning it back on restores what was learned", "你呢嗯" in words(d, "ninen"))
+    }
+
+    @Test fun a_chain_in_flight_when_the_switch_goes_off_is_not_promoted_later() {
+        fun typeRipeChain(learning: UserLearning) {
+            var prev: String? = null
+            repeat(4) {
+                for ((word, reading) in listOf("你" to "ni", "呢" to "ne")) {
+                    learning.observeCommit(prev, word, reading, clock)
+                    prev = word
+                }
+            }
+        }
+
+        val control = UserLearning { clock }
+        typeRipeChain(control)
+        control.observeBreak()
+        assertTrue(
+            "the control arm proves this chain is ripe enough to be promoted on a break",
+            control.formedEntries().isNotEmpty(),
+        )
+
+        val learning = UserLearning { clock }
+        typeRipeChain(learning)
+        learning.enabled = false
+        learning.enabled = true
+        learning.observeBreak()
+        assertTrue("the chain typed before the switch died with it", learning.formedEntries().isEmpty())
+    }
+
     @Test fun editing_a_missing_learning_file_is_a_no_op_and_creates_nothing() {
         val file = File(tmp.root, "absent.txt")
         assertEquals(emptyList<UserLearning.Formed>(), UserLearnEdit.list(file))
