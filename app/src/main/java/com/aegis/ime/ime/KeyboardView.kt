@@ -1140,6 +1140,7 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     override fun onDetachedFromWindow() {
+        cancelKeyHold()
         backspace.cancel()
         super.onDetachedFromWindow()
     }

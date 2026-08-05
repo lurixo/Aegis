@@ -470,6 +470,41 @@ class KeyboardViewInteractionTest {
         }
     }
 
+    @Test fun detaching_the_keyboard_cancels_a_pending_long_press() {
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val root = requireNotNull(controller.get().findViewById<ViewGroup>(android.R.id.content))
+            val v = alphaView()
+            root.addView(v)
+            root.measure(
+                View.MeasureSpec.makeMeasureSpec(v.measuredWidth, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(v.measuredHeight, View.MeasureSpec.EXACTLY),
+            )
+            root.layout(0, 0, v.measuredWidth, v.measuredHeight)
+            val (x, y) = requireNotNull(v.centerOfLabelForTest("g"))
+            v.send(MotionEvent.ACTION_DOWN, x, y, 0)
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200))
+            assertFalse("precondition: the box has not opened yet", v.caseBoxActiveForTest())
+
+            root.removeView(v)
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(400))
+
+            assertFalse("detaching cancels the pending long press", v.caseBoxActiveForTest())
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun the_nine_key_face_has_no_long_press_box_to_cancel() {
+        val v = nineView(Layouts.ninePunctuation(), composing = false)
+        val (x, y) = requireNotNull(v.centerOfActionForTest(KeyAction.COMMIT))
+        v.send(MotionEvent.ACTION_DOWN, x, y, 0)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(400))
+
+        assertFalse("the case box is an EN letter feature of the 26-key face", v.caseBoxActiveForTest())
+        v.send(MotionEvent.ACTION_UP, x, y, 400)
+    }
+
     @Test fun releasing_the_backspace_off_the_key_still_commits_one_backspace() {
         for ((face, v) in listOf(
             "26-key" to alphaView(),
