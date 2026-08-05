@@ -28,6 +28,12 @@ object UserDictHot {
 
         fun entries(): List<UserModel.Entry>
 
+        fun learnedEntries(): List<UserLearning.Formed>
+
+        fun removeLearned(word: String, reading: String)
+
+        fun clearLearned()
+
         fun flush()
     }
 

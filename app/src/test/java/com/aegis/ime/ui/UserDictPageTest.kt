@@ -28,6 +28,8 @@ import androidx.test.core.app.ActivityScenario
 import com.aegis.ime.R
 import com.aegis.ime.user.UserDictEdit
 import com.aegis.ime.user.UserDictHot
+import com.aegis.ime.user.UserLearnEdit
+import com.aegis.ime.user.UserLearning
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -51,6 +53,7 @@ class UserDictPageTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
     private val db = File(ctx.filesDir, "userdb.txt")
+    private val learn = File(ctx.filesDir, "userlearn.txt")
     private var scenario: ActivityScenario<UserDictActivity>? = null
     private fun s(id: Int) = ctx.getString(id)
     private fun row(word: String, reading: String) = ctx.getString(R.string.user_dict_entry_format, word, reading)
@@ -58,11 +61,27 @@ class UserDictPageTest {
     @Before fun reset() {
         UserDictHot.host = null
         db.delete()
+        learn.delete()
     }
 
     @After fun cleanup() {
         scenario?.close()
         db.delete()
+        learn.delete()
+    }
+
+    private fun seedLearned(vararg steps: Pair<String, String>) {
+        val now = 1_700_000_000_000L
+        val learning = UserLearning { now }
+        repeat(8) {
+            var prev: String? = null
+            for ((word, reading) in steps) {
+                learning.observeCommit(prev, word, reading, now)
+                prev = word
+            }
+            learning.observeBreak()
+        }
+        learning.save(learn)
     }
 
     private fun openUserDictPage() {
@@ -150,5 +169,49 @@ class UserDictPageTest {
         compose.onNodeWithText(s(R.string.user_dict_search_no_match)).assertExists()
         compose.onNodeWithText(ctx.getString(R.string.user_dict_count_format, 30)).assertExists()
         assertTrue(UserDictEdit.list(db).none { it.word == "删除词" })
+    }
+
+    @Test fun the_auto_learning_section_lists_a_glued_word_and_deletes_it_on_its_own() {
+        seed(0)
+        seedLearned("你" to "ni", "呢" to "ne", "嗯" to "n")
+        assertEquals(listOf("你呢嗯"), UserLearnEdit.list(learn).map { it.word })
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(row("你呢嗯", "ninen")))
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_auto_count_format, 1)).assertExists()
+        compose.onNodeWithText(row("你呢嗯", "ninen")).assertExists()
+
+        compose.onNodeWithText(s(R.string.user_dict_delete_button)).performClick()
+        compose.waitForIdle()
+
+        assertTrue("the learned word is gone from the store", UserLearnEdit.list(learn).isEmpty())
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_auto_count_format, 0)).assertExists()
+        compose.onNodeWithText(s(R.string.user_dict_auto_empty)).assertExists()
+        compose.onNodeWithText(row("你呢嗯", "ninen")).assertDoesNotExist()
+    }
+
+    @Test fun clearing_the_learned_data_asks_first_and_then_empties_the_section() {
+        seed(0, "nihao" to "你好")
+        seedLearned("你" to "ni", "呢" to "ne", "嗯" to "n")
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(s(R.string.user_dict_auto_clear_button)))
+        compose.onNodeWithTag("user_dict_auto_clear").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(s(R.string.user_dict_auto_clear_dialog_body)).assertExists()
+        assertTrue("nothing is cleared before the confirmation", UserLearnEdit.list(learn).isNotEmpty())
+
+        compose.onNodeWithText(s(R.string.user_dict_auto_clear_cancel)).performClick()
+        compose.waitForIdle()
+        assertTrue("cancelling keeps the learned data", UserLearnEdit.list(learn).isNotEmpty())
+
+        compose.onNodeWithTag("user_dict_auto_clear").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(s(R.string.user_dict_auto_clear_confirm)).performClick()
+        compose.waitForIdle()
+
+        assertTrue("confirming clears the learned data", UserLearnEdit.list(learn).isEmpty())
+        compose.onNodeWithText(s(R.string.user_dict_auto_empty)).assertExists()
+        assertTrue("the words the user added by hand survive", UserDictEdit.list(db).any { it.word == "你好" })
     }
 }

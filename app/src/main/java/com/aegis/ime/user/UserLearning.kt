@@ -25,6 +25,8 @@ import kotlin.math.ln
 
 class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
 
+    data class Formed(val word: String, val reading: String)
+
     private class Usage(var count: Double, var lastSeen: Long)
 
     private class Window(val start: Long, val end: Long, val chars: List<String>, val readings: List<String>)
@@ -187,6 +189,53 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
             }
         }
         if (changed) {
+            dirty = true
+            version++
+        }
+    }
+
+    @Synchronized
+    fun formedEntries(): List<Formed> {
+        val now = clock()
+        val out = ArrayList<Pair<Formed, Double>>(formedPairs)
+        for ((word, m) in formedByWord) {
+            for ((reading, u) in m) {
+                out.add(Formed(word, reading) to decayed(u.count, u.lastSeen, now, FORMED_HALF_LIFE_MILLIS))
+            }
+        }
+        return out
+            .sortedWith(
+                compareByDescending<Pair<Formed, Double>> { it.second }
+                    .thenBy { it.first.word }
+                    .thenBy { it.first.reading },
+            )
+            .map { it.first }
+    }
+
+    @Synchronized
+    fun removeFormed(word: String, reading: String) {
+        val m = formedByWord[word] ?: return
+        if (m.remove(reading) == null) return
+        formedPairs--
+        if (m.isEmpty()) formedByWord.remove(word)
+        pendingCounts.remove(pendingKey(reading, word))
+        ripe.removeAll { it.chars.joinToString("") == word && it.readings.joinToString("") == reading }
+        dirty = true
+        version++
+    }
+
+    @Synchronized
+    fun clear() {
+        val had = !isEmpty()
+        formedByWord.clear()
+        formedPairs = 0
+        pendingCounts.clear()
+        followsByPrev.clear()
+        chainRun.clear()
+        ripe.clear()
+        coveredRanges.clear()
+        chainPos = 0L
+        if (had) {
             dirty = true
             version++
         }

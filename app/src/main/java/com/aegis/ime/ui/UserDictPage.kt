@@ -58,6 +58,8 @@ import com.aegis.ime.R
 import com.aegis.ime.user.UserDictEdit
 import com.aegis.ime.user.UserDictImport
 import com.aegis.ime.user.UserDictSearch
+import com.aegis.ime.user.UserLearnEdit
+import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
 import java.io.File
 
@@ -65,14 +67,18 @@ import java.io.File
 internal fun UserDictPage(onBack: () -> Unit) {
     val context = LocalContext.current
     val userDb = File(context.filesDir, "userdb.txt")
+    val userLearn = File(context.filesDir, "userlearn.txt")
     val importMergedToast = stringResource(R.string.user_dict_toast_import_merged)
     val importOverwrittenToast = stringResource(R.string.user_dict_toast_import_overwritten)
     val importFailedToast = stringResource(R.string.user_dict_toast_import_failed)
     val addedToast = stringResource(R.string.user_dict_toast_added)
     val addFailedToast = stringResource(R.string.user_dict_toast_add_failed)
     val deletedToast = stringResource(R.string.user_dict_toast_deleted)
+    val autoClearedToast = stringResource(R.string.user_dict_toast_auto_cleared)
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
+    var pendingAutoClear by remember { mutableStateOf(false) }
 
+    var learned by remember { mutableStateOf(UserLearnEdit.list(userLearn)) }
     var entries by remember { mutableStateOf(UserDictEdit.list(userDb)) }
     var query by remember { mutableStateOf("") }
     val searchIndex = remember(entries) { UserDictSearch.index(entries) }
@@ -137,7 +143,20 @@ internal fun UserDictPage(onBack: () -> Unit) {
     fun deleteWord(reading: String, word: String) {
         UserDictEdit.remove(userDb, reading, word)
         reload()
+        learned = UserLearnEdit.list(userLearn)
         Toast.makeText(context, deletedToast, Toast.LENGTH_SHORT).show()
+    }
+
+    fun deleteLearned(entry: UserLearning.Formed) {
+        UserLearnEdit.remove(userLearn, entry.word, entry.reading)
+        learned = UserLearnEdit.list(userLearn)
+        Toast.makeText(context, deletedToast, Toast.LENGTH_SHORT).show()
+    }
+
+    fun clearLearned() {
+        UserLearnEdit.clear(userLearn)
+        learned = UserLearnEdit.list(userLearn)
+        Toast.makeText(context, autoClearedToast, Toast.LENGTH_SHORT).show()
     }
 
     Column(
@@ -248,7 +267,69 @@ internal fun UserDictPage(onBack: () -> Unit) {
                     UserDictEntryRow(entry, onDelete = { deleteWord(entry.reading, entry.word) })
                 }
             }
+            if (query.isBlank()) {
+                item(key = "auto_learn") {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(
+                            modifier = Modifier.padding(16.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Text(
+                                stringResource(R.string.user_dict_auto_title),
+                                style = MaterialTheme.typography.titleSmall,
+                            )
+                            Text(
+                                stringResource(R.string.user_dict_auto_description),
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                            Text(
+                                stringResource(R.string.user_dict_auto_count_format, learned.size),
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.testTag("user_dict_auto_count"),
+                            )
+                            Button(
+                                onClick = { pendingAutoClear = true },
+                                enabled = learned.isNotEmpty(),
+                                modifier = Modifier.fillMaxWidth().testTag("user_dict_auto_clear"),
+                            ) {
+                                Text(stringResource(R.string.user_dict_auto_clear_button))
+                            }
+                        }
+                    }
+                }
+                if (learned.isEmpty()) {
+                    item(key = "auto_learn_empty") {
+                        Text(
+                            stringResource(R.string.user_dict_auto_empty),
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.padding(vertical = 8.dp),
+                        )
+                    }
+                } else {
+                    items(learned, key = { "auto\t${it.word}\t${it.reading}" }) { entry ->
+                        LearnedEntryRow(entry, onDelete = { deleteLearned(entry) })
+                    }
+                }
+            }
         }
+    }
+
+    if (pendingAutoClear) {
+        AegisAlertDialog(
+            onDismissRequest = { pendingAutoClear = false },
+            title = { Text(stringResource(R.string.user_dict_auto_clear_dialog_title)) },
+            text = { Text(stringResource(R.string.user_dict_auto_clear_dialog_body)) },
+            confirmButton = {
+                TextButton(onClick = { clearLearned(); pendingAutoClear = false }) {
+                    Text(stringResource(R.string.user_dict_auto_clear_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingAutoClear = false }) {
+                    Text(stringResource(R.string.user_dict_auto_clear_cancel))
+                }
+            },
+        )
     }
 
     val uri = pendingImport
@@ -281,6 +362,24 @@ internal fun Modifier.userDictPageInsets(
 ): Modifier = this
     .windowInsetsPadding(bottomInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
     .windowInsetsPadding(topInsets.only(WindowInsetsSides.Top))
+
+@Composable
+private fun LearnedEntryRow(entry: UserLearning.Formed, onDelete: () -> Unit) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            stringResource(R.string.user_dict_entry_format, entry.word, entry.reading),
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f),
+        )
+        Spacer(Modifier.width(8.dp))
+        TextButton(onClick = onDelete) {
+            Text(stringResource(R.string.user_dict_delete_button))
+        }
+    }
+}
 
 @Composable
 private fun UserDictEntryRow(entry: UserModel.Entry, onDelete: () -> Unit) {

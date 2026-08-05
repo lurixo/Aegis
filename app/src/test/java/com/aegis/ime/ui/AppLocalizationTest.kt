@@ -50,6 +50,9 @@ class AppLocalizationTest {
         assertEquals("搜索：词或拼音", ctx.getString(R.string.user_dict_search_hint))
         assertEquals("词数：3", ctx.getString(R.string.user_dict_count_format, 3))
         assertEquals("没有匹配的词。", ctx.getString(R.string.user_dict_search_no_match))
+        assertEquals("自动学习", ctx.getString(R.string.user_dict_auto_title))
+        assertEquals("自动学习：3", ctx.getString(R.string.user_dict_auto_count_format, 3))
+        assertEquals("清空学习数据", ctx.getString(R.string.user_dict_auto_clear_button))
         assertEquals("重输", ctx.getString(R.string.kbd_redo))
     }
 
@@ -76,6 +79,9 @@ class AppLocalizationTest {
         assertEquals("Search word or pinyin", ctx.getString(R.string.user_dict_search_hint))
         assertEquals("Words: 3", ctx.getString(R.string.user_dict_count_format, 3))
         assertEquals("No matching words.", ctx.getString(R.string.user_dict_search_no_match))
+        assertEquals("Auto learning", ctx.getString(R.string.user_dict_auto_title))
+        assertEquals("Auto learned: 3", ctx.getString(R.string.user_dict_auto_count_format, 3))
+        assertEquals("Clear learned data", ctx.getString(R.string.user_dict_auto_clear_button))
         assertEquals("Retype", ctx.getString(R.string.kbd_redo))
     }
 
