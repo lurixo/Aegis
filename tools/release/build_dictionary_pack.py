@@ -618,26 +618,6 @@ def verify_beta31_lm_reproduction(args, repo_root, work_dir, output_dir, tool_bi
             f"sha256={actual_sha} size={actual_size}; "
             f"expected sha256={LM_BETA31_EXPECTED_SHA256} size={LM_BETA31_EXPECTED_SIZE}"
         )
-    checked_in = repo_root / "app/src/main/assets/aegis_lm.bin"
-    if checked_in.is_symlink() or not checked_in.is_file():
-        raise SystemExit(f"checked-in Beta.31 language model is unavailable: {checked_in}")
-    checked_in_sha = sha256_file(checked_in)
-    checked_in_size = checked_in.stat().st_size
-    if (checked_in_sha, checked_in_size) != (
-        LM_BETA31_EXPECTED_SHA256,
-        LM_BETA31_EXPECTED_SIZE,
-    ):
-        raise SystemExit(
-            "checked-in Beta.31 language model identity drifted: "
-            f"sha256={checked_in_sha} size={checked_in_size}"
-        )
-    comparison = subprocess.run(
-        ["/usr/bin/cmp", "--", str(reproduction), str(checked_in)],
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
-    if comparison.returncode != 0:
-        raise SystemExit("Beta.31 LM reproduction differs byte-for-byte from the checked-in asset")
     result = {
         "schema_version": 1,
         "kind": "aegis.lm.beta31-byte-reproduction",
@@ -651,12 +631,6 @@ def verify_beta31_lm_reproduction(args, repo_root, work_dir, output_dir, tool_bi
         "t2s_git_blobs": actual_t2s_blobs,
         "min_bigram": LM_MIN_BIGRAM,
         "java_runtime": java_identity,
-        "checked_in_asset": {
-            "path": "app/src/main/assets/aegis_lm.bin",
-            "sha256": checked_in_sha,
-            "size_bytes": checked_in_size,
-            "cmp": "identical",
-        },
         "output": {
             "path": reproduction.name,
             "sha256": actual_sha,

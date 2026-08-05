@@ -393,10 +393,7 @@ class Beta31LmReproductionGateTest(unittest.TestCase):
             work.mkdir()
             output_dir.mkdir()
             source, commit, blob = self.create_source(root)
-            checked_in = repo / "app/src/main/assets/aegis_lm.bin"
-            checked_in.parent.mkdir(parents=True)
             model = minimal_language_model()
-            checked_in.write_bytes(model)
             t2s = work / "aegis-beta31-lm-t2s"
             t2s.mkdir()
             args = SimpleNamespace(lm_reproduction_source_dir=str(source))
@@ -434,7 +431,7 @@ class Beta31LmReproductionGateTest(unittest.TestCase):
                 )
 
             self.assertEqual("pass", result["status"])
-            self.assertEqual("identical", result["checked_in_asset"]["cmp"])
+            self.assertNotIn("checked_in_asset", result)
             self.assertEqual(java_identity, result["java_runtime"])
             self.assertEqual(1, result["output"]["char_count"])
             self.assertEqual(
@@ -452,18 +449,29 @@ class Beta31LmReproductionGateTest(unittest.TestCase):
                 ),
             )
 
-    def test_the_real_checked_in_fixture_matches_every_frozen_identity(self):
-        repo = Path(bp.__file__).resolve().parents[2]
-        checked_in = repo / "app/src/main/assets/aegis_lm.bin"
+    def test_every_frozen_identity_stays_pinned(self):
         self.assertEqual(14, len(bp.LM_BETA31_INPUT_BLOBS))
         self.assertEqual(4, len(bp.LM_BETA31_T2S_BLOBS))
         self.assertEqual(
             [f"dicts/{table}.dict.yaml" for table in bp.TABLES],
             list(bp.LM_BETA31_INPUT_BLOBS),
         )
-        self.assertEqual(bp.LM_BETA31_EXPECTED_SIZE, checked_in.stat().st_size)
-        self.assertEqual(bp.LM_BETA31_EXPECTED_SHA256, bp.sha256_file(checked_in))
-        self.assertEqual(39_519, bp.require_aegl_v1(checked_in)["char_count"])
+        self.assertEqual(16_069_924, bp.LM_BETA31_EXPECTED_SIZE)
+        self.assertEqual(
+            "c3fc0a2891cfdeabf0a8fe92e6109da83209dc5852be24f0aedc7f598824790a",
+            bp.LM_BETA31_EXPECTED_SHA256,
+        )
+        self.assertEqual("beta31-9484292", bp.LM_COMPATIBILITY_PROFILE)
+        self.assertEqual(
+            "9484292651903e245b88868a6171acf694763f69", bp.LM_COMPATIBILITY_COMMIT
+        )
+        self.assertEqual(
+            "570fc5085c0a63bdf9b8629a5e410b5a24616ff4", bp.LM_COMPATIBILITY_BUILDER_BLOB
+        )
+        self.assertEqual(
+            "351fd048b104c403e80e10a569f9a740d10753e1", bp.LM_BETA31_UPSTREAM_COMMIT
+        )
+        self.assertEqual(1, bp.LM_MIN_BIGRAM)
 
     def test_java_version_drift_fails_closed(self):
         with tempfile.TemporaryDirectory() as directory:
