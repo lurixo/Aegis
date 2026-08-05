@@ -456,13 +456,12 @@ class PinyinDecoder(
 
         val leadFreq = LinkedHashMap<String, Int>()
         val leadCov = HashMap<String, Int>()
-        val dictLeads = ArrayList<String>()
         for (j in 2..nSyl) for (wf in preferredExact(dict, input.substring(0, B[j]))) if (!isSingleChar(wf.word)) {
             if (!admissibleUnderCuts(wf.word, 0, B[j], interior, input, singlesCache)) continue
-            if (leadFreq.put(wf.word, wf.freq) == null) { leadCov[wf.word] = B[j]; dictLeads.add(wf.word) }
+            if (leadFreq.put(wf.word, wf.freq) == null) leadCov[wf.word] = B[j]
         }
         for (uw in userWordsFor(input)) {
-            if (uw == best || uw in leadFreq || uw.codePointCount(0, uw.length) < 2) continue
+            if (uw in leadFreq || uw.codePointCount(0, uw.length) < 2) continue
             if (!admissibleUnderCuts(uw, 0, input.length, interior, input, singlesCache)) continue
             val f = userWordFreq(uw, input).toInt().coerceAtLeast(1)
             if (leadFreq.put(uw, f) == null) leadCov[uw] = input.length
@@ -506,9 +505,9 @@ class PinyinDecoder(
         val out = ArrayList<Cand>(1 + leadFreq.size + tailRanked.size)
         val seen = HashSet<String>()
         if (staged) {
-            val leadScore = HashMap<String, Double>(dictLeads.size * 2)
-            for (w in dictLeads) leadScore[w] = wordModelScore(w, leadFreq.getValue(w), ctxId, ctx, condMemo)
-            val stagedRealWords = dictLeads.sortedWith(
+            val leadScore = HashMap<String, Double>(leadFreq.size * 2)
+            for ((w, f) in leadFreq) leadScore[w] = wordModelScore(w, f, ctxId, ctx, condMemo)
+            val stagedRealWords = leadFreq.keys.sortedWith(
                 compareByDescending<String> { leadCov.getValue(it) }
                     .thenByDescending { leadScore.getValue(it) }
                     .thenBy { supplementarySingleTieRank(it) },
