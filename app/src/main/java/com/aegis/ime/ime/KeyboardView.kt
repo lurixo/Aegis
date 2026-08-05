@@ -1139,6 +1139,11 @@ class KeyboardView(context: Context) : View(context) {
         if (deliberate) retargetUnlocked = true
     }
 
+    override fun onDetachedFromWindow() {
+        backspace.cancel()
+        super.onDetachedFromWindow()
+    }
+
     private fun currentTarget(x: Float, y: Float): Key? {
         val dp = downPlaced ?: return placedAt(x, y)?.key
         if (!retargetUnlocked) return dp.key
