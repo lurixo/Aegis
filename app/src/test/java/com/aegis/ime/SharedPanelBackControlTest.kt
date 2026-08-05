@@ -22,6 +22,7 @@ import android.graphics.Rect
 import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
+import android.widget.TextView
 import android.view.inputmethod.EditorInfo
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
@@ -30,6 +31,7 @@ import com.aegis.ime.ime.CustomSymbolPanel
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.ime.PanelBackButton
+import com.aegis.ime.ime.EditPanelView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.engine.CandidateEngine
 import org.junit.After
@@ -103,6 +105,11 @@ class SharedPanelBackControlTest {
         view.layout(0, 0, view.measuredWidth, view.measuredHeight)
     }
 
+    private fun editPanelBack(): TextView {
+        val panel = EditPanelView(ctx).also { it.applyPalette(ImePalette.STATIC_LIGHT) }
+        return (panel.getChildAt(0) as ViewGroup).getChildAt(0) as TextView
+    }
+
     private fun backControls(root: View): List<PanelBackButton> {
         val out = ArrayList<PanelBackButton>()
         fun walk(v: View) {
@@ -148,9 +155,16 @@ class SharedPanelBackControlTest {
             layout(view)
 
             val button = panel.backButtonForTest()
-            assertTrue("$field uses the shared back control", button is PanelBackButton)
-            assertTrue("$field back hit width", button.width >= dp(48))
+            assertTrue("$field uses the edit panel title control", button is TextView)
             assertTrue("$field back hit height", button.height >= dp(48))
+            val editBack = editPanelBack()
+            assertEquals("$field back text scale", editBack.textSize, (button as TextView).textSize, 0.01f)
+            assertEquals(
+                "$field back icon box",
+                editBack.compoundDrawables[0]!!.intrinsicWidth,
+                button.compoundDrawables[0]!!.intrinsicWidth,
+            )
+            assertEquals("$field back icon gap", editBack.compoundDrawablePadding, button.compoundDrawablePadding)
             assertEquals("$field title", ctx.getString(title), panel.titleForTest().text.toString())
             assertEquals(
                 "$field added section",
@@ -289,11 +303,12 @@ class SharedPanelBackControlTest {
             val button = backControls(clipboard).single()
             assertEquals("$name back hit width", dp(48), button.width)
             assertEquals("$name back hit height", dp(48), button.height)
-            assertEquals(
-                "$name back matches the custom pages",
-                custom.backButtonForTest().width to custom.backButtonForTest().height,
-                button.width to button.height,
+            assertNotEquals(
+                "$name keeps the icon button while the custom pages carry their title",
+                custom.backButtonForTest().width,
+                button.width,
             )
+            assertTrue("$name back stays the shared icon button", button is PanelBackButton)
             assertEquals(
                 "$name back keeps the shared left inset",
                 dp(8),
