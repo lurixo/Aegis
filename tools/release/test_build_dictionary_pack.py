@@ -397,7 +397,7 @@ class Beta31LmReproductionGateTest(unittest.TestCase):
             checked_in.parent.mkdir(parents=True)
             model = minimal_language_model()
             checked_in.write_bytes(model)
-            t2s = root / "t2s"
+            t2s = work / "aegis-beta31-lm-t2s"
             t2s.mkdir()
             args = SimpleNamespace(lm_reproduction_source_dir=str(source))
             java_identity = {"java_home": "/fixed", "version": ["21.0.11"]}
@@ -437,6 +437,12 @@ class Beta31LmReproductionGateTest(unittest.TestCase):
             self.assertEqual("identical", result["checked_in_asset"]["cmp"])
             self.assertEqual(java_identity, result["java_runtime"])
             self.assertEqual(1, result["output"]["char_count"])
+            self.assertEqual(
+                "aegis-lm-beta31-reproduction.bin", result["output"]["path"]
+            )
+            serialized = json.dumps(result)
+            for redacted in (repo, work, output_dir, source):
+                self.assertNotIn(str(redacted), serialized)
             self.assertEqual(
                 result,
                 json.loads(
