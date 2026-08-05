@@ -163,5 +163,75 @@ class DownloadableComponentProtocolTest(unittest.TestCase):
         )
         self.assertFalse([name for name in bp.PACK_ENTRIES if name.endswith(".idx")])
 
+
+class LanguageModelProtocolTest(unittest.TestCase):
+    def require(self, root: Path, data: bytes):
+        path = root / "model.bin"
+        path.write_bytes(data)
+        return bp.require_aegl_v1(path)
+
+    def model_with_bigrams(self) -> bytes:
+        return b"".join(
+            [
+                b"AEGL",
+                struct.pack("<iiq", 1, 2, 3),
+                struct.pack("<ii", 0x4E00, 0x4E01),
+                struct.pack("<qq", 1, 2),
+                struct.pack("<qq", 5, 0),
+                struct.pack("<iii", 0, 2, 2),
+                struct.pack("<i", 2),
+                struct.pack("<ii", 0, 1),
+                struct.pack("<qq", 2, 3),
+            ]
+        )
+
+    def test_accepts_and_reports_the_complete_aegl_shape(self):
+        with tempfile.TemporaryDirectory() as directory:
+            self.assertEqual(
+                {
+                    "format": "AEGL v1",
+                    "char_count": 2,
+                    "bigram_count": 2,
+                    "total_unigram_count": 3,
+                },
+                self.require(Path(directory), self.model_with_bigrams()),
+            )
+
+    def test_rejects_malformed_counts_boundaries_and_extent(self):
+        valid = bytearray(minimal_language_model())
+        cases = {}
+        wrong_total = bytearray(valid)
+        struct.pack_into("<q", wrong_total, 12, 2)
+        cases["unigram total mismatch"] = wrong_total
+        invalid_boundary = bytearray(valid)
+        struct.pack_into("<i", invalid_boundary, 44, 1)
+        cases["row boundary"] = invalid_boundary
+        cases["file extent"] = valid + b"trailing"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for message, data in cases.items():
+                with self.subTest(message=message):
+                    with self.assertRaisesRegex(ValueError, message):
+                        self.require(root, bytes(data))
+
+    def test_rejects_unsorted_bigram_targets_zero_counts_and_bad_denominators(self):
+        valid = self.model_with_bigrams()
+        cases = {}
+        duplicate_target = bytearray(valid)
+        struct.pack_into("<ii", duplicate_target, 76, 1, 1)
+        cases["bigram index"] = duplicate_target
+        zero_count = bytearray(valid)
+        struct.pack_into("<q", zero_count, 84, 0)
+        cases["bigram count"] = zero_count
+        bad_denominator = bytearray(valid)
+        struct.pack_into("<q", bad_denominator, 44, 4)
+        cases["row denominator"] = bad_denominator
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for message, data in cases.items():
+                with self.subTest(message=message):
+                    with self.assertRaisesRegex(ValueError, message):
+                        self.require(root, bytes(data))
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

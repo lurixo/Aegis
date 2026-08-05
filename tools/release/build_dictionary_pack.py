@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-only
 
+import struct
 import zipfile
 
 TABLES = [
@@ -84,3 +85,80 @@ def write_zip(zip_path, entries):
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o100644 << 16
             zf.writestr(info, file_path.read_bytes(), compresslevel=9)
+
+def require_aegl_v1(path):
+    data = path.read_bytes()
+    if len(data) < 20 or data[:4] != b"AEGL" or struct.unpack_from("<i", data, 4)[0] != 1:
+        raise ValueError(f"language model is not AEGL v1: {path}")
+    num_chars = struct.unpack_from("<i", data, 8)[0]
+    total_unigrams = struct.unpack_from("<q", data, 12)[0]
+    if num_chars <= 0 or total_unigrams <= 0:
+        raise ValueError(f"invalid AEGL v1 header counts: {path}")
+    char_codes_offset = 20
+    unigram_counts_offset = char_codes_offset + num_chars * 4
+    row_totals_offset = unigram_counts_offset + num_chars * 8
+    row_starts_offset = row_totals_offset + num_chars * 8
+    num_bigrams_offset = row_starts_offset + (num_chars + 1) * 4
+    if num_bigrams_offset + 4 > len(data):
+        raise ValueError(f"truncated AEGL v1 header arrays: {path}")
+    num_bigrams = struct.unpack_from("<i", data, num_bigrams_offset)[0]
+    if num_bigrams < 0:
+        raise ValueError(f"invalid AEGL v1 bigram count: {path}")
+    bigram_targets_offset = num_bigrams_offset + 4
+    bigram_counts_offset = bigram_targets_offset + num_bigrams * 4
+    if bigram_counts_offset + num_bigrams * 8 != len(data):
+        raise ValueError(f"invalid AEGL v1 file extent: {path}")
+
+    previous_code = -1
+    unigram_sum = 0
+    for index in range(num_chars):
+        code = struct.unpack_from("<i", data, char_codes_offset + index * 4)[0]
+        count = struct.unpack_from("<q", data, unigram_counts_offset + index * 8)[0]
+        if not (code > previous_code and 0 <= code <= 0x10FFFF and not 0xD800 <= code <= 0xDFFF):
+            raise ValueError(f"invalid AEGL v1 character index: {path}")
+        if count <= 0:
+            raise ValueError(f"invalid AEGL v1 unigram count: {path}")
+        previous_code = code
+        unigram_sum += count
+        if unigram_sum > 0x7FFF_FFFF_FFFF_FFFF:
+            raise ValueError(f"overflowing AEGL v1 unigram total: {path}")
+    if unigram_sum != total_unigrams:
+        raise ValueError(f"AEGL v1 unigram total mismatch: {path}")
+
+    row_starts = [
+        struct.unpack_from("<i", data, row_starts_offset + index * 4)[0]
+        for index in range(num_chars + 1)
+    ]
+    if row_starts[0] != 0 or row_starts[-1] != num_bigrams:
+        raise ValueError(f"invalid AEGL v1 row boundary: {path}")
+    previous_start = 0
+    for start in row_starts:
+        if not previous_start <= start <= num_bigrams:
+            raise ValueError(f"invalid AEGL v1 row index: {path}")
+        previous_start = start
+    for row in range(num_chars):
+        start, end = row_starts[row : row + 2]
+        total = struct.unpack_from("<q", data, row_totals_offset + row * 8)[0]
+        if total < 0 or (start != end and total <= 0):
+            raise ValueError(f"invalid AEGL v1 row total: {path}")
+        previous_target = -1
+        retained = 0
+        for index in range(start, end):
+            target = struct.unpack_from("<i", data, bigram_targets_offset + index * 4)[0]
+            count = struct.unpack_from("<q", data, bigram_counts_offset + index * 8)[0]
+            if not 0 <= target < num_chars or target <= previous_target:
+                raise ValueError(f"invalid AEGL v1 bigram index: {path}")
+            if count <= 0:
+                raise ValueError(f"invalid AEGL v1 bigram count: {path}")
+            previous_target = target
+            retained += count
+            if retained > 0x7FFF_FFFF_FFFF_FFFF:
+                raise ValueError(f"overflowing AEGL v1 bigram row: {path}")
+        if retained > total:
+            raise ValueError(f"invalid AEGL v1 row denominator: {path}")
+    return {
+        "format": "AEGL v1",
+        "char_count": num_chars,
+        "bigram_count": num_bigrams,
+        "total_unigram_count": total_unigrams,
+    }
