@@ -426,12 +426,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun loadLm(name: String): CharBigramLM? {
-        downloadedOverride(name)?.let { f ->
-            runCatching { CharBigramLM.fromFile(f) }
-                .onFailure { Log.e("Aegis", "downloaded lm unreadable, falling back to bundled: $name", it) }
-                .getOrNull()?.let { return it }
+        val file = downloadedOverride(name)
+        if (file == null) {
+            Log.w("Aegis", "lm not installed, ranking without it: $name")
+            return null
         }
-        return runCatching { CharBigramLM.fromAssets(this, name) }
+        return runCatching { CharBigramLM.fromFile(file) }
             .onFailure { Log.e("Aegis", "lm load failed: $name", it) }
             .getOrNull()
     }
