@@ -19,7 +19,12 @@ import com.aegis.ime.ime.SelectionMath.Move
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34])
 class SelectionMathTest {
 
     private fun span(text: String, anchor: Int, vararg moves: Move): String {
@@ -71,5 +76,37 @@ class SelectionMathTest {
     @Test fun stepIsBoundsSafeForOutOfRangePositions() {
         assertEquals(0, SelectionMath.step("abc", -5, Move.LEFT))
         assertEquals(3, SelectionMath.step("abc", 99, Move.RIGHT))
+    }
+
+    @Test fun horizontalMovesStepOverWholeGraphemeClusters() {
+        val clusters = listOf("😀", "❤️", "🇨🇳", "👨‍👩‍👧‍👦", "👋🏽", "é")
+        for (cluster in clusters) {
+            val t = "a${cluster}b"
+            val end = 1 + cluster.length
+            assertEquals("RIGHT over '$cluster'", end, SelectionMath.step(t, 1, Move.RIGHT))
+            assertEquals("LEFT over '$cluster'", 1, SelectionMath.step(t, end, Move.LEFT))
+            assertEquals("'$cluster' selects whole", cluster, span(t, 1, Move.RIGHT))
+            assertEquals("'$cluster' selects whole backwards", cluster, span(t, end, Move.LEFT))
+        }
+    }
+
+    @Test fun horizontalMovesNeverLandInsideASurrogatePair() {
+        val t = "😀😀"
+        assertEquals(2, SelectionMath.step(t, 0, Move.RIGHT))
+        assertEquals(4, SelectionMath.step(t, 2, Move.RIGHT))
+        assertEquals(2, SelectionMath.step(t, 4, Move.LEFT))
+        assertEquals(0, SelectionMath.step(t, 2, Move.LEFT))
+    }
+
+    @Test fun verticalMovesSnapOntoAClusterBoundary() {
+        val t = "abc\n😀d"
+        assertEquals("DOWN keeps the column but not a split surrogate", 4, SelectionMath.step(t, 1, Move.DOWN))
+        assertEquals("UP from after the emoji", 2, SelectionMath.step(t, 6, Move.UP))
+    }
+
+    @Test fun paragraphEndStopsBeforeACarriageReturnPair() {
+        val t = "ab\r\ncd"
+        assertEquals(2, SelectionMath.step(t, 1, Move.END))
+        assertEquals(4, SelectionMath.step(t, 5, Move.HOME))
     }
 }

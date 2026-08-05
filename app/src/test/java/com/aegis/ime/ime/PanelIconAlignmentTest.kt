@@ -132,7 +132,7 @@ class PanelIconAlignmentTest {
     }
 
     @Test fun edit_panel_does_not_page_at_portrait_panel_heights() {
-        for (heightDp in listOf(230, 290)) {
+        for (heightDp in listOf(290, 340)) {
             val v = EditPanelView(ctx)
             layout(v, width = (411 * density).roundToInt(), height = (heightDp * density).roundToInt())
             val viewport = v.actionViewportForTest()
@@ -143,6 +143,38 @@ class PanelIconAlignmentTest {
             assertEquals("$heightDp dp panel must not move after a downward drag", 0, viewport.scrollY)
             assertFalse("$heightDp dp panel must not page upward", viewport.canScrollVertically(-1))
             assertFalse("$heightDp dp panel must not page downward", v.actionContentCanScrollForTest())
+        }
+    }
+
+    @Test fun edit_panel_action_rows_keep_a_48dp_touch_target_at_every_panel_height() {
+        val minimum = (48 * density).roundToInt()
+        for (heightDp in listOf(200, 230, 290, 340)) {
+            val v = EditPanelView(ctx)
+            layout(v, width = (411 * density).roundToInt(), height = (heightDp * density).roundToInt())
+            for (action in listOf(
+                EditAction.UP,
+                EditAction.LEFT,
+                EditAction.START_SELECT,
+                EditAction.RIGHT,
+                EditAction.DOWN,
+                EditAction.DELETE,
+                EditAction.COPY,
+                EditAction.CUT,
+                EditAction.HOME,
+                EditAction.SELECT_ALL,
+                EditAction.END,
+                EditAction.PASTE,
+            )) {
+                val target = requireNotNull(v.actionViewForTest(action))
+                assertTrue(
+                    "$heightDp dp panel: $action touch height ${target.height} < $minimum",
+                    target.height >= minimum,
+                )
+                assertTrue(
+                    "$heightDp dp panel: $action touch width ${target.width} < $minimum",
+                    target.width >= minimum,
+                )
+            }
         }
     }
 
@@ -258,7 +290,7 @@ class PanelIconAlignmentTest {
         assertEquals(select.bottom, downArrow.top)
         val titleHeight = (40 * density).toInt()
         val bottomHeight = (56 * density).toInt()
-        val contentHeight = maxOf((44 * 3 * density).toInt() + bottomHeight, panelHeight - titleHeight)
+        val contentHeight = maxOf((48 * 3 * density).toInt() + bottomHeight, panelHeight - titleHeight)
         val bottomContainerHeight = maxOf(bottomHeight, (contentHeight + 3) / 4)
         val midHeight = contentHeight - bottomContainerHeight
         for (arrow in listOf(leftArrow, rightArrow, upArrow, downArrow)) {
@@ -351,7 +383,7 @@ class PanelIconAlignmentTest {
             bounds.zipWithNext().forEach { (upper, lower) -> assertTrue(upper.bottom <= lower.top) }
             val titleHeight = (40 * density).toInt()
             val bottomHeight = (56 * density).toInt()
-            val contentHeight = maxOf((44 * 3 * density).toInt() + bottomHeight, height - titleHeight)
+            val contentHeight = maxOf((48 * 3 * density).toInt() + bottomHeight, height - titleHeight)
             val bottomContainerHeight = maxOf(bottomHeight, (contentHeight + 3) / 4)
             val midHeight = contentHeight - bottomContainerHeight
             assertEquals(midHeight / 3, reference.height)

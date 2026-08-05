@@ -30,6 +30,32 @@ object GraphemeText {
         return if (start == BreakIterator.DONE) end else end - start
     }
 
+    fun clusterStart(text: CharSequence, offset: Int): Int {
+        val p = offset.coerceIn(0, text.length)
+        if (p <= 0 || p >= text.length) return p
+        val it = boundaries(text)
+        if (it.isBoundary(p)) return p
+        val previous = it.preceding(p)
+        return if (previous == BreakIterator.DONE) 0 else previous
+    }
+
+    fun previousCluster(text: CharSequence, offset: Int): Int {
+        val p = offset.coerceIn(0, text.length)
+        if (p <= 0) return 0
+        val previous = boundaries(text).preceding(p)
+        return if (previous == BreakIterator.DONE) 0 else previous
+    }
+
+    fun nextCluster(text: CharSequence, offset: Int): Int {
+        val p = offset.coerceIn(0, text.length)
+        if (p >= text.length) return text.length
+        val next = boundaries(text).following(p)
+        return if (next == BreakIterator.DONE) text.length else next
+    }
+
+    private fun boundaries(text: CharSequence): BreakIterator =
+        BreakIterator.getCharacterInstance().apply { setText(text.toString()) }
+
     fun clusterCount(text: CharSequence): Int {
         if (text.isEmpty()) return 0
         val it = BreakIterator.getCharacterInstance()

@@ -51,6 +51,7 @@ import com.aegis.ime.ime.LayoutPanelView
 import com.aegis.ime.ime.SelectionMath
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.SymbolsView
+import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
 import com.aegis.ime.user.ClipboardStore
@@ -446,12 +447,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPickCandidate = { index -> controller.onPickCandidate(index) }
             onPickReading = { index -> controller.onPickReadingIndex(index) }
             onFunction = { f -> controller.onBarFunction(f) }
-            onBackspaceSwipe = { up ->
-                if (!controller.onBackspaceSwipe(up)) {
-                    if (panelInput.active) { if (up) panelInput.begin("") }
-                    else handleBackspaceSwipe(up)
-                }
-            }
+            onBackspaceSwipe = { up -> backspaceSwipe(up) }
             onPanelBackspace = { controller.onPanelBackspace() }
             onPanelClear = { controller.onPanelClear() }
             onExpandClosed = { controller.clearDrill() }
@@ -676,6 +672,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         stopSelecting()
         val ep = editPanelView ?: EditPanelView(this).also {
             it.onAction = { a -> handleEdit(a) }
+            it.onBackspaceSwipe = { up -> backspaceSwipe(up) }
             editPanelView = it
         }
         ep.applyPalette(imePalette)
@@ -706,8 +703,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun handleEdit(action: EditAction) {
-        if (panelInput.active && action != EditAction.BACK) return
-        controller.expireCandidateChoiceUndo()
+        val keyAction = action.keyAction
+        if (keyAction == null) {
+            if (panelInput.active && action != EditAction.BACK) return
+            controller.expireCandidateChoiceUndo()
+        }
         when (action) {
             EditAction.UP -> nav(KeyEvent.KEYCODE_DPAD_UP, SelectionMath.Move.UP)
             EditAction.DOWN -> nav(KeyEvent.KEYCODE_DPAD_DOWN, SelectionMath.Move.DOWN)
@@ -716,12 +716,31 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             EditAction.HOME -> nav(KeyEvent.KEYCODE_MOVE_HOME, SelectionMath.Move.HOME)
             EditAction.END -> nav(KeyEvent.KEYCODE_MOVE_END, SelectionMath.Move.END)
             EditAction.START_SELECT -> toggleSelecting()
-            EditAction.DELETE -> sendKey(KeyEvent.KEYCODE_DEL, false)
+            EditAction.DELETE -> keyAction?.let { key ->
+                controller.onKey(Key(action = key))
+                resetSelectionAnchor()
+            }
             EditAction.COPY -> currentInputConnection?.performContextMenuAction(android.R.id.copy)
-            EditAction.CUT -> currentInputConnection?.performContextMenuAction(android.R.id.cut)
-            EditAction.SELECT_ALL -> currentInputConnection?.performContextMenuAction(android.R.id.selectAll)
-            EditAction.PASTE -> clipboardStore.latest()?.let(::commitLargeText)
+            EditAction.CUT -> {
+                currentInputConnection?.performContextMenuAction(android.R.id.cut)
+                resetSelectionAnchor()
+            }
+            EditAction.SELECT_ALL -> {
+                currentInputConnection?.performContextMenuAction(android.R.id.selectAll)
+                resetSelectionAnchor()
+            }
+            EditAction.PASTE -> {
+                clipboardStore.latest()?.let(::commitLargeText)
+                resetSelectionAnchor()
+            }
             EditAction.BACK -> { stopSelecting(); inputView?.showPanel(null) }
+        }
+    }
+
+    private fun backspaceSwipe(up: Boolean) {
+        if (!controller.onBackspaceSwipe(up)) {
+            if (panelInput.active) { if (up) panelInput.begin("") }
+            else handleBackspaceSwipe(up)
         }
     }
 
@@ -737,6 +756,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun stopSelecting() { selecting = false; selAnchor = -1; selMoving = -1 }
+
+    private fun resetSelectionAnchor() {
+        if (!selecting) return
+        selAnchor = -1
+        selMoving = -1
+    }
 
     private fun nav(keyCode: Int, move: SelectionMath.Move) {
         if (!selecting) { sendKey(keyCode, false); return }
@@ -770,9 +795,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 deletedSnapshot = all
                 ic.performContextMenuAction(android.R.id.selectAll)
                 ic.commitText("", 1)
+                resetSelectionAnchor()
             }
         } else {
-            deletedSnapshot?.let { ic.commitText(it, 1); deletedSnapshot = null }
+            deletedSnapshot?.let {
+                ic.commitText(it, 1)
+                deletedSnapshot = null
+                resetSelectionAnchor()
+            }
         }
     }
 

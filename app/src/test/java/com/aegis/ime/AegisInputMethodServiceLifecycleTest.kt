@@ -22,12 +22,17 @@ import android.content.res.Configuration
 import android.os.Looper
 import android.provider.Settings
 import android.text.InputType
+import android.text.Selection
+import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.ExtractedText
+import android.view.inputmethod.ExtractedTextRequest
 import android.widget.FrameLayout
 import com.aegis.ime.dict.ModelDownload
 import com.aegis.ime.engine.CandidateEngine
+import com.aegis.ime.ime.BackspaceGesture
 import com.aegis.ime.ime.BarFunction
 import com.aegis.ime.ime.ClipboardView
 import com.aegis.ime.ime.CustomSymbolPanel
@@ -40,6 +45,7 @@ import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.ime.LargeCommit
 import com.aegis.ime.ime.LayoutPanelView
 import com.aegis.ime.ime.Motion
+import com.aegis.ime.ime.SelectionMath
 import com.aegis.ime.ime.SymbolsView
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
@@ -81,8 +87,25 @@ class AegisInputMethodServiceLifecycleTest {
         val composingUpdates = ArrayList<String>()
         val committedChunks = ArrayList<String>()
         val contextMenuActions = ArrayList<Int>()
+        val sentKeyCodes = ArrayList<Int>()
         var onContextMenuAction: (Int) -> Unit = {}
         var finishes = 0
+
+        override fun sendKeyEvent(event: KeyEvent): Boolean {
+            if (event.action != KeyEvent.ACTION_DOWN) return super.sendKeyEvent(event)
+            sentKeyCodes.add(event.keyCode)
+            return super.sendKeyEvent(event)
+        }
+
+        override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? {
+            val content = editable ?: return null
+            return ExtractedText().apply {
+                startOffset = 0
+                text = content.subSequence(0, content.length)
+                selectionStart = Selection.getSelectionStart(content)
+                selectionEnd = Selection.getSelectionEnd(content)
+            }
+        }
 
         override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean {
             composingUpdates.add(text?.toString().orEmpty())
@@ -189,6 +212,13 @@ class AegisInputMethodServiceLifecycleTest {
             get(service) as Lazy<*>
         }
         return delegate.value as ClipboardStore
+    }
+
+    private fun backspaceSwipe(service: AegisInputMethodService, up: Boolean) {
+        service.javaClass.getDeclaredMethod("backspaceSwipe", Boolean::class.javaPrimitiveType).apply {
+            isAccessible = true
+            invoke(service, up)
+        }
     }
 
     private fun handleEdit(service: AegisInputMethodService, action: EditAction) {
@@ -393,6 +423,192 @@ class AegisInputMethodServiceLifecycleTest {
         assertTrue(connection.committedChunks.isEmpty())
         assertTrue(connection.contextMenuActions.isEmpty())
     }
+
+    @Test fun edit_delete_runs_the_keyboard_backspace_chain_instead_of_a_raw_key_event() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("ab😀", 1)
+
+        handleEdit(f.service, EditAction.DELETE)
+
+        assertEquals("delete removes the whole grapheme cluster", "ab", connection.editable.toString())
+        assertTrue("the panel must not fall back to a raw KEYCODE_DEL", connection.sentKeyCodes.isEmpty())
+    }
+
+    @Test fun edit_delete_consumes_the_preedit_before_the_editor_text() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("abc", 1)
+        f.view.onKey(Key("6", output = "6"))
+        assertTrue("precondition: the key builds a preedit", f.controller.preeditForTest().isNotEmpty())
+
+        handleEdit(f.service, EditAction.DELETE)
+
+        assertEquals("the preedit absorbs the delete", "", f.controller.preeditForTest())
+        assertEquals("committed text stays untouched", "abc", connection.editable.toString())
+        assertTrue(connection.sentKeyCodes.isEmpty())
+    }
+
+    private enum class AnchorEffect { RESYNC, HOST_NEUTRAL, SELECTION_OWNED }
+
+    private val editActionAnchorEffect: Map<EditAction, AnchorEffect> = mapOf(
+        EditAction.DELETE to AnchorEffect.RESYNC,
+        EditAction.CUT to AnchorEffect.RESYNC,
+        EditAction.SELECT_ALL to AnchorEffect.RESYNC,
+        EditAction.PASTE to AnchorEffect.RESYNC,
+        EditAction.COPY to AnchorEffect.HOST_NEUTRAL,
+        EditAction.UP to AnchorEffect.SELECTION_OWNED,
+        EditAction.DOWN to AnchorEffect.SELECTION_OWNED,
+        EditAction.LEFT to AnchorEffect.SELECTION_OWNED,
+        EditAction.RIGHT to AnchorEffect.SELECTION_OWNED,
+        EditAction.HOME to AnchorEffect.SELECTION_OWNED,
+        EditAction.END to AnchorEffect.SELECTION_OWNED,
+        EditAction.START_SELECT to AnchorEffect.SELECTION_OWNED,
+        EditAction.BACK to AnchorEffect.SELECTION_OWNED,
+    )
+
+    private data class AnchorPath(val name: String, val run: (Fixture, RecordingInputConnection) -> Unit)
+
+    private fun anchorResyncPaths(): List<AnchorPath> {
+        val actions = editActionAnchorEffect
+            .filterValues { it == AnchorEffect.RESYNC }
+            .keys
+            .map { action -> AnchorPath(action.name) { f, _ -> handleEdit(f.service, action) } }
+        val gestures = listOf(
+            AnchorPath("BACKSPACE_TAP") { f, _ -> handleEdit(f.service, EditAction.DELETE) },
+            AnchorPath("BACKSPACE_REPEAT") { f, _ -> repeat(2) { handleEdit(f.service, EditAction.DELETE) } },
+            AnchorPath("BACKSPACE_SWIPE_UP") { f, connection ->
+                backspaceSwipe(f.service, up = true)
+                connection.commitText("xyz", 1)
+            },
+            AnchorPath("BACKSPACE_SWIPE_DOWN") { f, _ ->
+                backspaceSwipe(f.service, up = true)
+                handleEdit(f.service, EditAction.LEFT)
+                backspaceSwipe(f.service, up = false)
+            },
+        )
+        return actions + gestures
+    }
+
+    @Test fun every_edit_action_declares_its_selection_anchor_effect() {
+        assertEquals(
+            "a new EditAction must declare whether it invalidates the selection anchor",
+            EditAction.entries.toSet(),
+            editActionAnchorEffect.keys,
+        )
+    }
+
+    @Test fun every_text_changing_path_resyncs_the_selection_anchor() {
+        for (path in anchorResyncPaths()) {
+            val f = fixture()
+            val connection = RecordingInputConnection(FrameLayout(f.service))
+            installInputConnection(f.service, connection)
+            connection.onContextMenuAction = { id ->
+                if (id == android.R.id.selectAll) {
+                    connection.setSelection(0, requireNotNull(connection.editable).length)
+                }
+                if (id == android.R.id.cut) connection.commitText("", 1)
+            }
+            clipboardStore(f.service).apply { clearHistory(); record("XY") }
+            connection.commitText("abcdefghij", 1)
+            connection.setSelection(2, 2)
+
+            handleEdit(f.service, EditAction.START_SELECT)
+            handleEdit(f.service, EditAction.RIGHT)
+            assertEquals("${path.name}: the selection grows from the anchor", 2, selectionStart(connection))
+            assertEquals("${path.name}: the selection grows from the anchor", 3, selectionEnd(connection))
+
+            path.run(f, connection)
+
+            val text = connection.editable.toString()
+            val anchor = selectionStart(connection)
+            val moving = selectionEnd(connection)
+            handleEdit(f.service, EditAction.LEFT)
+
+            val moved = SelectionMath.step(text, moving, SelectionMath.Move.LEFT)
+            assertEquals(
+                "${path.name}: the next move starts from the live selection, not a stale anchor",
+                minOf(anchor, moved) to maxOf(anchor, moved),
+                selectionStart(connection) to selectionEnd(connection),
+            )
+        }
+    }
+
+    @Test fun actions_that_keep_the_anchor_leave_the_editor_text_alone() {
+        for ((action, effect) in editActionAnchorEffect) {
+            if (effect == AnchorEffect.RESYNC) continue
+            val f = fixture()
+            val connection = RecordingInputConnection(FrameLayout(f.service))
+            installInputConnection(f.service, connection)
+            connection.onContextMenuAction = { id ->
+                if (id == android.R.id.selectAll) {
+                    connection.setSelection(0, requireNotNull(connection.editable).length)
+                }
+                if (id == android.R.id.cut) connection.commitText("", 1)
+            }
+            clipboardStore(f.service).apply { clearHistory(); record("XY") }
+            connection.commitText("abcdefghij", 1)
+            connection.setSelection(2, 2)
+
+            handleEdit(f.service, EditAction.START_SELECT)
+            handleEdit(f.service, EditAction.RIGHT)
+
+            handleEdit(f.service, action)
+
+            assertEquals(
+                "$action is classified as anchor-safe, so it must not change the text",
+                "abcdefghij",
+                connection.editable.toString(),
+            )
+            assertTrue(
+                "$action is classified as anchor-safe, so the anchor must survive as one selection edge",
+                selectionStart(connection) == 2 || selectionEnd(connection) == 2,
+            )
+            if (effect == AnchorEffect.HOST_NEUTRAL) {
+                assertEquals(
+                    "$action is classified as anchor-safe, so it must not move the selection",
+                    2 to 3,
+                    selectionStart(connection) to selectionEnd(connection),
+                )
+                handleEdit(f.service, EditAction.LEFT)
+                assertEquals(
+                    "$action keeps the anchor usable for the next move",
+                    2 to 2,
+                    selectionStart(connection) to selectionEnd(connection),
+                )
+            }
+        }
+    }
+
+    @Test fun the_panel_input_surface_stays_within_the_classified_paths() {
+        assertEquals(
+            "a new edit panel callback must be classified in the selection anchor inventory",
+            setOf("onAction", "onBackspaceSwipe"),
+            callbackNames(EditPanelView::class.java),
+        )
+        assertEquals(
+            "a new backspace gesture outcome must be classified in the selection anchor inventory",
+            setOf("onRepeat", "onSwipe"),
+            callbackNames(BackspaceGesture::class.java),
+        )
+    }
+
+    private fun callbackNames(type: Class<*>): Set<String> = type.declaredMethods
+        .filter { method ->
+            method.name.startsWith("set") &&
+                method.parameterTypes.size == 1 &&
+                kotlin.Function::class.java.isAssignableFrom(method.parameterTypes[0])
+        }
+        .map { it.name.removePrefix("set").replaceFirstChar { first -> first.lowercase() } }
+        .toSet()
+
+    private fun selectionStart(connection: RecordingInputConnection): Int =
+        Selection.getSelectionStart(requireNotNull(connection.editable))
+
+    private fun selectionEnd(connection: RecordingInputConnection): Int =
+        Selection.getSelectionEnd(requireNotNull(connection.editable))
 
     @Test fun edit_copy_and_cut_stage_the_result_bar_before_the_panel_closes_without_changing_height() {
         val cases = listOf(
