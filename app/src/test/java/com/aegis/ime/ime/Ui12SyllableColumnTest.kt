@@ -77,11 +77,39 @@ class Ui12SyllableColumnTest {
         c.onPickReadingIndex(c.expandedReadings().indexOf("he"))
 
         val col = c.expandedReadings()
-        assertTrue("column persists after the last lock, was $col", col.isNotEmpty())
-        assertTrue("the last syllable 'he' stays offered, was $col", "he" in col)
-        assertTrue("its alternative reading 'ge' (same 43 keys) is offered too, was $col", "ge" in col)
+        assertEquals("the expanded column collapses to the last locked reading like the 26-key does",
+            listOf("he"), col)
+        val keys = c.nineLeftColumn().map { it.label }
+        assertTrue("the keyboard column still offers the alternative reading 'ge', was $keys", "ge" in keys)
         assertTrue("the persisted column is all readings, never punctuation",
             c.nineLeftColumn().all { it.action == KeyAction.PICK_READING })
+    }
+
+    @Test fun both_keyboards_show_the_same_column_and_drill_after_locking_every_reading() {
+        val (_, nine) = nineWithBuffer("6443")
+        nine.onPickReadingIndex(nine.expandedReadings().indexOf("ni"))
+        nine.onPickReadingIndex(nine.expandedReadings().indexOf("he"))
+        val alphaHost = RecordingHost()
+        val alpha = KeyboardController(alphaHost, empty)
+        alpha.onKey(act(KeyAction.SWITCH_ALPHA))
+        "nihe".forEach { alpha.onKey(out(it.toString())) }
+        alpha.onPickReadingIndex(alpha.expandedReadings().indexOf("ni"))
+        alpha.onPickReadingIndex(alpha.expandedReadings().indexOf("he"))
+
+        assertEquals(
+            "both keyboards collapse the column to the last locked reading",
+            alpha.expandedReadings(),
+            nine.expandedReadings(),
+        )
+        assertEquals("and that column is the last locked reading", listOf("he"), nine.expandedReadings())
+        nine.onPickReadingIndex(0)
+        alpha.onPickReadingIndex(0)
+        assertEquals(
+            "both keyboards drill the same syllable",
+            alpha.drilledSyllableForTest(),
+            nine.drilledSyllableForTest(),
+        )
+        assertEquals("and that syllable is the first reading, never the last", 0, nine.drilledSyllableForTest())
     }
 
     @Test fun repicking_the_persisted_last_syllable_swaps_its_reading_without_committing() {
@@ -90,7 +118,7 @@ class Ui12SyllableColumnTest {
         c.onPickReadingIndex(c.expandedReadings().indexOf("he"))
         assertEquals("ni'he", c.preeditForTest())
 
-        c.onPickReadingIndex(c.expandedReadings().indexOf("ge"))
+        c.onKey(Key("ge", output = "ge", action = KeyAction.PICK_READING))
         assertEquals("re-pick swaps the last syllable's reading", "ni'ge", c.preeditForTest())
         assertTrue("re-picking a reading never commits to the editor", host.commits.isEmpty())
     }
@@ -224,15 +252,16 @@ class Ui12SyllableColumnTest {
         assertEquals("the most recently locked reading remains visible", listOf("hao"), c.expandedReadings())
         c.onPickReadingIndex(0)
 
-        assertEquals("the final locked syllable is drilled by its full-reading index", 1, c.drilledSyllableForTest())
-        assertEquals("the final locked syllable exposes its homophones", haoHomophones, c.candidateWords())
-        c.onPickCandidate(c.candidateWords().indexOf("号"))
-
-        assertTrue("the later choice waits for the unresolved leading syllable", host.commits.isEmpty())
-        assertEquals("the drill advances to the earliest missing leading syllable", 0, c.drilledSyllableForTest())
-        assertEquals("the reading column follows the advanced drill", listOf("ni"), c.expandedReadings())
-        assertEquals("the leading syllable now exposes its homophones", niHomophones, c.candidateWords())
+        assertEquals("the drill opens on the first reading, not the last locked one", 0, c.drilledSyllableForTest())
+        assertEquals("the reading column follows the drill", listOf("ni"), c.expandedReadings())
+        assertEquals("the leading syllable exposes its homophones", niHomophones, c.candidateWords())
         c.onPickCandidate(c.candidateWords().indexOf("你"))
+
+        assertEquals("the leading choice stays in preedit while the tail is unresolved", "你", c.composingPrefix())
+        assertTrue("choosing the leading syllable does not commit on its own", host.commits.isEmpty())
+        c.onPickReadingIndex(0)
+        assertEquals("the tail exposes its homophones", haoHomophones, c.candidateWords())
+        c.onPickCandidate(c.candidateWords().indexOf("号"))
 
         assertEquals("both explicit choices commit in source order", listOf("你号"), host.commits)
         assertEquals("the completed choice clears the preedit", "", c.preeditForTest())
@@ -273,15 +302,14 @@ class Ui12SyllableColumnTest {
         c.onPickReadingIndex(c.expandedReadings().indexOf("hao"))
         c.onPickReadingIndex(c.expandedReadings().indexOf("hao"))
 
-        assertEquals("the recent locked 9-key syllable drills at its full index", 1, c.drilledSyllableForTest())
-        assertEquals(haoHomophones, c.candidateWords())
-        c.onPickCandidate(c.candidateWords().indexOf("号"))
-
-        assertTrue("the later 9-key choice waits for its missing prefix", host.commits.isEmpty())
-        assertEquals("the 9-key drill advances to the missing prefix", 0, c.drilledSyllableForTest())
-        assertEquals("the 9-key reading column follows the advanced drill", listOf("ni"), c.expandedReadings())
+        assertEquals("the 9-key drill opens on the first reading", 0, c.drilledSyllableForTest())
+        assertEquals("the 9-key reading column follows the drill", listOf("ni"), c.expandedReadings())
         assertEquals(niHomophones, c.candidateWords())
         c.onPickCandidate(c.candidateWords().indexOf("你"))
+
+        c.onPickReadingIndex(0)
+        assertEquals(haoHomophones, c.candidateWords())
+        c.onPickCandidate(c.candidateWords().indexOf("号"))
 
         assertEquals("both 9-key choices commit in source order", listOf("你号"), host.commits)
     }
@@ -293,20 +321,23 @@ class Ui12SyllableColumnTest {
         c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
         c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
 
-        assertEquals("the third locked syllable drills at its full index", 2, c.drilledSyllableForTest())
-        c.onPickCandidate(c.candidateWords().indexOf("你"))
-        assertEquals("the final choice defers and advances to the first syllable", 0, c.drilledSyllableForTest())
-        assertEquals(listOf("ni"), c.expandedReadings())
-
+        assertEquals("the drill opens on the first reading once every syllable is locked", 0, c.drilledSyllableForTest())
         val firstChoice = niHomophones[1]
         c.onPickCandidate(c.candidateWords().indexOf(firstChoice))
 
         assertTrue("the first chosen character remains in preedit", host.commits.isEmpty())
         assertEquals(firstChoice, c.composingPrefix())
-        assertEquals("the carried final choice advances to the missing middle syllable", 0, c.drilledSyllableForTest())
-        assertEquals("the remaining reading column points at hao", listOf("hao"), c.expandedReadings())
-        assertEquals(haoHomophones, c.candidateWords())
+        assertEquals("the column keeps showing the last locked reading", listOf("ni"), c.expandedReadings())
+        c.onPickReadingIndex(0)
+        assertEquals("the drill still opens on the first unresolved reading", 0, c.drilledSyllableForTest())
+        assertEquals("the middle syllable exposes its homophones", haoHomophones, c.candidateWords())
         c.onPickCandidate(c.candidateWords().indexOf("号"))
+
+        assertEquals("the second chosen character joins the preedit", firstChoice + "号", c.composingPrefix())
+        assertEquals("the last reading column points at ni", listOf("ni"), c.expandedReadings())
+        c.onPickReadingIndex(0)
+        c.onPickCandidate(c.candidateWords().indexOf("你"))
+
 
         assertEquals("all three explicit choices commit once in source order", listOf(firstChoice + "号你"), host.commits)
         assertEquals("", c.preeditForTest())
@@ -319,9 +350,10 @@ class Ui12SyllableColumnTest {
         "ni'hao".forEach { c.onKey(out(it.toString())) }
         c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
         c.onPickReadingIndex(c.expandedReadings().indexOf("hao"))
-        c.onPickReadingIndex(c.expandedReadings().indexOf("hao"))
-        c.onPickCandidate(c.candidateWords().indexOf("号"))
+        c.onPickReadingIndex(0)
         c.onPickCandidate(c.candidateWords().indexOf("你"))
+        c.onPickReadingIndex(0)
+        c.onPickCandidate(c.candidateWords().indexOf("号"))
 
         assertEquals("the separator is consumed through reading-to-input bounds", listOf("你号"), host.commits)
         assertEquals("no separator suffix remains in preedit", "", c.preeditForTest())
