@@ -15,9 +15,11 @@
 
 package com.aegis.ime.ime
 
+import android.app.Activity
 import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
@@ -30,6 +32,7 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
@@ -433,6 +436,38 @@ class KeyboardViewInteractionTest {
         swiped.send(MotionEvent.ACTION_UP, sx, sy + (swipeThreshold + 15f), 24)
         assertEquals("a down swipe fires on the 9-key face too", listOf(false), swipes)
         assertEquals("a swipe commits no key", before, emitted.size)
+    }
+
+    @Test fun detaching_the_keyboard_stops_a_running_backspace_repeat() {
+        for ((face, build) in listOf<Pair<String, () -> KeyboardView>>(
+            "26-key" to { alphaView() },
+            "9-key" to { nineView(Layouts.ninePunctuation(), composing = false) },
+        )) {
+            val controller = Robolectric.buildActivity(Activity::class.java).setup()
+            try {
+                val root = requireNotNull(controller.get().findViewById<ViewGroup>(android.R.id.content))
+                val emitted = mutableListOf<KeyAction>()
+                val v = build().apply { onKey = { emitted.add(it.action) } }
+                root.addView(v)
+                root.measure(
+                    View.MeasureSpec.makeMeasureSpec(v.measuredWidth, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(v.measuredHeight, View.MeasureSpec.EXACTLY),
+                )
+                root.layout(0, 0, v.measuredWidth, v.measuredHeight)
+                val (x, y) = requireNotNull(v.centerOfActionForTest(KeyAction.BACKSPACE))
+                v.send(MotionEvent.ACTION_DOWN, x, y, 0)
+                Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
+                val whileHeld = emitted.size
+                assertTrue("$face: precondition: the repeat is running", whileHeld >= 2)
+
+                root.removeView(v)
+                Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(400))
+
+                assertEquals("$face: detaching stops the repeat", whileHeld, emitted.size)
+            } finally {
+                controller.pause().stop().destroy()
+            }
+        }
     }
 
     @Test fun releasing_the_backspace_off_the_key_still_commits_one_backspace() {
