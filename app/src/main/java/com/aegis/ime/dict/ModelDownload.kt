@@ -487,7 +487,7 @@ object ModelDownload {
     }
 
     fun isDictDownloaded(filesDir: File): Boolean =
-        DICT_PACK_FILES.all { File(downloadedDir(filesDir), it).let { f -> f.exists() && f.length() > 1024 } }
+        DICT_BIN_FILES.all { File(downloadedDir(filesDir), it).let { f -> f.exists() && f.length() > 1024 } }
 
     internal fun resolvedInstalledDictionarySha(
         filesDir: File,
@@ -662,7 +662,7 @@ object ModelDownload {
             if (!sha256Of(zip).equals(normalizedSha, ignoreCase = true)) return false
             staging.deleteRecursively()
             val produced = runCatching { extractDictPack(zip, staging) }.getOrDefault(emptySet())
-            val complete = DICT_PACK_FILES.all { name ->
+            val complete = DICT_BIN_FILES.all { name ->
                 name in produced && File(staging, name).let { it.exists() && it.length() > 1024 }
             }
             if (!complete) return false
@@ -671,7 +671,8 @@ object ModelDownload {
             val backedUp = ArrayList<String>()
             val installed = ArrayList<String>()
             try {
-                val transactionFiles = DICT_PACK_FILES + DICT_INSTALLED_SHA_NAME
+                val transactionFiles =
+                    DICT_PACK_FILES.filter { File(staging, it).exists() } + DICT_INSTALLED_SHA_NAME
                 transactionFiles.forEach { name ->
                     val live = File(downloadedDir(filesDir), name)
                     val backup = dictBackupFile(filesDir, name)

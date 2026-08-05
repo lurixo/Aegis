@@ -480,6 +480,62 @@ class ModelDownloadTest {
     }
 
     @Test
+    fun aGenerationWithoutTheLanguageModelStaysInstalledAndTakesItOnTheNextUpdate() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        ModelDownload.DICT_BIN_FILES.forEach { name ->
+            File(downloaded, name).writeBytes(ByteArray(2_048) { 7 })
+        }
+        File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText("a".repeat(64))
+
+        assertTrue("the three tables are a complete generation", ModelDownload.isDictDownloaded(base))
+        ModelDownload.reconcileInterruptedDownloads(base)
+
+        assertTrue("reconciliation must not discard it", ModelDownload.isDictDownloaded(base))
+        ModelDownload.DICT_BIN_FILES.forEach { assertTrue(File(downloaded, it).exists()) }
+        assertNull(EngineAssets.downloadedOverride(downloaded, ModelDownload.LM_NAME))
+
+        val model = ByteArray(3_000) { 4 }
+        val replacements = ModelDownload.DICT_BIN_FILES.mapIndexed { index, name ->
+            name to ByteArray(3_000) { (index + 1).toByte() }
+        }.toMap() + (ModelDownload.LM_NAME to model)
+        val zip = ModelDownload.dictZipFile(base)
+        writeZip(zip, replacements)
+
+        assertTrue(ModelDownload.installDictPack(base, ModelDownload.sha256Of(zip)))
+        replacements.forEach { (name, bytes) -> assertArrayEquals(bytes, File(downloaded, name).readBytes()) }
+        assertEquals(
+            File(downloaded, ModelDownload.LM_NAME).absolutePath,
+            EngineAssets.downloadedOverride(downloaded, ModelDownload.LM_NAME)?.absolutePath,
+        )
+        base.deleteRecursively()
+    }
+
+    @Test
+    fun aPackWithoutTheLanguageModelInstallsAndKeepsTheInstalledOne() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val model = ByteArray(3_000) { 9 }
+        File(downloaded, ModelDownload.LM_NAME).writeBytes(model)
+        val replacements = ModelDownload.DICT_BIN_FILES.mapIndexed { index, name ->
+            name to ByteArray(3_000) { (index + 1).toByte() }
+        }.toMap()
+        val zip = ModelDownload.dictZipFile(base)
+        writeZip(zip, replacements)
+
+        assertTrue(ModelDownload.installDictPack(base, ModelDownload.sha256Of(zip)))
+
+        replacements.forEach { (name, bytes) -> assertArrayEquals(bytes, File(downloaded, name).readBytes()) }
+        assertArrayEquals(
+            "a pack that omits the model must not drop the installed one",
+            model,
+            File(downloaded, ModelDownload.LM_NAME).readBytes(),
+        )
+        assertTrue(ModelDownload.isDictDownloaded(base))
+        base.deleteRecursively()
+    }
+
+    @Test
     fun completeDictionaryUpdateReplacesThePackAndCleansTransactions() {
         val base = tempFilesDir()
         val downloaded = File(base, "downloaded").apply { mkdirs() }
