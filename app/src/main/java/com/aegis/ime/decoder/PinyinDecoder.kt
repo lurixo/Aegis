@@ -151,6 +151,29 @@ class PinyinDecoder(
         return (if (key[0] in '2'..'9') userDigitIndex[key] else userLetterIndex[key]) ?: emptyList()
     }
 
+    private fun assembledWordsFor(key: String, best: String?): Set<String> {
+        val out = HashSet<String>()
+        for (word in userWordsFor(key)) if (dict.exactWordFreq(key, word) == null) out.add(word)
+        if (best != null && dict.exactWordFreq(key, best) == null) out.add(best)
+        return out
+    }
+
+    private fun demoteBelowExact(words: List<String>, assembled: Set<String>, exact: Set<String>): List<String> {
+        if (assembled.isEmpty() || exact.isEmpty()) return words
+        val firstExact = words.indexOfFirst { it in exact }
+        if (firstExact <= 0) return words
+        val ahead = words.subList(0, firstExact)
+        val demoted = ahead.filter { it in assembled }
+        if (demoted.isEmpty()) return words
+        val cut = ahead.indexOfFirst { it in assembled }
+        val kept = ahead.filterNot { it in assembled }
+        return kept.subList(0, cut) +
+            words[firstExact] +
+            demoted +
+            kept.subList(cut, kept.size) +
+            words.subList(firstExact + 1, words.size)
+    }
+
     private fun learnedExactWordFreqs(key: String): Map<String, Int> {
         val out = LinkedHashMap<String, Int>()
         for (word in userWordsFor(key)) {
@@ -468,7 +491,10 @@ class PinyinDecoder(
             if (cover.putIfAbsent(wf.word, input.length) == null && reserved) pendingInitials--
         }
         val out = ArrayList<Cand>(cover.size + 20)
-        for ((w, len) in cover) out.add(Cand(w, len))
+        val assembled = assembledWordsFor(input, cover.keys.firstOrNull())
+        for (w in demoteBelowExact(cover.keys.toList(), assembled, exactWords)) {
+            out.add(Cand(w, cover.getValue(w)))
+        }
         if (userModel != null) {
             val present = out.mapTo(HashSet()) { it.word }
             for (uw in userWordsFor(input)) if (present.add(uw)) out.add(Cand(uw, input.length))
@@ -537,8 +563,17 @@ class PinyinDecoder(
                 .thenBy { supplementarySingleTieRank(it.word) },
         )
 
+        val assembled = assembledWordsFor(input, best)
+        val fullCoverExact = leadFreq.keys.filterTo(HashSet()) {
+            leadCov.getValue(it) == input.length && dict.exactWordFreq(input, it) != null
+        }
         val out = ArrayList<Cand>(1 + leadFreq.size + tailRanked.size)
         val seen = HashSet<String>()
+        fun emit(words: List<String>) {
+            for (w in demoteBelowExact(words, assembled, fullCoverExact)) {
+                if (seen.add(w)) out.add(Cand(w, leadCov[w] ?: input.length))
+            }
+        }
         if (staged) {
             val leadScore = HashMap<String, Double>(leadFreq.size * 2)
             for ((w, f) in leadFreq) leadScore[w] = wordModelScore(w, f, ctxId, ctx, condMemo)
@@ -547,17 +582,22 @@ class PinyinDecoder(
                     .thenByDescending { leadScore.getValue(it) }
                     .thenBy { supplementarySingleTieRank(it) },
             )
-            best?.let { if (seen.add(it)) out.add(Cand(it, input.length)) }
+            val head = ArrayList<String>(STAGED_REAL_WORD_SLOTS)
+            best?.let { head.add(it) }
             for (w in stagedRealWords) {
-                if (out.size >= STAGED_REAL_WORD_SLOTS) break
-                if (seen.add(w)) out.add(Cand(w, leadCov.getValue(w)))
+                if (head.size >= STAGED_REAL_WORD_SLOTS) break
+                if (w !in head) head.add(w)
             }
+            emit(head)
             for (c in tailRanked) if (isSingleChar(c.word) && seen.add(c.word)) out.add(c)
         }
-        best?.let { if (seen.add(it)) out.add(Cand(it, input.length)) }
-        for ((w, _) in leadFreq.entries.sortedByDescending { wordModelScore(it.key, it.value, ctxId, ctx, condMemo) }) {
-            if (seen.add(w)) out.add(Cand(w, leadCov.getValue(w)))
+        val rest = ArrayList<String>(leadFreq.size + 1)
+        best?.let { rest.add(it) }
+        for (w in leadFreq.keys.sortedByDescending { wordModelScore(it, leadFreq.getValue(it), ctxId, ctx, condMemo) }) {
+            if (w !in rest) rest.add(w)
         }
+        emit(rest)
+        best?.let { if (seen.add(it)) out.add(Cand(it, input.length)) }
         for (c in tailRanked) if (seen.add(c.word)) out.add(c)
         return out
     }
