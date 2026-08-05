@@ -19,6 +19,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.RectF
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.RippleDrawable
 import android.text.TextUtils
@@ -50,7 +51,7 @@ class CandidateGridViewTest {
     private val ctx = RuntimeEnvironment.getApplication()
     private val density = ctx.resources.displayMetrics.density
 
-    private fun rowPx() = (46 * density).toInt()
+    private fun rowPx() = (48 * density).toInt()
 
     private fun dp(v: Int) = (v * density).toInt()
     private fun sideWidth() = ((360 * density) * Layouts.NINE_SIDE_FRACTION).roundToInt()
@@ -65,7 +66,7 @@ class CandidateGridViewTest {
         layout(0, 0, measuredWidth, measuredHeight)
     }
 
-    @Test fun right_controls_align_collapse_to_row_one_backspace_to_the_row_three_four_seam_and_redo_to_row_six() {
+    @Test fun right_controls_take_row_one_and_the_seams_under_rows_three_and_five() {
         val h = (320 * density).toInt()
         val v = CandidateGridView(ctx)
         v.measure(
@@ -76,15 +77,50 @@ class CandidateGridViewTest {
         val back = v.returnButtonForTest().layoutParams as FrameLayout.LayoutParams
         val delete = v.backspaceButtonForTest().layoutParams as FrameLayout.LayoutParams
         val clear = v.clearButtonForTest().layoutParams as FrameLayout.LayoutParams
+        val separator = v.tableDividerHeightForTest()
+        val stride = v.candidateRowStrideForTest()
 
+        assertTrue("the candidate rows keep a separator between them", separator >= 1)
+        assertEquals("the row pitch carries the separator", rowPx() + separator, stride)
         assertEquals(rowPx(), back.height)
         assertEquals(rowPx(), delete.height)
         assertEquals(rowPx(), clear.height)
-        assertEquals("收起 centers on candidate row 1", dp(8), back.topMargin)
-        assertEquals("退格 centers on the seam between candidate row 3 and row 4", dp(8) + rowPx() * 3 - rowPx() / 2, delete.topMargin)
-        assertEquals("退格 center sits on the row 3 / row 4 boundary", dp(8) + rowPx() * 3, delete.topMargin + delete.height / 2)
-        assertEquals("重输 centers on candidate row 6", dp(8) + rowPx() * 5, clear.topMargin)
+        assertEquals("收起 sits on candidate row 1", dp(8), back.topMargin)
+        assertEquals(
+            "退格 centres on the seam under candidate row 3",
+            dp(8) + stride * 2 + rowPx() + separator / 2,
+            delete.topMargin + delete.height / 2,
+        )
+        assertEquals(
+            "重输 centres on the seam under candidate row 5",
+            dp(8) + stride * 4 + rowPx() + separator / 2,
+            clear.topMargin + clear.height / 2,
+        )
+        assertEquals("candidate row 2 stays clear", 0, listOf(back, delete, clear).count { it.topMargin < dp(8) + stride + rowPx() && dp(8) + stride < it.topMargin + it.height })
         assertTrue("the three controls stay inside the tall column", clear.topMargin + clear.height <= h)
+    }
+
+    @Test fun a_column_that_only_fits_five_rows_falls_back_to_the_even_split() {
+        val probe = CandidateGridView(ctx)
+        probe.measure(
+            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((320 * density).toInt(), View.MeasureSpec.EXACTLY),
+        )
+        probe.layout(0, 0, probe.measuredWidth, probe.measuredHeight)
+        val stride = probe.candidateRowStrideForTest()
+        val h = dp(8) + stride * 4 + rowPx() + dp(8)
+
+        val v = CandidateGridView(ctx)
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY),
+        )
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+        val back = v.returnButtonForTest().layoutParams as FrameLayout.LayoutParams
+        val clear = v.clearButtonForTest().layoutParams as FrameLayout.LayoutParams
+
+        assertEquals("candidate row 5 still fits, so a row-aligned rule would take the seam branch", 0, back.topMargin)
+        assertTrue("the retype must stay inside the column, got ${clear.topMargin + clear.height} of $h", clear.topMargin + clear.height <= h)
     }
 
     @Test fun short_column_still_squeezes_and_bottom_anchors_the_three_controls() {
@@ -474,6 +510,11 @@ class CandidateGridViewTest {
             assertEquals(Triple(pal.railBg, pal.separator, Motion.withAlpha(pal.icon, 0x55)), v.railColorsForTest())
             assertEquals(pal.separator, v.tableSeparatorColorForTest())
             assertEquals(dp(1), v.tableDividerHeightForTest())
+            assertEquals(
+                "the candidate row separator paints the palette separator colour",
+                pal.separator,
+                (v.tableDividerForTest() as ColorDrawable).color,
+            )
         }
     }
 }
