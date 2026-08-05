@@ -498,7 +498,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
     ): GlyphDrawable =
         GlyphDrawable(dp(boxDp), sFactor, strokeDp * density, leftExtent, render).also { it.applyTint(palette.keyLabel); icons += it }
 
-    private class GlyphDrawable(
+    internal class GlyphDrawable(
         private val boxPx: Int,
         private val sFactor: Float,
         private val strokePx: Float,
@@ -510,6 +510,8 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
         }
         fun applyTint(color: Int) { paint.color = color; invalidateSelf() }
         fun leftInkInset(): Float = boxPx / 2f - boxPx * sFactor * leftExtent - strokePx / 2f
+        internal fun glyphSizeForTest(): Float = boxPx * sFactor
+        internal fun tintForTest(): Int = paint.color
         fun lastDrawCenterForTest(): Pair<Float, Float>? {
             val x = lastCenterX
             val y = lastCenterY

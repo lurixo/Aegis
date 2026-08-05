@@ -106,20 +106,27 @@ class CustomSymbolPanelTest {
         p.onBack = { back++ }
 
         val button = p.backButtonForTest()
-        assertTrue("the panel back control is the shared one", button is PanelBackButton)
-        assertEquals("back hit width", dp(48), button.width)
-        assertEquals("back hit height", dp(48), button.height)
-        assertEquals("the shared control is announced as back", ctx.getString(R.string.clip_back), button.contentDescription)
+        assertTrue("the panel back control carries its own title", button is TextView)
+        assertEquals("the whole control is the back title", p.titleForTest(), button)
+        assertTrue("back hit height", button.height >= dp(48))
+        assertEquals("the control is announced as back", ctx.getString(R.string.clip_back), button.contentDescription)
         assertTrue("back keeps rounded tap feedback", tapMask(button).cornerRadius > 0f)
         assertTrue(button.performClick())
         assertEquals(1, back)
 
         val title = p.titleForTest()
-        assertEquals("title uses the 16sp panel title scale", sp(16f).roundToInt(), title.textSize.roundToInt())
-        assertEquals("title sits 8dp after the back control", dp(8), title.left - button.right)
-        assertTrue(
-            "title is vertically centred on the back control",
-            abs((button.top + button.height / 2) - (title.top + title.height / 2)) <= 1,
+        val icon = p.backIconForTest()
+        val panel = EditPanelView(ctx).also { it.applyPalette(ImePalette.STATIC_LIGHT) }
+        val editBack = (panel.getChildAt(0) as ViewGroup).getChildAt(0) as TextView
+        assertEquals("title uses the edit panel title scale", editBack.textSize, title.textSize, 0.01f)
+        assertEquals("icon box matches the edit panel", editBack.compoundDrawables[0]!!.intrinsicWidth, icon.intrinsicWidth)
+        assertEquals("icon gap matches the edit panel", editBack.compoundDrawablePadding, title.compoundDrawablePadding)
+        assertEquals("the icon leads the title", icon, title.compoundDrawables[0])
+        assertEquals(
+            "the glyph is drawn at the edit panel size",
+            (editBack.compoundDrawables[0] as EditPanelView.GlyphDrawable).glyphSizeForTest(),
+            (icon as EditPanelView.GlyphDrawable).glyphSizeForTest(),
+            0.01f,
         )
     }
 
@@ -259,7 +266,12 @@ class CustomSymbolPanelTest {
         for (colors in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
             val p = laidOut(panel(added = listOf("、"), palette = listOf("，"), colors = colors))
             assertEquals(colors.keyLabel, p.titleForTest().currentTextColor)
-            assertEquals(colors.keyLabel, (p.backButtonForTest() as PanelBackButton).tint)
+            assertEquals(colors.keyLabel, (p.backButtonForTest() as TextView).currentTextColor)
+            assertEquals(
+                "the back glyph follows the palette too",
+                colors.keyLabel,
+                (p.backIconForTest() as EditPanelView.GlyphDrawable).tintForTest(),
+            )
             assertEquals(colors.keyLabelSecondary, p.addedSectionLabelForTest().currentTextColor)
             assertEquals(colors.keyLabelSecondary, p.paletteSectionLabelForTest().currentTextColor)
             assertEquals(colors.keyLabelSecondary, p.addedEmptyHintForTest().currentTextColor)
