@@ -152,6 +152,16 @@
     <string name="user_dict_toast_added">Word added</string>
     <string name="user_dict_toast_add_failed">Enter a word and its pinyin (letters only)</string>
     <string name="user_dict_toast_deleted">Word deleted</string>
+    <string name="user_dict_auto_title">Auto learning</string>
+    <string name="user_dict_auto_description">Words Aegis glued together from characters you typed one by one. Delete one to drop it from suggestions, or clear them all. Your words above are not affected.</string>
+    <string name="user_dict_auto_count_format">Auto learned: %1$d</string>
+    <string name="user_dict_auto_empty">Nothing learned automatically yet.</string>
+    <string name="user_dict_auto_clear_button">Clear learned data</string>
+    <string name="user_dict_auto_clear_dialog_title">Clear learned data</string>
+    <string name="user_dict_auto_clear_dialog_body">This deletes every automatically learned word and next-word pair on this device. Your words and the downloaded main dictionary are not affected. This cannot be undone.</string>
+    <string name="user_dict_auto_clear_confirm">Clear</string>
+    <string name="user_dict_auto_clear_cancel">Cancel</string>
+    <string name="user_dict_toast_auto_cleared">Learned data cleared</string>
 
     <string name="app_version_card_title">App release</string>
     <string name="app_version_card_description">Aegis app release label. This is separate from the learning dictionary, main dictionary, and model files.</string>

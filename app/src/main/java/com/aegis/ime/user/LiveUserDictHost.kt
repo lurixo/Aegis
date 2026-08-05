@@ -62,6 +62,18 @@ class LiveUserDictHost(
 
     override fun entries(): List<UserModel.Entry> = model.userWordEntries()
 
+    override fun learnedEntries(): List<UserLearning.Formed> = userLearning?.formedEntries().orEmpty()
+
+    override fun removeLearned(word: String, reading: String) {
+        userLearning?.removeFormed(word, reading)
+        saveLearning()
+    }
+
+    override fun clearLearned() {
+        userLearning?.clear()
+        saveLearning()
+    }
+
     override fun flush() {
         if (!model.dirty && userLearning?.dirty != true) return
         if (model.dirty) model.save(userDb)
@@ -73,6 +85,13 @@ class LiveUserDictHost(
 
     private fun save() {
         model.save(userDb)
+        if (userLearning?.dirty == true) {
+            userLearnFile?.let { userLearning.save(it) }
+        }
+        onSaved(userDb.lastModified())
+    }
+
+    private fun saveLearning() {
         if (userLearning?.dirty == true) {
             userLearnFile?.let { userLearning.save(it) }
         }

@@ -47,6 +47,16 @@ class UserDictEditDispatchTest {
             calls += "entries"
             return listOf(UserModel.Entry("live", "活词", 9))
         }
+        override fun learnedEntries(): List<UserLearning.Formed> {
+            calls += "learnedEntries"
+            return listOf(UserLearning.Formed("活粘词", "huozhanci"))
+        }
+        override fun removeLearned(word: String, reading: String) {
+            calls += "removeLearned:$word:$reading"
+        }
+        override fun clearLearned() {
+            calls += "clearLearned"
+        }
         override fun flush() {
             calls += "flush"
         }
@@ -62,12 +72,26 @@ class UserDictEditDispatchTest {
         val imp = tmp.newFile("import.txt").apply { writeText("aegis-userdb 1\nR\tci\t词\n") }
         assertTrue(UserDictEdit.applyImport(db, imp, merge = true, now = 2L))
         assertEquals(listOf(UserModel.Entry("live", "活词", 9)), UserDictEdit.list(db))
+        val learn = File(tmp.root, "userlearn.txt")
+        assertEquals(listOf(UserLearning.Formed("活粘词", "huozhanci")), UserLearnEdit.list(learn))
+        UserLearnEdit.remove(learn, "活粘词", "huozhanci")
+        UserLearnEdit.clear(learn)
         UserDictEdit.flushBeforeExport()
 
         assertEquals(
-            listOf("add:ci:词", "remove:ci:词", "import:merge=true", "entries", "flush"),
+            listOf(
+                "add:ci:词",
+                "remove:ci:词",
+                "import:merge=true",
+                "entries",
+                "learnedEntries",
+                "removeLearned:活粘词:huozhanci",
+                "clearLearned",
+                "flush",
+            ),
             live.calls,
         )
+        assertTrue("the learning file must not be used while a live host is registered", !learn.exists())
         assertTrue("the file path must not be used while a live host is registered", !db.exists())
     }
 

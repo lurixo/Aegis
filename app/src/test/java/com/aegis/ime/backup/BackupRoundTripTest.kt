@@ -467,6 +467,9 @@ class BackupRoundTripTest {
             override fun removeWord(reading: String, word: String) = true
             override fun importUserDict(importFile: File, merge: Boolean, now: Long) = false
             override fun entries(): List<UserModel.Entry> = emptyList()
+            override fun learnedEntries(): List<UserLearning.Formed> = emptyList()
+            override fun removeLearned(word: String, reading: String) {}
+            override fun clearLearned() {}
             override fun flush() {}
         }
         try {
