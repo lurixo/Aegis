@@ -232,7 +232,7 @@ class DownloadCardWorkTest {
                 writeBytes(ByteArray(1_500_000))
             }
             val downloaded = ModelDownload.destFile(base).parentFile!!
-            listOf(600_000, 700_000, 800_000).zip(ModelDownload.DICT_PACK_FILES).forEach { (length, name) ->
+            listOf(600_000, 700_000, 800_000, 2_048).zip(ModelDownload.DICT_PACK_FILES).forEach { (length, name) ->
                 File(downloaded, name).writeBytes(ByteArray(length))
             }
             File(downloaded, "unrelated.bin").writeBytes(ByteArray(5_000_000))

@@ -28,12 +28,12 @@ class EngineAssetsTest {
         File.createTempFile("downloaded", "").apply { delete(); mkdirs() }
 
     @Test
-    fun tracks_exactly_the_three_dict_bins_plus_the_gram_model() {
+    fun tracks_exactly_the_downloaded_pack_files_plus_the_gram_model() {
         assertEquals(ModelDownload.DICT_PACK_FILES + ModelDownload.GRAM_NAME, EngineAssets.ASSET_NAMES)
-        assertEquals(4, EngineAssets.ASSET_NAMES.size)
+        assertEquals(5, EngineAssets.ASSET_NAMES.size)
         assertTrue("aegis_dict.bin" in EngineAssets.ASSET_NAMES)
         assertTrue("wanxiang-lts-zh-hans.gram" in EngineAssets.ASSET_NAMES)
-        assertFalse("aegis_lm.bin" in EngineAssets.ASSET_NAMES)
+        assertTrue("aegis_lm.bin" in EngineAssets.ASSET_NAMES)
     }
 
     @Test

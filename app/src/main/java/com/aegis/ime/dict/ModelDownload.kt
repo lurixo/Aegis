@@ -430,7 +430,11 @@ object ModelDownload {
     private const val DICT_PENDING_SHA_NAME = "aegis_dict_pack.pending.sha256"
     private const val LEGACY_DICT_ZIP_NAME = "aegis_dict_pack_debug13.zip"
 
-    val DICT_PACK_FILES = listOf("aegis_dict.bin", "aegis_t9.bin", "aegis_jianpin.bin")
+    const val LM_NAME = "aegis_lm.bin"
+
+    val DICT_BIN_FILES = listOf("aegis_dict.bin", "aegis_t9.bin", "aegis_jianpin.bin")
+
+    val DICT_PACK_FILES = DICT_BIN_FILES + LM_NAME
 
     fun installedDictionaryBytes(filesDir: File): Long =
         DICT_PACK_FILES.sumOf { File(downloadedDir(filesDir), it).length() }
@@ -831,6 +835,7 @@ object ModelDownload {
     private fun targetFor(entryName: String): String? {
         val n = entryName.substringAfterLast('/').substringAfterLast('\\').lowercase()
         return when {
+            n == LM_NAME -> LM_NAME
             "jianpin" in n -> "aegis_jianpin.bin"
             "t9" in n -> "aegis_t9.bin"
             "dict" in n -> "aegis_dict.bin"
