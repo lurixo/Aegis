@@ -166,6 +166,8 @@ object Layouts {
 
     val defaultNumpadOperators: List<String> = listOf("+", "-", "×", "÷", "=", "(", ")", "%", ".")
 
+    val numpadOperatorsInCustomPalette: List<String> = listOf("×", "÷")
+
     fun numpadOperators(custom: List<String> = emptyList()): List<Key> =
         (defaultNumpadOperators + custom).distinct().map { Key(it, direct = true) } +
             Key(labelRes = R.string.kbd_custom, action = CUSTOM_OPERATOR)

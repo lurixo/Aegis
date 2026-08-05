@@ -101,7 +101,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         SymbolCatalog.categories.first { it.id == "zh" }.symbols.filter { it !in Layouts.nineFixedPunctuation }
     }
     private val mathOperatorPalette: List<String> by lazy {
-        SymbolCatalog.categories.first { it.id == "math" }.symbols.filter { it !in Layouts.defaultNumpadOperators }
+        val hidden = Layouts.defaultNumpadOperators.toSet() - Layouts.numpadOperatorsInCustomPalette.toSet()
+        SymbolCatalog.categories.first { it.id == "math" }.symbols.filter { it !in hidden }
     }
     private var selecting = false
     private var selAnchor = -1

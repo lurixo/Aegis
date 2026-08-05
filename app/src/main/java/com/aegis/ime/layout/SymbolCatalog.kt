@@ -36,7 +36,7 @@ object SymbolCatalog {
         Category("net", R.string.sym_cat_net, listOf(
             ".", "/", "@", "-", "_", "http://", "https://", ":", "#", "?", "&", "=", "%",
         )),
-        Category("math", R.string.sym_cat_math, tokens("+ − × ÷ = ≠ ≈ ≡ ± ∓ < > ≤ ≥ ∞ √ ∛ ∑ ∏ ∫ ∬ ∭ ∮ ∂ ∇ ∆ ％ ‰ ∝ ∴ ∵ ∠ ⊥ ∥ ° ′ ″ π θ φ λ μ Σ Ω ½ ⅓ ¼ ¾ ⅔ ∈ ∉ ⊂ ⊃ ⊆ ⊇ ∪ ∩ ∅ ∀ ∃ ≅ ∽ ⊕ ⊗ ⊙ ℝ ℕ ℤ ℚ ℂ sin cos tan cot sec csc arcsin arccos arctan sinh cosh tanh ℃ ℉ ㎏ ㎜ ㎝ ㎞ ㎡ ㎥ ㎎ ㎖")),
+        Category("math", R.string.sym_cat_math, tokens("+ − × ÷ * / = ≠ ≈ ≡ ± ∓ < > ≤ ≥ ∞ √ ∛ ∑ ∏ ∫ ∬ ∭ ∮ ∂ ∇ ∆ ％ ‰ ∝ ∴ ∵ ∠ ⊥ ∥ ° ′ ″ π θ φ λ μ Σ Ω ½ ⅓ ¼ ¾ ⅔ ∈ ∉ ⊂ ⊃ ⊆ ⊇ ∪ ∩ ∅ ∀ ∃ ≅ ∽ ⊕ ⊗ ⊙ ℝ ℕ ℤ ℚ ℂ sin cos tan cot sec csc arcsin arccos arctan sinh cosh tanh ℃ ℉ ㎏ ㎜ ㎝ ㎞ ㎡ ㎥ ㎎ ㎖")),
         Category("greek", R.string.sym_cat_greek, tokens("α β γ δ ε ζ η θ ι κ λ μ ν ξ ο π ρ σ ς τ υ φ χ ψ ω Α Β Γ Δ Ε Ζ Η Θ Ι Κ Λ Μ Ν Ξ Ο Π Ρ Σ Τ Υ Φ Χ Ψ Ω")),
         Category("arrow", R.string.sym_cat_arrow, tokens("← → ↑ ↓ ↔ ↕ ↖ ↗ ↘ ↙ ⇐ ⇒ ⇑ ⇓ ⇔ ⇕ ↩ ↪ ↺ ↻ ➜ ➤ ➔ ⟶ ⟵ » « ‹ › ⬅ ➡ ⬆ ⬇ ⤴ ⤵")),
         Category("supsub", R.string.sym_cat_supsub, tokens("⁰ ¹ ² ³ ⁴ ⁵ ⁶ ⁷ ⁸ ⁹ ⁺ ⁻ ⁼ ⁽ ⁾ ⁿ ⁱ ₀ ₁ ₂ ₃ ₄ ₅ ₆ ₇ ₈ ₉ ₊ ₋ ₌ ₍ ₎ ₐ ₑ ₒ ₓ ℃ ℉ ㎡ ㎥ ㎏ ㎜ ㎝ ㎞ ㎎ ㎖")),
