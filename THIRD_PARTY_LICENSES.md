@@ -18,9 +18,9 @@ an independent project not affiliated with the RIME project.
   <https://creativecommons.org/licenses/by/4.0/>
 - **Source:** <https://github.com/amzxyz/rime-wanxiang> (tag `v16.3.0`, commit
   `ef047401ef5d2f80cb7f88641722da24e222a017`)
-- **Used in:** the bundled `assets/aegis_lm.bin` — the APK's character-bigram context model — and the
-  downloadable dictionary pack `aegis_{dict,t9,jianpin}.bin`, which is where every Chinese candidate
-  comes from; no dictionary ships inside the APK. All are derived from the 14 tables
+- **Used in:** the downloadable dictionary pack — `aegis_{dict,t9,jianpin}.bin`, which is where every
+  Chinese candidate comes from, and `aegis_lm.bin`, the character-bigram context model; nothing
+  derived from these tables ships inside the APK. All are derived from the 14 tables
   (字 基础 联想 错音 多音 诗词 地名 医学 化学 药品 名人 异体 物种 人名).
 - **Modifications:** tones stripped (ü→v), syllables concatenated into toneless keys, repacked into
   Aegis's own binary format; the pack keeps every entry (`--min-freq 1`). `aegis_lm.bin` is compiled
