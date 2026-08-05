@@ -94,12 +94,13 @@ class PinyinDecoder(
         val learnSnapshot = userLearning?.readingSnapshot().orEmpty()
         val letter = HashMap<String, MutableList<String>>()
         val digit = HashMap<String, MutableList<String>>()
-        for (snapshot in listOf(userSnapshot, learnSnapshot)) {
+        val singles = HashMap<String, Set<String>>()
+        for ((snapshot, assembled) in listOf(userSnapshot to false, learnSnapshot to true)) {
             for ((reading, words) in snapshot) {
                 if (reading.isEmpty()) continue
                 val dk = T9Pinyin.toT9(reading)
                 for (w in words) {
-                    if (!readsAs(w, reading)) continue
+                    if (assembled && !readsAs(w, reading, singles)) continue
                     letter.getOrPut(reading) { ArrayList() }.let { if (w !in it) it.add(w) }
                     digit.getOrPut(dk) { ArrayList() }.let { if (w !in it) it.add(w) }
                 }
@@ -111,7 +112,7 @@ class PinyinDecoder(
         learnIndexVersion = learnVersion
     }
 
-    private fun readsAs(word: String, reading: String): Boolean {
+    private fun readsAs(word: String, reading: String, cache: HashMap<String, Set<String>>): Boolean {
         if (reading.isEmpty() || word.isEmpty()) return false
         val cps = ArrayList<String>(4)
         var ci = 0
@@ -124,7 +125,6 @@ class PinyinDecoder(
         val m = cps.size
         if (m > n) return false
         val ref = aliasDict ?: dict
-        val cache = HashMap<String, Set<String>>()
         fun singles(key: String): Set<String> = cache.getOrPut(key) {
             val out = HashSet<String>()
             for (wf in ref.exact(key)) if (isSingleChar(wf.word)) out.add(wf.word)
