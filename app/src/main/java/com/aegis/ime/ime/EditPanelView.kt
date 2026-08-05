@@ -428,9 +428,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
             MotionEvent.ACTION_POINTER_DOWN -> {
                 val index = event.actionIndex
                 val tracked = event.findPointerIndex(backspacePointerId)
-                if (tracked >= 0) {
-                    tapped = settleBackspace(view, event.getX(tracked), event.getY(tracked))
-                }
+                if (tracked >= 0) tapped = settleBackspace(view, event.getY(tracked))
                 beginBackspace(view, event.getPointerId(index), event.getX(index), event.getY(index))
             }
             MotionEvent.ACTION_MOVE -> {
@@ -444,16 +442,12 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
             MotionEvent.ACTION_POINTER_UP -> {
                 val index = event.actionIndex
                 if (event.getPointerId(index) == backspacePointerId) {
-                    tapped = settleBackspace(view, event.getX(index), event.getY(index))
+                    tapped = settleBackspace(view, event.getY(index))
                 }
             }
             MotionEvent.ACTION_UP -> {
                 val index = event.findPointerIndex(backspacePointerId)
-                tapped = if (index >= 0) {
-                    settleBackspace(view, event.getX(index), event.getY(index))
-                } else {
-                    settleBackspace(view, event.x, event.y)
-                }
+                tapped = settleBackspace(view, if (index >= 0) event.getY(index) else event.y)
                 view.parent?.requestDisallowInterceptTouchEvent(false)
             }
             MotionEvent.ACTION_CANCEL -> {
@@ -472,11 +466,11 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
         backspace.begin(x, y)
     }
 
-    private fun settleBackspace(view: View, x: Float, y: Float): Boolean {
+    private fun settleBackspace(view: View, y: Float): Boolean {
         backspacePointerId = MotionEvent.INVALID_POINTER_ID
         val tap = backspace.finish(y)
         view.isPressed = false
-        return tap && inside(view, x, y)
+        return tap
     }
 
     private fun inside(view: View, x: Float, y: Float): Boolean =

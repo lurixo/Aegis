@@ -435,6 +435,26 @@ class KeyboardViewInteractionTest {
         assertEquals("a swipe commits no key", before, emitted.size)
     }
 
+    @Test fun releasing_the_backspace_off_the_key_still_commits_one_backspace() {
+        for ((face, v) in listOf(
+            "26-key" to alphaView(),
+            "9-key" to nineView(Layouts.ninePunctuation(), composing = false),
+        )) {
+            val emitted = mutableListOf<KeyAction>()
+            val swipes = mutableListOf<Boolean>()
+            v.onKey = { emitted.add(it.action) }
+            v.onBackspaceSwipe = { swipes.add(it) }
+            val (x, y) = v.centerOfActionForTest(KeyAction.BACKSPACE)!!
+            val outside = v.width + 40f
+            v.send(MotionEvent.ACTION_DOWN, x, y, 0)
+            v.send(MotionEvent.ACTION_MOVE, outside, y, 150)
+            v.send(MotionEvent.ACTION_UP, outside, y, 160)
+
+            assertEquals("$face: lifting off the key still deletes once", listOf(KeyAction.BACKSPACE), emitted)
+            assertTrue("$face: leaving sideways is never a swipe", swipes.isEmpty())
+        }
+    }
+
     @Test fun a_quick_tap_emits_exactly_once_no_repeat() {
         val emitted = mutableListOf<String>()
         val v = nineView(Layouts.ninePunctuation(), composing = false).apply { onKey = { emitted.add(it.output) } }
