@@ -1008,6 +1008,9 @@ class KeyboardController(
     internal fun expandedReadings(): List<String> = when {
         drillChoices.isNotEmpty() && drillSyllable >= 0 ->
             currentSyllables().getOrNull(drillSyllable)?.reading?.let(::listOf) ?: emptyList()
+        mode() == Mode.PINYIN && composing.isNotEmpty() &&
+            lockedReadings.isNotEmpty() && activeInput().isEmpty() ->
+            listOf(currentSyllables().getOrNull(drillSyllable)?.reading ?: lockedReadings.last())
         layoutId == LayoutId.ALPHA && mode() == Mode.PINYIN && composing.isNotEmpty() -> {
             val active = activeInput()
             val separatorPrefix = active.takeWhile { it == '\'' }.length
@@ -1063,7 +1066,11 @@ class KeyboardController(
         if (mode() == Mode.PINYIN && composing.isNotEmpty() &&
             index == lockedIndex && recentLockedReading == reading
         ) {
-            drillSyllable = lockedReadings.lastIndex
+            drillSyllable = if (activeInput().isEmpty()) {
+                lockedReadings.indices.firstOrNull { !drillChoices.containsKey(it) } ?: lockedReadings.lastIndex
+            } else {
+                lockedReadings.lastIndex
+            }
         } else {
             drillSyllable = -1
             drillChoices.clear()
