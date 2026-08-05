@@ -63,7 +63,7 @@ Aegis 暂未上架应用商店，目前以可下载的 APK 形式分发。
 ### 首次使用
 
 **英文可以立即输入，中文需要先下载一次。**APK 内不含中文词库，键盘也绝不会自行开始下载词库包。
-在没有词库包时输入中文，候选栏会给出下载入口——下载约 98 MB，安装到应用私有存储后约 256 MB，且
+在没有词库包时输入中文，候选栏会给出下载入口——下载约 98 MB，安装到应用私有存储后约 272 MB，且
 不限于 Wi-Fi——只有你点按该入口（或设置页词库卡片中的“下载”）才会开始传输。在它完成之前，中文
 输入处于锁定状态，而英文与各面板照常可用。
 
@@ -127,10 +127,10 @@ Aegis 暂未上架应用商店，目前以可下载的 APK 形式分发。
 ./gradlew :app:lintDebug          # Android lint
 ```
 
-APK 内唯一由词库派生的资源是 `app/src/main/assets/aegis_lm.bin`——约 16 MB 的字级二元上下文
-模型，以及与之相邻的 `.sha256` 校验文件。拼音词库并不打包：`app/build.gradle.kts` 把
-`aegis_dict.bin`、`aegis_t9.bin`、`aegis_jianpin.bin` 排除在打包资源之外，APK 因此保持在 28 MB
-左右。这三者在运行时下载到 `filesDir/downloaded/`，是中文候选的唯一来源。放进
+APK 内不再打包任何由词库派生的资源：`app/build.gradle.kts` 把 `aegis_dict.bin`、`aegis_t9.bin`、
+`aegis_jianpin.bin` 以及约 16 MB 的字级二元上下文模型 `aegis_lm.bin` 一并排除在打包资源之外，
+APK 因此保持在 24 MB 左右。这四者都在运行时下载到 `filesDir/downloaded/`；三个词库是中文候选的
+唯一来源，模型只负责重排。模型是可选件——没有它键盘照样解码，只是上下文排序变弱。放进
 `app/src/main/assets/` 的本地构建产物不会进入 APK，但会被解码器测试读取。
 
 词库包由 `:tools` 模块从全部 14 张万象表（`zi jichu lianxiang cuoyin duoyin shici diming yixue
@@ -183,7 +183,7 @@ Aegis 自身代码为 **GPL-3.0**（见 [`LICENSE`](LICENSE)）。Aegis 采用**
 
 **rime-wanxiang 词库** —— © amzxyz 及 rime-wanxiang 贡献者，**CC BY 4.0**，见
 [rime-wanxiang](https://github.com/amzxyz/rime-wanxiang)。可下载的 `aegis_{dict,t9,jianpin}.bin`
-与内置的 `assets/aegis_lm.bin` 是全部 14 张表（字 基础 联想 错音 多音 诗词 地名 医学 化学 药品
+与 `aegis_lm.bin` 是全部 14 张表（字 基础 联想 错音 多音 诗词 地名 医学 化学 药品
 名人 异体 物种 人名）的衍生物。**改动：**去声调（ü→v），音节拼接为无调键，繁体与异体归并到简体
 （OpenCC 表），重新打包为 Aegis 的二进制格式；词库包保留每一条（`--min-freq 1`）。
 

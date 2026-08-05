@@ -69,7 +69,7 @@ Menu names vary slightly by device, but the flow is the standard Android one:
 **English typing works straight away; Chinese needs one download first.** The APK carries no Chinese
 dictionary, and the keyboard never fetches the dictionary pack on its own. When you type Chinese with
 no pack installed, the candidate strip offers the download — a ~98 MB transfer that expands to
-~256 MB in the app's private storage, not restricted to Wi-Fi — and it starts only when you tap
+~272 MB in the app's private storage, not restricted to Wi-Fi — and it starts only when you tap
 there, or on the dictionary card in the settings screen. Until it finishes, Chinese input stays
 locked, while English and every panel keep working.
 
@@ -143,12 +143,13 @@ Prerequisites:
 ./gradlew :app:lintDebug          # Android lint
 ```
 
-The only dictionary-derived asset in the APK is `app/src/main/assets/aegis_lm.bin`, the ~16 MB
-character-bigram context model, next to its `.sha256` sidecar. No pinyin dictionary is packaged:
-`app/build.gradle.kts` excludes `aegis_dict.bin`, `aegis_t9.bin` and `aegis_jianpin.bin` from the
-packaged assets, which is what keeps the APK around 28 MB. Those three are downloaded at runtime
-into `filesDir/downloaded/` and are the only source of Chinese candidates. Locally built copies
-dropped into `app/src/main/assets/` stay out of the APK but are picked up by the decoder tests.
+No dictionary-derived asset is packaged in the APK at all: `app/build.gradle.kts` excludes
+`aegis_dict.bin`, `aegis_t9.bin`, `aegis_jianpin.bin` and the ~16 MB character-bigram context
+model `aegis_lm.bin` from the packaged assets, which is what keeps the APK around 24 MB. All
+four are downloaded at runtime into `filesDir/downloaded/`; the three dictionaries are the only
+source of Chinese candidates and the model reranks them. The model is optional — without it the
+keyboard still decodes, only with weaker context ranking. Locally built copies dropped into
+`app/src/main/assets/` stay out of the APK but are picked up by the decoder tests.
 
 The pack is prebuilt by the `:tools` module from all 14 wanxiang tables (`zi jichu lianxiang cuoyin
 duoyin shici diming yixue huaxue yaopin mingren yiren wuzhong renming`) at `--min-freq 1` with no
@@ -204,7 +205,7 @@ by Aegis's own license.
 
 **rime-wanxiang dictionaries:** (c) amzxyz and rime-wanxiang contributors, **CC BY 4.0**
 ([rime-wanxiang](https://github.com/amzxyz/rime-wanxiang)). The downloadable
-`aegis_{dict,t9,jianpin}.bin` and the bundled `assets/aegis_lm.bin` are derivatives of the full 14
+`aegis_{dict,t9,jianpin}.bin` and `aegis_lm.bin` are derivatives of the full 14
 tables (字 基础 联想 错音 多音 诗词 地名 医学 化学 药品 名人 异体 物种 人名). **Changes:** tones
 stripped (`ü` -> `v`), syllables concatenated into toneless keys, traditional/variant forms folded
 to Simplified (OpenCC tables), repacked into Aegis's binary format; the pack keeps every entry
