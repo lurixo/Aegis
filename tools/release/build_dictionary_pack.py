@@ -658,13 +658,16 @@ def verify_beta31_lm_reproduction(args, repo_root, work_dir, output_dir, tool_bi
             "cmp": "identical",
         },
         "output": {
-            "path": str(reproduction),
+            "path": reproduction.name,
             "sha256": actual_sha,
             "size_bytes": actual_size,
             **model_shape,
         },
         "command": [
-            part.replace(str(source), "<beta31-upstream>").replace(str(repo_root), "<aegis>")
+            part.replace(str(source), "<beta31-upstream>")
+            .replace(str(work_dir), "<work>")
+            .replace(str(output_dir), "<output>")
+            .replace(str(repo_root), "<aegis>")
             for part in command
         ],
     }
