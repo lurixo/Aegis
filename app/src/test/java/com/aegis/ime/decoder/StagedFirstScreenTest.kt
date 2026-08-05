@@ -96,9 +96,8 @@ class StagedFirstScreenTest {
     @Test fun gluedCombinationsLeaveTheFirstScreenButStayInTheList() {
         val decoder = engineFixtureDecoder()
         val staged = words(decoder.decodeCoveredAtomic("diuzi", 30, setOf(3)))
-        assertEquals("the first locked reading leads once no dictionary word covers it", "丢", staged.first())
-        val glued = staged.indexOf("丢字")
-        assertTrue("the glued combination stays reachable, was $staged", glued > 0)
+        assertEquals("the glued full cover leads even when no dictionary word covers it", "丢字", staged.first())
+        assertEquals("the first locked reading's singles follow it", "丢", staged[1])
     }
 
     @Test fun inputWithoutAConfirmedReadingBoundaryKeepsItsFirstScreen() {
@@ -118,7 +117,7 @@ class StagedFirstScreenTest {
     @Test fun separatorCutReadingsStageLikeLockedOnes() {
         val decoder = engineFixtureDecoder()
         val separated = decoder.decodeCovered("diu'zi", 30)
-        assertEquals("a typed separator confirms the reading boundary", "丢", separated.first().word)
+        assertEquals("a typed separator confirms the reading boundary", "丢字", separated.first().word)
         assertEquals(
             "the separator path offers the locked first screen",
             words(decoder.decodeCoveredAtomic("diuzi", 30, setOf(3))),
@@ -157,8 +156,8 @@ class StagedFirstScreenTest {
         listOf("意" to 900, "艺" to 700).forEach { rows.add(EngineFixture.Row("yi", it.first, it.second)) }
         val fixture = EngineFixture.build(rows)
         val without = words(PinyinDecoder(fixture).decodeCoveredAtomic("minyi", 30, setOf(3)))
-        assertEquals("the glued best sentence follows the singles without a user model", "民", without.first())
-        assertTrue("and it is the glued combination that trails them", "民意" in without.drop(3))
+        assertEquals("the glued best sentence leads without a user model", "民意", without.first())
+        assertEquals("the first reading singles follow it", "民", without[1])
 
         val decoded = words(
             PinyinDecoder(fixture, userModel = userModel("minyi" to "民意")).decodeCoveredAtomic("minyi", 30, setOf(3)),
@@ -211,14 +210,16 @@ class StagedFirstScreenTest {
         for (readings in letterScenarios) {
             val key = readings.joinToString("")
             val cuts = cutsOf(readings)
-            val decoded = words(decoder.decodeCoveredAtomic(key, 30, cuts))
+            val cands = decoder.decodeCoveredAtomic(key, 30, cuts)
+            val decoded = words(cands)
             val firstSingle = decoded.indexOfFirst { isSingleChar(it) }
             assertTrue(
                 "$key: the first single must reach the first screen, was $firstSingle in ${decoded.take(12)}",
                 firstSingle in 0..PinyinDecoder.STAGED_REAL_WORD_SLOTS,
             )
+            assertEquals("$key: the sentence covering every reading leads", key.length, cands.first().coveredLen)
             val bounds = decoder.syllables(key, cuts).map { it.end }
-            for (lead in decoded.take(firstSingle)) {
+            for (lead in decoded.subList(1, firstSingle.coerceAtLeast(1))) {
                 val covered = bounds.any { end -> dict.exact(key.substring(0, end)).any { it.word == lead } }
                 assertTrue("$key: $lead ahead of the singles must be a dictionary word", covered)
             }

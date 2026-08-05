@@ -89,6 +89,23 @@ class StagedFirstScreenKeyboardTest {
         return c.candidateWords()
     }
 
+    @Test fun theFullReadingSentenceLeadsBothKeyboards() {
+        assumeTrue(assetsPresent())
+        val readings = listOf("ni", "de", "ping", "guo")
+        for ((name, words) in listOf("26-key" to alphaLocked(readings), "9-key" to nineKeyLocked(readings))) {
+            assertEquals(
+                "$name: the sentence covering every locked reading leads, was ${words.take(6)}",
+                "你的苹果",
+                words.first(),
+            )
+            val firstSingle = words.indexOfFirst { isSingleChar(it) }
+            assertTrue(
+                "$name: the singles still start inside the real word slots, was $firstSingle",
+                firstSingle in 1..PinyinDecoder.STAGED_REAL_WORD_SLOTS,
+            )
+        }
+    }
+
     private fun nineKeyLocked(readings: List<String>, engine: CandidateEngine = realEngine()): List<String> {
         val c = controller(engine)
         c.onKey(Key("", action = KeyAction.SWITCH_NINE))

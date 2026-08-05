@@ -511,8 +511,12 @@ class PinyinDecoder(
                 compareByDescending<String> { leadCov.getValue(it) }
                     .thenByDescending { leadScore.getValue(it) }
                     .thenBy { supplementarySingleTieRank(it) },
-            ).take(STAGED_REAL_WORD_SLOTS)
-            for (w in stagedRealWords) if (seen.add(w)) out.add(Cand(w, leadCov.getValue(w)))
+            )
+            best?.let { if (seen.add(it)) out.add(Cand(it, input.length)) }
+            for (w in stagedRealWords) {
+                if (out.size >= STAGED_REAL_WORD_SLOTS) break
+                if (seen.add(w)) out.add(Cand(w, leadCov.getValue(w)))
+            }
             for (c in tailRanked) if (isSingleChar(c.word) && seen.add(c.word)) out.add(c)
         }
         best?.let { if (seen.add(it)) out.add(Cand(it, input.length)) }
