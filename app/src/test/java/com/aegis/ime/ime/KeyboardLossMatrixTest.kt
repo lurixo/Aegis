@@ -87,7 +87,7 @@ class KeyboardLossMatrixTest {
         assertEquals("the highest-freq chai homophone 拆 leads them (common before rare)", "拆", got.first())
         val glued = words.indexOf("拆次")
         assertTrue("拆次 (chai|ci best sentence) stays reachable", glued >= 0)
-        assertTrue("拆次 follows the chai singles instead of leading them, was at $glued", glued > firstSingle)
+        assertTrue("拆次 leads the chai singles once the boundary is confirmed, was at $glued", glued < firstSingle)
         assertFalse("no stray non-pinyin junk leading the grid", words.first().any { it.code < 128 })
     }
 
