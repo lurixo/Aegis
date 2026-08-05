@@ -69,6 +69,9 @@ class AssembledCandidateOrderTest {
         return learning
     }
 
+    private fun taught(reading: String, word: String): UserModel =
+        UserModel { clock }.apply { repeat(500) { recordWord(reading, word, clock, incrementCount = true) } }
+
     private fun words(cands: List<Cand>) = cands.map { it.word }
 
     private fun paths(d: PinyinDecoder, key: String, cuts: Set<Int>): List<Pair<String, List<String>>> = listOf(
@@ -112,6 +115,16 @@ class AssembledCandidateOrderTest {
             assertEquals("9-key/$path: 我们的 leads, was ${got.take(6)}", "我们的", got.first())
             val at = got.indexOf("我呢嗯的")
             assertTrue("9-key/$path: the glued word stays on the first screen, was at $at", at in 1..8)
+        }
+    }
+
+    @Test fun aTaughtWordTheDictionaryLacksStillYieldsTheLeadToTheDictionaryWord() {
+        assets()
+        val um = taught("nimen", "拟门")
+        for ((path, got) in paths(letters(um = um), "nimen", setOf(2))) {
+            assertEquals("26-key/$path: 你们 leads, was ${got.take(6)}", "你们", got.first())
+            val at = got.indexOf("拟门")
+            assertTrue("26-key/$path: the taught word stays reachable, was at $at", at > 0)
         }
     }
 
