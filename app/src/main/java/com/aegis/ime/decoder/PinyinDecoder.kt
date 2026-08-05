@@ -341,10 +341,11 @@ class PinyinDecoder(
         context: CharSequence = "",
     ): Pair<List<Cand>, Int> {
         if (input.isEmpty() || limit <= 0) return emptyList<Cand>() to 0
-        val norm = normalizeSeparators(input) ?: return decodeCoveredClean(input, limit, cuts, context)
+        val norm = normalizeSeparators(input) ?: return decodeCoveredClean(input, limit, cuts, context, false)
         if (norm.clean.isEmpty()) return emptyList<Cand>() to 0
         val passedClean = cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
-        val (cands, remainderStart) = decodeCoveredClean(norm.clean, limit, norm.cuts + passedClean, context)
+        val (cands, remainderStart) =
+            decodeCoveredClean(norm.clean, limit, norm.cuts + passedClean, context, norm.cuts.isNotEmpty())
         return cands.map { Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length }) } to remainderStart
     }
 
@@ -356,7 +357,7 @@ class PinyinDecoder(
         if (clean.isEmpty()) return emptyList()
         val passedClean = if (norm == null) cuts else cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
         val interior = ((norm?.cuts ?: emptySet()) + passedClean).filter { it in 1 until clean.length }.toSet()
-        val decoded = decodeAtomic(clean, interior, ctx)
+        val decoded = decodeAtomic(clean, interior, ctx, interior.isNotEmpty())
         return if (norm == null) {
             decoded
         } else {
@@ -364,10 +365,16 @@ class PinyinDecoder(
         }
     }
 
-    private fun decodeCoveredClean(input: String, limit: Int, cuts: Set<Int>, context: CharSequence): Pair<List<Cand>, Int> {
+    private fun decodeCoveredClean(
+        input: String,
+        limit: Int,
+        cuts: Set<Int>,
+        context: CharSequence,
+        staged: Boolean,
+    ): Pair<List<Cand>, Int> {
         val ctx = parseContext(context)
         val interior = cuts.filter { it in 1 until input.length }.toSortedSet()
-        if (interior.isNotEmpty()) return decodeAtomic(input, interior, ctx).let { it to it.size }
+        if (interior.isNotEmpty()) return decodeAtomic(input, interior, ctx, staged).let { it to it.size }
 
         val ctxId = resolveCtxId(ctx.cp)
         val condMemo = HashMap<Long, Double>()
@@ -436,7 +443,7 @@ class PinyinDecoder(
         return out to remainderStart
     }
 
-    private fun decodeAtomic(input: String, interior: Set<Int>, ctx: Ctx): List<Cand> {
+    private fun decodeAtomic(input: String, interior: Set<Int>, ctx: Ctx, staged: Boolean): List<Cand> {
         val ctxId = resolveCtxId(ctx.cp)
         val condMemo = HashMap<Long, Double>()
         val B = atomicBounds(input, interior)
@@ -449,9 +456,10 @@ class PinyinDecoder(
 
         val leadFreq = LinkedHashMap<String, Int>()
         val leadCov = HashMap<String, Int>()
+        val dictLeads = ArrayList<String>()
         for (j in 2..nSyl) for (wf in preferredExact(dict, input.substring(0, B[j]))) if (!isSingleChar(wf.word)) {
             if (!admissibleUnderCuts(wf.word, 0, B[j], interior, input, singlesCache)) continue
-            if (leadFreq.put(wf.word, wf.freq) == null) leadCov[wf.word] = B[j]
+            if (leadFreq.put(wf.word, wf.freq) == null) { leadCov[wf.word] = B[j]; dictLeads.add(wf.word) }
         }
         for (uw in userWordsFor(input)) {
             if (uw == best || uw in leadFreq || uw.codePointCount(0, uw.length) < 2) continue
@@ -497,6 +505,17 @@ class PinyinDecoder(
 
         val out = ArrayList<Cand>(1 + leadFreq.size + tailRanked.size)
         val seen = HashSet<String>()
+        if (staged) {
+            val leadScore = HashMap<String, Double>(dictLeads.size * 2)
+            for (w in dictLeads) leadScore[w] = wordModelScore(w, leadFreq.getValue(w), ctxId, ctx, condMemo)
+            val stagedRealWords = dictLeads.sortedWith(
+                compareByDescending<String> { leadCov.getValue(it) }
+                    .thenByDescending { leadScore.getValue(it) }
+                    .thenBy { supplementarySingleTieRank(it) },
+            ).take(STAGED_REAL_WORD_SLOTS)
+            for (w in stagedRealWords) if (seen.add(w)) out.add(Cand(w, leadCov.getValue(w)))
+            for (c in tailRanked) if (isSingleChar(c.word) && seen.add(c.word)) out.add(c)
+        }
         best?.let { if (seen.add(it)) out.add(Cand(it, input.length)) }
         for ((w, _) in leadFreq.entries.sortedByDescending { wordModelScore(it.key, it.value, ctxId, ctx, condMemo) }) {
             if (seen.add(w)) out.add(Cand(w, leadCov.getValue(w)))
@@ -944,6 +963,7 @@ class PinyinDecoder(
         const val SENTENCE_EDGE_N = 6
         const val ATOMIC_BEAM_N = 8
         const val ATOMIC_BEAM_PER_SYL = 40
+        const val STAGED_REAL_WORD_SLOTS = 8
         const val SENTENCE_RERANK_N = 128
         const val CTX_WORD_MAX = 4
         const val MAX_SYLLABLE_KEY_LEN = 6
