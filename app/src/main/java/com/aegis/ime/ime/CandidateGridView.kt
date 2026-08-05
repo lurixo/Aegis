@@ -24,6 +24,7 @@ import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
@@ -61,6 +62,10 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
     private fun spPx(v: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, v, resources.displayMetrics)
+    private val rowHeightPx = dp(48)
+    private val backActionRow = 0
+    private val deleteActionBoundary = 2
+    private val clearActionBoundary = 4
 
     private var palette = ImePalette.STATIC_LIGHT
     private val readingColumn = LinearLayout(context).apply { orientation = VERTICAL }
@@ -135,7 +140,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
                 setPadding(0, 0, 0, 0)
                 collapseGlyph.tint(palette.keyLabelSecondary)
             },
-            rowAlignedLp(0),
+            actionLp(backActionRow),
         )
         rightColumn.addView(
             backspaceButton().apply {
@@ -143,14 +148,14 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
                 setPadding(0, 0, 0, 0)
                 backspaceGlyph.tint(palette.keyLabelSecondary)
             },
-            centeredLp(),
+            actionBoundaryLp(deleteActionBoundary),
         )
         rightColumn.addView(
             funcButton(context.getString(R.string.kbd_redo)) { onClear() }.apply {
                 setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setTypeface(null, Typeface.BOLD)
             },
-            rowAlignedLp(5),
+            actionBoundaryLp(clearActionBoundary),
         )
         addView(rightColumn, LayoutParams(dp(Layouts.CANDIDATE_ACTION_WIDTH_DP), LayoutParams.MATCH_PARENT))
     }
@@ -200,10 +205,31 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         else Motion.applyTapFeedback(v, color)
     }
 
-    private fun rowAlignedLp(rowIndex: Int) =
-        FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(46), Gravity.TOP).apply { topMargin = dp(46 * rowIndex) }
+    private fun actionLp(rowIndex: Int) =
+        FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, rowHeightPx, Gravity.TOP)
+            .apply { topMargin = candidateRowTop(rowIndex) }
 
-    private fun centeredLp() = FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, dp(46), Gravity.CENTER)
+    private fun actionBoundaryLp(rowIndex: Int) =
+        FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, rowHeightPx, Gravity.TOP)
+            .apply { topMargin = candidateBoundaryTop(rowIndex) }
+
+    private fun tableFrame(): FrameLayout.LayoutParams = table.layoutParams as FrameLayout.LayoutParams
+
+    private fun candidateRowStride(): Int = rowHeightPx + table.dividerHeight
+
+    private fun candidateRowTop(rowIndex: Int): Int = tableFrame().topMargin + candidateRowStride() * rowIndex
+
+    private fun candidateBoundaryCenter(rowIndex: Int): Int =
+        candidateRowTop(rowIndex) + rowHeightPx + table.dividerHeight / 2
+
+    private fun candidateBoundaryTop(rowIndex: Int): Int =
+        candidateBoundaryCenter(rowIndex) - rowHeightPx / 2
+
+    private fun candidateBoundaryFits(availableHeight: Int, rowIndex: Int): Boolean {
+        val frame = tableFrame()
+        val content = availableHeight - frame.topMargin - frame.bottomMargin
+        return content >= candidateBoundaryTop(rowIndex) - frame.topMargin + rowHeightPx
+    }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val mode = MeasureSpec.getMode(heightMeasureSpec)
@@ -247,17 +273,15 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
 
     private fun updateRightActionLayout(availableHeight: Int) {
-        val rowH = dp(46)
-        val topInset = dp(8)
         val back = returnButtonForTest()
         val delete = backspaceButtonForTest()
         val clear = clearButtonForTest()
-        if (availableHeight >= topInset + rowH * 6) {
-            setActionFrame(back, rowH, Gravity.TOP, topInset)
-            setActionFrame(delete, rowH, Gravity.TOP, topInset + rowH * 3 - rowH / 2)
-            setActionFrame(clear, rowH, Gravity.TOP, topInset + rowH * 5)
+        if (candidateBoundaryFits(availableHeight, clearActionBoundary)) {
+            setActionFrame(back, rowHeightPx, Gravity.TOP, candidateRowTop(backActionRow))
+            setActionFrame(delete, rowHeightPx, Gravity.TOP, candidateBoundaryTop(deleteActionBoundary))
+            setActionFrame(clear, rowHeightPx, Gravity.TOP, candidateBoundaryTop(clearActionBoundary))
         } else {
-            val actionHeight = minOf(rowH, availableHeight.coerceAtLeast(0) / 3)
+            val actionHeight = minOf(rowHeightPx, availableHeight.coerceAtLeast(0) / 3)
             setActionFrame(back, actionHeight, Gravity.TOP, 0)
             setActionFrame(delete, actionHeight, Gravity.TOP, (availableHeight - actionHeight) / 2)
             setActionFrame(clear, actionHeight, Gravity.TOP, (availableHeight - actionHeight).coerceAtLeast(0))
@@ -489,7 +513,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             val start = rowStarts[position]
             val count = rowCounts[position]
             while (row.childCount < count) {
-                row.addView(newChip(), LayoutParams(0, dp(46)))
+                row.addView(newChip(), LayoutParams(0, rowHeightPx))
             }
             row.columns = count
             row.separatorColor = palette.separator
@@ -558,6 +582,22 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun railScrollbarEnabledForTest(): Boolean = readingScroll.isVerticalScrollBarEnabled
     internal fun tableSeparatorColorForTest(): Int = table.separatorColorForTest()
     internal fun tableDividerHeightForTest(): Int = table.dividerHeight
+    internal fun tableDividerForTest(): Drawable? = table.divider
+    internal fun candidateRowHeightForTest(): Int = rowHeightPx
+    internal fun candidateRowStrideForTest(): Int = candidateRowStride()
+    internal fun visibleCandidateRowsForTest(): List<Rect> {
+        val out = ArrayList<Rect>()
+        for (offset in 0 until table.childCount) {
+            val child = table.getChildAt(offset) ?: continue
+            if (child.visibility != View.VISIBLE) continue
+            out.add(Rect(0, 0, child.width, child.height).also { offsetDescendantRectToMyCoords(child, it) })
+        }
+        return out
+    }
+    internal fun actionBoundsForTest(index: Int): Rect {
+        val child = rightColumn.getChildAt(index)
+        return Rect(0, 0, child.width, child.height).also { offsetDescendantRectToMyCoords(child, it) }
+    }
     internal fun rightColumnWidthForTest(): Int = rightColumn.layoutParams.width
     internal fun tableCornerRadiusForTest(): Float = table.cornerRadiusForTest()
     internal fun tableBackgroundForTest(): Drawable? = table.background
@@ -591,10 +631,10 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun firstVisibleCandidateTopForTest(): Int? = table.getChildAt(0)?.top
     internal fun readingScrollYForTest(): Int = readingScroll.scrollY
     internal fun gridCanScrollForwardForTest(): Boolean =
-        table.canScrollVertically(1) || rowStarts.size * dp(46) > table.height
+        table.canScrollVertically(1) || rowStarts.size * rowHeightPx > table.height
     internal fun readingCanScrollForwardForTest(): Boolean = readingScroll.canScrollVertically(1)
     internal fun scrollForTest(gridY: Int, readingY: Int = 0) {
-        val stride = dp(46) + table.dividerHeight
+        val stride = candidateRowStride()
         val bounded = gridY.coerceAtLeast(0)
         table.setSelectionFromTop((bounded / stride).coerceAtMost((rowStarts.size - 1).coerceAtLeast(0)), -(bounded % stride))
         gridScrollOffsetForTest = bounded
