@@ -17,6 +17,7 @@ package com.aegis.ime.decoder
 
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -123,6 +124,47 @@ class StagedFirstScreenTest {
             words(decoder.decodeCoveredAtomic("diuzi", 30, setOf(3))),
             words(separated),
         )
+    }
+
+    private fun userModel(vararg entries: Pair<String, String>): UserModel =
+        UserModel().apply { for ((reading, word) in entries) recordWord(reading, word, 1L, incrementCount = true) }
+
+    @Test fun learnedWordsCompeteForTheRealWordSlots() {
+        val fixture = minYiFixture()
+        val without = words(PinyinDecoder(fixture).decodeCoveredAtomic("minyi", 30, setOf(3)))
+        assertTrue("the learned word is absent without a user model", "悯意" !in without)
+
+        val decoded = words(PinyinDecoder(fixture, userModel = userModel("minyi" to "悯意")).decodeCoveredAtomic("minyi", 30, setOf(3)))
+        val at = decoded.indexOf("悯意")
+        val firstSingle = decoded.indexOfFirst { isSingleChar(it) }
+        assertTrue("the learned word is recalled, was $decoded", at >= 0)
+        assertTrue("the learned word sits in the real word segment, was at $at of $firstSingle", at < firstSingle)
+        assertEquals("the real word segment keeps its eight slots", 8, firstSingle)
+    }
+
+    @Test fun aLearnedWordTheDictionaryAlsoHoldsAppearsOnce() {
+        val decoded = words(
+            PinyinDecoder(minYiFixture(), userModel = userModel("minyi" to "闵艺"))
+                .decodeCoveredAtomic("minyi", 30, setOf(3)),
+        )
+        assertEquals("the word appears once, was $decoded", 1, decoded.count { it == "闵艺" })
+        assertTrue("it stays in the real word segment", decoded.indexOf("闵艺") < decoded.indexOfFirst { isSingleChar(it) })
+    }
+
+    @Test fun aLearnedWordThatIsAlsoTheBestSentenceTakesARealWordSlot() {
+        val rows = ArrayList<EngineFixture.Row>()
+        listOf("民" to 900, "敏" to 850, "闽" to 800).forEach { rows.add(EngineFixture.Row("min", it.first, it.second)) }
+        listOf("意" to 900, "艺" to 700).forEach { rows.add(EngineFixture.Row("yi", it.first, it.second)) }
+        val fixture = EngineFixture.build(rows)
+        val without = words(PinyinDecoder(fixture).decodeCoveredAtomic("minyi", 30, setOf(3)))
+        assertEquals("the glued best sentence follows the singles without a user model", "民", without.first())
+        assertTrue("and it is the glued combination that trails them", "民意" in without.drop(3))
+
+        val decoded = words(
+            PinyinDecoder(fixture, userModel = userModel("minyi" to "民意")).decodeCoveredAtomic("minyi", 30, setOf(3)),
+        )
+        assertEquals("the learned word leads the real word segment, was $decoded", "民意", decoded.first())
+        assertEquals("the singles follow it", "民", decoded[1])
     }
 
     private fun productionLetterDecoder(): PinyinDecoder {

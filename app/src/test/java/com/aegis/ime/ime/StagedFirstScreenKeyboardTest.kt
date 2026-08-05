@@ -15,14 +15,17 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.decoder.EngineFixture
 import com.aegis.ime.decoder.FullDictTestAssets
 import com.aegis.ime.decoder.PinyinDecoder
 import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
+import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -60,7 +63,7 @@ class StagedFirstScreenKeyboardTest {
         initialsDict = BinaryDict.fromFile(File(assets, FullDictTestAssets.JIANPIN)),
     )
 
-    private fun controller() = KeyboardController(Host(), realEngine()).apply { attachView(InputView(ctx)) }
+    private fun controller(engine: CandidateEngine) = KeyboardController(Host(), engine).apply { attachView(InputView(ctx)) }
 
     private fun type(c: KeyboardController, s: String) =
         s.forEach { c.onKey(Key(it.toString(), output = it.toString())) }
@@ -77,8 +80,8 @@ class StagedFirstScreenKeyboardTest {
         listOf("zhang", "wei", "ming"),
     )
 
-    private fun alphaLocked(readings: List<String>): List<String> {
-        val c = controller()
+    private fun alphaLocked(readings: List<String>, engine: CandidateEngine = realEngine()): List<String> {
+        val c = controller(engine)
         c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
         type(c, readings.joinToString(""))
         readings.forEach { pick(c, it) }
@@ -86,8 +89,8 @@ class StagedFirstScreenKeyboardTest {
         return c.candidateWords()
     }
 
-    private fun nineKeyLocked(readings: List<String>): List<String> {
-        val c = controller()
+    private fun nineKeyLocked(readings: List<String>, engine: CandidateEngine = realEngine()): List<String> {
+        val c = controller(engine)
         c.onKey(Key("", action = KeyAction.SWITCH_NINE))
         type(c, readings.joinToString("") { T9Pinyin.toT9(it) })
         readings.forEach { pick(c, it) }
@@ -96,7 +99,7 @@ class StagedFirstScreenKeyboardTest {
     }
 
     private fun alphaSeparated(readings: List<String>): List<String> {
-        val c = controller()
+        val c = controller(realEngine())
         c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
         readings.forEachIndexed { index, reading ->
             if (index > 0) c.onKey(Key("'", output = "'"))
@@ -141,6 +144,43 @@ class StagedFirstScreenKeyboardTest {
             assertStagedShape("26-key separated $readings", readings, separated)
             assertEquals("the separator path offers the locked candidates for $readings", alphaLocked(readings), separated)
         }
+    }
+
+    private fun learnedWordEngine(): CandidateEngine {
+        val rows = ArrayList<EngineFixture.Row>()
+        listOf("民" to 900, "敏" to 850, "闽" to 800, "闵" to 700, "皿" to 600, "悯" to 500)
+            .forEach { rows.add(EngineFixture.Row("min", it.first, it.second)) }
+        listOf("意" to 900, "一" to 880, "以" to 860, "艺" to 700)
+            .forEach { rows.add(EngineFixture.Row("yi", it.first, it.second)) }
+        listOf(
+            "民意" to 990, "民艺" to 980, "敏意" to 970, "敏艺" to 960, "闽意" to 950,
+            "闽艺" to 940, "闵意" to 930, "闵艺" to 920, "皿意" to 910,
+        ).forEach { rows.add(EngineFixture.Row("minyi", it.first, it.second)) }
+        val letters = EngineFixture.build(rows)
+        val digits = EngineFixture.build(rows.map { EngineFixture.Row(T9Pinyin.toT9(it.key), it.word, it.freq) })
+        val model = UserModel().apply { recordWord("minyi", "悯意", 1L, incrementCount = true) }
+        return DictEngine(letters, digits, null, userModel = model)
+    }
+
+    @Test fun aLearnedWordTakesARealWordSlotOnBothKeyboards() {
+        val readings = listOf("min", "yi")
+        val engine = learnedWordEngine()
+        val cases = listOf(
+            "26-key" to alphaLocked(readings, engine),
+            "9-key" to nineKeyLocked(readings, engine),
+        )
+        for ((label, candidates) in cases) {
+            val at = candidates.indexOf("悯意")
+            val firstSingle = candidates.indexOfFirst { isSingleChar(it) }
+            assertTrue("$label: the learned word is recalled, was $candidates", at >= 0)
+            assertTrue(
+                "$label: the learned word sits in the real word segment, was at $at with singles from $firstSingle",
+                at < firstSingle,
+            )
+            assertEquals("$label: the real word segment keeps its eight slots", 8, firstSingle)
+            assertEquals("$label: the learned word appears once", 1, candidates.count { it == "悯意" })
+        }
+        assertEquals("both keyboards agree", cases[0].second, cases[1].second)
     }
 
     @Test fun gluedCombinationsLeaveTheFirstScreenButStayReachable() {
