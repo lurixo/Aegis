@@ -88,17 +88,12 @@ class KeyboardView(context: Context) : View(context) {
     private var downEventTime = 0L
     private var retargetUnlocked = false
     private var activePointerId = MotionEvent.INVALID_POINTER_ID
-    private var repeating = false
     private var swiped = false
     private var vSwipeDir = 0
     private val swipeThreshold = 24f * resources.displayMetrics.density
-    private val repeatRunnable = object : Runnable {
-        override fun run() {
-            val k = downKey ?: return
-            repeating = true
-            onKey(k)
-            repeatHandler.postDelayed(this, REPEAT_INTERVAL_MS)
-        }
+    private val backspace = BackspaceGesture(resources.displayMetrics.density).apply {
+        onRepeat = { downKey?.let { key -> onKey(key) } }
+        onSwipe = { up -> onBackspaceSwipe(up) }
     }
 
     private val longPressRunnable = Runnable {
@@ -116,7 +111,6 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private fun cancelKeyHold() {
-        repeatHandler.removeCallbacks(repeatRunnable)
         repeatHandler.removeCallbacks(longPressRunnable)
     }
 
@@ -861,12 +855,13 @@ class KeyboardView(context: Context) : View(context) {
         setPressedKey(downKey)
         downX = x; downY = y
         downEventTime = eventTime; retargetUnlocked = false
-        repeating = false; swiped = false; vSwipeDir = 0
+        swiped = false; vSwipeDir = 0
+        backspace.cancel()
         caseBoxActive = false; caseBoxKey = null; caseBoxSelected = -1; caseBoxMoved = false
         val dp = downPlaced
         val dk = downKey
         if (dk != null && dp != null) {
-            if (isRepeatable(dk)) repeatHandler.postDelayed(repeatRunnable, REPEAT_DELAY_MS)
+            if (isRepeatable(dk)) backspace.begin(x, y)
             else if (lang == Lang.EN && isAlphaLetter(dk)) repeatHandler.postDelayed(longPressRunnable, LONG_PRESS_MS)
             if (hapticEnabled) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             showPreview(dk, dp.rect)
@@ -933,14 +928,8 @@ class KeyboardView(context: Context) : View(context) {
                 if (newSel != caseBoxSelected) { caseBoxSelected = newSel; invalidate() }
             }
             dk != null && dk.action == KeyAction.BACKSPACE -> {
-                val dy = y - downY
-                if (!swiped && !repeating && abs(dy) > swipeThreshold && abs(dy) > abs(x - downX)) {
-                    swiped = true
-                    cancelKeyHold()
-                } else {
-                    val bounds = downPlaced?.let { it.hitRect ?: it.rect }
-                    if (bounds != null && !bounds.contains(x, y)) cancelKeyHold()
-                }
+                val bounds = downPlaced?.let { it.hitRect ?: it.rect }
+                backspace.move(x, y, bounds == null || bounds.contains(x, y))
             }
             dk != null && isAlphaLetter(dk) -> {
                 val dy = y - downY
@@ -997,17 +986,17 @@ class KeyboardView(context: Context) : View(context) {
                     else -> emitKey(dk, eventTime)
                 }
             }
-            dk != null && dk.action == KeyAction.BACKSPACE && swiped && !repeating ->
-                onBackspaceSwipe(y - downY < 0)
-            dk != null && isAlphaLetter(dk) && swiped && !repeating -> {
+            dk != null && dk.action == KeyAction.BACKSPACE ->
+                if (backspace.finish(y)) currentTarget(x, y)?.let { performClick(); emitKey(it, eventTime) }
+            dk != null && isAlphaLetter(dk) && swiped -> {
                 performClick()
                 if (vSwipeDir < 0 && dk.sub != null) onKey(Key(dk.sub, output = dk.sub, direct = true))
                 else onKey(dk)
             }
-            dk != null && isNineDigit(dk) && !repeating -> {
+            dk != null && isNineDigit(dk) -> {
                 performClick(); emitKey(stickyPressed ?: dk, eventTime)
             }
-            !repeating ->
+            else ->
                 currentTarget(x, y)?.let { performClick(); emitKey(it, eventTime) }
         }
         downKey = null
@@ -1017,6 +1006,7 @@ class KeyboardView(context: Context) : View(context) {
 
     private fun cancelPrimary() {
         cancelKeyHold()
+        backspace.cancel()
         hidePreview()
         clearCaseBox()
         releasePressedKey()
@@ -1180,8 +1170,6 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private companion object {
-        const val REPEAT_DELAY_MS = 400L
-        const val REPEAT_INTERVAL_MS = 55L
         const val LONG_PRESS_MS = 300L
         const val RETARGET_HOLD_MS = 120L
         const val INK_CENTERED_GLYPHS = "，。"

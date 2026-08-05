@@ -406,6 +406,35 @@ class KeyboardViewInteractionTest {
         assertEquals("a swipe commits no key", emptyList<String>(), emitted)
     }
 
+    @Test fun the_nine_key_backspace_shares_the_same_repeat_and_swipe_rules() {
+        val emitted = mutableListOf<String>()
+        val swipes = mutableListOf<Boolean>()
+        val held = nineView(Layouts.ninePunctuation(), composing = false).apply {
+            onKey = { emitted.add(it.output) }
+            onBackspaceSwipe = { swipes.add(it) }
+        }
+        val (hx, hy) = held.centerOfActionForTest(KeyAction.BACKSPACE)!!
+        held.send(MotionEvent.ACTION_DOWN, hx, hy, 0)
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(700))
+        val whileHeld = emitted.size
+        assertTrue("the 9-key backspace auto-repeats (got $whileHeld)", whileHeld >= 3)
+        held.send(MotionEvent.ACTION_UP, hx, hy, 700)
+        assertEquals("lifting after a repeat adds nothing", whileHeld, emitted.size)
+        assertTrue("a repeat never converts into a swipe", swipes.isEmpty())
+
+        val swiped = nineView(Layouts.ninePunctuation(), composing = false).apply {
+            onKey = { emitted.add(it.output) }
+            onBackspaceSwipe = { swipes.add(it) }
+        }
+        val (sx, sy) = swiped.centerOfActionForTest(KeyAction.BACKSPACE)!!
+        val before = emitted.size
+        swiped.send(MotionEvent.ACTION_DOWN, sx, sy, 0)
+        swiped.send(MotionEvent.ACTION_MOVE, sx, sy + (swipeThreshold + 15f), 12)
+        swiped.send(MotionEvent.ACTION_UP, sx, sy + (swipeThreshold + 15f), 24)
+        assertEquals("a down swipe fires on the 9-key face too", listOf(false), swipes)
+        assertEquals("a swipe commits no key", before, emitted.size)
+    }
+
     @Test fun a_quick_tap_emits_exactly_once_no_repeat() {
         val emitted = mutableListOf<String>()
         val v = nineView(Layouts.ninePunctuation(), composing = false).apply { onKey = { emitted.add(it.output) } }

@@ -28,17 +28,35 @@ import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
+import com.aegis.ime.layout.KeyAction
 
-enum class EditAction { UP, DOWN, LEFT, RIGHT, START_SELECT, DELETE, COPY, CUT, SELECT_ALL, HOME, END, PASTE, BACK }
+enum class EditAction(val keyAction: KeyAction? = null) {
+    UP,
+    DOWN,
+    LEFT,
+    RIGHT,
+    START_SELECT,
+    DELETE(KeyAction.BACKSPACE),
+    COPY,
+    CUT,
+    SELECT_ALL,
+    HOME,
+    END,
+    PASTE,
+    BACK,
+}
 
 class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar {
 
     var onAction: (EditAction) -> Unit = {}
+
+    var onBackspaceSwipe: (Boolean) -> Unit = {}
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
@@ -59,6 +77,8 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
     private val titleBar: LinearLayout
     private val actionColumn: LinearLayout
     private val actionScroll: ScrollView
+    private val backspace = BackspaceGesture(density)
+    private var backspacePointerId = MotionEvent.INVALID_POINTER_ID
 
     fun applyPalette(p: ImePalette) {
         palette = p
@@ -85,6 +105,8 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
     init {
         orientation = VERTICAL
         setBackgroundColor(palette.keyboardBg)
+        backspace.onRepeat = { onAction(EditAction.DELETE) }
+        backspace.onSwipe = { up -> onBackspaceSwipe(up) }
 
         titleBar = LinearLayout(context).apply {
             orientation = HORIZONTAL
@@ -142,7 +164,13 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
         cutIcon = icon(27, 0.359f, 0.68f) { c, p, x, y, s -> Glyphs.drawCut(c, p, x, y, s) }
         copyBtn = iconBtn(context.getString(R.string.edit_copy), EditAction.COPY, copyIcon, iconOnStart = true)
         cutBtn = iconBtn(context.getString(R.string.edit_cut), EditAction.CUT, cutIcon, iconOnStart = true)
-        val deleteBtn = iconBtn(context.getString(R.string.edit_delete), EditAction.DELETE, icon(27, 0.319f, 0.9f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }, iconOnStart = true)
+        val deleteBtn = iconBtn(
+            context.getString(R.string.edit_delete),
+            EditAction.DELETE,
+            icon(27, 0.319f, 0.9f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) },
+            iconOnStart = true,
+            repeatable = true,
+        )
         val rightActions = listOf(deleteBtn, copyBtn, cutBtn)
         val rightCol = LinearLayout(context).apply { orientation = VERTICAL }
         rightCol.addView(deleteBtn, rowLp())
@@ -192,7 +220,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
                     MeasureSpec.getSize(heightMeasureSpec).coerceAtLeast(0)
                 }
                 val bottomHeight = dp(56)
-                val contentHeight = maxOf(dp(44 * 3) + bottomHeight, viewport)
+                val contentHeight = maxOf(dp(48 * 3) + bottomHeight, viewport)
                 val bottomContainerHeight = maxOf(bottomHeight, (contentHeight + 3) / 4)
                 val midHeight = contentHeight - bottomContainerHeight
                 for (action in rightActions) {
@@ -285,9 +313,17 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
 
     override fun resetToDefault() {
         selecting = false
+        backspace.cancel()
+        backspacePointerId = MotionEvent.INVALID_POINTER_ID
         Motion.reset(selectBtn)
         renderSelectingLabel()
         actionScroll.scrollTo(0, 0)
+    }
+
+    override fun onDetachedFromWindow() {
+        backspace.cancel()
+        backspacePointerId = MotionEvent.INVALID_POINTER_ID
+        super.onDetachedFromWindow()
     }
 
     internal fun selectingLabelForTest(): CharSequence = selectBtn.text
@@ -327,7 +363,21 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
         actionViews[action] = this
     }
 
-    private fun iconBtn(label: String, action: EditAction, glyph: GlyphDrawable, iconOnStart: Boolean = false): TextView = object : TextView(context) {
+    private fun iconBtn(
+        label: String,
+        action: EditAction,
+        glyph: GlyphDrawable,
+        iconOnStart: Boolean = false,
+        repeatable: Boolean = false,
+    ): TextView = object : TextView(context) {
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            if (!repeatable) return super.onTouchEvent(event)
+            if (backspaceTouch(this, event)) performClick()
+            return true
+        }
+
+        override fun performClick(): Boolean = super.performClick()
+
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val avail = MeasureSpec.getSize(widthMeasureSpec) -
                 (if (iconOnStart) glyph.intrinsicWidth + compoundDrawablePadding else 0)
@@ -367,6 +417,70 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
         setOnClickListener { onAction(action) }
         actionViews[action] = this
     }
+
+    private fun backspaceTouch(view: View, event: MotionEvent): Boolean {
+        var tapped = false
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                view.parent?.requestDisallowInterceptTouchEvent(true)
+                beginBackspace(view, event.getPointerId(0), event.x, event.y)
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> {
+                val index = event.actionIndex
+                val tracked = event.findPointerIndex(backspacePointerId)
+                if (tracked >= 0) {
+                    tapped = settleBackspace(view, event.getX(tracked), event.getY(tracked))
+                }
+                beginBackspace(view, event.getPointerId(index), event.getX(index), event.getY(index))
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val index = event.findPointerIndex(backspacePointerId)
+                if (index >= 0) {
+                    val x = event.getX(index)
+                    val y = event.getY(index)
+                    backspace.move(x, y, inside(view, x, y))
+                }
+            }
+            MotionEvent.ACTION_POINTER_UP -> {
+                val index = event.actionIndex
+                if (event.getPointerId(index) == backspacePointerId) {
+                    tapped = settleBackspace(view, event.getX(index), event.getY(index))
+                }
+            }
+            MotionEvent.ACTION_UP -> {
+                val index = event.findPointerIndex(backspacePointerId)
+                tapped = if (index >= 0) {
+                    settleBackspace(view, event.getX(index), event.getY(index))
+                } else {
+                    settleBackspace(view, event.x, event.y)
+                }
+                view.parent?.requestDisallowInterceptTouchEvent(false)
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                backspace.cancel()
+                backspacePointerId = MotionEvent.INVALID_POINTER_ID
+                view.isPressed = false
+                view.parent?.requestDisallowInterceptTouchEvent(false)
+            }
+        }
+        return tapped
+    }
+
+    private fun beginBackspace(view: View, pointerId: Int, x: Float, y: Float) {
+        backspacePointerId = pointerId
+        view.isPressed = true
+        backspace.begin(x, y)
+    }
+
+    private fun settleBackspace(view: View, x: Float, y: Float): Boolean {
+        backspacePointerId = MotionEvent.INVALID_POINTER_ID
+        val tap = backspace.finish(y)
+        view.isPressed = false
+        return tap && inside(view, x, y)
+    }
+
+    private fun inside(view: View, x: Float, y: Float): Boolean =
+        x >= 0f && y >= 0f && x < view.width && y < view.height
 
     private fun arrowBtn(action: EditAction, glyph: GlyphDrawable): View = View(context).apply {
         arrowIcons[action] = glyph

@@ -21,14 +21,14 @@ object SelectionMath {
 
     fun step(text: CharSequence, moving: Int, move: Move): Int {
         val n = text.length
-        val p = moving.coerceIn(0, n)
+        val p = GraphemeText.clusterStart(text, moving.coerceIn(0, n))
         return when (move) {
-            Move.LEFT -> (p - 1).coerceAtLeast(0)
-            Move.RIGHT -> (p + 1).coerceAtMost(n)
-            Move.HOME -> lineStart(text, p)
-            Move.END -> lineEnd(text, p)
-            Move.UP -> verticalMove(text, p, up = true)
-            Move.DOWN -> verticalMove(text, p, up = false)
+            Move.LEFT -> GraphemeText.previousCluster(text, p)
+            Move.RIGHT -> GraphemeText.nextCluster(text, p)
+            Move.HOME -> GraphemeText.clusterStart(text, lineStart(text, p))
+            Move.END -> GraphemeText.clusterStart(text, lineEnd(text, p))
+            Move.UP -> GraphemeText.clusterStart(text, verticalMove(text, p, up = true))
+            Move.DOWN -> GraphemeText.clusterStart(text, verticalMove(text, p, up = false))
         }
     }
 

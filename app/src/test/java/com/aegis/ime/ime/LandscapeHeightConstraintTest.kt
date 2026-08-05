@@ -687,8 +687,8 @@ class TinyPanelViewportConstraintTest {
             }
             assertPanelRectInside(iv, "$action visible bounds", visibleBounds)
             assertTrue(dispatchRootTap(iv, visibleBounds, target))
+            flushPostedClicks()
         }
-        flushPostedClicks()
         assertEquals(listOf(EditAction.BACK, EditAction.UP, EditAction.DELETE, EditAction.PASTE), editActions)
 
         var customBack = 0
