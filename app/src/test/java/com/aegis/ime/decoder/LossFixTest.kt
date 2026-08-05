@@ -31,7 +31,7 @@ internal object FullDictTestAssets {
     const val LM = "aegis_lm.bin"
     const val JIANPIN = "aegis_jianpin.bin"
 
-    val productionNames = listOf(DICT, T9, JIANPIN)
+    val productionNames = listOf(DICT, T9, LM, JIANPIN)
     private val configuredDirectory = System.getenv("AEGIS_FULLDICT_DIR")
         ?.let { File(it) }
     val directory: File = configuredDirectory ?: File("src/main/assets")

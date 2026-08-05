@@ -18,8 +18,10 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import build_dictionary_pack as bp
+import fetch_test_dict as ftd
 
 REPO = "https://github.com/amzxyz/rime-wanxiang"
 COMMIT = "7db7c588fd5ea90c13e4bf1814d7dd7fa8a2effc"
@@ -1169,6 +1171,44 @@ class SourceCheckoutValidationTest(unittest.TestCase):
 
             with self.assertRaisesRegex(SystemExit, "must be clean"):
                 bp.ensure_source_checkout(self.args(repo), root / "work")
+
+
+class PackEntryRoutingTest(unittest.TestCase):
+    def test_every_published_entry_routes_to_the_name_the_producer_declared(self):
+        expected = {bp.NOTICE_NAME: None, bp.LM_ENTRY: bp.LM_RUNTIME_NAME}
+        expected.update({entry: runtime for entry, runtime, _ in bp.OUTPUTS})
+        expected.update({entry: None for entry, _, _, _ in bp.PREFIX_OUTPUTS})
+        self.assertEqual(sorted(expected), sorted(bp.FINAL_ENTRIES))
+        self.assertEqual(
+            expected, {name: ftd.target_for(name) for name in bp.FINAL_ENTRIES}
+        )
+        self.assertEqual(
+            sorted(ftd.RUNTIME_BINS),
+            sorted(name for name in expected.values() if name is not None),
+        )
+
+    def test_routing_reads_the_base_name_and_refuses_everything_else(self):
+        self.assertEqual(bp.LM_RUNTIME_NAME, ftd.target_for("pack/AEGIS_LM.BIN"))
+        self.assertEqual(bp.LM_RUNTIME_NAME, ftd.target_for("pack\\aegis_lm.bin"))
+        self.assertIsNone(ftd.target_for("aegis_lm.bin.sha256"))
+        self.assertIsNone(ftd.target_for("aegis_pfx_letter.idx"))
+        self.assertIsNone(ftd.target_for("NOTICE.txt"))
+
+    def test_unpacking_a_published_pack_installs_exactly_the_runtime_bins(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "pack.zip"
+            with zipfile.ZipFile(archive, "w") as zf:
+                for name in bp.FINAL_ENTRIES:
+                    zf.writestr(name, b"x" * 2048)
+            assets = root / "assets"
+
+            produced = ftd.extract_pack(archive, assets)
+
+            self.assertEqual(sorted(ftd.RUNTIME_BINS), sorted(produced))
+            self.assertEqual(
+                sorted(ftd.RUNTIME_BINS), sorted(item.name for item in assets.iterdir())
+            )
 
 
 if __name__ == "__main__":
