@@ -418,6 +418,8 @@ class ExhaustiveDecodeAuditExtTest {
     private val E6_RARE = 100
     private val E6_COMMON = 1000
 
+    private val HEAVY_USE = 256
+
     private class E6View(val exact: Map<String, Int>, val alias: Map<String, Int>, val prefix: Map<String, Int>) {
         val entries = exact.size + alias.size + prefix.size
     }
@@ -1260,32 +1262,46 @@ class ExhaustiveDecodeAuditExtTest {
                 prev = rank
             }
         }
-        File(outDir(), "ext_e9_risecurve.txt").writeText(
-            "# $runStamp\nE9 rise curve, production config\n" +
-                "canonical sample first-use rank histogram (rank -> cases): $firstUseRanks\n"
-        )
         for (c in byMargin.takeLast(6)) {
             assertTrue("a deep canonical default is not seized within tens of uses (${c.r} margin=${"%.2f".format(c.margin)})",
                 rankAt(c, 64) >= 1)
         }
-        val boost64 = UserModel().apply { repeat(64) { recordWord("zz", "占位", it.toLong(), incrementCount = true) } }.wordBoost("占位")
-        val boost2048 = UserModel().apply { repeat(2048) { recordWord("zz", "占位", it.toLong(), incrementCount = true) } }.wordBoost("占位")
-        val w = byMargin.firstOrNull { it.margin > boost64 && it.margin < boost2048 }
-        assertTrue("a canonical reading must exist whose margin maps to hundreds-level seizing", w != null)
-        val exactOfReading = dict.exact(w!!.r).filterNot { isSingleChar(it.word) }.map { it.word }.toSet()
-        fun leadsEveryAssembled(c: C, count: Int): Boolean {
+        fun rankAndLead(c: C, count: Int): Pair<Int, Boolean> {
             repeat(count) { um.recordWord(c.r, c.uw, it.toLong(), incrementCount = true) }
             val listed = dLu.decodeCovered(c.r, 30).map { it.word }
             um.removeWord(c.uw)
             val at = listed.indexOf(c.uw)
-            return at >= 0 && listed.subList(0, at).all { it in exactOfReading }
+            val exact = dict.exact(c.r).filterNot { isSingleChar(it.word) }.map { it.word }.toSet()
+            return at to (at >= 0 && listed.subList(0, at).all { it in exact })
         }
-        var minCount = -1
-        for (n in listOf(96, 128, 192, 256, 384, 512, 768, 1024, 1536, 2048)) {
-            if (leadsEveryAssembled(w, n)) { minCount = n; break }
+        var risers = 0
+        val climbs = ArrayList<String>()
+        for (c in deep + boundary) {
+            val early = rankAndLead(c, 1).first
+            val (late, leadsLate) = rankAndLead(c, HEAVY_USE)
+            assertTrue("a heavily used word must stay recalled (${c.r} rank=$late)", late >= 0)
+            assertTrue("at heavy use only a reading exact dictionary word may sit ahead of the user word " +
+                "(${c.r} rank=$late)", leadsLate)
+            if (late < early) risers++
+            climbs.add("${c.r}\t${c.uw}\t$early\t$late")
         }
-        assertTrue("the band canonical reading (${w.r}, margin=${"%.2f".format(w.margin)}) leads every " +
-            "assembled candidate at hundreds-level use (minCount=$minCount expected in (64, 2048])", minCount in 65..2048)
+        File(outDir(), "ext_e9_risecurve.txt").writeText(
+            "# $runStamp\nE9 rise curve, production config\n" +
+                "canonical sample first-use rank histogram (rank -> cases): $firstUseRanks\n" +
+                "risers (rank at 1 use -> rank at $HEAVY_USE uses): $risers of ${(deep + boundary).size}\n" +
+                climbs.joinToString("\n", postfix = "\n")
+        )
+        assertTrue("more use must actually move some canonical user word up, otherwise learning is inert " +
+            "(risers=$risers of ${(deep + boundary).size})", risers >= 1)
+        val boost64 = UserModel().apply { repeat(64) { recordWord("zz", "占位", it.toLong(), incrementCount = true) } }.wordBoost("占位")
+        val boost2048 = UserModel().apply { repeat(2048) { recordWord("zz", "占位", it.toLong(), incrementCount = true) } }.wordBoost("占位")
+        val w = byMargin.firstOrNull { it.margin > boost64 && it.margin < boost2048 }
+        assertTrue("a canonical reading must exist whose margin maps to hundreds-level seizing", w != null)
+        val bandEarly = rankAndLead(w!!, 1).first
+        val (bandLate, bandLeads) = rankAndLead(w, HEAVY_USE)
+        assertTrue("the band canonical reading (${w.r}, margin=${"%.2f".format(w.margin)}) must lead every " +
+            "assembled candidate at heavy use and never fall back (first use rank=$bandEarly, " +
+            "rank at $HEAVY_USE=$bandLate, leads=$bandLeads)", bandLeads && bandLate <= bandEarly)
     }
 
     @Test fun e8_userWords_doNotDisturbAliasPresence() {
