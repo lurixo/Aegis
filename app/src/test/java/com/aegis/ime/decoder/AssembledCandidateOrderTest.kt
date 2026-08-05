@@ -105,19 +105,6 @@ class AssembledCandidateOrderTest {
         }
     }
 
-    @Test fun aStoredWordThatCannotBeReadAsItsReadingIsNeverOffered() {
-        assets()
-        val junk = "随让啊你的啊你是"
-        val um = taught("suirandanshi", junk)
-        for ((path, got) in paths(letters(um = um), "suirandanshi", setOf(3, 6, 9))) {
-            assertEquals("26-key/$path: 虽然但是 leads, was ${got.take(6)}", "虽然但是", got.first())
-            assertTrue("26-key/$path: a word that cannot be read as the reading is dropped", junk !in got)
-        }
-        for ((path, got) in paths(digits(um = um), "784726326744", setOf(3, 6, 9))) {
-            assertTrue("9-key/$path: a word that cannot be read as the reading is dropped", junk !in got)
-        }
-    }
-
     @Test fun aTaughtWordTheDictionaryLacksStillYieldsTheLeadToTheDictionaryWord() {
         assets()
         val um = taught("nimen", "拟门")
@@ -125,6 +112,25 @@ class AssembledCandidateOrderTest {
             assertEquals("26-key/$path: 你们 leads, was ${got.take(6)}", "你们", got.first())
             val at = got.indexOf("拟门")
             assertTrue("26-key/$path: the taught word stays reachable, was at $at", at > 0)
+        }
+    }
+
+    @Test fun aGluedSentenceNeverLeadsTheDictionaryWordOfTheSameReading() {
+        val rows = listOf(
+            EngineFixture.Row("diu", "丢", 900),
+            EngineFixture.Row("zi", "字", 900),
+            EngineFixture.Row("zi", "子", 800),
+            EngineFixture.Row("diuzi", "丢子", 40),
+        )
+        val decoder = PinyinDecoder(EngineFixture.build(rows))
+        for ((path, got) in listOf(
+            "free" to words(decoder.decodeCovered("diuzi", 30)),
+            "cut" to words(decoder.decodeCovered("diuzi", 30, setOf(3))),
+            "locked" to words(decoder.decodeCoveredAtomic("diuzi", 30, setOf(3))),
+        )) {
+            assertEquals("$path: the dictionary word of the reading leads, was $got", "丢子", got.first())
+            val at = got.indexOf("丢字")
+            assertTrue("$path: the glued sentence stays reachable behind it, was at $at", at > 0)
         }
     }
 

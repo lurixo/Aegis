@@ -1272,12 +1272,20 @@ class ExhaustiveDecodeAuditExtTest {
         val boost2048 = UserModel().apply { repeat(2048) { recordWord("zz", "占位", it.toLong(), incrementCount = true) } }.wordBoost("占位")
         val w = byMargin.firstOrNull { it.margin > boost64 && it.margin < boost2048 }
         assertTrue("a canonical reading must exist whose margin maps to hundreds-level seizing", w != null)
+        val exactOfReading = dict.exact(w!!.r).filterNot { isSingleChar(it.word) }.map { it.word }.toSet()
+        fun leadsEveryAssembled(c: C, count: Int): Boolean {
+            repeat(count) { um.recordWord(c.r, c.uw, it.toLong(), incrementCount = true) }
+            val listed = dLu.decodeCovered(c.r, 30).map { it.word }
+            um.removeWord(c.uw)
+            val at = listed.indexOf(c.uw)
+            return at >= 0 && listed.subList(0, at).all { it in exactOfReading }
+        }
         var minCount = -1
         for (n in listOf(96, 128, 192, 256, 384, 512, 768, 1024, 1536, 2048)) {
-            if (rankAt(w!!, n) == 0) { minCount = n; break }
+            if (leadsEveryAssembled(w, n)) { minCount = n; break }
         }
-        assertTrue("the band canonical reading (${w!!.r}, margin=${"%.2f".format(w.margin)}) reaches #0 at " +
-            "hundreds-level use (minCount=$minCount expected in (64, 2048])", minCount in 65..2048)
+        assertTrue("the band canonical reading (${w.r}, margin=${"%.2f".format(w.margin)}) leads every " +
+            "assembled candidate at hundreds-level use (minCount=$minCount expected in (64, 2048])", minCount in 65..2048)
     }
 
     @Test fun e8_userWords_doNotDisturbAliasPresence() {

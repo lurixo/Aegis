@@ -17,6 +17,7 @@ package com.aegis.ime.decoder
 
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -122,6 +123,60 @@ class StagedFirstScreenTest {
             "the separator path offers the locked first screen",
             words(decoder.decodeCoveredAtomic("diuzi", 30, setOf(3))),
             words(separated),
+        )
+    }
+
+    private fun learningChain(vararg chain: Pair<String, String>): UserLearning {
+        val now = 1_700_000_000_000L
+        val learning = UserLearning { now }
+        repeat(8) {
+            var prev: String? = null
+            for ((ch, reading) in chain) {
+                learning.observeCommit(prev, ch, reading, now)
+                prev = ch
+            }
+            learning.observeBreak()
+        }
+        return learning
+    }
+
+    @Test fun anAutoLearnedWordNeverLeadsTheReadingExactDictionaryWord() {
+        val learning = learningChain("悯" to "min", "意" to "yi")
+        assertTrue("the chain forms the learned word", "悯意" in learning.formedWordsFor("minyi"))
+        val decoded = words(
+            PinyinDecoder(minYiFixture(), userLearning = learning).decodeCoveredAtomic("minyi", 30, setOf(3)),
+        )
+        assertEquals("the reading-exact dictionary word keeps the lead", "民意", decoded.first())
+        val at = decoded.indexOf("悯意")
+        assertTrue(
+            "the auto-learned word stays on the first screen behind it, was $decoded",
+            at in 1..PinyinDecoder.STAGED_REAL_WORD_SLOTS,
+        )
+    }
+
+    @Test fun aWordTheUserTaughtStaysReachableBehindTheDictionaryWord() {
+        val learning = learningChain("悯" to "min", "意" to "yi")
+        val decoded = words(
+            PinyinDecoder(
+                minYiFixture(),
+                userModel = userModel("minyi" to "悯意"),
+                userLearning = learning,
+            ).decodeCoveredAtomic("minyi", 30, setOf(3)),
+        )
+        assertEquals("the dictionary word of this reading keeps the lead", "民意", decoded.first())
+        val at = decoded.indexOf("悯意")
+        assertTrue("a word the user committed stays on the first screen, was $decoded", at in 1..8)
+    }
+
+    @Test fun theSentenceCoveringEveryConfirmedReadingLeadsTheFirstScreen() {
+        val decoder = productionLetterDecoder()
+        val staged = decoder.decodeCoveredAtomic("nidepingguo", 60, setOf(2, 4, 8))
+        assertEquals("the sentence covering every locked reading leads", "你的苹果", staged.first().word)
+        assertEquals("and it covers every letter of the reading", 11, staged.first().coveredLen)
+        val firstSingle = staged.indexOfFirst { isSingleChar(it.word) }
+        assertTrue(
+            "the first reading singles still start inside the real word slots, was $firstSingle",
+            firstSingle in 1..PinyinDecoder.STAGED_REAL_WORD_SLOTS,
         )
     }
 
