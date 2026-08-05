@@ -245,11 +245,11 @@ class PinyinDecoder(
         context: CharSequence = "",
     ): Pair<List<Cand>, Int> {
         if (input.isEmpty() || limit <= 0) return emptyList<Cand>() to 0
-        val norm = normalizeSeparators(input) ?: return decodeCoveredClean(input, limit, cuts, context)
+        val norm = normalizeSeparators(input) ?: return decodeCoveredClean(input, limit, cuts, context, false)
         if (norm.clean.isEmpty()) return emptyList<Cand>() to 0
         val passedClean = cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
         val (cands, remainderStart) =
-            decodeCoveredClean(norm.clean, limit, norm.cuts + passedClean, context)
+            decodeCoveredClean(norm.clean, limit, norm.cuts + passedClean, context, norm.cuts.isNotEmpty())
         return cands.map {
             Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length })
         } to remainderStart
@@ -263,7 +263,7 @@ class PinyinDecoder(
         if (clean.isEmpty()) return emptyList()
         val passedClean = if (norm == null) cuts else cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
         val interior = ((norm?.cuts ?: emptySet()) + passedClean).filter { it in 1 until clean.length }.toSet()
-        val decoded = decodeAtomic(clean, interior, ctx)
+        val decoded = decodeAtomic(clean, interior, ctx, interior.isNotEmpty())
         return if (norm == null) {
             decoded
         } else {
@@ -278,12 +278,13 @@ class PinyinDecoder(
         limit: Int,
         cuts: Set<Int>,
         context: CharSequence,
+        staged: Boolean,
     ): Pair<List<Cand>, Int> {
         val ctx = parseContext(context)
-
         val ctxId = resolveCtxId(ctx.cp)
         val interior = cuts.filter { it in 1 until input.length }.toSortedSet()
-        if (interior.isNotEmpty()) return decodeAtomic(input, interior, ctx).let { it to it.size }
+        if (interior.isNotEmpty()) return decodeAtomic(input, interior, ctx, staged).let { it to it.size }
+
         val cover = LinkedHashMap<String, Int>()
         val completionCap = completionCap(limit)
         val sentence = bestSentence(input, ctx)?.also { cover[it] = input.length }
@@ -347,7 +348,7 @@ class PinyinDecoder(
         for (c in rare) out[write++] = c
     }
 
-    private fun decodeAtomic(input: String, interior: Set<Int>, ctx: Ctx): List<Cand> {
+    private fun decodeAtomic(input: String, interior: Set<Int>, ctx: Ctx, staged: Boolean): List<Cand> {
         val ctxId = resolveCtxId(ctx.cp)
         val B = atomicBounds(input, interior)
         val nSyl = B.size - 1
@@ -432,6 +433,22 @@ class PinyinDecoder(
                 if (seen.add(w)) out.add(Cand(w, leadCov[w] ?: input.length))
             }
         }
+        if (staged) {
+            val leadScore = HashMap<String, Double>(leadFreq.size * 2)
+            for ((w, f) in leadFreq) leadScore[w] = wordModelScore(w, f, ctxId, ctx)
+            val stagedRealWords = leadFreq.keys.sortedWith(
+                compareByDescending<String> { leadCov.getValue(it) }
+                    .thenByDescending { leadScore.getValue(it) }
+                    .thenBy { supplementarySingleTieRank(it) },
+            )
+            val head = ArrayList<String>(STAGED_REAL_WORD_SLOTS)
+            best?.let { head.add(it) }
+            for (w in stagedRealWords) {
+                if (head.size >= STAGED_REAL_WORD_SLOTS) break
+                if (w !in head) head.add(w)
+            }
+            emit(head)
+        }
         val rest = ArrayList<String>(leadFreq.size + 1)
         best?.let { rest.add(it) }
         val leadRank = HashMap<String, Double>(leadFreq.size * 2)
@@ -439,7 +456,7 @@ class PinyinDecoder(
         for (w in leadFreq.keys.sortedByDescending { leadRank.getValue(it) }) {
             if (w !in rest) rest.add(w)
         }
-        emit(rest)
+        if (!staged) emit(rest)
         best?.let { if (seen.add(it)) out.add(Cand(it, input.length)) }
         val merged = ArrayList<Cand>(leadFreq.size + tailRanked.size)
         for (w in rest) if (w !in seen) merged.add(Cand(w, leadCov[w] ?: input.length))
@@ -937,6 +954,7 @@ class PinyinDecoder(
         const val SENTENCE_EDGE_N = 6
         const val ATOMIC_BEAM_N = 8
         const val ATOMIC_BEAM_PER_SYL = 40
+        const val STAGED_REAL_WORD_SLOTS = 8
         const val SENTENCE_RERANK_N = 128
         const val CTX_WORD_MAX = 4
         const val MAX_SYLLABLE_KEY_LEN = 6
