@@ -134,6 +134,26 @@ class SymbolCatalogTest {
         assertEquals("math", SymbolCatalog.categoryIdOf("℃"))
     }
 
+    @Test fun mathListsEveryMultiplicationAndDivisionFormExactlyOnce() {
+        val math = cat("math")
+        for (sign in listOf("×", "÷", "*", "/")) {
+            assertEquals("数学 $sign 恰好一次", 1, math.count { it == sign })
+        }
+        assertEquals("÷ 紧邻 ×", math.indexOf("×") + 1, math.indexOf("÷"))
+        assertEquals("* 紧邻 ÷", math.indexOf("÷") + 1, math.indexOf("*"))
+        assertEquals("/ 紧邻 *", math.indexOf("*") + 1, math.indexOf("/"))
+        assertTrue("四种形态排在 = 之前", math.indexOf("/") < math.indexOf("="))
+    }
+
+    @Test fun theCustomOperatorPaletteKeepsTheMultiplicationAndDivisionSigns() {
+        assertEquals(listOf("×", "÷"), Layouts.numpadOperatorsInCustomPalette)
+        assertTrue(
+            "保留项必须仍是默认小键盘运算符",
+            Layouts.defaultNumpadOperators.containsAll(Layouts.numpadOperatorsInCustomPalette),
+        )
+        assertTrue("保留项必须来自数学分类", cat("math").containsAll(Layouts.numpadOperatorsInCustomPalette))
+    }
+
     @Test fun greekCategorySitsBetweenMathAndArrow() {
         val ids = SymbolCatalog.categories.map { it.id }
         assertEquals("希腊 right after 数学", ids.indexOf("math") + 1, ids.indexOf("greek"))
