@@ -96,7 +96,7 @@ class ModelDownloadTest {
             File(base, "$name.part").writeBytes(ByteArray(512))
         }
         File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText("d".repeat(64))
-        val grammar = File(base, "aegis_lm.bin").apply { writeBytes(ByteArray(2_048) { 3 }) }
+        val grammar = File(base, ModelDownload.GRAM_NAME).apply { writeBytes(ByteArray(2_048) { 3 }) }
 
         assertTrue(ModelDownload.isDictDownloaded(base))
         assertTrue(ModelDownload.purgeDict(base))
@@ -490,6 +490,7 @@ class ModelDownloadTest {
             "aegis_dict.bin" to ByteArray(3_000) { 1 },
             "aegis_t9.bin" to ByteArray(3_000) { 2 },
             "aegis_jianpin.bin" to ByteArray(3_000) { 3 },
+            "aegis_lm.bin" to ByteArray(3_000) { 4 },
         )
         val zip = ModelDownload.dictZipFile(base)
         writeZip(zip, replacements)
@@ -615,6 +616,7 @@ class ModelDownloadTest {
             "aegis_dict.bin" to ByteArray(3_000) { 1 },
             "aegis_t9.bin" to ByteArray(3_000) { 2 },
             "aegis_jianpin.bin" to ByteArray(3_000) { 3 },
+            "aegis_lm.bin" to ByteArray(3_000) { 4 },
         )
         val zip = ModelDownload.dictZipFile(base)
         writeZip(zip, replacements)
@@ -644,6 +646,7 @@ class ModelDownloadTest {
             "aegis_dict.bin" to ByteArray(3_000) { 1 },
             "aegis_t9.bin" to ByteArray(3_000) { 2 },
             "aegis_jianpin.bin" to ByteArray(3_000) { 3 },
+            "aegis_lm.bin" to ByteArray(3_000) { 4 },
         )
         val zip = ModelDownload.dictZipFile(base)
         writeZip(zip, replacements)
@@ -711,6 +714,7 @@ class ModelDownloadTest {
                 "aegis_dict.bin" to ByteArray(3_000) { 1 },
                 "aegis_t9.bin" to ByteArray(3_000) { 2 },
                 "aegis_jianpin.bin" to ByteArray(3_000) { 3 },
+                "aegis_lm.bin" to ByteArray(3_000) { 4 },
             ),
         )
 
@@ -761,6 +765,7 @@ class ModelDownloadTest {
             "aegis_dict.bin" to ByteArray(3_000) { 1 },
             "aegis_t9.bin" to ByteArray(3_000) { 2 },
             "aegis_jianpin.bin" to ByteArray(3_000) { 3 },
+            "aegis_lm.bin" to ByteArray(3_000) { 4 },
         )
         val zip = ModelDownload.dictZipFile(base)
         writeZip(zip, replacements)
@@ -789,6 +794,7 @@ class ModelDownloadTest {
             "aegis_dict.bin" to ByteArray(3_000) { 1 },
             "aegis_t9.bin" to ByteArray(3_000) { 2 },
             "aegis_jianpin.bin" to ByteArray(3_000) { 3 },
+            "aegis_lm.bin" to ByteArray(3_000) { 4 },
         )
         val zip = ModelDownload.dictZipFile(base)
         writeZip(zip, replacements)
@@ -863,6 +869,7 @@ class ModelDownloadTest {
             "aegis_dict.bin" to ByteArray(3_000) { 1 },
             "aegis_t9.bin" to ByteArray(3_000) { 2 },
             "aegis_jianpin.bin" to ByteArray(3_000) { 3 },
+            "aegis_lm.bin" to ByteArray(3_000) { 4 },
         )
         val zip = ModelDownload.dictZipFile(base)
         writeZip(zip, replacements)

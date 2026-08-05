@@ -95,21 +95,57 @@ class SettingsSlice1Test {
 
 
     private fun writePackZip(dest: File, dict: String, t9: String, jianpin: String) {
+        writeNamedZip(
+            dest,
+            listOf(
+                "aegis_dict.bin" to dict,
+                "aegis_t9.bin" to t9,
+                "aegis_jianpin.bin" to jianpin,
+                "aegis_lm.bin" to "LM".repeat(700),
+            ),
+        )
+    }
+
+    private fun writeNamedZip(dest: File, entries: List<Pair<String, String>>) {
         dest.parentFile?.mkdirs()
         ZipOutputStream(dest.outputStream()).use { z ->
-            for ((name, body) in listOf("aegis_dict.bin" to dict, "aegis_t9.bin" to t9, "aegis_jianpin.bin" to jianpin)) {
+            for ((name, body) in entries) {
                 z.putNextEntry(ZipEntry(name)); z.write(body.toByteArray()); z.closeEntry()
             }
         }
     }
 
-    @Test fun extract_dict_pack_writes_the_three_renamed_bins() {
+    @Test fun extract_dict_pack_routes_release_entry_names_and_drops_the_rest() {
+        val dir = File(ctx.filesDir, "downloaded").apply { mkdirs() }
+        val zip = File(dir, "release-shaped.zip")
+        writeNamedZip(
+            zip,
+            listOf(
+                "NOTICE.txt" to "N".repeat(2_000),
+                "aegis_dict_full.bin" to "DICT".repeat(400),
+                "aegis_t9_full.bin" to "T9".repeat(700),
+                "aegis_jianpin_full.bin" to "JP".repeat(700),
+                "aegis_lm.bin" to "LM".repeat(700),
+                "aegis_pfx_letter.idx" to "L".repeat(2_000),
+                "aegis_pfx_digit.idx" to "D".repeat(2_000),
+                "aegis_pfx_initials.idx" to "I".repeat(2_000),
+            ),
+        )
+        assertEquals(ModelDownload.DICT_PACK_FILES.toSet(), ModelDownload.extractDictPack(zip, dir))
+        assertEquals("LM".repeat(700), File(dir, "aegis_lm.bin").readText())
+        assertEquals("JP".repeat(700), File(dir, "aegis_jianpin.bin").readText())
+        listOf("aegis_pfx_letter.idx", "aegis_pfx_digit.idx", "aegis_pfx_initials.idx", "NOTICE.txt").forEach {
+            assertFalse("$it must not be installed", File(dir, it).exists())
+        }
+    }
+
+    @Test fun extract_dict_pack_writes_the_renamed_pack_members() {
         val dir = File(ctx.filesDir, "downloaded").apply { mkdirs() }
         val zip = File(dir, "pack.zip")
         writePackZip(zip, "DICT".repeat(400), "T9".repeat(700), "JP".repeat(700))
         val produced = ModelDownload.extractDictPack(zip, dir)
         assertEquals(ModelDownload.DICT_PACK_FILES.toSet(), produced)
-        assertTrue("3 bins present", ModelDownload.isDictDownloaded(ctx.filesDir))
+        assertTrue("every pack member present", ModelDownload.isDictDownloaded(ctx.filesDir))
         assertTrue("installed dict files are tracked for engine reload", ModelDownload.DICT_PACK_FILES.all { it in EngineAssets.ASSET_NAMES })
         assertEquals(
             File(dir, "aegis_dict.bin").absolutePath,
@@ -125,7 +161,7 @@ class SettingsSlice1Test {
         val zip = File(dir, "pack.zip")
         writePackZip(zip, "DICT".repeat(400), "T9".repeat(700), "JP".repeat(700))
         assertEquals(ModelDownload.DICT_PACK_FILES.toSet(), ModelDownload.extractDictPack(zip, dir))
-        assertTrue("all three bins present flips isDictDownloaded true", ModelDownload.isDictDownloaded(ctx.filesDir))
+        assertTrue("every pack member present flips isDictDownloaded true", ModelDownload.isDictDownloaded(ctx.filesDir))
         ModelDownload.DICT_PACK_FILES.forEach { name ->
             assertEquals(
                 "downloaded $name overrides the (now absent) bundled asset, so buildEngine loads Chinese",

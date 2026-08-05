@@ -300,11 +300,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         com.aegis.ime.dict.ModelDownload.recoverInterruptedDictionaryInstall(filesDir)
         val (sig, dictionaries) = com.aegis.ime.dict.ModelDownload.withDictionaryGeneration {
             EngineAssets.signature(File(filesDir, "downloaded")) to
-                com.aegis.ime.dict.ModelDownload.DICT_PACK_FILES.map(::loadDict)
+                com.aegis.ime.dict.ModelDownload.DICT_BIN_FILES.map(::loadDict)
         }
         val (dict, t9Dict, initialsDict) = dictionaries
         val fuzzyRules = currentFuzzyRules()
-        val lm = loadLm("aegis_lm.bin")
+        val lm = loadLm(com.aegis.ime.dict.ModelDownload.LM_NAME)
         val octagram = runCatching { OctagramReader.fromDownloads(this, "wanxiang-lts-zh-hans.gram") }
             .onFailure { Log.e("Aegis", "octagram load failed", it) }.getOrNull()
         val engine = DictEngine(dict, t9Dict, lm, userModel, fuzzyRules, initialsDict, octagram, userLearning)
