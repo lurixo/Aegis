@@ -875,6 +875,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         stopSelecting()
         val ep = editPanelView ?: EditPanelView(imeUiContext()).also {
             it.onAction = { a -> handleEdit(a) }
+            it.onBackspaceSwipe = { up -> backspaceSwipe(up) }
+            it.backspaceSwipeAvailable = { up -> canBackspaceSwipe(up) }
             editPanelView = it
         }
         ep.applyPalette(imePalette)

@@ -39,6 +39,7 @@ import com.aegis.ime.ime.EditPanelView
 import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.ime.KeyboardView
 import com.aegis.ime.ime.LargeCommit
 import com.aegis.ime.ime.Motion
 import com.aegis.ime.ime.SelectionMath
@@ -312,6 +313,20 @@ class AegisInputMethodServiceLifecycleTest {
         return delegate.value as ClipboardStore
     }
 
+    private fun panelInputActive(service: AegisInputMethodService): Boolean {
+        val input = service.javaClass.getDeclaredField("panelInput").run {
+            isAccessible = true
+            get(service)
+        }
+        return input.javaClass.getMethod("getActive").invoke(input) as Boolean
+    }
+
+    private fun keyboardOf(view: InputView): KeyboardView =
+        view.javaClass.getDeclaredField("keyboardView").run {
+            isAccessible = true
+            get(view) as KeyboardView
+        }
+
     private fun swipeBackspace(view: View, x: Float, y: Float, up: Boolean) {
         val reach = 24f * view.resources.displayMetrics.density + 15f
         val endY = if (up) y - reach else y + reach
@@ -334,6 +349,12 @@ class AegisInputMethodServiceLifecycleTest {
         val delete = requireNotNull(panel.actionViewForTest(EditAction.DELETE))
         assertTrue("the delete button must be laid out", delete.width > 0 && delete.height > 0)
         swipeBackspace(delete, delete.width / 2f, delete.height / 2f, up)
+    }
+
+    private fun swipeKeyboardBackspace(view: InputView, up: Boolean) {
+        val keyboard = keyboardOf(view)
+        val (x, y) = requireNotNull(keyboard.centerOfActionForTest(KeyAction.BACKSPACE))
+        swipeBackspace(keyboard, x, y, up)
     }
 
     private fun selectAllOnCut(connection: RecordingInputConnection) {
@@ -449,6 +470,26 @@ class AegisInputMethodServiceLifecycleTest {
         assertEquals(f.service.getString(R.string.edit_paste_empty), f.service.toastTextForTest())
     }
 
+    @Test fun the_edit_panel_backspace_swipes_clear_and_restore_the_document() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        selectAllOnCut(connection)
+        connection.commitText("swipe me away", 1)
+        val panel = showEditPanel(f.service)
+        layoutInput(f.view)
+        assertFalse(
+            "the inline input bar must not be active while the edit panel is open",
+            panelInputActive(f.service),
+        )
+
+        swipePanelDelete(panel, up = true)
+        assertEquals("an up swipe clears the whole document", "", connection.editable.toString())
+
+        swipePanelDelete(panel, up = false)
+        assertEquals("a down swipe restores it verbatim", "swipe me away", connection.editable.toString())
+    }
+
     @Test fun a_panel_down_swipe_without_a_snapshot_changes_nothing() {
         val f = fixture()
         val connection = RecordingInputConnection(FrameLayout(f.service))
@@ -464,6 +505,46 @@ class AegisInputMethodServiceLifecycleTest {
         assertEquals("a down swipe with nothing to restore is a no-op", "keep every character", connection.editable.toString())
         assertTrue("it must not commit an empty string either", connection.committedChunks.isEmpty())
         assertTrue(connection.contextMenuActions.isEmpty())
+    }
+
+    @Test fun the_keyboard_and_the_edit_panel_share_one_backspace_swipe_snapshot() {
+        val faces = listOf(
+            Lang.EN to Layouts.forId(LayoutId.ALPHA, Lang.EN),
+            Lang.CN to Layouts.nine(Layouts.ninePunctuation(), false),
+        )
+        for ((lang, layout) in faces) {
+            val f = fixture()
+            val connection = RecordingInputConnection(FrameLayout(f.service))
+            installInputConnection(f.service, connection)
+            selectAllOnCut(connection)
+            f.view.showKeyboard(layout, false, false, lang)
+
+            connection.commitText("cleared by the keyboard", 1)
+            layoutInput(f.view)
+            swipeKeyboardBackspace(f.view, up = true)
+            assertEquals("${layout.id}: the keyboard up swipe clears", "", connection.editable.toString())
+
+            val panel = showEditPanel(f.service)
+            layoutInput(f.view)
+            swipePanelDelete(panel, up = false)
+            assertEquals(
+                "${layout.id}: the panel restores what the keyboard deleted",
+                "cleared by the keyboard",
+                connection.editable.toString(),
+            )
+
+            swipePanelDelete(panel, up = true)
+            assertEquals("${layout.id}: the panel up swipe clears", "", connection.editable.toString())
+
+            showEditPanel(f.service)
+            layoutInput(f.view)
+            swipeKeyboardBackspace(f.view, up = false)
+            assertEquals(
+                "${layout.id}: the keyboard restores what the panel deleted",
+                "cleared by the keyboard",
+                connection.editable.toString(),
+            )
+        }
     }
 
     @Test fun the_edit_panel_delete_tracks_the_key_haptics_toggle_on_both_faces() {
