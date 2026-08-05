@@ -20,6 +20,9 @@ import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
 import android.content.Context
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
@@ -29,7 +32,6 @@ import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
 import com.aegis.ime.layout.SymbolCatalog
-import kotlin.math.roundToInt
 
 class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePanel {
 
@@ -45,25 +47,38 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     private val paletteRows = LinearLayout(context).apply { orientation = VERTICAL }
     private val contentColumn = LinearLayout(context).apply { orientation = VERTICAL }
     private val contentScroll = ScrollView(context).apply { addView(contentColumn) }
-    private val headerBar = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
-    private val backText = TextView(context).apply {
-        text = context.getString(R.string.csp_back_title)
+    private val headerBar = LinearLayout(context).apply {
+        orientation = HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(EDGE_DP), 0, dp(EDGE_DP), 0)
+    }
+    private val backButton = PanelBackButton(context)
+    private val titleText = TextView(context).apply {
+        text = context.getString(R.string.csp_punctuation_title)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
-        setPadding(dp(12), dp(10), dp(12), dp(10))
-        isClickable = true
+        maxLines = 1
+        gravity = Gravity.CENTER_VERTICAL
         setTextColor(colors.keyLabel)
-        Motion.applyTapFeedback(this, colors.keyLabel)
     }
     private val sectionLabels = mutableListOf<TextView>()
+    private val addedLabel = sectionLabel(context.getString(R.string.csp_section_added))
+    private val paletteLabel = sectionLabel(context.getString(R.string.csp_section_all_punctuation))
+    private val addedEmpty = TextView(context).apply {
+        text = context.getString(R.string.csp_added_empty)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.sectionTitle)
+        setTextColor(colors.keyLabelSecondary)
+        setPadding(dp(EDGE_DP), 0, dp(EDGE_DP), 0)
+        gravity = Gravity.CENTER_VERTICAL
+    }
     private var measuringWidthOverride = 0
     private var lastFlowWidth = -1
-    private val preferredHeaderHeight = dp(40)
-    private val minimumHeaderHeight = dp(20)
-    private val intactChipHeight = dp(44)
-    private val normalBackVerticalPadding = dp(10)
+    private val headerHeight = dp(PanelBackButton.HIT_DP)
 
-    var backTitle: String = context.getString(R.string.csp_back_title)
-        set(v) { field = v; backText.text = v }
+    var backTitle: String = context.getString(R.string.csp_punctuation_title)
+        set(v) { field = v; titleText.text = v }
+
+    var paletteTitle: String = context.getString(R.string.csp_section_all_punctuation)
+        set(v) { field = v; paletteLabel.text = v }
 
     var addPalette: List<String> = SymbolCatalog.categories.flatMap { it.symbols }.distinct()
         set(v) { field = v; refresh() }
@@ -71,16 +86,24 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     init {
         orientation = VERTICAL
         setBackgroundColor(colors.keyboardBg)
-        backText.setOnClickListener { onBack() }
+        backButton.setOnClickListener { onBack() }
         headerBar.setBackgroundColor(colors.keyboardBg)
-        headerBar.addView(backText, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
-        headerBar.addView(View(context), LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f))
-        addView(headerBar, LayoutParams(LayoutParams.MATCH_PARENT, preferredHeaderHeight))
+        headerBar.addView(backButton, LayoutParams(headerHeight, headerHeight))
+        headerBar.addView(
+            titleText,
+            LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { marginStart = dp(GAP_DP) },
+        )
+        addView(headerBar, LayoutParams(LayoutParams.MATCH_PARENT, headerHeight))
 
-        contentColumn.addView(sectionLabel(context.getString(R.string.csp_added_tap_to_remove)))
-        contentColumn.addView(addedRows, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-        contentColumn.addView(sectionLabel(context.getString(R.string.csp_tap_to_add)))
-        contentColumn.addView(paletteRows, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        contentColumn.addView(addedLabel, columnParams(dp(GAP_DP)))
+        contentColumn.addView(addedRows, columnParams(dp(GAP_DP)))
+        contentColumn.addView(
+            addedEmpty,
+            LayoutParams(LayoutParams.MATCH_PARENT, dp(CHIP_DP)).apply { topMargin = dp(GAP_DP) },
+        )
+        contentColumn.addView(paletteLabel, columnParams(dp(SECTION_GAP_DP)))
+        contentColumn.addView(paletteRows, columnParams(dp(GAP_DP)))
+        contentColumn.setPadding(0, 0, 0, dp(GAP_DP))
         addView(contentScroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
     }
 
@@ -93,17 +116,22 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         colors = p
         setBackgroundColor(p.keyboardBg)
         headerBar.setBackgroundColor(p.keyboardBg)
-        backText.setTextColor(p.keyLabel)
-        Motion.applyTapFeedback(backText, p.keyLabel)
+        backButton.tint = p.keyLabel
+        titleText.setTextColor(p.keyLabel)
+        addedEmpty.setTextColor(p.keyLabelSecondary)
         sectionLabels.forEach { it.setTextColor(p.keyLabelSecondary) }
         rebuildFlows()
     }
 
-    private fun sectionLabel(text: String): View = TextView(context).apply {
+    private fun columnParams(topMargin: Int) =
+        LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply { this.topMargin = topMargin }
+
+    private fun sectionLabel(text: String): TextView = TextView(context).apply {
         this.text = text
         setTextColor(colors.keyLabelSecondary)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.caption)
-        setPadding(dp(12), dp(6), dp(12), dp(4))
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.sectionTitle)
+        typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        setPadding(dp(EDGE_DP), 0, dp(EDGE_DP), 0)
         sectionLabels.add(this)
     }
 
@@ -113,8 +141,10 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
 
     private fun rebuildFlows() {
         val added = current()
-        fillFlow(addedRows, added) { sym -> chip("$sym ✕", removable = true) { onRemove(sym) } }
-        fillFlow(paletteRows, addPalette.filter { it !in added }) { sym -> chip(sym, removable = false) { onAdd(sym) } }
+        fillFlow(addedRows, added, dp(ADDED_CELL_DP)) { sym -> addedChip(sym) }
+        addedRows.visibility = if (added.isEmpty()) View.GONE else View.VISIBLE
+        addedEmpty.visibility = if (added.isEmpty()) View.VISIBLE else View.GONE
+        fillFlow(paletteRows, addPalette.filter { it !in added }, dp(PALETTE_CELL_DP)) { sym -> paletteChip(sym) }
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
@@ -127,41 +157,48 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         }
         if (MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED) {
             val available = MeasureSpec.getSize(heightMeasureSpec).coerceAtLeast(0)
-
-            val headerHeight = minOf(
-                preferredHeaderHeight,
-                maxOf(minimumHeaderHeight.coerceAtMost(available), available - intactChipHeight),
-            ).coerceIn(0, available)
-            (headerBar.layoutParams as LayoutParams).height = headerHeight
-            (backText.layoutParams as LayoutParams).height = headerHeight
-            val paddingScale = if (preferredHeaderHeight > 0) {
-                headerHeight.toFloat() / preferredHeaderHeight
-            } else {
-                0f
-            }
-            val verticalPadding = (normalBackVerticalPadding * paddingScale).roundToInt()
-                .coerceAtMost((headerHeight - dp(18)).coerceAtLeast(0) / 2)
-            backText.setPadding(dp(12), verticalPadding, dp(12), verticalPadding)
+            (headerBar.layoutParams as LayoutParams).height = headerHeight.coerceAtMost(available)
         }
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }
 
-    private fun fillFlow(container: LinearLayout, items: List<String>, make: (String) -> View) {
+    private fun fillFlow(container: LinearLayout, items: List<String>, minCellW: Int, make: (String) -> View) {
         container.removeAllViews()
         val configuredWidth = resources.configuration.screenWidthDp
             .takeIf { it > 0 }
             ?.let { (it * density).toInt() }
             ?: resources.displayMetrics.widthPixels
         val liveWidth = measuringWidthOverride.takeIf { it > 0 } ?: width.takeIf { it > 0 } ?: configuredWidth
-        val maxRowW = (liveWidth - dp(16)).coerceAtLeast(dp(56))
-        var row = newRow(); var rowW = 0
-        val cellW = dp(56)
+        val maxRowW = (liveWidth - dp(EDGE_DP) * 2).coerceAtLeast(minCellW)
+        val cellH = dp(CHIP_DP)
+        var row = newRow(); var rowW = 0; var rows = 0
         for (sym in items) {
-            if (rowW + cellW > maxRowW && row.childCount > 0) { container.addView(row); row = newRow(); rowW = 0 }
-            row.addView(make(sym), LayoutParams(cellW, dp(44)).apply { marginEnd = dp(4); topMargin = dp(4) })
-            rowW += cellW + dp(4)
+            val cell = make(sym)
+            val cellW = cellWidth(cell, minCellW, cellH, maxRowW)
+            if (rowW + cellW > maxRowW && row.childCount > 0) {
+                addRow(container, row, rows); rows++; row = newRow(); rowW = 0
+            }
+            row.addView(cell, LayoutParams(cellW, cellH).apply { marginEnd = dp(ROW_GAP_DP) })
+            rowW += cellW + dp(ROW_GAP_DP)
         }
-        if (row.childCount > 0) container.addView(row)
+        if (row.childCount > 0) addRow(container, row, rows)
+    }
+
+    private fun cellWidth(cell: View, minCellW: Int, cellH: Int, maxRowW: Int): Int {
+        cell.measure(
+            MeasureSpec.makeMeasureSpec(maxRowW, MeasureSpec.AT_MOST),
+            MeasureSpec.makeMeasureSpec(cellH, MeasureSpec.EXACTLY),
+        )
+        return cell.measuredWidth.coerceIn(minCellW, maxRowW)
+    }
+
+    private fun addRow(container: LinearLayout, row: LinearLayout, index: Int) {
+        container.addView(
+            row,
+            LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
+                if (index > 0) topMargin = dp(ROW_GAP_DP)
+            },
+        )
     }
 
     internal fun contentCanScrollForwardForTest(): Boolean = contentScroll.canScrollVertically(1)
@@ -173,7 +210,21 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     }
     internal fun contentScrollYForTest(): Int = contentScroll.scrollY
     internal fun contentViewportForTest(): View = contentScroll
-    internal fun backButtonForTest(): TextView = backText
+    private fun addedChips(): List<View> = (0 until addedRows.childCount).flatMap { rowIndex ->
+        val row = addedRows.getChildAt(rowIndex) as? ViewGroup ?: return@flatMap emptyList()
+        (0 until row.childCount).map { row.getChildAt(it) }
+    }
+    internal fun addedChipForTest(symbol: String): View? =
+        addedChips().firstOrNull { ((it as? ViewGroup)?.getChildAt(0) as? TextView)?.text?.toString() == symbol }
+    internal fun addedRemoveMarkForTest(symbol: String): View? =
+        (addedChipForTest(symbol) as? ViewGroup)?.getChildAt(1)
+    internal fun addedEmptyHintForTest(): TextView = addedEmpty
+    internal fun addedRowsForTest(): View = addedRows
+    internal fun paletteRowsForTest(): View = paletteRows
+    internal fun addedSectionLabelForTest(): TextView = addedLabel
+    internal fun paletteSectionLabelForTest(): TextView = paletteLabel
+    internal fun titleForTest(): TextView = titleText
+    internal fun backButtonForTest(): View = backButton
     internal fun paletteChipForTest(symbol: String): View? {
         for (r in 0 until paletteRows.childCount) {
             val row = paletteRows.getChildAt(r) as? ViewGroup ?: continue
@@ -187,17 +238,74 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
 
     private fun newRow(): LinearLayout = LinearLayout(context).apply {
         orientation = HORIZONTAL
-        setPadding(dp(8), 0, dp(8), 0)
+        setPadding(dp(EDGE_DP), 0, dp(EDGE_DP), 0)
     }
 
-    private fun chip(label: String, removable: Boolean, onClick: () -> Unit): View = TextView(context).apply {
-        text = label
+    private fun chipBackground() = GradientDrawable().apply {
+        setColor(this@CustomSymbolPanel.colors.keySurface)
+        cornerRadius = ImeShapes.keyRadiusDp * density
+    }
+
+    private fun paletteChip(symbol: String): View = TextView(context).apply {
+        text = symbol
         gravity = Gravity.CENTER
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, if (removable) ImeType.body else ImeType.title)
-        setTextColor(if (removable) colors.deletable else colors.keyLabel)
-        background = GradientDrawable().apply { setColor(this@CustomSymbolPanel.colors.keySurface); cornerRadius = ImeShapes.keyRadiusDp * density }
+        isSingleLine = true
+        setPadding(dp(GAP_DP), 0, dp(GAP_DP), 0)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
+        setTextColor(colors.keyLabel)
+        background = chipBackground()
         isClickable = true
-        Motion.applyTapFeedback(this, if (removable) colors.deletable else colors.keyLabel)
-        setOnClickListener { onClick() }
+        Motion.applyTapFeedback(this, colors.keyLabel)
+        setOnClickListener { onAdd(symbol) }
+    }
+
+    private fun addedChip(symbol: String): View {
+        val label = TextView(context).apply {
+            text = symbol
+            gravity = Gravity.CENTER
+            isSingleLine = true
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
+            setTextColor(colors.keyLabel)
+        }
+        return LinearLayout(context).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(GAP_DP), 0, dp(GAP_DP), 0)
+            background = chipBackground()
+            isClickable = true
+            contentDescription = context.getString(R.string.csp_remove_symbol, symbol)
+            Motion.applyTapFeedback(this, colors.keyLabel)
+            addView(label, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
+            addView(
+                removeMark(),
+                LayoutParams(dp(REMOVE_MARK_DP), dp(REMOVE_MARK_DP)).apply { marginStart = dp(GAP_DP) },
+            )
+            setOnClickListener { onRemove(symbol) }
+        }
+    }
+
+    private fun removeMark(): View = object : View(context) {
+        private val markPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            strokeCap = Paint.Cap.ROUND
+            strokeJoin = Paint.Join.ROUND
+            strokeWidth = 2f * density
+            color = colors.keyLabelSecondary
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            Glyphs.drawClose(canvas, markPaint, width / 2f, height / 2f, width / 2f)
+        }
+    }
+
+    private companion object {
+        const val EDGE_DP = 8
+        const val GAP_DP = 8
+        const val ROW_GAP_DP = 4
+        const val SECTION_GAP_DP = 16
+        const val CHIP_DP = 48
+        const val PALETTE_CELL_DP = 56
+        const val ADDED_CELL_DP = 72
+        const val REMOVE_MARK_DP = 16
     }
 }

@@ -838,9 +838,15 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         val topBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(7), dp(8), dp(7))
+            setPadding(dp(8), dp(4), dp(8), dp(4))
             fun iconLp(spaced: Boolean = false) = ll(dp(36), dp(36)).apply { if (spaced) marginStart = dp(6) }
-            addView(glyphToolbarBtn(desc = context.getString(R.string.clip_back), glyphSizeDp = 8, onClick = { onBack() }) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }, iconLp())
+            addView(
+                PanelBackButton(context).apply {
+                    tint = TEXT_DARK
+                    setOnClickListener { onBack() }
+                },
+                ll(dp(PanelBackButton.HIT_DP), dp(PanelBackButton.HIT_DP)),
+            )
             addView(View(context), ll(0, dp(1), 1f))
             addView(pillTray(), ll(WC, dp(34)))
             if (st.tab == Tab.PHRASE) addView(glyphToolbarBtn(desc = context.getString(R.string.clip_add_phrase), onClick = { onAddPhrase(category) }) { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }.apply {
@@ -858,7 +864,14 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
                 setOnLongClickListener { showHistoryRecordingMenu(); true }
             }, iconLp(true))
         }
-        main.addView(topBar, ll(MP, dp(50)))
+        main.addView(
+            HorizontalScrollView(context).apply {
+                isHorizontalScrollBarEnabled = false
+                isFillViewport = true
+                addView(topBar)
+            },
+            ll(MP, dp(56)),
+        )
         populateListRows(entries) { e, i -> card(e, i, category) }
         main.addView(listScroll, ll(MP, 0, 1f))
 

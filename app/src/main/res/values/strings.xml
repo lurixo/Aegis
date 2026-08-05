@@ -282,9 +282,13 @@
     <string name="copybar_split">Split</string>
     <string name="copybar_collapse">Collapse</string>
     <string name="copybar_no_splittable_content">Nothing to split</string>
-    <string name="csp_back_title">‹ Custom Punctuation</string>
-    <string name="csp_added_tap_to_remove">Added (tap to remove)</string>
-    <string name="csp_tap_to_add">Tap to add</string>
+    <string name="csp_punctuation_title">Custom punctuation</string>
+    <string name="csp_operators_title">Custom operators</string>
+    <string name="csp_section_added">Added</string>
+    <string name="csp_added_empty">Tap below to add</string>
+    <string name="csp_section_all_punctuation">All punctuation</string>
+    <string name="csp_section_all_operators">All operators</string>
+    <string name="csp_remove_symbol">Remove %1$s</string>
     <string name="edit_title">Text editing</string>
     <string name="edit_start_select">Start selection</string>
     <string name="edit_end_select">End selection</string>
@@ -297,7 +301,6 @@
     <string name="edit_paste">Paste</string>
     <string name="svc_phrase_added">Phrase added</string>
     <string name="svc_phrase_exists">Phrase already exists</string>
-    <string name="svc_custom_operators_back">‹ Custom operators</string>
     <string name="svc_edit_phrase">Edit phrase</string>
     <string name="svc_add_phrase">Add phrase</string>
     <string name="svc_note">Note</string>

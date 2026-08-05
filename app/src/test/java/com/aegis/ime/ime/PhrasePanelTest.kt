@@ -64,6 +64,9 @@ class PhrasePanelTest {
         fun walk(x: View) { out.add(x); if (x is ViewGroup) for (i in 0 until x.childCount) walk(x.getChildAt(i)) }
         walk(root); return out
     }
+    private fun categoryScroll(root: View): HorizontalScrollView =
+        allViews(root).filterIsInstance<HorizontalScrollView>()
+            .single { scroll -> allViews(scroll).none { it is PanelBackButton } }
     private fun clickDesc(root: View, desc: String): Boolean {
         val v = allViews(root).firstOrNull { it.contentDescription?.toString() == desc && it.hasOnClickListeners() } ?: return false
         v.performClick(); return true
@@ -659,7 +662,7 @@ class PhrasePanelTest {
             refresh()
         }
         layout(v, w = 320, h = 400)
-        val initialScroll = allViews(v).filterIsInstance<HorizontalScrollView>().single()
+        val initialScroll = categoryScroll(v)
         initialScroll.scrollTo((initialScroll.getChildAt(0).width - initialScroll.width).coerceAtLeast(0), 0)
         val savedScroll = initialScroll.scrollX
         assertTrue(savedScroll > 0)
@@ -668,7 +671,7 @@ class PhrasePanelTest {
         assertTrue(textViews(v).first { it.text?.toString() == selectedName }.performClick())
         layout(v, w = 320, h = 400)
 
-        val retainedScroll = allViews(v).filterIsInstance<HorizontalScrollView>().single()
+        val retainedScroll = categoryScroll(v)
         val selected = textViews(v).first { it.text?.toString() == selectedName }
         val manage = allViews(v).first { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_manage_phrases) }
         assertTrue(retainedScroll !== initialScroll)
@@ -684,7 +687,7 @@ class PhrasePanelTest {
         v.refresh()
         layout(v, w = 320, h = 400)
         assertEquals(selectedName, v.phraseCatForTest())
-        assertTrue(allViews(v).filterIsInstance<HorizontalScrollView>().single().scrollX > 0)
+        assertTrue(categoryScroll(v).scrollX > 0)
     }
 
 
@@ -694,8 +697,14 @@ class PhrasePanelTest {
         val icons = allViews(v).filter { it.contentDescription?.toString() in wanted && it.hasOnClickListeners() }
         assertEquals("all 4 phrase-tab top icons present", 4, icons.size)
         assertTrue("返回 is no longer a '‹' text glyph", textViews(v).none { it.text?.toString() == "‹" })
-        assertEquals("all top icons share one width (item7)", 1, icons.map { it.layoutParams.width }.toSet().size)
-        assertEquals("all top icons share one height (item7)", 1, icons.map { it.layoutParams.height }.toSet().size)
+        val back = icons.single { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_back) }
+        val actions = icons.filterNot { it === back }
+        assertTrue("返回 uses the shared panel back control", back is PanelBackButton)
+        val backTarget = (48 * ctx.resources.displayMetrics.density).toInt()
+        assertEquals("返回 keeps a 48dp hit target", backTarget, back.layoutParams.width)
+        assertEquals("返回 keeps a 48dp hit target", backTarget, back.layoutParams.height)
+        assertEquals("all top action icons share one width (item7)", 1, actions.map { it.layoutParams.width }.toSet().size)
+        assertEquals("all top action icons share one height (item7)", 1, actions.map { it.layoutParams.height }.toSet().size)
         val surfaced = icons.filter { it.contentDescription?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_add_phrase), ctx.getString(com.aegis.ime.R.string.clip_edit_phrases), ctx.getString(com.aegis.ime.R.string.clip_clear_category)) }
         assertTrue(surfaced.all { it.background is GradientDrawable })
         val iconSize = (36 * ctx.resources.displayMetrics.density).toInt()

@@ -17,6 +17,7 @@ package com.aegis.ime.ime.theme
 
 object ImeType {
     const val caption = 12f
+    const val sectionTitle = 13f
     const val label = 14f
     const val body = 16f
     const val title = 18f

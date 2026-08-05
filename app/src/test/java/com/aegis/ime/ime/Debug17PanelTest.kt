@@ -71,6 +71,9 @@ class Debug17PanelTest {
         walk(root); return out
     }
     private fun descs(root: View): List<String> = allViews(root).mapNotNull { it.contentDescription?.toString() }
+    private fun categoryScroll(root: View): HorizontalScrollView =
+        allViews(root).filterIsInstance<HorizontalScrollView>()
+            .single { scroll -> allViews(scroll).none { it is PanelBackButton } }
     private fun clickDesc(root: View, desc: String): Boolean {
         val v = allViews(root).firstOrNull { it.contentDescription?.toString() == desc && it.hasOnClickListeners() } ?: return false
         v.performClick(); return true
@@ -749,7 +752,7 @@ class Debug17PanelTest {
         val category = textViews(v).first { it.text?.toString() == "默认" && it.hasOnClickListeners() }
         val inactiveCategory = textViews(v).first { it.text?.toString() == "工作" && it.hasOnClickListeners() }
         val manage = textViews(v).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_edit) && it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_manage_phrases) }
-        val categoryScroll = allViews(v).filterIsInstance<HorizontalScrollView>().single()
+        val categoryScroll = categoryScroll(v)
         assertEquals(pal.candidateFirst, category.currentTextColor)
         assertEquals(pal.keyLabel, inactiveCategory.currentTextColor)
         assertEquals(pal.keyLabel, manage.currentTextColor)
