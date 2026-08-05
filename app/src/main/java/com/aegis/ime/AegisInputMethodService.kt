@@ -228,6 +228,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 if (::controller.isInitialized) controller.setAssociationsEnabled(on)
             }
         },
+        onAutoLearn = { on -> userLearning.enabled = on },
         onFuzzyRules = { rules ->
             Handler(Looper.getMainLooper()).post {
                 if (::controller.isInitialized) controller.setFuzzyRules(rules)
@@ -589,6 +590,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.setCnDefaultLayout(SettingsHotApply.cnLayout(prefs))
         controller.setDefaultLang(SettingsHotApply.defaultLang(prefs))
         controller.setAssociationsEnabled(SettingsHotApply.associationsOn(prefs))
+        userLearning.enabled = SettingsHotApply.autoLearnOn(prefs)
         controller.setFuzzyRules(currentFuzzyRules())
         inputView?.setKeyHaptics(SettingsHotApply.keyHaptics(prefs))
         inputView?.setKeyPreviewNine(SettingsHotApply.keyPreviewNine(prefs))

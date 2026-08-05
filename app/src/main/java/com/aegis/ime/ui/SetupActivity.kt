@@ -327,6 +327,7 @@ internal fun InputSettingsPage(onBack: () -> Unit) {
         LetterCaseCard()
         FuzzySettingsCard()
         AssociationToggleCard()
+        AutoLearnToggleCard()
         KeyVibrationToggleCard()
         KeyPreviewCard()
     }

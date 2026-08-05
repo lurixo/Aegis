@@ -15,9 +15,13 @@
 
 package com.aegis.ime.ui
 
+import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsNotEnabled
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -31,6 +35,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import com.aegis.ime.R
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -166,6 +171,27 @@ class InputSettingsActivityTest {
     @Test fun back_affordance_is_the_drawn_chevron_not_a_thin_text_glyph() {
         compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).assertExists()
         compose.onAllNodesWithText("‹").assertCountEquals(0)
+    }
+
+    @Test fun the_auto_learning_switch_starts_on_and_writes_the_preference_both_ways() {
+        val prefs = compose.activity.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+        compose.onNodeWithText(ctxString(R.string.auto_learn_title)).performScrollTo().assertExists()
+        compose.onNodeWithTag("auto_learn_switch").performScrollTo().assertIsOn()
+
+        compose.onNodeWithTag("auto_learn_switch").performClick()
+        compose.waitForIdle()
+        assertFalse("turning it off is written down", prefs.getBoolean(PREF_AUTO_LEARN_ON, AUTO_LEARN_DEFAULT_ON))
+        compose.onNodeWithTag("auto_learn_switch").assertIsOff()
+
+        compose.onNodeWithTag("auto_learn_switch").performClick()
+        compose.waitForIdle()
+        assertTrue("turning it back on is written down", prefs.getBoolean(PREF_AUTO_LEARN_ON, false))
+    }
+
+    @Test fun the_clear_button_is_dead_while_there_is_nothing_learned() {
+        compose.onNodeWithTag("auto_learn_clear").performScrollTo().assertIsNotEnabled()
+        val zero = RuntimeEnvironment.getApplication().getString(R.string.user_dict_auto_count_format, 0)
+        compose.onNodeWithText(zero).performScrollTo().assertExists()
     }
 }
 
