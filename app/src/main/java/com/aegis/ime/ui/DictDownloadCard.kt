@@ -106,6 +106,7 @@ internal fun DictDownloadCard(
         return ModelDownload.DictionaryInstallMetadata(
             sha256 = resolvedSha,
             publishedAt = prefs.all[ModelDownload.DICT_RELEASE_PUBLISHED_PREF] as? String,
+            complete = ModelDownload.isDictPackComplete(context.filesDir),
         )
     }
 

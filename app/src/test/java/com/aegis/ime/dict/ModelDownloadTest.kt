@@ -494,6 +494,10 @@ class ModelDownloadTest {
         assertTrue("reconciliation must not discard it", ModelDownload.isDictDownloaded(base))
         ModelDownload.DICT_BIN_FILES.forEach { assertTrue(File(downloaded, it).exists()) }
         assertNull(EngineAssets.downloadedOverride(downloaded, ModelDownload.LM_NAME))
+        assertFalse(
+            "a generation without the model is not a complete pack",
+            ModelDownload.isDictPackComplete(base),
+        )
 
         val model = ByteArray(3_000) { 4 }
         val replacements = ModelDownload.DICT_BIN_FILES.mapIndexed { index, name ->
@@ -508,6 +512,7 @@ class ModelDownloadTest {
             File(downloaded, ModelDownload.LM_NAME).absolutePath,
             EngineAssets.downloadedOverride(downloaded, ModelDownload.LM_NAME)?.absolutePath,
         )
+        assertTrue(ModelDownload.isDictPackComplete(base))
         base.deleteRecursively()
     }
 

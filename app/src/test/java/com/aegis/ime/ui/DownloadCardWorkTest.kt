@@ -905,6 +905,41 @@ class ResourceUpdateCardTest {
     }
 
     @Test
+    fun anInstalledPackMissingTheLanguageModelIsOfferedTheUpdate() {
+        val checked = AtomicReference<ModelDownload.DictionaryInstallMetadata?>()
+        val downloads = AtomicInteger()
+        val dir = ModelDownload.destFile(context.filesDir).parentFile!!.apply { mkdirs() }
+        ModelDownload.DICT_BIN_FILES.forEach { File(dir, it).writeBytes(ByteArray(2_048)) }
+        File(dir, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText(DICT_SHA)
+        ShadowToast.reset()
+        compose.runOnUiThread {
+            compose.activity.setContent {
+                AegisTheme {
+                    DictDownloadCard(
+                        check = {
+                            checked.set(it)
+                            ModelDownload.dictionaryUpdateFromFetch({ dictionaryManifest() }, it)
+                        },
+                        downloader = { _, _ -> downloads.incrementAndGet() },
+                    )
+                }
+            }
+        }
+        compose.waitForIdle()
+
+        compose.onNodeWithText(context.getString(R.string.check_dict_update_button)).performClick()
+        awaitMain { checked.get() != null && downloads.get() == 1 }
+
+        assertEquals(DICT_SHA, checked.get()!!.sha256)
+        assertFalse("the model is missing, so the pack is incomplete", checked.get()!!.complete)
+        assertTrue(ModelDownload.isDictDownloaded(context.filesDir))
+        assertEquals(
+            context.getString(R.string.download_toast_update_found),
+            ShadowToast.getTextOfLatestToast(),
+        )
+    }
+
+    @Test
     fun unknownDictionaryVersionClearsStaleReleaseMetadata() {
         val checked = AtomicReference<ModelDownload.DictionaryInstallMetadata?>()
         val dir = ModelDownload.destFile(context.filesDir).parentFile!!.apply { mkdirs() }

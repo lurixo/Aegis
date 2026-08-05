@@ -460,6 +460,7 @@ object ModelDownload {
     data class DictionaryInstallMetadata(
         val sha256: String? = null,
         val publishedAt: String? = null,
+        val complete: Boolean = true,
     )
 
     data class DictionaryUpdateCheck(
@@ -488,6 +489,9 @@ object ModelDownload {
 
     fun isDictDownloaded(filesDir: File): Boolean =
         DICT_BIN_FILES.all { File(downloadedDir(filesDir), it).let { f -> f.exists() && f.length() > 1024 } }
+
+    fun isDictPackComplete(filesDir: File): Boolean =
+        DICT_PACK_FILES.all { File(downloadedDir(filesDir), it).let { f -> f.exists() && f.length() > 1024 } }
 
     internal fun resolvedInstalledDictionarySha(
         filesDir: File,
@@ -777,7 +781,7 @@ object ModelDownload {
         current: DictionaryInstallMetadata,
     ): UpdateCheck {
         val currentSha = normalizeSha256(current.sha256) ?: return UpdateCheck.UNKNOWN
-        return if (asset.sha256.equals(currentSha, ignoreCase = true)) UpdateCheck.UP_TO_DATE
+        return if (current.complete && asset.sha256.equals(currentSha, ignoreCase = true)) UpdateCheck.UP_TO_DATE
         else UpdateCheck.UPDATE
     }
 
