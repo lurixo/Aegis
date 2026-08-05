@@ -550,43 +550,28 @@ class ExhaustiveDecodeAuditExtTest {
         val cum = IntArray(sylKeys.size + 1)
         for (i in sylKeys.indices) cum[i + 1] = cum[i] + sylKeys[i].length
         fun coveredSyls(cov: Int): Int { for (j in sylKeys.indices) if (cum[j + 1] == cov) return j + 1; return -1 }
-        fun codepoints(w: String): List<String> {
-            val o = ArrayList<String>(); var i = 0
-            while (i < w.length) { val c = w.codePointAt(i); o.add(String(Character.toChars(c))); i += Character.charCount(c) }
-            return o
-        }
         val tag = sylKeys.joinToString("+")
-        var rareSingleSeen: String? = null
-        var anySingleSeen: String? = null
+        val singlePositions = ArrayList<Int>()
         val singleBucket = ArrayList<Pair<String, Int>>()
         val emittedFirstSingles = HashSet<String>()
         for ((pos, c) in cands.withIndex()) {
-            val ncp0 = c.word.codePointCount(0, c.word.length)
-            if (ncp0 == 1 && coveredSyls(c.coveredLen) == 1) emittedFirstSingles.add(c.word)
-            if (pos == 0) continue
-            val ncp = ncp0
+            val ncp = c.word.codePointCount(0, c.word.length)
             val ks = coveredSyls(c.coveredLen)
-            if (ncp == 1 && anySingleSeen == null) anySingleSeen = "${c.word}@pos$pos"
-            if (ncp >= 2 && anySingleSeen != null) {
-                rows.add("$tag\tW\t${c.word} (multi-char) after single $anySingleSeen")
+            if (ncp >= 2) continue
+            singlePositions.add(pos)
+            if (ks != 1) continue
+            emittedFirstSingles.add(c.word)
+            val native = nativeSingleFreq(source, sylKeys[0], c.word)
+            if (native != null) singleBucket.add(c.word to native)
+        }
+        if (singlePositions.isNotEmpty()) {
+            val start = singlePositions.first()
+            val end = singlePositions.last()
+            if (end - start + 1 != singlePositions.size) {
+                rows.add("$tag\tW\tmulti-char candidates split the single segment between $start and $end")
             }
-            if (ncp == 1 && ks == 1) {
-                val native = nativeSingleFreq(source, sylKeys[0], c.word)
-                if (native != null) singleBucket.add(c.word to native)
-                val matched = e6RawFreq(source, sylKeys[0], c.word)
-                if (matched != null && matched <= E6_RARE) rareSingleSeen = "${c.word}@$matched"
-            } else if (ncp >= 2 && ks >= 1) {
-                val chars = codepoints(c.word)
-                var mn = Int.MAX_VALUE
-                var resolvable = true
-                for (i in 0 until minOf(ncp, ks)) {
-                    val f = e6RawFreq(source, sylKeys.getOrElse(i) { "" }, chars[i])
-                    if (f == null) { resolvable = false; break }
-                    if (f < mn) mn = f
-                }
-                if (resolvable && mn >= E6_COMMON && rareSingleSeen != null) {
-                    rows.add("$tag\tO2\t${c.word}(rarestChar=$mn) after rare single $rareSingleSeen")
-                }
+            if (start > PinyinDecoder.STAGED_REAL_WORD_SLOTS) {
+                rows.add("$tag\tS\tthe single segment starts at $start, past the real word slots")
             }
         }
         var prev = Int.MAX_VALUE

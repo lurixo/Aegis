@@ -76,11 +76,18 @@ class KeyboardLossMatrixTest {
 
     private fun assertChaiReachableAndRanked(words: List<String>) {
         assertTrue("拆 must be reachable (was buried/lost)", "拆" in words)
-        assertTrue("拆次 (chai|ci best sentence) is among the top candidates", "拆次" in words.take(3))
+        val firstSingle = words.indexOfFirst { isSingleChar(it) }
+        assertTrue(
+            "a chai single reaches the first screen, was $firstSingle in ${words.take(12)}",
+            firstSingle in 0..PinyinDecoder.STAGED_REAL_WORD_SLOTS,
+        )
         val singles = chaiSingles()
         val got = words.filter { it in singles }
         assertTrue("chai homophones present in the grid", got.isNotEmpty())
         assertEquals("the highest-freq chai homophone 拆 leads them (common before rare)", "拆", got.first())
+        val glued = words.indexOf("拆次")
+        assertTrue("拆次 (chai|ci best sentence) stays reachable", glued >= 0)
+        assertTrue("拆次 follows the chai singles instead of leading them, was at $glued", glued > firstSingle)
         assertFalse("no stray non-pinyin junk leading the grid", words.first().any { it.code < 128 })
     }
 
