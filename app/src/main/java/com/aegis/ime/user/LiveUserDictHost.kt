@@ -64,6 +64,8 @@ class LiveUserDictHost(
 
     override fun learnedEntries(): List<UserLearning.Formed> = userLearning?.formedEntries().orEmpty()
 
+    override fun hasLearnedData(): Boolean = userLearning?.isEmpty() == false
+
     override fun removeLearned(word: String, reading: String) {
         userLearning?.removeFormed(word, reading)
         saveLearning()

@@ -30,6 +30,8 @@ object UserDictHot {
 
         fun learnedEntries(): List<UserLearning.Formed>
 
+        fun hasLearnedData(): Boolean
+
         fun removeLearned(word: String, reading: String)
 
         fun clearLearned()

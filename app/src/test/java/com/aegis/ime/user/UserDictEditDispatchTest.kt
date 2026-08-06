@@ -51,6 +51,10 @@ class UserDictEditDispatchTest {
             calls += "learnedEntries"
             return listOf(UserLearning.Formed("活粘词", "huozhanci"))
         }
+        override fun hasLearnedData(): Boolean {
+            calls += "hasLearnedData"
+            return true
+        }
         override fun removeLearned(word: String, reading: String) {
             calls += "removeLearned:$word:$reading"
         }
@@ -74,6 +78,7 @@ class UserDictEditDispatchTest {
         assertEquals(listOf(UserModel.Entry("live", "活词", 9)), UserDictEdit.list(db))
         val learn = File(tmp.root, "userlearn.txt")
         assertEquals(listOf(UserLearning.Formed("活粘词", "huozhanci")), UserLearnEdit.list(learn))
+        assertTrue(UserLearnEdit.hasData(learn))
         UserLearnEdit.remove(learn, "活粘词", "huozhanci")
         UserLearnEdit.clear(learn)
         UserDictEdit.flushBeforeExport()
@@ -85,6 +90,7 @@ class UserDictEditDispatchTest {
                 "import:merge=true",
                 "entries",
                 "learnedEntries",
+                "hasLearnedData",
                 "removeLearned:活粘词:huozhanci",
                 "clearLearned",
                 "flush",

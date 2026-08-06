@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ui
 
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -213,5 +214,20 @@ class UserDictPageTest {
         assertTrue("confirming clears the learned data", UserLearnEdit.list(learn).isEmpty())
         compose.onNodeWithText(s(R.string.user_dict_auto_empty)).assertExists()
         assertTrue("the words the user added by hand survive", UserDictEdit.list(db).any { it.word == "你好" })
+    }
+
+    @Test fun the_clear_button_still_works_when_only_the_next_word_data_is_left() {
+        seed(0)
+        learn.writeText("aegis-userlearn 1\nC\t你\t好\t3.0\t1700000000000\n")
+        assertTrue("there is no glued word to list", UserLearnEdit.list(learn).isEmpty())
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(s(R.string.user_dict_auto_clear_button)))
+        compose.onNodeWithTag("user_dict_auto_clear").assertIsEnabled().performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(s(R.string.user_dict_auto_clear_confirm)).performClick()
+        compose.waitForIdle()
+
+        assertTrue("the next word data is gone", learn.readLines().none { it.startsWith("C\t") })
     }
 }
