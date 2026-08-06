@@ -37,9 +37,12 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     var version: Long = 0L
         private set
 
+    @Volatile
+    var autoLearnEnabled: Boolean = true
+
     @Synchronized
     fun record(prevWord: String?, word: String, now: Long) {
-        if (!isValidWord(word)) return
+        if (!autoLearnEnabled || !isValidWord(word)) return
         count[word] = saturatingAdd(count[word] ?: 0, 1)
         lastUsed[word] = now.coerceAtLeast(0L)
         if (!prevWord.isNullOrEmpty() && isValidWord(prevWord)) {
@@ -52,6 +55,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
 
     @Synchronized
     fun recordWord(reading: String, word: String, now: Long, incrementCount: Boolean) {
+        if (!autoLearnEnabled) return
         val r = sanitizeReading(reading)
         if (!isValidWord(word) || r.isEmpty() || r.length > MAX_READING_LENGTH) return
         readings.getOrPut(r) { LinkedHashSet() }.add(word)

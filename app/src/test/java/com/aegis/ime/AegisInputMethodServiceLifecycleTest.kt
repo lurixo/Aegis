@@ -155,6 +155,32 @@ class AegisInputMethodServiceLifecycleTest {
         this.inputType = inputType
     }
 
+    private fun userModelOf(service: AegisInputMethodService) =
+        service.javaClass.getDeclaredField("userModel").apply { isAccessible = true }
+            .get(service) as com.aegis.ime.user.UserModel
+
+    @Test fun the_automatic_learning_switch_reaches_the_user_dictionary_on_both_paths() {
+        val prefs = RuntimeEnvironment.getApplication()
+            .getSharedPreferences("aegis", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(com.aegis.ime.ui.PREF_AUTO_LEARN_ON, false).commit()
+
+        val f = fixture()
+        val model = userModelOf(f.service)
+        assertFalse("starting an input session must carry the switch to the user dictionary", model.autoLearnEnabled)
+        model.recordWord("ninen", "你呢嗯", 1L, incrementCount = true)
+        assertTrue("and nothing may be recorded while it is off", model.isEmpty())
+
+        prefs.edit().putBoolean(com.aegis.ime.ui.PREF_AUTO_LEARN_ON, true).commit()
+        val hot = f.service.javaClass.getDeclaredField("settingsHotApply").apply { isAccessible = true }
+            .get(f.service) as android.content.SharedPreferences.OnSharedPreferenceChangeListener
+        hot.onSharedPreferenceChanged(prefs, com.aegis.ime.ui.PREF_AUTO_LEARN_ON)
+
+        assertTrue("turning it back on must reach the user dictionary too", model.autoLearnEnabled)
+        model.recordWord("ninen", "你呢嗯", 1L, incrementCount = true)
+        assertFalse("and recording resumes", model.isEmpty())
+        prefs.edit().remove(com.aegis.ime.ui.PREF_AUTO_LEARN_ON).commit()
+    }
+
     private fun fixture(info: EditorInfo = editor(), decodeLane: DecodeLane? = null): Fixture {
 
         val service = Robolectric.buildService(AegisInputMethodService::class.java).get()
