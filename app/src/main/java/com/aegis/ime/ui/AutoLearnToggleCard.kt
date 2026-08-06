@@ -56,6 +56,7 @@ internal fun AutoLearnToggleCard() {
     val clearedToast = stringResource(R.string.user_dict_toast_auto_cleared)
     var on by remember { mutableStateOf(prefs.getBoolean(PREF_AUTO_LEARN_ON, AUTO_LEARN_DEFAULT_ON)) }
     var learnedCount by remember { mutableStateOf(UserLearnEdit.list(userLearn).size) }
+    var learnedHasData by remember { mutableStateOf(UserLearnEdit.hasData(userLearn)) }
     var pendingClear by remember { mutableStateOf(false) }
 
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -94,7 +95,7 @@ internal fun AutoLearnToggleCard() {
             )
             Button(
                 onClick = { pendingClear = true },
-                enabled = learnedCount > 0,
+                enabled = learnedHasData,
                 modifier = Modifier.fillMaxWidth().testTag("auto_learn_clear"),
             ) {
                 Text(stringResource(R.string.user_dict_auto_clear_button))
@@ -112,6 +113,7 @@ internal fun AutoLearnToggleCard() {
                     onClick = {
                         UserLearnEdit.clear(userLearn)
                         learnedCount = UserLearnEdit.list(userLearn).size
+                        learnedHasData = UserLearnEdit.hasData(userLearn)
                         pendingClear = false
                         Toast.makeText(context, clearedToast, Toast.LENGTH_SHORT).show()
                     },

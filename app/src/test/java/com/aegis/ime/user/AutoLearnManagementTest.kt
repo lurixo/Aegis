@@ -171,6 +171,18 @@ class AutoLearnManagementTest {
         )
     }
 
+    @Test fun there_is_still_something_to_clear_when_only_the_next_word_data_is_left() {
+        val file = File(tmp.root, "userlearn.txt")
+        file.writeText("aegis-userlearn 1\nC\t你\t好\t3.0\t$clock\n")
+
+        assertTrue("the glued word list is empty", UserLearnEdit.list(file).isEmpty())
+        assertTrue("but there is learned data to clear", UserLearnEdit.hasData(file))
+
+        UserLearnEdit.clear(file)
+
+        assertFalse("clearing really empties it", UserLearnEdit.hasData(file))
+    }
+
     @Test fun the_switch_never_blocks_a_word_the_user_adds_by_hand() {
         val db = File(tmp.root, "userdb.txt")
         val model = UserModel { clock }.apply { autoLearnEnabled = false }

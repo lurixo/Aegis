@@ -24,6 +24,11 @@ object UserLearnEdit {
         return loaded(userLearn).formedEntries()
     }
 
+    fun hasData(userLearn: File): Boolean {
+        UserDictHot.host?.let { return it.hasLearnedData() }
+        return !loaded(userLearn).isEmpty()
+    }
+
     fun remove(userLearn: File, word: String, reading: String) {
         UserDictHot.host?.let {
             it.removeLearned(word, reading)

@@ -175,4 +175,49 @@ class LiveUserDictHostTest {
         assertTrue(reloadFromDisk().wordBoost("学习") > 0.0)
         assertFalse(model.dirty)
     }
+
+    @Test fun the_live_host_reports_learning_data_that_no_glued_word_shows() {
+        db = File(tmp.root, "userdb.txt")
+        val learnFile = File(tmp.root, "userlearn.txt")
+        learnFile.writeText("aegis-userlearn 1\nC\t你\t好\t3.0\t1700000000000\n")
+        val learning = UserLearning { 1_700_000_000_000L }.apply { load(learnFile) }
+        val h = LiveUserDictHost(model, db, learning, learnFile) { savedMtimes += it }
+
+        assertTrue("there is no glued word to list", h.learnedEntries().isEmpty())
+        assertTrue("but the store is not empty", h.hasLearnedData())
+
+        h.clearLearned()
+        assertFalse("clearing empties it", h.hasLearnedData())
+    }
+
+    @Test fun the_live_host_reads_and_clears_the_learning_store_it_was_given() {
+        db = File(tmp.root, "userdb.txt")
+        val learnFile = File(tmp.root, "userlearn.txt")
+        val learning = UserLearning { 1_700_000_000_000L }
+        repeat(8) {
+            var prev: String? = null
+            for ((word, reading) in listOf("你" to "ni", "呢" to "ne", "嗯" to "n")) {
+                learning.observeCommit(prev, word, reading, 1_700_000_000_000L)
+                prev = word
+            }
+            learning.observeBreak()
+        }
+        val h = LiveUserDictHost(model, db, learning, learnFile) { savedMtimes += it }
+        assertTrue(h.addWord("zwm", "张伟明", now = 1L))
+
+        assertEquals(listOf("你呢嗯"), h.learnedEntries().map { it.word })
+        assertTrue(h.hasLearnedData())
+
+        h.removeLearned("你呢嗯", "ninen")
+        assertTrue("the removal reaches the live store", h.learnedEntries().isEmpty())
+        assertTrue("and the file it was given", learnFile.readLines().none { it.startsWith("F\t") })
+
+        h.clearLearned()
+        assertFalse("clearing empties everything that is left", h.hasLearnedData())
+        assertEquals(
+            "the words the user added by hand are untouched",
+            listOf("张伟明"),
+            model.userWordEntries().map { it.word },
+        )
+    }
 }

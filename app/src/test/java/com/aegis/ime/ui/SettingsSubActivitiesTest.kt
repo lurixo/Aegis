@@ -19,12 +19,14 @@ import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
@@ -32,8 +34,13 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import com.aegis.ime.R
+import com.aegis.ime.user.UserDictHot
+import com.aegis.ime.user.UserLearnEdit
+import org.junit.After
+import org.junit.Before
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -194,6 +201,42 @@ class InputSettingsActivityTest {
         compose.onNodeWithText(zero).performScrollTo().assertExists()
     }
 }
+
+@RunWith(RobolectricTestRunner::class)
+@GraphicsMode(GraphicsMode.Mode.NATIVE)
+@Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
+class InputSettingsAutoLearnClearTest {
+    @get:Rule val compose = createEmptyComposeRule()
+
+    private val ctx = RuntimeEnvironment.getApplication()
+    private val learn = java.io.File(ctx.filesDir, "userlearn.txt")
+    private var scenario: ActivityScenario<InputSettingsActivity>? = null
+
+    @Before fun reset() {
+        UserDictHot.host = null
+        learn.delete()
+    }
+
+    @After fun cleanup() {
+        scenario?.close()
+        learn.delete()
+    }
+
+    @Test fun the_clear_button_lives_while_only_the_next_word_data_is_left() {
+        learn.writeText("aegis-userlearn 1\nC\t\u4f60\t\u597d\t3.0\t1700000000000\n")
+        assertTrue("there is no glued word to count", UserLearnEdit.list(learn).isEmpty())
+
+        scenario = ActivityScenario.launch(InputSettingsActivity::class.java)
+        compose.onNodeWithTag("auto_learn_clear").performScrollTo().assertIsEnabled().performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(ctxString(R.string.user_dict_auto_clear_confirm)).performClick()
+        compose.waitForIdle()
+
+        assertTrue("the next word data is gone", learn.readLines().none { it.startsWith("C\t") })
+        compose.onNodeWithTag("auto_learn_clear").performScrollTo().assertIsNotEnabled()
+    }
+}
+
 
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)

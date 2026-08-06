@@ -79,6 +79,7 @@ internal fun UserDictPage(onBack: () -> Unit) {
     var pendingAutoClear by remember { mutableStateOf(false) }
 
     var learned by remember { mutableStateOf(UserLearnEdit.list(userLearn)) }
+    var learnedHasData by remember { mutableStateOf(UserLearnEdit.hasData(userLearn)) }
     var entries by remember { mutableStateOf(UserDictEdit.list(userDb)) }
     var query by remember { mutableStateOf("") }
     val searchIndex = remember(entries) { UserDictSearch.index(entries) }
@@ -140,22 +141,27 @@ internal fun UserDictPage(onBack: () -> Unit) {
         Toast.makeText(context, addedToast, Toast.LENGTH_SHORT).show()
     }
 
+    fun reloadLearned() {
+        learned = UserLearnEdit.list(userLearn)
+        learnedHasData = UserLearnEdit.hasData(userLearn)
+    }
+
     fun deleteWord(reading: String, word: String) {
         UserDictEdit.remove(userDb, reading, word)
         reload()
-        learned = UserLearnEdit.list(userLearn)
+        reloadLearned()
         Toast.makeText(context, deletedToast, Toast.LENGTH_SHORT).show()
     }
 
     fun deleteLearned(entry: UserLearning.Formed) {
         UserLearnEdit.remove(userLearn, entry.word, entry.reading)
-        learned = UserLearnEdit.list(userLearn)
+        reloadLearned()
         Toast.makeText(context, deletedToast, Toast.LENGTH_SHORT).show()
     }
 
     fun clearLearned() {
         UserLearnEdit.clear(userLearn)
-        learned = UserLearnEdit.list(userLearn)
+        reloadLearned()
         Toast.makeText(context, autoClearedToast, Toast.LENGTH_SHORT).show()
     }
 
@@ -289,7 +295,7 @@ internal fun UserDictPage(onBack: () -> Unit) {
                             )
                             Button(
                                 onClick = { pendingAutoClear = true },
-                                enabled = learned.isNotEmpty(),
+                                enabled = learnedHasData,
                                 modifier = Modifier.fillMaxWidth().testTag("user_dict_auto_clear"),
                             ) {
                                 Text(stringResource(R.string.user_dict_auto_clear_button))
