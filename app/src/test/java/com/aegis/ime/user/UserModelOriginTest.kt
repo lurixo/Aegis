@@ -176,4 +176,28 @@ class UserModelOriginTest {
         assertThrows(IllegalArgumentException::class.java) { m.save(db()) }
         assertTrue("the store it could not read back never replaced the good one", before.contentEquals(db().readBytes()))
     }
+
+    @Test fun turningAutomaticLearningOffStopsRecordingAndLeavesHandAddingAlone() {
+        val m = model()
+        m.autoLearnEnabled = false
+        m.recordWord("ninen", "你呢嗯", clock, incrementCount = true)
+        m.record("你", "呢", clock)
+        assertTrue("nothing at all was recorded", m.isEmpty())
+        assertFalse("and nothing needs saving", m.dirty)
+
+        m.addManualWord("zwm", "张伟明", clock)
+        assertEquals(listOf("张伟明"), m.userWordEntries().map { it.word })
+        assertEquals(mapOf("zwm" to setOf("张伟明")), m.manualSnapshot())
+
+        m.autoLearnEnabled = true
+        m.recordWord("ninen", "你呢嗯", clock, incrementCount = true)
+        assertTrue("switching back on records again", m.userWordEntries().any { it.word == "你呢嗯" })
+    }
+
+    @Test fun turningAutomaticLearningOffKeepsWhatWasAlreadyRecorded() {
+        val m = model().apply { recordWord("ninen", "你呢嗯", clock, incrementCount = true) }
+        m.autoLearnEnabled = false
+        assertEquals(listOf("你呢嗯"), m.userWordEntries().map { it.word })
+        assertEquals(listOf("你呢嗯"), m.readingSnapshot()["ninen"])
+    }
 }
