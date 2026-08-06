@@ -27,6 +27,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     private val lastUsed = HashMap<String, Long>()
     private val bigram = HashMap<String, HashMap<String, Int>>()
     private val readings = HashMap<String, LinkedHashSet<String>>()
+    private val manual = HashMap<String, LinkedHashSet<String>>()
 
     @Volatile
     var dirty: Boolean = false
@@ -69,7 +70,10 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         val w = word.trim()
         if (!isValidWord(w)) return
         val r = sanitizeReading(reading)
-        if (r.isNotEmpty() && r.length <= MAX_READING_LENGTH) readings.getOrPut(r) { LinkedHashSet() }.add(w)
+        if (r.isNotEmpty() && r.length <= MAX_READING_LENGTH) {
+            readings.getOrPut(r) { LinkedHashSet() }.add(w)
+            manual.getOrPut(r) { LinkedHashSet() }.add(w)
+        }
         count[w] = saturatingAdd(count[w] ?: 0, 1)
         lastUsed[w] = now.coerceAtLeast(0L)
         dirty = true
@@ -82,6 +86,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         val set = readings[r] ?: return
         if (!set.remove(word)) return
         if (set.isEmpty()) readings.remove(r)
+        manual[r]?.let { if (it.remove(word) && it.isEmpty()) manual.remove(r) }
         if (readings.values.none { word in it }) {
             count.remove(word)
             lastUsed.remove(word)
@@ -101,6 +106,9 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         val emptyReadings = ArrayList<String>()
         for ((r, ws) in readings) if (ws.remove(word)) { changed = true; if (ws.isEmpty()) emptyReadings.add(r) }
         for (r in emptyReadings) readings.remove(r)
+        val emptyManual = ArrayList<String>()
+        for ((r, ws) in manual) if (ws.remove(word) && ws.isEmpty()) emptyManual.add(r)
+        for (r in emptyManual) manual.remove(r)
         if (bigram.remove(word) != null) changed = true
         for (m in bigram.values) if (m.remove(word) != null) changed = true
         if (changed) { dirty = true; version++ }
@@ -125,6 +133,13 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
                     .thenBy { it },
             )
         }
+        return out
+    }
+
+    @Synchronized
+    fun manualSnapshot(): Map<String, Set<String>> {
+        val out = HashMap<String, Set<String>>(manual.size)
+        for ((r, ws) in manual) out[r] = LinkedHashSet(ws)
         return out
     }
 
@@ -157,13 +172,15 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     fun save(file: File) {
         val tmp = File(file.absoluteFile.parentFile, file.name + ".tmp")
         try {
-            val rows = count.size + bigram.values.sumOf { it.size } + readings.values.sumOf { it.size }
+            val rows = count.size + bigram.values.sumOf { it.size } + readings.values.sumOf { it.size } +
+                manual.values.sumOf { it.size }
             require(rows <= MAX_ENTRIES) { "userdb has too many entries" }
             tmp.bufferedWriter().use { w ->
                 w.write("$HEADER\n")
                 for ((word, c) in count) w.write("W\t$word\t$c\t${lastUsed[word] ?: 0}\n")
                 for ((prev, m) in bigram) for ((word, c) in m) w.write("B\t$prev\t$word\t$c\n")
                 for ((reading, ws) in readings) for (word in ws) w.write("R\t$reading\t$word\n")
+                for ((reading, ws) in manual) for (word in ws) w.write("M\t$reading\t$word\n")
             }
             require(tmp.length() <= MAX_FILE_BYTES) { "userdb exceeds size limit" }
             try {
@@ -190,6 +207,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         lastUsed.clear()
         bigram.clear()
         readings.clear()
+        manual.clear()
         applyParsed(parsed)
         version++
     }
@@ -209,6 +227,9 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         for ((reading, words) in parsed.readings) {
             readings.getOrPut(reading) { LinkedHashSet() }.addAll(words)
         }
+        for ((reading, words) in parsed.manual) {
+            manual.getOrPut(reading) { LinkedHashSet() }.addAll(words)
+        }
         dirty = false
     }
 
@@ -225,6 +246,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
             for ((word, c) in m) dst[word] = saturatingAdd(dst[word] ?: 0, c)
         }
         for ((reading, ws) in parsed.readings) readings.getOrPut(reading) { LinkedHashSet() }.addAll(ws)
+        for ((reading, ws) in parsed.manual) manual.getOrPut(reading) { LinkedHashSet() }.addAll(ws)
         dirty = true
         version++
         return true
@@ -235,11 +257,13 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         val lastUsed: HashMap<String, Long> = HashMap(),
         val bigram: HashMap<String, HashMap<String, Int>> = HashMap(),
         val readings: HashMap<String, LinkedHashSet<String>> = HashMap(),
+        val manual: HashMap<String, LinkedHashSet<String>> = HashMap(),
     )
 
     companion object {
         internal const val MAX_FILE_BYTES = 4L * 1024L * 1024L
-        private const val HEADER = "aegis-userdb 1"
+        private const val HEADER = "aegis-userdb 2"
+        private const val LEGACY_HEADER = "aegis-userdb 1"
         private const val MAX_ENTRIES = 250_000
         private const val MAX_LINE_LENGTH = 4_096
         private const val MAX_WORD_LENGTH = 256
@@ -255,7 +279,9 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
             require(file.length() <= MAX_FILE_BYTES) { "userdb size is invalid" }
             val parsed = Parsed()
             file.bufferedReader().use { reader ->
-                require(reader.readLine() == HEADER) { "unsupported userdb header" }
+                val header = reader.readLine()
+                require(header == HEADER || header == LEGACY_HEADER) { "unsupported userdb header" }
+                val marked = header == HEADER
                 var entries = 0
                 while (true) {
                     val line = reader.readLine() ?: break
@@ -291,12 +317,25 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
                                 "duplicate userdb reading"
                             }
                         }
+                        "M" -> {
+                            require(marked) { "unsupported userdb row" }
+                            require(
+                                p.size == 3 && p[1].isNotEmpty() && p[1].length <= MAX_READING_LENGTH &&
+                                    p[1] == sanitizeReading(p[1]) && isValidWord(p[2]),
+                            ) { "invalid userdb manual row" }
+                            require(parsed.manual.getOrPut(p[1]) { LinkedHashSet() }.add(p[2])) {
+                                "duplicate userdb manual"
+                            }
+                        }
                         else -> throw IllegalArgumentException("invalid userdb row")
                     }
                 }
             }
             require(parsed.bigram.values.all { words -> words.keys.all { it in parsed.count } }) {
                 "userdb bigram target is missing"
+            }
+            require(parsed.manual.all { (r, ws) -> parsed.readings[r]?.containsAll(ws) == true }) {
+                "userdb manual target is missing"
             }
             return parsed
         }
