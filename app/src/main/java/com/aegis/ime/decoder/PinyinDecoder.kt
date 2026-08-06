@@ -48,6 +48,8 @@ class PinyinDecoder(
     private var learnIndexVersion = Long.MIN_VALUE
     private var userLetterIndex: Map<String, List<String>> = emptyMap()
     private var userDigitIndex: Map<String, List<String>> = emptyMap()
+    private var manualLetterIndex: Map<String, Set<String>> = emptyMap()
+    private var manualDigitIndex: Map<String, Set<String>> = emptyMap()
 
     fun setFuzzyRules(rules: Set<String>) {
         fuzzyRules = rules
@@ -106,8 +108,18 @@ class PinyinDecoder(
                 }
             }
         }
+        val manualLetter = HashMap<String, MutableSet<String>>()
+        val manualDigit = HashMap<String, MutableSet<String>>()
+        for ((reading, words) in userModel?.manualSnapshot().orEmpty()) {
+            if (reading.isEmpty() || words.isEmpty()) continue
+            val dk = T9Pinyin.toT9(reading)
+            manualLetter.getOrPut(reading) { HashSet() }.addAll(words)
+            manualDigit.getOrPut(dk) { HashSet() }.addAll(words)
+        }
         userLetterIndex = letter
         userDigitIndex = digit
+        manualLetterIndex = manualLetter
+        manualDigitIndex = manualDigit
         userIndexVersion = userVersion
         learnIndexVersion = learnVersion
     }
@@ -151,14 +163,28 @@ class PinyinDecoder(
         return (if (key[0] in '2'..'9') userDigitIndex[key] else userLetterIndex[key]) ?: emptyList()
     }
 
+    private fun manualWordsFor(key: String): Set<String> {
+        if (userModel == null || key.isEmpty()) return emptySet()
+        refreshUserIndex()
+        return (if (key[0] in '2'..'9') manualDigitIndex[key] else manualLetterIndex[key]) ?: emptySet()
+    }
+
     private fun assembledWordsFor(key: String, best: String?): Set<String> {
+        val kept = manualWordsFor(key)
         val out = HashSet<String>()
-        for (word in userWordsFor(key)) if (dict.exactWordFreq(key, word) == null) out.add(word)
-        if (best != null && dict.exactWordFreq(key, best) == null) out.add(best)
+        for (word in userWordsFor(key)) {
+            if (word !in kept && dict.exactWordFreq(key, word) == null) out.add(word)
+        }
+        if (best != null && best !in kept && dict.exactWordFreq(key, best) == null) out.add(best)
         return out
     }
 
-    private fun demoteBelowExact(words: List<String>, assembled: Set<String>, exact: Set<String>): List<String> {
+    private fun demoteBelowExact(
+        words: List<String>,
+        assembled: Set<String>,
+        exact: Set<String>,
+        held: Set<String>,
+    ): List<String> {
         if (assembled.isEmpty() || exact.isEmpty()) return words
         val firstExact = words.indexOfFirst { it in exact }
         if (firstExact <= 0) return words
@@ -167,10 +193,12 @@ class PinyinDecoder(
         if (demoted.isEmpty()) return words
         val cut = ahead.indexOfFirst { it in assembled }
         val kept = ahead.filterNot { it in assembled }
+        val trailing = kept.subList(cut, kept.size)
         return kept.subList(0, cut) +
+            trailing.filter { it in held } +
             words[firstExact] +
             demoted +
-            kept.subList(cut, kept.size) +
+            trailing.filterNot { it in held } +
             words.subList(firstExact + 1, words.size)
     }
 
@@ -492,7 +520,7 @@ class PinyinDecoder(
         }
         val out = ArrayList<Cand>(cover.size + 20)
         val assembled = assembledWordsFor(input, cover.keys.firstOrNull())
-        for (w in demoteBelowExact(cover.keys.toList(), assembled, exactWords)) {
+        for (w in demoteBelowExact(cover.keys.toList(), assembled, exactWords, manualWordsFor(input))) {
             out.add(Cand(w, cover.getValue(w)))
         }
         if (userModel != null) {
@@ -570,7 +598,7 @@ class PinyinDecoder(
         val out = ArrayList<Cand>(1 + leadFreq.size + tailRanked.size)
         val seen = HashSet<String>()
         fun emit(words: List<String>) {
-            for (w in demoteBelowExact(words, assembled, fullCoverExact)) {
+            for (w in demoteBelowExact(words, assembled, fullCoverExact, manualWordsFor(input))) {
                 if (seen.add(w)) out.add(Cand(w, leadCov[w] ?: input.length))
             }
         }
