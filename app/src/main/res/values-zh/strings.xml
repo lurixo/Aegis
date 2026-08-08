@@ -150,6 +150,8 @@
     <string name="user_dict_manual_empty">还没有自定义的词。</string>
     <string name="user_dict_entry_format">%1$s · %2$s</string>
     <string name="user_dict_toast_added">已添加</string>
+    <string name="user_dict_toast_kept">词库里已经有这条：现在它是「我的词」，不会再被自动遗忘</string>
+    <string name="user_dict_forgotten_format">长期不用、已自动遗忘：%1$d（你添加的词不会被遗忘）</string>
     <string name="user_dict_toast_add_failed">请输入词和它的拼音（仅字母）</string>
     <string name="user_dict_toast_deleted">已删除</string>
     <string name="user_dict_auto_title">自动学习</string>

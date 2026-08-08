@@ -29,7 +29,7 @@ object UserDictImport {
                 target.save(userDb)
                 true
             } else {
-                val incoming = UserModel().apply { load(importFile) }
+                val incoming = UserModel().apply { load(importFile, sweepStale = false) }
                 if (incoming.isEmpty()) return false
                 incoming.save(userDb)
                 true

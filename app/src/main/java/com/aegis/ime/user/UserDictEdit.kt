@@ -54,4 +54,19 @@ object UserDictEdit {
         UserDictHot.host?.let { return it.entries() }
         return UserModel().apply { if (userDb.exists()) load(userDb) }.userWordEntries()
     }
+
+    class Summary(val entries: List<UserModel.Entry>, val forgotten: Int)
+
+    fun summary(userDb: File): Summary {
+        UserDictHot.host?.let { host ->
+            return Summary(host.entries(), host.forgottenCount() ?: forgottenFromFile(userDb))
+        }
+        val m = UserModel().apply { if (userDb.exists()) load(userDb) }
+        return Summary(m.userWordEntries(), m.forgottenCount)
+    }
+
+    private fun forgottenFromFile(userDb: File): Int {
+        if (!userDb.exists()) return 0
+        return runCatching { UserModel().apply { load(userDb) }.forgottenCount }.getOrDefault(0)
+    }
 }

@@ -38,6 +38,12 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         private set
 
     @Volatile
+    var forgottenCount: Int = 0
+        private set
+
+    private var sweptOnLoad: Int = 0
+
+    @Volatile
     var autoLearnEnabled: Boolean = true
 
     @Synchronized
@@ -169,7 +175,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     }
 
     @Synchronized
-    fun isEmpty(): Boolean = count.isEmpty() && readings.isEmpty()
+    fun isEmpty(): Boolean = count.isEmpty() && readings.isEmpty() && sweptOnLoad == 0
 
 
     @Synchronized
@@ -178,6 +184,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         try {
             tmp.bufferedWriter().use { w ->
                 w.write("$HEADER\n")
+                if (forgottenCount > 0) w.write("G\t$forgottenCount\n")
                 for ((word, c) in count) w.write("W\t$word\t$c\t${lastUsed[word] ?: 0}\n")
                 for ((prev, m) in bigram) for ((word, c) in m) w.write("B\t$prev\t$word\t$c\n")
                 for ((reading, ws) in readings) for (word in ws) w.write("R\t$reading\t$word\n")
@@ -208,17 +215,65 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         bigram.clear()
         readings.clear()
         manual.clear()
+        forgottenCount = 0
+        sweptOnLoad = 0
         applyParsed(parsed)
         version++
     }
 
     @Synchronized
-    fun load(file: File) {
+    fun load(file: File, sweepStale: Boolean = true) {
         applyParsed(parse(file))
+        sweptOnLoad = if (sweepStale) forgetStale(clock()) else 0
         version++
     }
 
+    @Synchronized
+    fun forgetStale(now: Long): Int {
+        if (readings.isEmpty()) return 0
+        val verdict = HashMap<String, Boolean>()
+        val emptied = ArrayList<String>()
+        var removed = 0
+        val orphans = HashSet<String>()
+        for ((reading, words) in readings) {
+            val kept = manual[reading]
+            val each = words.iterator()
+            while (each.hasNext()) {
+                val word = each.next()
+                if (kept != null && word in kept) continue
+                if (verdict.getOrPut(word) { isStale(word, now) } != true) continue
+                each.remove()
+                orphans.add(word)
+                removed++
+            }
+            if (words.isEmpty()) emptied.add(reading)
+        }
+        if (removed == 0) return 0
+        for (reading in emptied) readings.remove(reading)
+        for (words in manual.values) orphans.removeAll(words)
+        for (word in orphans) {
+            count.remove(word)
+            lastUsed.remove(word)
+            bigram.remove(word)
+        }
+        if (orphans.isNotEmpty()) for (m in bigram.values) m.keys.removeAll(orphans)
+        forgottenCount = saturatingAdd(forgottenCount, removed)
+        dirty = true
+        version++
+        return removed
+    }
+
+    private fun isStale(word: String, now: Long): Boolean {
+        val c = count[word] ?: return false
+        if (c <= 0) return false
+        val used = lastUsed[word] ?: return false
+        if (used <= 0L) return false
+        val age = (now - used).coerceAtLeast(0L)
+        return c * exp(-LN_2 * age.toDouble() / FORGET_HALF_LIFE_MILLIS) < FORGET_FLOOR
+    }
+
     private fun applyParsed(parsed: Parsed) {
+        forgottenCount = saturatingAdd(forgottenCount, parsed.forgotten)
         count.putAll(parsed.count)
         lastUsed.putAll(parsed.lastUsed)
         for ((prev, words) in parsed.bigram) {
@@ -258,11 +313,15 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         val bigram: HashMap<String, HashMap<String, Int>> = HashMap(),
         val readings: HashMap<String, LinkedHashSet<String>> = HashMap(),
         val manual: HashMap<String, LinkedHashSet<String>> = HashMap(),
+        var forgotten: Int = 0,
     )
 
     companion object {
-        private const val HEADER = "aegis-userdb 2"
+        private const val HEADER = "aegis-userdb 3"
+        private const val MARKED_HEADER = "aegis-userdb 2"
         private const val LEGACY_HEADER = "aegis-userdb 1"
+        internal const val FORGET_HALF_LIFE_MILLIS = 30L * 24L * 60L * 60L * 1000L
+        internal const val FORGET_FLOOR = 0.0625
         private const val MAX_LINE_LENGTH = 4_096
         private const val MAX_WORD_LENGTH = 256
         private const val MAX_READING_LENGTH = 256
@@ -277,8 +336,12 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
             val parsed = Parsed()
             file.bufferedReader().use { reader ->
                 val header = reader.readLine()
-                require(header == HEADER || header == LEGACY_HEADER) { "unsupported userdb header" }
-                val marked = header == HEADER
+                require(header == HEADER || header == MARKED_HEADER || header == LEGACY_HEADER) {
+                    "unsupported userdb header"
+                }
+                val marked = header != LEGACY_HEADER
+                val counted = header == HEADER
+                var sawForgotten = false
                 while (true) {
                     val line = reader.readLine() ?: break
                     require(line.length <= MAX_LINE_LENGTH) { "userdb line is too long" }
@@ -322,6 +385,16 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
                                 "duplicate userdb manual"
                             }
                         }
+                        "G" -> {
+                            require(counted) { "unsupported userdb row" }
+                            require(!sawForgotten) { "duplicate userdb forgotten total" }
+                            val value = p.getOrNull(1)?.toIntOrNull()
+                            require(p.size == 2 && value != null && value in 0..MAX_COUNT) {
+                                "invalid userdb forgotten total"
+                            }
+                            parsed.forgotten = value
+                            sawForgotten = true
+                        }
                         else -> throw IllegalArgumentException("invalid userdb row")
                     }
                 }
@@ -350,6 +423,8 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
 
         private fun isStorableWord(word: String): Boolean =
             word.none { it == '\t' || it == '\n' || it == '\r' }
+
+        internal fun normalizeReading(reading: String): String = sanitizeReading(reading)
 
         private fun sanitizeReading(reading: String): String {
             val sb = StringBuilder(reading.length)

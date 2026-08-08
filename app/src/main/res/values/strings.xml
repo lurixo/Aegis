@@ -150,6 +150,8 @@
     <string name="user_dict_manual_empty">No custom words yet.</string>
     <string name="user_dict_entry_format">%1$s · %2$s</string>
     <string name="user_dict_toast_added">Word added</string>
+    <string name="user_dict_toast_kept">Already in the dictionary: it is one of your words now and will never be forgotten automatically</string>
+    <string name="user_dict_forgotten_format">Forgotten after months unused: %1$d (words you add are never forgotten)</string>
     <string name="user_dict_toast_add_failed">Enter a word and its pinyin (letters only)</string>
     <string name="user_dict_toast_deleted">Word deleted</string>
     <string name="user_dict_auto_title">Auto learning</string>

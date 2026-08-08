@@ -17,17 +17,17 @@ package com.aegis.ime.user
 
 object UserDictSearch {
 
-    class Index internal constructor(private val rows: List<Row>) {
+    class Index<T> internal constructor(private val rows: List<Row<T>>) {
         private val entries = rows.map { it.entry }
 
-        fun filter(query: String): List<UserModel.Entry> {
+        fun filter(query: String): List<T> {
             val q = query.trim()
             if (q.isEmpty()) return entries
             val qLower = q.lowercase()
             val letters = pinyinLetters(qLower)
             val pinyinQuery = letters.isNotEmpty() &&
                 qLower.all { it.isWhitespace() || it == '\'' || it in 'a'..'z' }
-            val out = ArrayList<UserModel.Entry>()
+            val out = ArrayList<T>()
             for (row in rows) {
                 if (row.wordLower.contains(qLower) || (pinyinQuery && row.reading.contains(letters))) {
                     out.add(row.entry)
@@ -37,13 +37,16 @@ object UserDictSearch {
         }
     }
 
-    class Row internal constructor(
-        val entry: UserModel.Entry,
+    class Row<T> internal constructor(
+        val entry: T,
         val wordLower: String,
         val reading: String,
     )
 
-    fun index(entries: List<UserModel.Entry>): Index =
+    fun index(entries: List<UserModel.Entry>): Index<UserModel.Entry> =
+        Index(entries.map { Row(it, it.word.lowercase(), it.reading) })
+
+    fun indexLearned(entries: List<UserLearning.Formed>): Index<UserLearning.Formed> =
         Index(entries.map { Row(it, it.word.lowercase(), it.reading) })
 
     fun filter(entries: List<UserModel.Entry>, query: String): List<UserModel.Entry> {

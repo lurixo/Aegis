@@ -47,7 +47,7 @@ class LiveUserDictHostTest {
         return LiveUserDictHost(model, db, onSaved = ::watermark)
     }
 
-    private fun reloadFromDisk() = UserModel().apply { if (db.exists()) load(db) }
+    private fun reloadFromDisk() = UserModel { 10L }.apply { if (db.exists()) load(db) }
 
     private fun glued(): UserLearning = UserLearning { CLOCK }.apply {
         repeat(8) {

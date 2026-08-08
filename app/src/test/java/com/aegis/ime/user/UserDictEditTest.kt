@@ -94,7 +94,7 @@ class UserDictEditTest {
         UserModel().apply { recordWord("beijing", "北京", 1, incrementCount = true) }.save(incoming)
 
         assertTrue(UserDictImport.apply(incoming, db, merge = true, now = 2))
-        val m = UserModel().apply { load(db) }
+        val m = UserModel { 10L }.apply { load(db) }
         assertEquals(listOf("测试"), m.readingSnapshot()["ceshi"])
         assertEquals(listOf("北京"), m.readingSnapshot()["beijing"])
     }
