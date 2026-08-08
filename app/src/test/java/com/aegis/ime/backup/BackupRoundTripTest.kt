@@ -470,9 +470,9 @@ class BackupRoundTripTest {
             override fun entries(): List<UserModel.Entry> = emptyList()
             override fun learnedEntries(): List<UserLearning.Formed> = emptyList()
             override fun hasLearnedData(): Boolean = false
-            override fun removeLearned(word: String, reading: String) {}
-            override fun clearLearned() {}
-            override fun flush() {}
+            override fun removeLearned(word: String, reading: String) = true
+            override fun clearLearned() = true
+            override fun flush() = true
         }
         try {
             expectRestoreIoFailure(backup, BackupManager.Mode.OVERWRITE)

@@ -23,22 +23,20 @@ class LiveUserDictHost(
     private val userDb: File,
     private val userLearning: UserLearning? = null,
     private val userLearnFile: File? = null,
-    private val onSaved: (mtime: Long) -> Unit = {},
+    private val onSaved: (userDbMtime: Long?, userLearnMtime: Long?) -> Unit = { _, _ -> },
 ) : UserDictHot.Host {
 
     override fun addWord(reading: String, word: String, now: Long): Boolean {
         if (word.isBlank()) return false
         model.addManualWord(reading, word, now)
-        save()
-        return true
+        return save()
     }
 
     override fun removeWord(reading: String, word: String): Boolean {
         if (word.isBlank()) return false
         model.removeWord(reading, word)
         userLearning?.removeWord(word)
-        save()
-        return true
+        return save()
     }
 
     override fun importUserDict(importFile: File, merge: Boolean, now: Long): Boolean {
@@ -56,8 +54,7 @@ class LiveUserDictHost(
         } catch (_: IOException) {
             return false
         }
-        save()
-        return true
+        return save()
     }
 
     override fun entries(): List<UserModel.Entry> = model.userWordEntries()
@@ -66,37 +63,44 @@ class LiveUserDictHost(
 
     override fun hasLearnedData(): Boolean = userLearning?.isEmpty() == false
 
-    override fun removeLearned(word: String, reading: String) {
+    override fun removeLearned(word: String, reading: String): Boolean {
         userLearning?.removeFormed(word, reading)
-        saveLearning()
+        return saveLearning()
     }
 
-    override fun clearLearned() {
+    override fun clearLearned(): Boolean {
         userLearning?.clear()
-        saveLearning()
+        return saveLearning()
     }
 
-    override fun flush() {
-        if (!model.dirty && userLearning?.dirty != true) return
-        if (model.dirty) model.save(userDb)
-        if (userLearning?.dirty == true) {
-            userLearnFile?.let { userLearning.save(it) }
-        }
-        onSaved(userDb.lastModified())
+    override fun flush(): Boolean {
+        if (!model.dirty && userLearning?.dirty != true) return true
+        return persist(writeUserDb = model.dirty)
     }
 
-    private fun save() {
-        model.save(userDb)
-        if (userLearning?.dirty == true) {
-            userLearnFile?.let { userLearning.save(it) }
+    private fun save(): Boolean = persist(writeUserDb = true)
+
+    private fun saveLearning(): Boolean = persist(writeUserDb = false)
+
+    private fun persist(writeUserDb: Boolean): Boolean {
+        var savedUserDbMtime: Long? = null
+        var savedUserLearnMtime: Long? = null
+        val userDbWritten = !writeUserDb || runCatching {
+            model.save(userDb)
+            savedUserDbMtime = userDb.lastModified()
+        }.isSuccess
+        val learningWritten = runCatching { savedUserLearnMtime = saveDirtyLearning() }.isSuccess
+        if (savedUserDbMtime != null || savedUserLearnMtime != null) {
+            onSaved(savedUserDbMtime, savedUserLearnMtime)
         }
-        onSaved(userDb.lastModified())
+        return userDbWritten && learningWritten
     }
 
-    private fun saveLearning() {
-        if (userLearning?.dirty == true) {
-            userLearnFile?.let { userLearning.save(it) }
-        }
-        onSaved(userDb.lastModified())
+    private fun saveDirtyLearning(): Long? {
+        val learning = userLearning ?: return null
+        val file = userLearnFile ?: return null
+        if (!learning.dirty) return null
+        learning.save(file)
+        return file.lastModified()
     }
 }

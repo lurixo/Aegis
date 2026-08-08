@@ -32,11 +32,11 @@ object UserDictHot {
 
         fun hasLearnedData(): Boolean
 
-        fun removeLearned(word: String, reading: String)
+        fun removeLearned(word: String, reading: String): Boolean
 
-        fun clearLearned()
+        fun clearLearned(): Boolean
 
-        fun flush()
+        fun flush(): Boolean
     }
 
     @Volatile

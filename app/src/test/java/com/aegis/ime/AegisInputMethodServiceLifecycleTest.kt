@@ -181,6 +181,52 @@ class AegisInputMethodServiceLifecycleTest {
         prefs.edit().remove(com.aegis.ime.ui.PREF_AUTO_LEARN_ON).commit()
     }
 
+    @Test fun saving_learned_data_must_not_swallow_a_user_dictionary_changed_outside() {
+        val f = fixture()
+        val service = f.service
+        val model = userModelOf(service)
+        val userDb = java.io.File(service.filesDir, "userdb.txt")
+        com.aegis.ime.user.UserModel().apply { addManualWord("nihao", "你好", 1L) }.save(userDb)
+        val loadedFrom = userDb.lastModified()
+        service.javaClass.getDeclaredField("userDbLoaded").apply { isAccessible = true }.setBoolean(service, true)
+        service.javaClass.getDeclaredField("userDbMtime").apply { isAccessible = true }.setLong(service, loadedFrom)
+
+        val learning = service.javaClass.getDeclaredField("userLearning").apply { isAccessible = true }
+            .get(service) as com.aegis.ime.user.UserLearning
+        repeat(8) {
+            var prev: String? = null
+            for ((word, reading) in listOf("你" to "ni", "呢" to "ne", "嗯" to "n")) {
+                learning.observeCommit(prev, word, reading, 1_700_000_000_000L)
+                prev = word
+            }
+            learning.observeBreak()
+        }
+        assertTrue("the learning store must have something to write", learning.dirty)
+
+        com.aegis.ime.user.UserModel().apply {
+            load(userDb)
+            addManualWord("waibu", "外部", 2L)
+        }.save(userDb)
+        userDb.setLastModified(loadedFrom + 5_000L)
+
+        assertTrue(liveUserDictHost(service).clearLearned())
+        service.onStartInput(editor(), false)
+
+        assertEquals(
+            "a word restored into userdb.txt from outside must still reach the running keyboard",
+            listOf("外部"),
+            model.readingSnapshot()["waibu"],
+        )
+    }
+
+    private fun liveUserDictHost(service: AegisInputMethodService): com.aegis.ime.user.UserDictHot.Host {
+        val delegate = service.javaClass.getDeclaredField("liveUserDictHost\$delegate").run {
+            isAccessible = true
+            get(service) as Lazy<*>
+        }
+        return delegate.value as com.aegis.ime.user.UserDictHot.Host
+    }
+
     private fun fixture(info: EditorInfo = editor(), decodeLane: DecodeLane? = null): Fixture {
 
         val service = Robolectric.buildService(AegisInputMethodService::class.java).get()
