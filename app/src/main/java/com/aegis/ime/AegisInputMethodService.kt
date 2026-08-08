@@ -289,11 +289,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.setCustomOperators(customOperatorStore.list())
         Thread {
             runCatching { com.aegis.ime.engine.InputAssociations.lookup("nihao") }
-            runCatching { userModel.load(userDbFile); userDbMtime = userDbFile.lastModified() }
-            userLearning.load(userLearnFile)
-            userLearnMtime = userLearnFile.lastModified()
-            userDbLoaded = true
-            UserDictHot.host = liveUserDictHost
+            val userDbRead = runCatching {
+                userModel.load(userDbFile)
+                userDbMtime = userDbFile.lastModified()
+            }.onFailure { Log.e("Aegis", "userdb load failed", it) }.isSuccess
+            val userLearnRead = runCatching {
+                userLearning.load(userLearnFile)
+                userLearnMtime = userLearnFile.lastModified()
+            }.onFailure { Log.e("Aegis", "userlearn load failed", it) }.isSuccess
+            userDbLoaded = userDbRead && userLearnRead
+            if (userDbLoaded) UserDictHot.host = liveUserDictHost
             val engine = buildEngine()
             Handler(Looper.getMainLooper()).post {
                 controller.setEngine(engine)
@@ -411,11 +416,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         inputSessionActive = false
         resetControllerOnNextInputView = false
         secureField = false
-        if (userModel.dirty) runCatching {
+        if (userDbLoaded && userModel.dirty) runCatching {
             userModel.save(userDbFile)
             userDbMtime = userDbFile.lastModified()
         }
-        if (userLearning.dirty) runCatching {
+        if (userDbLoaded && userLearning.dirty) runCatching {
             userLearning.save(userLearnFile)
             userLearnMtime = userLearnFile.lastModified()
         }

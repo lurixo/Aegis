@@ -36,17 +36,22 @@ class ClipboardStore(private val dir: File) {
     private class Category(var name: String, val phrases: ArrayList<Phrase> = ArrayList())
     private val phraseCats = ArrayList<Category>()
 
+    @Volatile
+    var historyReadable: Boolean = true
+        private set
+
     fun load() {
         history.clear()
         purgeLegacyImageDir()
         val seen = HashSet<String>()
-        runCatching {
+        historyReadable = runCatching {
             if (histFile.exists()) histFile.readLines().forEach { line ->
                 readEntry(line)?.let { e ->
                     if (e.isNotBlank() && !isLegacyImageEntry(e) && seen.add(e)) history.add(e)
                 }
             }
-        }
+        }.isSuccess
+        if (!historyReadable) history.clear()
         loadPhrases()
     }
 
@@ -122,12 +127,14 @@ class ClipboardStore(private val dir: File) {
     fun importHistory(entries: List<String>, merge: Boolean) {
         val incoming = entries.mapNotNull { it.trim().ifEmpty { null } }
         if (merge) {
+            if (!historyReadable) throw IOException("clipboard history could not be read")
             val present = HashSet(history)
             for (e in incoming) if (present.add(e)) history.add(e)
         } else {
             history.clear()
             val seen = HashSet<String>()
             for (e in incoming) if (seen.add(e)) history.add(e)
+            historyReadable = true
         }
         writeHistory(ArrayList(history))
     }
@@ -278,6 +285,7 @@ class ClipboardStore(private val dir: File) {
     private fun findPhrase(c: Category?, text: String): Phrase? = c?.phrases?.firstOrNull { it.text == text }
 
     private fun scheduleSave() {
+        if (!historyReadable) return
         val snapshot = ArrayList(history)
         val gen = saveGen.incrementAndGet()
         runCatching { io.execute { if (gen == saveGen.get()) runCatching { writeHistory(snapshot) } } }
