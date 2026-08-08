@@ -122,10 +122,11 @@ class UserLearningTest {
     }
 
     @Test
-    fun formedCapEvictsWeakestEntry() {
+    fun farPastTheOldFormedCapNothingIsEvicted() {
         val first = String(Character.toChars(0x4E00)) + String(Character.toChars(0x5E00))
         var last = ""
-        for (i in 0..UserLearning.FORMED_CAP) {
+        val total = 700
+        for (i in 0 until total) {
             val a = String(Character.toChars(0x4E00 + i))
             val b = String(Character.toChars(0x5E00 + i))
             last = a + b
@@ -133,14 +134,14 @@ class UserLearningTest {
             now += 60_000L
         }
         val kept = store.formedWordsFor("mama")
-        assertEquals(UserLearning.FORMED_CAP, kept.size)
-        assertFalse("oldest formed word is evicted at cap", first in kept)
-        assertTrue("newest formed word is kept", last in kept)
+        assertEquals("every glued word is kept once the cap is gone", total, kept.size)
+        assertTrue("the oldest one is still there", first in kept)
+        assertTrue("and so is the newest", last in kept)
     }
 
     @Test
     fun pendingFloodStillAllowsFreshPromotion() {
-        for (i in 0 until UserLearning.PENDING_CAP) {
+        for (i in 0 until 2500) {
             val a = String(Character.toChars(0x4E00 + i))
             val b = String(Character.toChars(0x7000 + i))
             typeRun(store, a to "ma", b to "ma")
