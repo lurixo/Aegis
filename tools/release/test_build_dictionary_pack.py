@@ -123,7 +123,7 @@ class DeterministicPackWithNoticeTest(unittest.TestCase):
                 self.assertIn("aegis_dict_full.bin", names)
                 self.assertIn("aegis_t9_full.bin", names)
                 self.assertIn("aegis_jianpin_full.bin", names)
-                self.assertEqual(bp.INTERMEDIATE_ENTRIES, names)
+                self.assertEqual(bp.PACK_ENTRIES, names)
                 info = zf.getinfo(bp.NOTICE_NAME)
                 self.assertEqual((1980, 1, 1, 0, 0, 0), info.date_time, "deterministic 1980 timestamp")
                 body = zf.read(bp.NOTICE_NAME).decode("utf-8")
@@ -134,89 +134,20 @@ class DeterministicPackWithNoticeTest(unittest.TestCase):
 class DownloadableComponentProtocolTest(unittest.TestCase):
     def test_new_entry_names_cannot_trigger_beta31_substring_routing(self):
         bp.require_safe_new_entry_names()
-        for name in [bp.LM_ENTRY, *[item[0] for item in bp.PREFIX_OUTPUTS]]:
-            for dangerous in bp.DANGEROUS_NEW_ENTRY_SUBSTRINGS:
-                self.assertNotIn(dangerous, name.lower())
+        for dangerous in bp.DANGEROUS_NEW_ENTRY_SUBSTRINGS:
+            self.assertNotIn(dangerous, bp.LM_ENTRY.lower())
 
     def test_a_future_unsafe_entry_name_fails_closed(self):
-        unsafe = [("aegis_dict.prefix-index", "runtime", "source", "letter")]
-        with mock.patch.object(bp, "PREFIX_OUTPUTS", unsafe):
+        with mock.patch.object(bp, "LM_ENTRY", "aegis_dict.prefix-index"):
             with self.assertRaisesRegex(ValueError, "unsafe downloadable component"):
                 bp.require_safe_new_entry_names()
 
-    def test_intermediate_and_final_orders_are_exact_and_distinct(self):
+    def test_the_published_order_is_exact_and_carries_no_prefix_index(self):
         self.assertEqual(
             ["NOTICE.txt", "aegis_dict_full.bin", "aegis_t9_full.bin", "aegis_jianpin_full.bin", "aegis_lm.bin"],
-            bp.INTERMEDIATE_ENTRIES,
+            bp.PACK_ENTRIES,
         )
-        self.assertEqual(
-            bp.INTERMEDIATE_ENTRIES
-            + ["aegis_pfx_letter.idx", "aegis_pfx_digit.idx", "aegis_pfx_initials.idx"],
-            bp.FINAL_ENTRIES,
-        )
-
-
-class PrefixIndexProtocolTest(unittest.TestCase):
-    def index(self, dictionary: bytes, prefix: bytes, word: bytes, frequency: int) -> bytes:
-        return b"".join(
-            [
-                b"AEGP",
-                struct.pack("<i", 4),
-                hashlib.sha256(dictionary).digest(),
-                bytes.fromhex(bp.sampled_sha256_file(self.dictionary_path)),
-                struct.pack("<q", len(dictionary)),
-                struct.pack("<i", 1),
-                b"\x01",
-                struct.pack("<i", len(prefix)),
-                prefix,
-                struct.pack("<i", 1),
-                struct.pack("<i", len(word)),
-                word,
-                struct.pack("<i", frequency),
-            ]
-        )
-
-    def test_rejects_non_ascii_prefix_non_utf8_word_and_nonpositive_frequency(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            dictionary = b"AEGD" + bytes(range(96))
-            self.dictionary_path = root / "dictionary.bin"
-            self.dictionary_path.write_bytes(dictionary)
-            index_path = root / "index.bin"
-            index_path.write_bytes(
-                self.index(dictionary, b"a", "安".encode("utf-8"), 1)
-            )
-            self.assertEqual(
-                1,
-                bp.parse_prefix_index_v4(index_path, self.dictionary_path)["record_count"],
-            )
-            cases = {
-                "not ASCII": (b"\xff", "安".encode("utf-8"), 1),
-                "not UTF-8": (b"a", b"\xff", 1),
-                "frequency": (b"a", "安".encode("utf-8"), 0),
-            }
-            for message, (prefix, word, frequency) in cases.items():
-                with self.subTest(message=message):
-                    index_path.write_bytes(self.index(dictionary, prefix, word, frequency))
-                    with self.assertRaisesRegex(ValueError, message):
-                        bp.parse_prefix_index_v4(index_path, self.dictionary_path)
-
-    def test_rejects_an_empty_index(self):
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            dictionary = root / "dictionary.bin"
-            dictionary.write_bytes(b"AEGD" + bytes(range(96)))
-            index_path = root / "index.bin"
-            index_path.write_bytes(
-                b"AEGP"
-                + struct.pack("<i", 4)
-                + bytes.fromhex(bp.sha256_file(dictionary))
-                + bytes.fromhex(bp.sampled_sha256_file(dictionary))
-                + struct.pack("<q", dictionary.stat().st_size)
-                + struct.pack("<i", 0)
-            )
-            with self.assertRaisesRegex(ValueError, "record count"):
-                bp.parse_prefix_index_v4(index_path, dictionary)
+        self.assertFalse([name for name in bp.PACK_ENTRIES if name.endswith(".idx")])
 
 
 class LanguageModelProtocolTest(unittest.TestCase):
@@ -494,29 +425,7 @@ class FinalizePackTest(unittest.TestCase):
     def tooling_identity(self):
         return {"schema_version": 1, "fixture": "fixed-tooling"}
 
-    def run_prefix_tool(self, command, cwd, env=None):
-        dictionary = Path(command[command.index("--dict") + 1])
-        output = Path(command[command.index("--out") + 1])
-        mode = command[command.index("--mode") + 1]
-        prefix = b"2" if mode == "digit" else b"a"
-        word = "安".encode("utf-8")
-        output.write_bytes(
-            b"AEGP"
-            + struct.pack("<i", 4)
-            + bytes.fromhex(bp.sha256_file(dictionary))
-            + bytes.fromhex(bp.sampled_sha256_file(dictionary))
-            + struct.pack("<q", dictionary.stat().st_size)
-            + struct.pack("<i", 1)
-            + b"\x01"
-            + struct.pack("<i", len(prefix))
-            + prefix
-            + struct.pack("<i", 1)
-            + struct.pack("<i", len(word))
-            + word
-            + struct.pack("<i", 1)
-        )
-
-    def invoke(self, args, executor=None, tooling=None):
+    def invoke(self, args, tooling=None):
         with mock.patch.object(
             bp,
             "current_tooling_identity",
@@ -524,7 +433,7 @@ class FinalizePackTest(unittest.TestCase):
         ), mock.patch.object(
             bp,
             "run",
-            side_effect=self.run_prefix_tool if executor is None else executor,
+            side_effect=AssertionError("finalization must not run an external tool"),
         ):
             return bp.finalize_main(args)
 
@@ -544,7 +453,7 @@ class FinalizePackTest(unittest.TestCase):
         lm.write_bytes(minimal_language_model())
         files[bp.LM_ENTRY] = lm
         pack = root / "aegis_dict_pack_dict-latest.zip"
-        bp.write_zip(pack, [(name, files[name]) for name in bp.INTERMEDIATE_ENTRIES])
+        bp.write_zip(pack, [(name, files[name]) for name in bp.PACK_ENTRIES])
 
         components = []
         for zip_entry, runtime_name, key_type in bp.OUTPUTS:
@@ -593,7 +502,7 @@ class FinalizePackTest(unittest.TestCase):
                         "builder_tree_dirt": builder_tree_dirt,
                         "tooling": self.tooling_identity(),
                         "output_bins": components,
-                        "zip_packaging": {"file_order": bp.INTERMEDIATE_ENTRIES},
+                        "zip_packaging": {"file_order": bp.PACK_ENTRIES},
                     },
                 }
             ],
@@ -633,25 +542,29 @@ class FinalizePackTest(unittest.TestCase):
             str(update),
         ]
 
-    def test_finalization_produces_seven_bound_components_and_final_metadata(self):
+    def test_finalization_produces_four_bound_components_and_final_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             pack, build_info_path, update_path = self.finalize(root / "one")
             with zipfile.ZipFile(pack) as archive:
-                self.assertEqual(bp.FINAL_ENTRIES, archive.namelist())
+                self.assertEqual(bp.PACK_ENTRIES, archive.namelist())
                 entries = {name: archive.read(name) for name in archive.namelist()}
             build_info = json.loads(build_info_path.read_text(encoding="utf-8"))
             resource = build_info["resources"][0]
             self.assertEqual("final", resource["build"]["pack_state"])
-            self.assertEqual(bp.FINAL_ENTRIES, resource["build"]["zip_packaging"]["file_order"])
+            self.assertEqual(bp.PACK_ENTRIES, resource["build"]["zip_packaging"]["file_order"])
             components = resource["build"]["output_bins"]
-            self.assertEqual(bp.FINAL_ENTRIES[1:], [item["zip_entry"] for item in components])
+            self.assertEqual(bp.PACK_ENTRIES[1:], [item["zip_entry"] for item in components])
             for item in components:
                 self.assertEqual(hashlib.sha256(entries[item["zip_entry"]]).hexdigest(), item["sha256"])
                 self.assertEqual(len(entries[item["zip_entry"]]), item["size_bytes"])
-            self.assertTrue(all(item["format"] == "AEGP v4" for item in components[-3:]))
-            self.assertTrue(all(item["record_count"] > 0 for item in components[-3:]))
-            self.assertTrue(all(item["word_count"] > 0 for item in components[-3:]))
+            self.assertEqual(
+                ["dictionary", "dictionary", "dictionary", "language_model"],
+                [item["kind"] for item in components],
+            )
+            self.assertNotIn(
+                "prefix_index_format", resource["build"]["finalization"]
+            )
             self.assertEqual(
                 bp.tooling_identity_sha256(self.tooling_identity()),
                 resource["build"]["finalization"]["tooling_identity_sha256"],
@@ -667,38 +580,15 @@ class FinalizePackTest(unittest.TestCase):
             second, _, _ = self.finalize(root / "two")
             self.assertEqual(first.read_bytes(), second.read_bytes())
 
-    def test_recovers_when_interrupted_after_the_final_pack_replace(self):
+    def test_finalization_leaves_the_published_bytes_untouched(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             pack, build_info, update = self.write_intermediate(root / "one")
-            args = self.finalize_args(pack, build_info, update)
-            with mock.patch.object(
-                bp,
-                "write_json_atomic",
-                side_effect=RuntimeError("simulated interruption before metadata"),
-            ):
-                with self.assertRaisesRegex(RuntimeError, "simulated interruption"):
-                    self.invoke(args)
-            self.assertEqual(
-                bp.FINAL_ENTRIES,
-                zipfile.ZipFile(pack).namelist(),
-            )
-            self.assertEqual(
-                "intermediate",
-                json.loads(build_info.read_text(encoding="utf-8"))["resources"][0]["build"]["pack_state"],
-            )
-            final_pack = pack.read_bytes()
+            before = pack.read_bytes()
             with contextlib.redirect_stdout(io.StringIO()):
-                self.assertEqual(0, self.invoke(args))
-            self.assertEqual(final_pack, pack.read_bytes())
-            self.assertEqual(
-                "final",
-                json.loads(build_info.read_text(encoding="utf-8"))["resources"][0]["build"]["pack_state"],
-            )
-            self.assertEqual(
-                bp.sha256_file(pack),
-                json.loads(update.read_text(encoding="utf-8"))["asset"]["sha256"],
-            )
+                self.assertEqual(0, self.invoke(self.finalize_args(pack, build_info, update)))
+            self.assertEqual(before, pack.read_bytes())
+            self.assertEqual(bp.PACK_ENTRIES, zipfile.ZipFile(pack).namelist())
 
     def test_recovers_when_interrupted_after_only_build_info_is_final(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -722,20 +612,19 @@ class FinalizePackTest(unittest.TestCase):
                 "final",
                 json.loads(build_info.read_text(encoding="utf-8"))["resources"][0]["build"]["pack_state"],
             )
-            self.assertNotEqual(
-                bp.sha256_file(pack),
-                json.loads(update.read_text(encoding="utf-8"))["asset"]["sha256"],
-            )
-            final_pack = pack.read_bytes()
-            with contextlib.redirect_stdout(io.StringIO()):
-                self.assertEqual(0, self.invoke(args))
-            self.assertEqual(final_pack, pack.read_bytes())
             self.assertEqual(
                 bp.sha256_file(pack),
                 json.loads(update.read_text(encoding="utf-8"))["asset"]["sha256"],
             )
+            before = (pack.read_bytes(), build_info.read_bytes(), update.read_bytes())
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(0, self.invoke(args))
+            self.assertEqual(
+                before,
+                (pack.read_bytes(), build_info.read_bytes(), update.read_bytes()),
+            )
 
-    def test_a_complete_finalization_is_idempotent_and_does_not_rebuild_indexes(self):
+    def test_a_complete_finalization_is_idempotent(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             pack, build_info, update = self.finalize(root / "one")
@@ -743,10 +632,7 @@ class FinalizePackTest(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()):
                 self.assertEqual(
                     0,
-                    self.invoke(
-                        self.finalize_args(pack, build_info, update),
-                        executor=AssertionError("a final pack must not rebuild prefix indexes"),
-                    ),
+                    self.invoke(self.finalize_args(pack, build_info, update)),
                 )
             self.assertEqual(
                 before,
@@ -763,24 +649,25 @@ class FinalizePackTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "update-json metadata mismatch"):
                 self.invoke(self.finalize_args(pack, build_info, update))
 
-    def test_finalization_rejects_a_pack_already_marked_final(self):
+    def test_finalization_rejects_a_pack_flagged_final_it_never_finalized(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             pack, build_info_path, update_path = self.write_intermediate(root / "one")
             document = json.loads(build_info_path.read_text(encoding="utf-8"))
             document["resources"][0]["build"]["pack_state"] = "final"
             build_info_path.write_text(json.dumps(document), encoding="utf-8")
-            with self.assertRaisesRegex(ValueError, "only accepts an intermediate"):
-                self.invoke(
-                    [
-                        "--pack",
-                        str(pack),
-                        "--build-info",
-                        str(build_info_path),
-                        "--update-json",
-                        str(update_path),
-                    ]
-                )
+            with self.assertRaisesRegex(ValueError, "finalization metadata mismatch"):
+                self.invoke(self.finalize_args(pack, build_info_path, update_path))
+
+    def test_finalization_rejects_an_unknown_pack_state(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            pack, build_info_path, update_path = self.write_intermediate(root / "one")
+            document = json.loads(build_info_path.read_text(encoding="utf-8"))
+            document["resources"][0]["build"]["pack_state"] = "published"
+            build_info_path.write_text(json.dumps(document), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "invalid build-info pack state"):
+                self.invoke(self.finalize_args(pack, build_info_path, update_path))
 
     def test_finalization_rejects_a_builder_head_different_from_frozen_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1177,10 +1064,9 @@ class PackEntryRoutingTest(unittest.TestCase):
     def test_every_published_entry_routes_to_the_name_the_producer_declared(self):
         expected = {bp.NOTICE_NAME: None, bp.LM_ENTRY: bp.LM_RUNTIME_NAME}
         expected.update({entry: runtime for entry, runtime, _ in bp.OUTPUTS})
-        expected.update({entry: None for entry, _, _, _ in bp.PREFIX_OUTPUTS})
-        self.assertEqual(sorted(expected), sorted(bp.FINAL_ENTRIES))
+        self.assertEqual(sorted(expected), sorted(bp.PACK_ENTRIES))
         self.assertEqual(
-            expected, {name: ftd.target_for(name) for name in bp.FINAL_ENTRIES}
+            expected, {name: ftd.target_for(name) for name in bp.PACK_ENTRIES}
         )
         self.assertEqual(
             sorted(ftd.RUNTIME_BINS),
@@ -1199,7 +1085,7 @@ class PackEntryRoutingTest(unittest.TestCase):
             root = Path(directory)
             archive = root / "pack.zip"
             with zipfile.ZipFile(archive, "w") as zf:
-                for name in bp.FINAL_ENTRIES:
+                for name in bp.PACK_ENTRIES:
                     zf.writestr(name, b"x" * 2048)
             assets = root / "assets"
 

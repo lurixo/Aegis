@@ -84,13 +84,7 @@ LM_BETA31_T2S_BLOBS = {
     "adjudications.tsv": "2cbe5fd7819c1bafc10cb752239709d7453e69c8",
     "variant_to_simplified.tsv": "4381f87d0bfa5a70915ddf24a5cd9b3e6c2dfc9d",
 }
-PREFIX_OUTPUTS = [
-    ("aegis_pfx_letter.idx", "aegis_dict.prefix-index", "aegis_dict_full.bin", "letter"),
-    ("aegis_pfx_digit.idx", "aegis_t9.prefix-index", "aegis_t9_full.bin", "digit"),
-    ("aegis_pfx_initials.idx", "aegis_jianpin.prefix-index", "aegis_jianpin_full.bin", "letter"),
-]
-INTERMEDIATE_ENTRIES = [NOTICE_NAME] + [item[0] for item in OUTPUTS] + [LM_ENTRY]
-FINAL_ENTRIES = INTERMEDIATE_ENTRIES + [item[0] for item in PREFIX_OUTPUTS]
+PACK_ENTRIES = [NOTICE_NAME] + [item[0] for item in OUTPUTS] + [LM_ENTRY]
 DANGEROUS_NEW_ENTRY_SUBSTRINGS = ("dict", "t9", "jianpin")
 GRAMMAR_NAME = "wanxiang-lts-zh-hans.gram"
 GRAMMAR_REPO_HTTPS = "https://github.com/amzxyz/RIME-LMDG"
@@ -291,7 +285,7 @@ def tooling_identity_sha256(identity):
 
 
 def require_safe_new_entry_names():
-    names = [LM_ENTRY] + [item[0] for item in PREFIX_OUTPUTS]
+    names = [LM_ENTRY]
     if len(names) != len(set(names)):
         raise ValueError("downloadable component entry names must be unique")
     for name in names:
@@ -749,7 +743,7 @@ def build_info(
                     },
                     "output_bins": component_infos,
                     "zip_packaging": {
-                        "file_order": INTERMEDIATE_ENTRIES if pack_state == "intermediate" else FINAL_ENTRIES,
+                        "file_order": PACK_ENTRIES,
                         "timestamp_utc": "1980-01-01T00:00:00Z",
                         "unix_mode": "0644",
                         "compression": "zip_deflated_level_9",
@@ -783,27 +777,6 @@ def update_payload(build_info_json):
             "commit": dictionary["source"]["commit"],
         },
     }
-
-
-def sampled_sha256_file(path):
-    sample_count = 64
-    sample_bytes = 1_024
-    size = path.stat().st_size
-    digest = hashlib.sha256()
-    digest.update(struct.pack("<q", size))
-    maximum_start = max(0, size - sample_bytes)
-    samples = 1 if maximum_start == 0 else sample_count
-    with path.open("rb") as source:
-        for index in range(samples):
-            position = 0 if samples == 1 else maximum_start * index // (samples - 1)
-            count = min(sample_bytes, size - position)
-            source.seek(position)
-            data = source.read(count)
-            if len(data) != count:
-                raise ValueError(f"cannot sample complete dictionary bytes: {path}")
-            digest.update(struct.pack("<qi", position, count))
-            digest.update(data)
-    return digest.hexdigest()
 
 
 def require_aegl_v1(path):
@@ -884,85 +857,6 @@ def require_aegl_v1(path):
     }
 
 
-def parse_prefix_index_v4(path, dictionary):
-    data = memoryview(path.read_bytes())
-    offset = 0
-
-    def take(count, label):
-        nonlocal offset
-        if count < 0 or offset + count > len(data):
-            raise ValueError(f"truncated prefix index {label}: {path}")
-        value = data[offset : offset + count]
-        offset += count
-        return value
-
-    def read_int(label):
-        return struct.unpack("<i", take(4, label))[0]
-
-    def read_long(label):
-        return struct.unpack("<q", take(8, label))[0]
-
-    if bytes(take(4, "magic")) != b"AEGP":
-        raise ValueError(f"bad prefix index magic: {path}")
-    if read_int("version") != 4:
-        raise ValueError(f"prefix index is not AEGP v4: {path}")
-    dictionary_sha = bytes(take(32, "dictionary sha256")).hex()
-    dictionary_fingerprint = bytes(take(32, "dictionary fingerprint")).hex()
-    dictionary_size = read_long("dictionary size")
-    if dictionary_sha != sha256_file(dictionary):
-        raise ValueError(f"prefix index dictionary sha256 mismatch: {path}")
-    if dictionary_fingerprint != sampled_sha256_file(dictionary):
-        raise ValueError(f"prefix index dictionary fingerprint mismatch: {path}")
-    if dictionary_size != dictionary.stat().st_size:
-        raise ValueError(f"prefix index dictionary size mismatch: {path}")
-    record_count = read_int("record count")
-    if not 1 <= record_count <= 2_048:
-        raise ValueError(f"invalid prefix index record count: {record_count}")
-    seen = set()
-    total_word_count = 0
-    for _ in range(record_count):
-        kind = bytes(take(1, "record kind"))[0]
-        if kind not in (1, 2):
-            raise ValueError(f"invalid prefix index record kind: {kind}")
-        prefix_length = read_int("prefix length")
-        if not 1 <= prefix_length <= 8:
-            raise ValueError(f"invalid prefix index prefix length: {prefix_length}")
-        try:
-            prefix = bytes(take(prefix_length, "prefix")).decode("ascii")
-        except UnicodeDecodeError as error:
-            raise ValueError(f"prefix index prefix is not ASCII: {path}") from error
-        identity = (kind, prefix)
-        if identity in seen:
-            raise ValueError(f"duplicate prefix index record: {identity}")
-        seen.add(identity)
-        word_count = read_int("word count")
-        if not 0 <= word_count <= 64:
-            raise ValueError(f"invalid prefix index word count: {word_count}")
-        total_word_count += word_count
-        for _ in range(word_count):
-            word_length = read_int("word length")
-            if not 1 <= word_length <= 4_096:
-                raise ValueError(f"invalid prefix index word length: {word_length}")
-            try:
-                bytes(take(word_length, "word")).decode("utf-8")
-            except UnicodeDecodeError as error:
-                raise ValueError(f"prefix index word is not UTF-8: {path}") from error
-            if read_int("frequency") <= 0:
-                raise ValueError(f"invalid prefix index frequency: {path}")
-    if offset != len(data):
-        raise ValueError(f"trailing prefix index bytes: {path}")
-    if total_word_count == 0:
-        raise ValueError(f"prefix index has no words: {path}")
-    return {
-        "format": "AEGP v4",
-        "dictionary_sha256": dictionary_sha,
-        "dictionary_fingerprint": dictionary_fingerprint,
-        "dictionary_size_bytes": dictionary_size,
-        "record_count": record_count,
-        "word_count": total_word_count,
-    }
-
-
 def write_json_atomic(path, payload):
     path = Path(path)
     descriptor, temporary_name = tempfile.mkstemp(prefix=path.name + ".", suffix=".tmp", dir=path.parent)
@@ -994,26 +888,16 @@ def replace_file_durable(source, destination):
     fsync_directory(destination.parent)
 
 
-def pack_asset_identity(pack, name=None):
-    return (
-        name if name is not None else pack.name,
-        pack.stat().st_size,
-        sha256_file(pack),
-    )
+def pack_asset_identity(pack):
+    return (pack.name, pack.stat().st_size, sha256_file(pack))
 
 
-def validate_update_document(build_info_json, update_json, asset_identity=None):
-    expected = update_payload(build_info_json)
-    if asset_identity is not None:
-        expected["asset"] = json.loads(json.dumps(expected["asset"]))
-        expected["asset"]["name"] = asset_identity[0]
-        expected["asset"]["size_bytes"] = asset_identity[1]
-        expected["asset"]["sha256"] = asset_identity[2]
-    if update_json != expected:
+def validate_update_document(build_info_json, update_json):
+    if update_json != update_payload(build_info_json):
         raise ValueError("update-json metadata mismatch")
 
 
-def validate_intermediate_metadata(pack, build_info_json, update_json, asset_name=None):
+def validate_intermediate_metadata(pack, build_info_json, update_json):
     if build_info_json.get("schema_name") != "aegis.resource-build-info":
         raise ValueError("build-info schema mismatch")
     resources = build_info_json.get("resources") or []
@@ -1023,15 +907,15 @@ def validate_intermediate_metadata(pack, build_info_json, update_json, asset_nam
     build = resource.get("build") or {}
     if build.get("pack_state") != "intermediate":
         raise ValueError("finalization only accepts an intermediate pack")
-    if (build.get("zip_packaging") or {}).get("file_order") != INTERMEDIATE_ENTRIES:
+    if (build.get("zip_packaging") or {}).get("file_order") != PACK_ENTRIES:
         raise ValueError("intermediate build-info file order mismatch")
     asset = resource.get("physical_asset") or {}
-    identity = pack_asset_identity(pack, asset_name)
+    identity = pack_asset_identity(pack)
     if (asset.get("name"), asset.get("size_bytes"), asset.get("sha256")) != identity:
         raise ValueError("intermediate build-info asset identity mismatch")
     validate_update_document(build_info_json, update_json)
     component_rows = build.get("output_bins") or []
-    if [item.get("zip_entry") for item in component_rows] != INTERMEDIATE_ENTRIES[1:]:
+    if [item.get("zip_entry") for item in component_rows] != PACK_ENTRIES[1:]:
         raise ValueError("intermediate component metadata order/set mismatch")
     components = {item["zip_entry"]: item for item in component_rows}
     return resource, components
@@ -1046,13 +930,6 @@ def verify_component_metadata(payloads, components, names):
             sha256_bytes(data),
         ):
             raise ValueError(f"component metadata mismatch: {name}")
-
-
-def finalization_commands():
-    return [
-        f"prefix-index --dict {dictionary_entry} --out {zip_entry} --mode {mode}"
-        for zip_entry, _runtime_name, dictionary_entry, mode in PREFIX_OUTPUTS
-    ]
 
 
 def collect_final_output_infos(staged):
@@ -1077,18 +954,6 @@ def collect_final_output_infos(staged):
             min_bigram=LM_MIN_BIGRAM,
         )
     )
-    for zip_entry, runtime_name, dictionary_entry, _mode in PREFIX_OUTPUTS:
-        binding = parse_prefix_index_v4(staged[zip_entry], staged[dictionary_entry])
-        output_infos.append(
-            component_info(
-                zip_entry,
-                runtime_name,
-                "prefix_index",
-                staged[zip_entry],
-                dictionary_zip_entry=dictionary_entry,
-                **binding,
-            )
-        )
     return output_infos
 
 
@@ -1106,12 +971,10 @@ def apply_final_metadata(resource, pack, output_infos, builder_commit):
         raise ValueError("fixed finalizer tooling identity is missing")
     build["pack_state"] = "final"
     build["output_bins"] = output_infos
-    build["zip_packaging"]["file_order"] = FINAL_ENTRIES
+    build["zip_packaging"]["file_order"] = PACK_ENTRIES
     build["finalization"] = {
         "builder_commit": builder_commit,
         "builder_path": "tools/release/build_dictionary_pack.py",
-        "prefix_index_format": "AEGP v4",
-        "commands": finalization_commands(),
         "tooling_identity_sha256": tooling_identity_sha256(tooling),
     }
     asset = resource["physical_asset"]
@@ -1120,7 +983,7 @@ def apply_final_metadata(resource, pack, output_infos, builder_commit):
     return asset
 
 
-def validate_final_metadata(pack, build_info_json, update_json, output_infos, validate_update=True):
+def validate_final_metadata(pack, build_info_json, update_json, output_infos):
     if build_info_json.get("schema_name") != "aegis.resource-build-info":
         raise ValueError("build-info schema mismatch")
     resources = build_info_json.get("resources") or []
@@ -1130,26 +993,23 @@ def validate_final_metadata(pack, build_info_json, update_json, output_infos, va
     build = resource.get("build") or {}
     if build.get("pack_state") != "final":
         raise ValueError("final build-info pack state mismatch")
-    if (build.get("zip_packaging") or {}).get("file_order") != FINAL_ENTRIES:
+    if (build.get("zip_packaging") or {}).get("file_order") != PACK_ENTRIES:
         raise ValueError("final build-info file order mismatch")
+    finalization = build.get("finalization") or {}
+    if (
+        finalization.get("builder_path") != "tools/release/build_dictionary_pack.py"
+        or finalization.get("builder_commit") != frozen_builder_commit(resource)
+        or finalization.get("tooling_identity_sha256")
+        != tooling_identity_sha256(build.get("tooling") or {})
+    ):
+        raise ValueError("finalization metadata mismatch")
     if build.get("output_bins") != output_infos:
         raise ValueError("final component metadata mismatch")
     asset = resource.get("physical_asset") or {}
     identity = pack_asset_identity(pack)
     if (asset.get("name"), asset.get("size_bytes"), asset.get("sha256")) != identity:
         raise ValueError("final build-info asset identity mismatch")
-    finalization = build.get("finalization") or {}
-    if (
-        finalization.get("builder_path") != "tools/release/build_dictionary_pack.py"
-        or finalization.get("prefix_index_format") != "AEGP v4"
-        or finalization.get("commands") != finalization_commands()
-        or finalization.get("builder_commit") != frozen_builder_commit(resource)
-        or finalization.get("tooling_identity_sha256")
-        != tooling_identity_sha256(build.get("tooling") or {})
-    ):
-        raise ValueError("finalization metadata mismatch")
-    if validate_update:
-        validate_update_document(build_info_json, update_json)
+    validate_update_document(build_info_json, update_json)
     return resource
 
 
@@ -1165,25 +1025,11 @@ def finalize_main(argv):
     pack = Path(args.pack).resolve()
     build_info_path = Path(args.build_info).resolve()
     update_json_path = Path(args.update_json).resolve()
-    tool_bin = repo_root / TOOL_EXECUTABLE_RELATIVE
     for required in (pack, build_info_path, update_json_path):
         if not required.is_file():
             raise SystemExit(f"finalization input missing: {required}")
 
-    with zipfile.ZipFile(pack) as archive:
-        entry_names = archive.namelist()
-    if entry_names == INTERMEDIATE_ENTRIES:
-        pack_state = "intermediate"
-    elif entry_names == FINAL_ENTRIES:
-        pack_state = "final"
-    else:
-        raise ValueError(
-            f"pack entries/order mismatch: {entry_names}; expected intermediate or final protocol"
-        )
-    payloads = require_pack_entries(
-        pack,
-        INTERMEDIATE_ENTRIES if pack_state == "intermediate" else FINAL_ENTRIES,
-    )
+    payloads = require_pack_entries(pack, PACK_ENTRIES)
     if "derived character unigram and bigram statistics" not in payloads[NOTICE_NAME].decode("utf-8"):
         raise SystemExit("pack NOTICE does not attribute the language model")
     build_info_json = json.loads(build_info_path.read_text(encoding="utf-8"))
@@ -1220,101 +1066,23 @@ def finalize_main(argv):
             path.write_bytes(data)
             staged[name] = path
         require_aegl_v1(staged[LM_ENTRY])
+        output_infos = collect_final_output_infos(staged)
 
+        pack_state = build.get("pack_state")
         if pack_state == "intermediate":
             resource, existing_components = validate_intermediate_metadata(
                 pack, build_info_json, update_json
             )
-            verify_component_metadata(
-                payloads,
-                existing_components,
-                INTERMEDIATE_ENTRIES[1:],
-            )
-            for zip_entry, _runtime_name, dictionary_entry, mode in PREFIX_OUTPUTS:
-                output_path = staging / zip_entry
-                run(
-                    [
-                        str(tool_bin),
-                        "prefix-index",
-                        "--dict",
-                        str(staged[dictionary_entry]),
-                        "--out",
-                        str(output_path),
-                        "--mode",
-                        mode,
-                    ],
-                    cwd=repo_root,
-                    env=tool_environment,
-                )
-                staged[zip_entry] = output_path
-            output_infos = collect_final_output_infos(staged)
-            final_pack = staging / "final.zip"
-            write_zip(final_pack, [(name, staged[name]) for name in FINAL_ENTRIES])
-            require_pack_entries(final_pack, FINAL_ENTRIES)
-            replace_file_durable(final_pack, pack)
+            verify_component_metadata(payloads, existing_components, PACK_ENTRIES[1:])
             asset = apply_final_metadata(resource, pack, output_infos, builder_commit)
-            final_update_json = update_payload(build_info_json)
             write_json_atomic(build_info_path, build_info_json)
-            write_json_atomic(update_json_path, final_update_json)
+            write_json_atomic(update_json_path, update_payload(build_info_json))
             print(f"finalized {pack}: sha256={asset['sha256']} size={asset['size_bytes']}")
             return 0
+        if pack_state != "final":
+            raise ValueError(f"invalid build-info pack state: {pack_state!r}")
 
-        reconstructed_intermediate = staging / "intermediate.zip"
-        write_zip(
-            reconstructed_intermediate,
-            [(name, staged[name]) for name in INTERMEDIATE_ENTRIES],
-        )
-        require_pack_entries(reconstructed_intermediate, INTERMEDIATE_ENTRIES)
-        output_infos = collect_final_output_infos(staged)
-        metadata_state = (resources[0].get("build") or {}).get("pack_state")
-        if metadata_state == "intermediate":
-            resource, existing_components = validate_intermediate_metadata(
-                reconstructed_intermediate,
-                build_info_json,
-                update_json,
-                asset_name=pack.name,
-            )
-            verify_component_metadata(
-                payloads,
-                existing_components,
-                INTERMEDIATE_ENTRIES[1:],
-            )
-            asset = apply_final_metadata(
-                resource,
-                pack,
-                output_infos,
-                frozen_builder_commit(resource),
-            )
-            final_update_json = update_payload(build_info_json)
-            write_json_atomic(build_info_path, build_info_json)
-            write_json_atomic(update_json_path, final_update_json)
-            print(
-                f"recovered finalization for {pack}: "
-                f"sha256={asset['sha256']} size={asset['size_bytes']}"
-            )
-            return 0
-        if metadata_state != "final":
-            raise ValueError(f"invalid build-info pack state: {metadata_state!r}")
-
-        validate_final_metadata(
-            pack,
-            build_info_json,
-            update_json,
-            output_infos,
-            validate_update=False,
-        )
-        try:
-            validate_update_document(build_info_json, update_json)
-        except ValueError:
-            validate_update_document(
-                build_info_json,
-                update_json,
-                pack_asset_identity(reconstructed_intermediate, pack.name),
-            )
-            write_json_atomic(update_json_path, update_payload(build_info_json))
-            print(f"recovered final update metadata for {pack}")
-            return 0
-
+        validate_final_metadata(pack, build_info_json, update_json, output_infos)
         print(
             f"already finalized {pack}: "
             f"sha256={sha256_file(pack)} size={pack.stat().st_size}"
@@ -1437,10 +1205,10 @@ def main(argv):
         attribution_text(args.source_repo_https, args.source_tag, args.source_branch, source_commit).encode("utf-8")
     )
     zip_entries = [(NOTICE_NAME, notice_path)] + [
-        (name, staging_dir / name) for name in INTERMEDIATE_ENTRIES[1:]
+        (name, staging_dir / name) for name in PACK_ENTRIES[1:]
     ]
     write_zip(zip_path, zip_entries)
-    require_pack_entries(zip_path, INTERMEDIATE_ENTRIES)
+    require_pack_entries(zip_path, PACK_ENTRIES)
 
     source_infos = [
         {
