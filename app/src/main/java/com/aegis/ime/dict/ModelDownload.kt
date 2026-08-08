@@ -182,7 +182,9 @@ object ModelDownload {
                 else -> installStaged(tmp, validator, done, total, resumedFrom, install)
             }
         } catch (e: Exception) {
-            DownloadResult(false, null, identifyRequestFailure(e)?.toTransferFailure(), done, total, e, resumedFrom)
+            val failure = identifyRequestFailure(e)?.toTransferFailure()
+                ?: TransferFailure.INCOMPLETE.takeIf { e.hasTruncatedTransferSignal() }
+            DownloadResult(false, null, failure, done, total, e, resumedFrom)
         } finally {
             discardUnresumablePartial(tmp)
             conn?.disconnect()
@@ -324,6 +326,18 @@ object ModelDownload {
             else -> null
         }
     }
+
+    private fun Throwable.hasTruncatedTransferSignal(): Boolean =
+        generateSequence(this) { it.cause }
+            .any { error ->
+                error is java.io.EOFException ||
+                    (error is java.io.IOException && error.message?.hasTruncationSignal() == true)
+            }
+
+    private fun String.hasTruncationSignal(): Boolean =
+        lowercase(Locale.ROOT).let {
+            "unexpected end of file" in it || "unexpected end of stream" in it || "premature" in it
+        }
 
     private fun Throwable.hasTimeoutSignal(): Boolean =
         generateSequence(this) { it.cause }
