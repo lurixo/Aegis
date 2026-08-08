@@ -176,9 +176,6 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     fun save(file: File) {
         val tmp = File(file.absoluteFile.parentFile, file.name + ".tmp")
         try {
-            val rows = count.size + bigram.values.sumOf { it.size } + readings.values.sumOf { it.size } +
-                manual.values.sumOf { it.size }
-            require(rows <= MAX_ENTRIES) { "userdb has too many entries" }
             tmp.bufferedWriter().use { w ->
                 w.write("$HEADER\n")
                 for ((word, c) in count) w.write("W\t$word\t$c\t${lastUsed[word] ?: 0}\n")
@@ -186,7 +183,6 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
                 for ((reading, ws) in readings) for (word in ws) w.write("R\t$reading\t$word\n")
                 for ((reading, ws) in manual) for (word in ws) w.write("M\t$reading\t$word\n")
             }
-            require(tmp.length() <= MAX_FILE_BYTES) { "userdb exceeds size limit" }
             try {
                 Files.move(
                     tmp.toPath(),
@@ -265,10 +261,8 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     )
 
     companion object {
-        internal const val MAX_FILE_BYTES = 4L * 1024L * 1024L
         private const val HEADER = "aegis-userdb 2"
         private const val LEGACY_HEADER = "aegis-userdb 1"
-        private const val MAX_ENTRIES = 250_000
         private const val MAX_LINE_LENGTH = 4_096
         private const val MAX_WORD_LENGTH = 256
         private const val MAX_READING_LENGTH = 256
@@ -280,17 +274,14 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
 
         private fun parse(file: File): Parsed {
             if (!file.exists() || file.length() == 0L) return Parsed()
-            require(file.length() <= MAX_FILE_BYTES) { "userdb size is invalid" }
             val parsed = Parsed()
             file.bufferedReader().use { reader ->
                 val header = reader.readLine()
                 require(header == HEADER || header == LEGACY_HEADER) { "unsupported userdb header" }
                 val marked = header == HEADER
-                var entries = 0
                 while (true) {
                     val line = reader.readLine() ?: break
                     require(line.length <= MAX_LINE_LENGTH) { "userdb line is too long" }
-                    require(++entries <= MAX_ENTRIES) { "userdb has too many entries" }
                     val p = line.split('\t')
                     when (p.firstOrNull()) {
                         "W" -> {

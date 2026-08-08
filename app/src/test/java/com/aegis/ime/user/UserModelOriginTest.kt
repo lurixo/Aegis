@@ -159,22 +159,19 @@ class UserModelOriginTest {
         assertEquals("the model keeps its own marks", mapOf("zwm" to setOf("张伟明")), m.manualSnapshot())
     }
 
-    @Test fun aStoreTooLargeToReadBackIsNeverWritten() {
+    @Test fun aStoreFarPastTheOldRowAndByteGatesRoundTripsWhole() {
         fun key(i: Int) = buildString {
             var v = i
             repeat(4) { append('a' + v % 26); v /= 26 }
         }
         val m = model()
-        val fits = 83_333
-        repeat(fits) { m.addManualWord(key(it), "词" + key(it), 0L) }
+        val words = 120_000
+        repeat(words) { m.addManualWord(key(it), "词" + key(it), 0L) }
         m.save(db())
-        assertTrue("the file stays inside the size limit", db().length() <= UserModel.MAX_FILE_BYTES)
-        assertEquals("what it wrote it must read back", fits, reloaded(db()).userWordEntries().size)
-
-        m.addManualWord(key(fits), "词" + key(fits), 0L)
-        val before = db().readBytes()
-        assertThrows(IllegalArgumentException::class.java) { m.save(db()) }
-        assertTrue("the store it could not read back never replaced the good one", before.contentEquals(db().readBytes()))
+        assertTrue("the file is far past the old four megabyte gate", db().length() > 4L * 1024 * 1024)
+        val back = reloaded(db())
+        assertEquals("what it wrote it reads back whole", words, back.userWordEntries().size)
+        assertEquals("and every one of them is still marked by hand", words, back.manualSnapshot().values.sumOf { it.size })
     }
 
     @Test fun turningAutomaticLearningOffStopsRecordingAndLeavesHandAddingAlone() {

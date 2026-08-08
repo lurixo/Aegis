@@ -21,7 +21,7 @@ import java.io.InputStream
 object UserDictImport {
 
     fun apply(importFile: File, userDb: File, merge: Boolean, now: Long): Boolean {
-        if (!importFile.isFile || importFile.length() !in 1..UserModel.MAX_FILE_BYTES) return false
+        if (!importFile.isFile || importFile.length() <= 0L) return false
         return runCatching {
             if (merge) {
                 val target = UserModel().apply { if (userDb.exists()) load(userDb) }
@@ -47,7 +47,6 @@ object UserDictImport {
                     val read = input.read(buffer)
                     if (read < 0) break
                     total += read
-                    if (total > UserModel.MAX_FILE_BYTES) throw IllegalArgumentException("userdb exceeds size limit")
                     output.write(buffer, 0, read)
                 }
             }
