@@ -196,6 +196,31 @@ class UserLearningTest {
     }
 
     @Test
+    fun aStoreThatCouldNotBeReadIsNeverWrittenBackOverTheSameFile() {
+        val f = tempFile("userlearn-unreadable")
+        f.writeText("garbage that is not a learning store\n")
+        val before = f.readText()
+        val l = UserLearning { now }
+        l.load(f)
+        assertFalse("a file that would not parse must not pass for a readable store", l.readable)
+
+        repeat(3) { typeRun(l, "张" to "zhang", "伟" to "wei") }
+        val refused = runCatching { l.save(f) }
+        assertTrue("writing back over what could not be read must fail loudly", refused.isFailure)
+        assertEquals("the unreadable file is left byte for byte as it was", before, f.readText())
+        assertTrue("the data stays queued for a store that can take it", l.dirty)
+
+        val elsewhere = tempFile("userlearn-elsewhere")
+        l.save(elsewhere)
+        assertEquals(listOf("张伟"), UserLearning { now }.apply { load(elsewhere) }.formedWordsFor("zhangwei"))
+
+        l.clear()
+        assertTrue("discarding it on purpose is an explicit decision, so saving works again", l.readable)
+        l.save(f)
+        assertTrue(f.readText().startsWith("aegis-userlearn"))
+    }
+
+    @Test
     fun corruptStoreFilesLoadEmpty() {
         val variants = listOf(
             "garbage\n",
