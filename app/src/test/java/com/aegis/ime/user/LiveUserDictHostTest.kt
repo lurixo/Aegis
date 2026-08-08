@@ -178,6 +178,31 @@ class LiveUserDictHostTest {
         assertEquals(listOf("测试"), reloadFromDisk().readingSnapshot()["ceshi"])
     }
 
+    @Test fun an_overwrite_import_of_a_long_unused_file_still_lands_whole() {
+        val h = host()
+        h.addWord("nihao", "你好", now = 1L)
+        val ancient = System.currentTimeMillis() - 400L * 24L * 60L * 60L * 1000L
+        val imported = tmp.newFile("stale-import.txt").apply {
+            writeText("aegis-userdb 2\nW\t陈词\t1\t$ancient\nR\tchenci\t陈词\n")
+        }
+
+        assertTrue("a file nobody used lately is still the file the user chose", h.importUserDict(imported, merge = false, now = ancient))
+        assertEquals(listOf("陈词"), model.readingSnapshot()["chenci"])
+    }
+
+    @Test fun the_host_reports_the_faded_out_total_from_the_model_it_already_holds() {
+        db = File(tmp.root, "userdb.txt")
+        val ancient = System.currentTimeMillis() - 400L * 24L * 60L * 60L * 1000L
+        db.writeText("aegis-userdb 2\nW\t旧词\t1\t$ancient\nR\tjiuci\t旧词\n")
+        model.load(db)
+        val h = LiveUserDictHost(model, db, onSaved = ::watermark)
+        assertEquals(1, model.forgottenCount)
+
+        assertEquals(1, h.forgottenCount())
+        assertTrue(db.delete())
+        assertEquals("the count comes from the live model, not from parsing the file again", 1, h.forgottenCount())
+    }
+
     @Test fun junk_import_never_wipes_the_live_dictionary() {
         val h = host()
         h.addWord("nihao", "你好", now = 1L)
