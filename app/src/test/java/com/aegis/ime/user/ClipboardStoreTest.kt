@@ -19,13 +19,17 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import java.io.File
-import java.nio.file.Files
 
 class ClipboardStoreTest {
 
-    private fun newDir(): File = Files.createTempDirectory("clipstore").toFile()
+    @get:Rule
+    val tmp = TemporaryFolder()
+
+    private fun newDir(): File = tmp.newFolder()
 
     @Test fun records_newest_first_and_dedupes() {
         val s = ClipboardStore(newDir()).apply { load() }
