@@ -241,6 +241,36 @@ class LiveUserDictHostSaveQueueTest {
         assertFalse("the flag must clear once the write is done", h.writing)
     }
 
+    @Test fun a_watermark_callback_that_asks_for_another_flush_does_not_wedge_the_writer() {
+        db = File(tmp.root, "userdb.txt")
+        learnFile = File(tmp.root, "userlearn.txt")
+        var reentered = false
+        lateinit var h: LiveUserDictHost
+        h = LiveUserDictHost(model, db, null, learnFile) { userDbMtime, userLearnMtime ->
+            watermark(userDbMtime, userLearnMtime)
+            if (!reentered) {
+                reentered = true
+                model.addManualWord("zaici", "再次", 2L)
+                h.flush()
+                assertTrue(
+                    "the outer write is still running, so a reload must still be told to stand down",
+                    h.writing,
+                )
+            }
+        }
+        model.record(null, "回环", 1L)
+        val pending = helper().submit<Boolean> { h.addWord("nihao", "你好", now = 1L) }
+        assertTrue("a re-entrant flush must not wedge the writer", pending.get(5, TimeUnit.SECONDS))
+        assertTrue(reentered)
+        val written = onDisk()
+        assertEquals(listOf("你好"), written.readingSnapshot()["nihao"])
+        assertEquals(
+            "what the re-entrant flush was asked to write must be on disk too",
+            listOf("再次"),
+            written.readingSnapshot()["zaici"],
+        )
+    }
+
     @Test fun stopping_the_writer_still_lets_a_last_edit_be_written_and_reported() {
         val h = host()
         h.stopSaving()
