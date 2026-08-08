@@ -15,6 +15,7 @@
 
 package com.aegis.ime
 
+import com.aegis.ime.user.clipEntries
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -211,7 +212,7 @@ class SharedPanelBackControlTest {
     }
 
     private fun clipboardView(phrase: Boolean): ClipboardView = ClipboardView(ctx).apply {
-        historyProvider = { listOf("clip") }
+        historyProvider = { clipEntries("clip") }
         categoriesProvider = { listOf("默认") }
         phrasesInProvider = { listOf("phrase") }
         if (phrase) showPhraseTab("默认") else refresh()

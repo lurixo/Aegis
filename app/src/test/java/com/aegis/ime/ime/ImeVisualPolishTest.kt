@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.user.clipEntries
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.drawable.ColorDrawable
@@ -148,7 +149,7 @@ class ImeVisualPolishTest {
         )
         assertAllClickableViewsUseRoundedTapFeedback(
             ClipboardView(ctx).apply {
-                historyProvider = { listOf("clip") }
+                historyProvider = { clipEntries("clip") }
                 categoriesProvider = { listOf("默认") }
                 phrasesInProvider = { listOf("phrase") }
                 applyPalette(ImePalette.STATIC_LIGHT)
@@ -213,7 +214,7 @@ class ImeVisualPolishTest {
 
     private fun assertDisabledActionContrast(palette: ImePalette) {
         val v = ClipboardView(ctx).apply {
-            historyProvider = { listOf("clip") }
+            historyProvider = { clipEntries("clip") }
             categoriesProvider = { listOf("默认") }
             applyPalette(palette)
             enterSelectForTest()

@@ -15,6 +15,8 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.user.asClipEntries
+import com.aegis.ime.user.clipEntries
 import android.graphics.drawable.GradientDrawable
 import android.graphics.Rect
 import android.view.Gravity
@@ -133,7 +135,7 @@ class Debug17PanelTest {
         applyPalette(pal); forcePhrasesStateForTest("默认"); refresh()
     }
     private fun clipView(history: List<String> = listOf("hello")): ClipboardView = ClipboardView(ctx).apply {
-        historyProvider = { history }; categoriesProvider = { listOf("默认") }
+        historyProvider = { history.asClipEntries() }; categoriesProvider = { listOf("默认") }
         applyPalette(pal); refresh()
     }
 
@@ -690,7 +692,7 @@ class Debug17PanelTest {
         val clipboard = ctx.getString(com.aegis.ime.R.string.clip_clipboard)
         val phrases = ctx.getString(com.aegis.ime.R.string.clip_phrases)
         val view = ClipboardView(ctx).apply {
-            historyProvider = { listOf("clipboard body") }
+            historyProvider = { clipEntries("clipboard body") }
             categoriesProvider = { listOf("默认") }
             phrasesInProvider = { listOf("phrase body") }
             applyPalette(pal)

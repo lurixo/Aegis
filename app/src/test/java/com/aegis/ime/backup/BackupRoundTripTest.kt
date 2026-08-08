@@ -15,6 +15,8 @@
 
 package com.aegis.ime.backup
 
+import com.aegis.ime.user.historyText
+import com.aegis.ime.user.asClipEntries
 import android.content.Context
 import android.content.SharedPreferences
 import com.aegis.ime.user.ClipboardStore
@@ -334,7 +336,7 @@ class BackupRoundTripTest {
         assertTrue(clip.phrasesIn("工作").containsAll(listOf("已收到", "好的")))
         assertEquals("回执", clip.noteFor("工作", "已收到"))
 
-        assertTrue(clip.history().containsAll(listOf("剪贴内容一", "剪贴内容二")))
+        assertTrue(clip.historyText().containsAll(listOf("剪贴内容一", "剪贴内容二")))
 
         assertTrue(SymbolUsageStore(filesDir).apply { load() }.recent().containsAll(listOf("！", "？")))
         assertTrue(SymbolUsageStore(File(filesDir, "emoji")).apply { load() }.recent().contains("😀"))
@@ -393,7 +395,7 @@ class BackupRoundTripTest {
         assertTrue("kept local word", entries.contains("beijing" to "北京"))
         assertTrue("added backup words", entries.containsAll(listOf("nihao" to "你好", "shijie" to "世界")))
 
-        assertTrue(freshClip().history().containsAll(listOf("本机剪贴", "剪贴内容一", "剪贴内容二")))
+        assertTrue(freshClip().historyText().containsAll(listOf("本机剪贴", "剪贴内容一", "剪贴内容二")))
 
         assertEquals("nine", prefs.getString("cn_layout", null))
         assertEquals("§\n¶", prefs.getString("custom_symbols", null))
@@ -439,7 +441,7 @@ class BackupRoundTripTest {
 
         restore(backup, BackupManager.Mode.OVERWRITE)
 
-        assertTrue("absent category must be left intact", freshClip().history().contains("请勿删除"))
+        assertTrue("absent category must be left intact", freshClip().historyText().contains("请勿删除"))
         assertTrue(UserModel().apply { load(userdbFile()) }.userWordEntries().any { it.word == "你好" })
     }
 
@@ -612,35 +614,35 @@ class BackupRoundTripTest {
         model.save(userdbFile())
 
         val bigClip = "巨大剪贴".repeat(400_000)
-        freshClip().apply { importHistory(listOf(bigClip, "普通"), merge = false) }
+        freshClip().apply { importHistory(listOf(bigClip, "普通").asClipEntries(), merge = false) }
 
         val backup = export()
         wipeUserData()
         restore(backup, BackupManager.Mode.OVERWRITE)
 
         assertEquals(count, UserModel().apply { load(userdbFile()) }.userWordEntries().size)
-        val history = freshClip().history()
+        val history = freshClip().historyText()
         assertTrue(history.contains("普通"))
         assertTrue("the multi-MB entry round-trips", history.contains(bigClip))
     }
 
     @Test fun overwrite_restore_replaces_clip_sidecar_set() {
         val restoredBig = "restored-sidecar-" + "r".repeat(ClipboardStore.BIG_THRESHOLD + 1)
-        freshClip().apply { importHistory(listOf(restoredBig), merge = false) }
+        freshClip().apply { importHistory(listOf(restoredBig).asClipEntries(), merge = false) }
         val backup = export()
         val restoredSidecars = clipSideFileNames()
         assertTrue("precondition: restored history has a sidecar", restoredSidecars.isNotEmpty())
 
         wipeUserData()
         val staleBig = "stale-sidecar-" + "s".repeat(ClipboardStore.BIG_THRESHOLD + 1)
-        freshClip().apply { importHistory(listOf(staleBig), merge = false) }
+        freshClip().apply { importHistory(listOf(staleBig).asClipEntries(), merge = false) }
         val staleSidecars = clipSideFileNames()
         assertTrue("precondition: target history has a stale sidecar", staleSidecars.isNotEmpty())
         assertTrue("precondition: sidecar hashes differ", restoredSidecars.intersect(staleSidecars).isEmpty())
 
         restore(backup, BackupManager.Mode.OVERWRITE)
 
-        assertEquals(listOf(restoredBig), freshClip().history())
+        assertEquals(listOf(restoredBig), freshClip().historyText())
         assertEquals(restoredSidecars, clipSideFileNames())
     }
 
@@ -651,21 +653,21 @@ class BackupRoundTripTest {
         wipeUserData()
         restore(backup, BackupManager.Mode.OVERWRITE)
 
-        assertEquals(listOf("重复剪贴", "B\tMissingSidecar42"), freshClip().history())
+        assertEquals(listOf("重复剪贴", "B\tMissingSidecar42"), freshClip().historyText())
         assertEquals(listOf("重复剪贴", "B\tMissingSidecar42"), File(filesDir, "clipboard.txt").readLines())
         assertTrue(clipSideFileNames().isEmpty())
     }
 
     @Test fun export_after_overwrite_omits_unreferenced_clip_sidecars() {
         val restoredBig = "export-restored-sidecar-" + "r".repeat(ClipboardStore.BIG_THRESHOLD + 1)
-        freshClip().apply { importHistory(listOf(restoredBig), merge = false) }
+        freshClip().apply { importHistory(listOf(restoredBig).asClipEntries(), merge = false) }
         val backup = export()
         val restoredSidecars = clipSideFileNames()
         assertTrue("precondition: restored history has a sidecar", restoredSidecars.isNotEmpty())
 
         wipeUserData()
         val staleBig = "export-stale-sidecar-" + "s".repeat(ClipboardStore.BIG_THRESHOLD + 1)
-        freshClip().apply { importHistory(listOf(staleBig), merge = false) }
+        freshClip().apply { importHistory(listOf(staleBig).asClipEntries(), merge = false) }
         val staleSidecars = clipSideFileNames()
         assertTrue("precondition: target history has a stale sidecar", staleSidecars.isNotEmpty())
         assertTrue("precondition: sidecar hashes differ", restoredSidecars.intersect(staleSidecars).isEmpty())
@@ -733,7 +735,7 @@ class BackupRoundTripTest {
             wipeUserData()
             restore(backup, BackupManager.Mode.OVERWRITE)
 
-            assertTrue("queued big clipboard entry must restore from the backup", freshClip().history().contains(marker))
+            assertTrue("queued big clipboard entry must restore from the backup", freshClip().historyText().contains(marker))
         } finally {
             releaseIo.countDown()
             exportWorker.shutdownNow()
@@ -743,7 +745,7 @@ class BackupRoundTripTest {
 
     @Test fun restore_flushes_queued_clipboard_write_before_committing_restored_history() {
         val restoredMarker = "restored-clipboard-marker-" + "r".repeat(ClipboardStore.BIG_THRESHOLD + 1)
-        freshClip().apply { importHistory(listOf(restoredMarker), merge = false) }
+        freshClip().apply { importHistory(listOf(restoredMarker).asClipEntries(), merge = false) }
         val backup = export()
         wipeUserData()
 
@@ -775,7 +777,7 @@ class BackupRoundTripTest {
             releaseIo.countDown()
             assertEquals(BackupManager.Mode.OVERWRITE, restoreFuture.get(5, TimeUnit.SECONDS))
 
-            assertEquals(listOf(restoredMarker), freshClip().history())
+            assertEquals(listOf(restoredMarker), freshClip().historyText())
         } finally {
             releaseIo.countDown()
             restoreWorker.shutdownNow()
@@ -785,7 +787,7 @@ class BackupRoundTripTest {
 
     @Test fun service_teardown_drains_queued_clipboard_write_before_restore_can_commit() {
         val restoredMarker = "restored-after-service-teardown-" + "t".repeat(ClipboardStore.BIG_THRESHOLD + 1)
-        freshClip().apply { importHistory(listOf(restoredMarker), merge = false) }
+        freshClip().apply { importHistory(listOf(restoredMarker).asClipEntries(), merge = false) }
         val backup = export()
         wipeUserData()
 
@@ -834,7 +836,7 @@ class BackupRoundTripTest {
 
             assertNull(LiveUserData.onBeforeExport)
             assertNull(LiveUserData.onBeforeRestore)
-            assertEquals(listOf(restoredMarker), freshClip().history())
+            assertEquals(listOf(restoredMarker), freshClip().historyText())
         } finally {
             releaseIo.countDown()
             teardownWorker.shutdownNow()
@@ -1013,7 +1015,7 @@ class BackupRoundTripTest {
         val entries = UserModel().apply { load(userdbFile()) }.userWordEntries().map { it.reading to it.word }
         assertEquals(setOf("nihao" to "你好", "shijie" to "世界"), entries.toSet())
         val clip = freshClip()
-        assertTrue(clip.history().containsAll(listOf("剪贴内容一", "剪贴内容二")))
+        assertTrue(clip.historyText().containsAll(listOf("剪贴内容一", "剪贴内容二")))
         assertTrue(clip.phrasesIn("工作").containsAll(listOf("已收到", "好的")))
         assertTrue(SymbolUsageStore(filesDir).apply { load() }.recent().containsAll(listOf("！", "？")))
     }
@@ -1041,7 +1043,7 @@ class BackupRoundTripTest {
 
         val entries = UserModel().apply { load(userdbFile()) }.userWordEntries().map { it.reading to it.word }
         assertEquals(setOf("nihao" to "你好", "shijie" to "世界"), entries.toSet())
-        assertTrue(freshClip().history().containsAll(listOf("剪贴内容一", "剪贴内容二")))
+        assertTrue(freshClip().historyText().containsAll(listOf("剪贴内容一", "剪贴内容二")))
         assertTrue(SymbolUsageStore(File(filesDir, "emoji")).apply { load() }.recent().contains("😀"))
     }
 

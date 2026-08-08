@@ -15,6 +15,8 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.user.asClipEntries
+import com.aegis.ime.user.clipEntries
 import android.view.View
 import com.aegis.ime.ime.theme.ImePalette
 import org.junit.Assert.assertEquals
@@ -45,7 +47,7 @@ class JankRemediationTest {
 
     private fun clip(history: List<String>, phrases: Map<String, List<String>> = emptyMap()): ClipboardView =
         ClipboardView(ctx).apply {
-            historyProvider = { history }
+            historyProvider = { history.asClipEntries() }
             categoriesProvider = { phrases.keys.toList() }
             phrasesInProvider = { phrases[it] ?: emptyList() }
             applyPalette(light)
@@ -122,7 +124,7 @@ class JankRemediationTest {
 
     @Test fun recycled_select_rows_repaint_on_a_light_to_dark_palette_change() {
         val v = ClipboardView(ctx).apply {
-            historyProvider = { listOf("a", "b") }
+            historyProvider = { clipEntries("a", "b") }
             applyPalette(ImePalette.STATIC_LIGHT)
             refresh()
         }

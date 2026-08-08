@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.user.asClipEntries
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
@@ -57,7 +58,7 @@ class ClipboardActionIconsTest {
     }
 
     private fun clipView(history: List<String>): ClipboardView = ClipboardView(ctx).apply {
-        historyProvider = { history }; applyPalette(pal); refresh()
+        historyProvider = { history.asClipEntries() }; applyPalette(pal); refresh()
     }
 
     private fun phraseView(phrases: List<String>): ClipboardView = ClipboardView(ctx).apply {

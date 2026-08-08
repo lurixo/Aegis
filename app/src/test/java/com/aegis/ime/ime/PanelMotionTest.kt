@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.user.asClipEntries
 import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -73,7 +74,7 @@ class PanelMotionTest {
 
     private fun clipboardView(activity: Activity, history: () -> List<String>): ClipboardView =
         ClipboardView(activity).apply {
-            historyProvider = history
+            historyProvider = { history().asClipEntries() }
             categoriesProvider = { listOf("默认", "工作") }
             phrasesInProvider = { listOf("短语") }
             applyPalette(light)

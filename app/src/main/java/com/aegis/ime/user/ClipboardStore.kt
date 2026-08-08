@@ -21,13 +21,103 @@ import java.security.MessageDigest
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 
+class ClipEntry private constructor(
+    private val local: File?,
+    private val origin: File?,
+    internal val hash: String?,
+    @Volatile private var resident: String?,
+) {
+
+    @Volatile
+    private var head: String? = null
+
+    val available: Boolean =
+        hash == null || resident != null || local?.isFile == true || origin?.isFile == true
+
+    val key: String = when {
+        hash == null -> resident.orEmpty()
+        available -> BIG_KEY + hash
+        else -> LOST_KEY + hash
+    }
+
+    private fun source(): File? = local?.takeIf { it.isFile } ?: origin?.takeIf { it.isFile }
+
+    fun body(): String? = resident ?: source()?.let { runCatching { it.readText() }.getOrNull() }
+
+    fun preview(): String {
+        resident?.let { return it }
+        val h = hash ?: return ""
+        if (!available) return lostLabel(h)
+        head?.let { return it }
+        val prefix = source()?.let { readHead(it) } ?: return lostLabel(h)
+        head = prefix
+        return prefix
+    }
+
+    internal fun pendingBody(): String? = if (hash == null) null else resident
+
+    internal fun importSource(): File? = source()
+
+    internal fun markPersisted() { if (hash != null) resident = null }
+
+    internal fun residentChars(): Int = (resident?.length ?: 0) + (head?.length ?: 0)
+
+    override fun equals(other: Any?): Boolean = other is ClipEntry && other.key == key
+
+    override fun hashCode(): Int = key.hashCode()
+
+    override fun toString(): String = key
+
+    companion object {
+
+        const val PREVIEW_CHARS = 2 * 1024
+
+        private const val BIG_KEY = "B\t"
+        private const val LOST_KEY = " B?\t"
+        private const val LOST_MARK = "⚠ "
+        private const val SIDECAR_HASH_CHARS = 64
+
+        internal fun isSidecarHash(s: String): Boolean =
+            s.length == SIDECAR_HASH_CHARS && s.all { it in '0'..'9' || it in 'a'..'f' }
+
+        internal fun isReferenceKey(key: String): Boolean =
+            key.startsWith(LOST_KEY) || (key.startsWith(BIG_KEY) && isSidecarHash(key.substring(BIG_KEY.length)))
+
+        fun of(text: String): ClipEntry = ClipEntry(null, null, null, text)
+
+        internal fun pending(dir: File, hash: String, body: String): ClipEntry =
+            ClipEntry(File(dir, "$hash.txt"), null, hash, body)
+
+        internal fun stored(dir: File, hash: String): ClipEntry =
+            ClipEntry(File(dir, "$hash.txt"), null, hash, null)
+
+        internal fun rehomed(dir: File, hash: String, origin: File?): ClipEntry =
+            ClipEntry(File(dir, "$hash.txt"), origin, hash, null)
+
+        private fun lostLabel(hash: String): String = LOST_MARK + hash.take(8)
+
+        private fun readHead(f: File): String? = runCatching {
+            f.reader().use { r ->
+                val buf = CharArray(PREVIEW_CHARS)
+                var n = 0
+                while (n < PREVIEW_CHARS) {
+                    val k = r.read(buf, n, PREVIEW_CHARS - n)
+                    if (k < 0) break
+                    n += k
+                }
+                String(buf, 0, n)
+            }
+        }.getOrNull()
+    }
+}
+
 class ClipboardStore(private val dir: File) {
 
     private val histFile get() = File(dir, "clipboard.txt")
     private val phraseFile get() = File(dir, "phrases.txt")
     private fun clipsDir() = File(dir, "clips")
 
-    private val history = ArrayList<String>()
+    private val history = ArrayList<ClipEntry>()
 
     private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "aegis-clip-io").apply { isDaemon = true } }
     private val saveGen = AtomicLong(0)
@@ -47,7 +137,7 @@ class ClipboardStore(private val dir: File) {
         historyReadable = runCatching {
             if (histFile.exists()) histFile.readLines().forEach { line ->
                 readEntry(line)?.let { e ->
-                    if (e.isNotBlank() && !isLegacyImageEntry(e) && seen.add(e)) history.add(e)
+                    if (e.key.isNotBlank() && !isLegacyImageEntry(e.key) && seen.add(e.key)) history.add(e)
                 }
             }
         }.isSuccess
@@ -57,13 +147,13 @@ class ClipboardStore(private val dir: File) {
 
     private fun purgeLegacyImageDir() { runCatching { File(dir, "clipboard_images").deleteRecursively() } }
 
-    private fun readEntry(line: String): String? =
+    private fun readEntry(line: String): ClipEntry? {
         if (line.startsWith(BIG_LINE)) {
-            File(clipsDir(), line.substring(BIG_LINE.length) + ".txt").takeIf { it.isFile }
-                ?.let { runCatching { it.readText() }.getOrNull() } ?: decode(line)
-        } else {
-            decode(line)
+            val hash = line.substring(BIG_LINE.length)
+            if (ClipEntry.isSidecarHash(hash)) return ClipEntry.stored(clipsDir(), hash)
         }
+        return decode(line)?.let(ClipEntry::of)
+    }
 
     private fun loadPhrases() {
         phraseCats.clear()
@@ -119,33 +209,52 @@ class ClipboardStore(private val dir: File) {
     fun record(text: String?) {
         val t = text?.trim().orEmpty()
         if (t.isEmpty()) return
-        history.remove(t)
-        history.add(0, t)
+        val entry = adopt(t)
+        history.remove(entry)
+        history.add(0, entry)
         scheduleSave()
     }
 
-    fun importHistory(entries: List<String>, merge: Boolean) {
-        val incoming = entries.mapNotNull { it.trim().ifEmpty { null } }
+    fun importHistory(entries: List<ClipEntry>, merge: Boolean) {
+        val incoming = entries.mapNotNull(::adopt)
         if (merge) {
             if (!historyReadable) throw IOException("clipboard history could not be read")
             val present = HashSet(history)
             for (e in incoming) if (present.add(e)) history.add(e)
         } else {
             history.clear()
-            val seen = HashSet<String>()
+            val seen = HashSet<ClipEntry>()
             for (e in incoming) if (seen.add(e)) history.add(e)
             historyReadable = true
         }
         writeHistory(ArrayList(history))
     }
 
-    fun delete(text: String) { if (history.remove(text)) scheduleSave() }
-    fun deleteAll(texts: Collection<String>) { if (history.removeAll(texts.toSet())) scheduleSave() }
+    private fun adopt(text: String): ClipEntry =
+        if (text.length > BIG_THRESHOLD) ClipEntry.pending(clipsDir(), sha256(text), text) else ClipEntry.of(text)
+
+    private fun adopt(entry: ClipEntry): ClipEntry? {
+        entry.hash?.let { hash ->
+            val pending = entry.pendingBody()
+            return if (pending != null) ClipEntry.pending(clipsDir(), hash, pending)
+            else ClipEntry.rehomed(clipsDir(), hash, entry.importSource())
+        }
+        val body = entry.body()?.trim().orEmpty()
+        return if (body.isEmpty()) null else adopt(body)
+    }
+
+    fun delete(text: String) { if (history.removeAll { it.key == text }) scheduleSave() }
+    fun deleteAll(texts: Collection<String>) {
+        val keys = texts.toSet()
+        if (history.removeAll { it.key in keys }) scheduleSave()
+    }
     fun clearHistory() { if (history.isNotEmpty()) { history.clear(); scheduleSave() } }
 
-    fun history(): List<String> = history.toList()
+    fun history(): List<ClipEntry> = history.toList()
 
-    internal fun latest(): String? = history.firstOrNull()
+    internal fun latest(): String? = history.firstOrNull()?.body()
+
+    internal fun residentBodyChars(): Long = history.sumOf { it.residentChars().toLong() }
 
 
     fun reloadPhrases() = loadPhrases()
@@ -291,20 +400,17 @@ class ClipboardStore(private val dir: File) {
         runCatching { io.execute { if (gen == saveGen.get()) runCatching { writeHistory(snapshot) } } }
     }
 
-    private fun writeHistory(snapshot: List<String>) {
+    private fun writeHistory(snapshot: List<ClipEntry>) {
         val sb = StringBuilder()
         val referenced = HashSet<String>()
         for (e in snapshot) {
-            if (e.length > BIG_THRESHOLD) {
-                val hash = sha256(e)
+            val hash = e.hash
+            if (hash != null) {
                 referenced.add(hash)
-                val sideDir = clipsDir()
-                if (!sideDir.exists() && !sideDir.mkdirs()) throw IOException("clipboard sidecar directory creation failed")
-                val f = File(sideDir, "$hash.txt")
-                if (!f.isFile) atomicWrite(f, e)
+                persistSidecar(hash, e)
                 sb.append(BIG_LINE).append(hash).append('\n')
             } else {
-                sb.append(encode(e)).append('\n')
+                sb.append(encodeEntry(e.body().orEmpty())).append('\n')
             }
         }
         atomicWrite(histFile, sb.toString())
@@ -313,9 +419,43 @@ class ClipboardStore(private val dir: File) {
         }
     }
 
+    private fun persistSidecar(hash: String, entry: ClipEntry) {
+        val dest = File(clipsDir(), "$hash.txt")
+        if (!dest.isFile) {
+            val pending = entry.pendingBody()
+            val source = entry.importSource()
+            when {
+                pending != null -> { makeClipsDir(); atomicWrite(dest, pending) }
+                source != null -> { makeClipsDir(); atomicCopy(source, dest) }
+                else -> return
+            }
+        }
+        entry.markPersisted()
+    }
+
+    private fun makeClipsDir() {
+        val sideDir = clipsDir()
+        if (!sideDir.exists() && !sideDir.mkdirs()) throw IOException("clipboard sidecar directory creation failed")
+    }
+
+    private fun encodeEntry(text: String): String {
+        val line = encode(text)
+        return if (line.startsWith(BIG_LINE) && ClipEntry.isSidecarHash(line.substring(BIG_LINE.length))) "\\$line" else line
+    }
+
     private fun atomicWrite(dest: File, text: String) {
         val tmp = File(dest.parentFile, dest.name + ".tmp")
         tmp.writeText(text)
+        swapInto(tmp, dest)
+    }
+
+    private fun atomicCopy(source: File, dest: File) {
+        val tmp = File(dest.parentFile, dest.name + ".tmp")
+        source.copyTo(tmp, overwrite = true)
+        swapInto(tmp, dest)
+    }
+
+    private fun swapInto(tmp: File, dest: File) {
         if (!tmp.renameTo(dest)) {
             dest.delete()
             if (!tmp.renameTo(dest)) {

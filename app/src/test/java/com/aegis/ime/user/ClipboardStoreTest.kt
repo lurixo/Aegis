@@ -30,7 +30,7 @@ class ClipboardStoreTest {
     @Test fun records_newest_first_and_dedupes() {
         val s = ClipboardStore(newDir()).apply { load() }
         s.record("a"); s.record("b"); s.record("a")
-        assertEquals(listOf("a", "b"), s.history())
+        assertEquals(listOf("a", "b"), s.historyText())
     }
 
     @Test fun latest_returns_the_newest_aegis_entry_or_null_for_empty_history() {
@@ -44,7 +44,7 @@ class ClipboardStoreTest {
     @Test fun blank_ignored() {
         val s = ClipboardStore(newDir()).apply { load() }
         s.record("   "); s.record(null); s.record("x")
-        assertEquals(listOf("x"), s.history())
+        assertEquals(listOf("x"), s.historyText())
     }
 
     @Test fun no_default_phrases_seeded_on_first_run() {
@@ -56,7 +56,7 @@ class ClipboardStoreTest {
         val dir = newDir()
         ClipboardStore(dir).apply { load(); record("line1\nline2"); flushPendingWrites() }
         val reloaded = ClipboardStore(dir).apply { load() }
-        assertEquals("line1\nline2", reloaded.history().first())
+        assertEquals("line1\nline2", reloaded.historyText().first())
     }
 
     @Test fun legacy_image_entries_are_dropped_on_load() {
@@ -65,7 +65,7 @@ class ClipboardStoreTest {
             "img:/data/user/0/com.aegis.ime/files/clipboard_images/123.png\n" +
             "hello world\n"
         )
-        val h = ClipboardStore(dir).apply { load() }.history()
+        val h = ClipboardStore(dir).apply { load() }.historyText()
         assertEquals("only the text entry survives", listOf("hello world"), h)
     }
 
@@ -79,7 +79,7 @@ class ClipboardStoreTest {
     @Test fun text_starting_with_img_prefix_is_preserved() {
         val dir = newDir()
         File(dir, "clipboard.txt").writeText("img:hello\nreal text\n")
-        val h = ClipboardStore(dir).apply { load() }.history()
+        val h = ClipboardStore(dir).apply { load() }.historyText()
         assertEquals(listOf("img:hello", "real text"), h)
         assertFalse("the text-only img: entry is not classified as a legacy image",
             ClipboardStore.isLegacyImageEntry("img:hello"))
@@ -91,7 +91,7 @@ class ClipboardStoreTest {
         val dir = newDir()
         ClipboardStore(dir).apply { load(); record("line1\r\nline2"); flushPendingWrites() }
         val reloaded = ClipboardStore(dir).apply { load() }
-        assertEquals("line1\r\nline2", reloaded.history().first())
+        assertEquals("line1\r\nline2", reloaded.historyText().first())
     }
 
     @Test fun multi_delete_and_clear_persist() {
@@ -99,13 +99,13 @@ class ClipboardStoreTest {
         val s = ClipboardStore(dir).apply { load() }
         s.record("a"); s.record("b"); s.record("c")
         s.deleteAll(listOf("a", "c"))
-        assertEquals(listOf("b"), s.history())
+        assertEquals(listOf("b"), s.historyText())
         s.flushPendingWrites()
-        assertEquals(listOf("b"), ClipboardStore(dir).apply { load() }.history())
+        assertEquals(listOf("b"), ClipboardStore(dir).apply { load() }.historyText())
         s.clearHistory()
-        assertTrue(s.history().isEmpty())
+        assertTrue(s.historyText().isEmpty())
         s.flushPendingWrites()
-        assertTrue(ClipboardStore(dir).apply { load() }.history().isEmpty())
+        assertTrue(ClipboardStore(dir).apply { load() }.historyText().isEmpty())
     }
 
 
@@ -113,15 +113,15 @@ class ClipboardStoreTest {
         val dir = newDir()
         val big = "字".repeat(1_000_000)
         val s = ClipboardStore(dir).apply { load(); record(big) }
-        assertEquals(1_000_000, s.history().first().length)
+        assertEquals(1_000_000, s.historyText().first().length)
         s.flushPendingWrites()
         val index = File(dir, "clipboard.txt").readText()
         assertTrue("index is a small B-marker, not the content", index.startsWith("B\t") && index.length < 200)
         val sideFiles = File(dir, "clips").listFiles().orEmpty()
         assertTrue("side file holds the full 1M content", sideFiles.any { it.readText().length == 1_000_000 })
         val reloaded = ClipboardStore(dir).apply { load() }
-        assertEquals("reloaded length", 1_000_000, reloaded.history().first().length)
-        assertEquals("reloaded content identical", big, reloaded.history().first())
+        assertEquals("reloaded length", 1_000_000, reloaded.historyText().first().length)
+        assertEquals("reloaded content identical", big, reloaded.historyText().first())
     }
 
     @Test fun small_entries_stay_inline_and_big_ones_externalize() {
@@ -134,21 +134,21 @@ class ClipboardStoreTest {
         assertTrue("newest (big) is a B-marker", lines[0].startsWith("B\t"))
         assertFalse("small stays inline (bare, not a B-marker)", lines[1].startsWith("B\t"))
         val reloaded = ClipboardStore(dir).apply { load() }
-        assertEquals(listOf(big, small), reloaded.history())
+        assertEquals(listOf(big, small), reloaded.historyText())
     }
 
     @Test fun legacy_bare_history_and_tab_delimited_clips_survive_upgrade() {
         val dir = newDir()
         File(dir, "clipboard.txt").writeText("B\tcol2\tcol3\nT\tnot a marker\nplain clip")
         val s = ClipboardStore(dir).apply { load() }
-        assertEquals(listOf("B\tcol2\tcol3", "T\tnot a marker", "plain clip"), s.history())
+        assertEquals(listOf("B\tcol2\tcol3", "T\tnot a marker", "plain clip"), s.historyText())
     }
 
     @Test fun load_dedupes_duplicate_history_and_keeps_missing_sidecar_marker_literal() {
         val dir = newDir()
         File(dir, "clipboard.txt").writeText("dup\nB\tMissingSidecar42\ndup\n")
         val s = ClipboardStore(dir).apply { load() }
-        assertEquals(listOf("dup", "B\tMissingSidecar42"), s.history())
+        assertEquals(listOf("dup", "B\tMissingSidecar42"), s.historyText())
     }
 
     @Test fun deleting_a_big_entry_sweeps_its_side_file() {
@@ -158,6 +158,94 @@ class ClipboardStoreTest {
         assertTrue("side file written", File(dir, "clips").listFiles().orEmpty().isNotEmpty())
         s.clearHistory(); s.flushPendingWrites()
         assertTrue("orphan side file swept", File(dir, "clips").listFiles().orEmpty().isEmpty())
+    }
+
+    private val bigBody = "巨".repeat(ClipboardStore.BIG_THRESHOLD + 1)
+
+    @Test fun loading_a_big_entry_keeps_metadata_only_until_the_body_is_asked_for() {
+        val dir = newDir()
+        ClipboardStore(dir).apply { load(); record(bigBody); flushPendingWrites() }
+        val reloaded = ClipboardStore(dir).apply { load() }
+        assertEquals("no body chars are resident after load", 0L, reloaded.residentBodyChars())
+        assertEquals(1, reloaded.history().size)
+        assertEquals("the body is still reachable on demand", bigBody, reloaded.history().first().body())
+        assertEquals("reading a body does not make it resident", 0L, reloaded.residentBodyChars())
+        dir.deleteRecursively()
+    }
+
+    @Test fun a_big_body_is_read_at_use_time_not_at_load_time() {
+        val dir = newDir()
+        ClipboardStore(dir).apply { load(); record(bigBody); flushPendingWrites() }
+        val reloaded = ClipboardStore(dir).apply { load() }
+        File(dir, "clips").deleteRecursively()
+        assertEquals("the row survives as metadata", 1, reloaded.history().size)
+        assertNull("load must not have captured the body", reloaded.history().first().body())
+        dir.deleteRecursively()
+    }
+
+    @Test fun previews_stay_bounded_while_bodies_grow() {
+        val dir = newDir()
+        val small = List(200) { "小-$it" }
+        ClipboardStore(dir).apply {
+            load()
+            small.forEach { record(it) }
+            repeat(4) { record("巨$it".repeat(ClipboardStore.BIG_THRESHOLD)) }
+            flushPendingWrites()
+        }
+        val reloaded = ClipboardStore(dir).apply { load() }
+        val inlineChars = small.sumOf { it.length }.toLong()
+        assertEquals("only inline rows are resident", inlineChars, reloaded.residentBodyChars())
+        reloaded.history().forEach { it.preview() }
+        assertTrue(
+            "previews are capped instead of holding whole bodies",
+            reloaded.residentBodyChars() <= inlineChars + 4L * ClipEntry.PREVIEW_CHARS,
+        )
+        assertEquals(
+            "the preview is a bounded prefix of the body",
+            ClipEntry.PREVIEW_CHARS,
+            reloaded.history().first().preview().length,
+        )
+        dir.deleteRecursively()
+    }
+
+    @Test fun a_reference_whose_sidecar_is_gone_is_marked_and_never_written_back_as_content() {
+        val dir = newDir()
+        val hash = "a".repeat(64)
+        File(dir, "clipboard.txt").writeText("B\t$hash\n保留\n")
+        val s = ClipboardStore(dir).apply { load() }
+        val lost = s.history().first()
+        assertFalse("a reference without its sidecar is not available", lost.available)
+        assertNull("no substitute body is invented", lost.body())
+        assertTrue("the row carries a visible missing mark", lost.preview().startsWith("⚠"))
+        s.record("新的一条")
+        s.flushPendingWrites()
+        assertEquals(
+            "the reference is preserved verbatim, never replaced by its own marker text",
+            listOf("新的一条", "B\t$hash", "保留"),
+            File(dir, "clipboard.txt").readLines(),
+        )
+        dir.deleteRecursively()
+    }
+
+    @Test fun a_reference_heals_when_its_sidecar_comes_back() {
+        val dir = newDir()
+        val hash = "b".repeat(64)
+        File(dir, "clipboard.txt").writeText("B\t$hash\n")
+        ClipboardStore(dir).apply { load(); record("触发保存"); flushPendingWrites() }
+        File(dir, "clips").mkdirs()
+        File(dir, "clips/$hash.txt").writeText(bigBody)
+        val healed = ClipboardStore(dir).apply { load() }
+        assertEquals(bigBody, healed.historyText().last())
+        dir.deleteRecursively()
+    }
+
+    @Test fun a_clip_shaped_like_a_sidecar_reference_survives_the_round_trip() {
+        val dir = newDir()
+        val literal = "B\t" + "c".repeat(64)
+        ClipboardStore(dir).apply { load(); record(literal); flushPendingWrites() }
+        assertEquals("\\B\t" + "c".repeat(64), File(dir, "clipboard.txt").readLines().first())
+        assertEquals(listOf(literal), ClipboardStore(dir).apply { load() }.historyText())
+        dir.deleteRecursively()
     }
 
     @Test fun batch_add_phrases_dedupes_trims_and_persists() {

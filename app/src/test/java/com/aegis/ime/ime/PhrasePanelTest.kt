@@ -15,6 +15,8 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.user.asClipEntries
+import com.aegis.ime.user.clipEntries
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Rect
@@ -122,7 +124,7 @@ class PhrasePanelTest {
 
     @Test fun expanded_clipboard_card_keeps_add_split_delete() {
         val v = ClipboardView(ctx).apply {
-            historyProvider = { listOf("abc") }; applyPalette(pal); refresh(); expandForTest("abc")
+            historyProvider = { clipEntries("abc") }; applyPalette(pal); refresh(); expandForTest("abc")
         }
         layout(v)
         val expected = listOf(ctx.getString(com.aegis.ime.R.string.clip_phrases), ctx.getString(com.aegis.ime.R.string.clip_split_word), ctx.getString(com.aegis.ime.R.string.clip_delete))
@@ -133,7 +135,7 @@ class PhrasePanelTest {
 
     @Test fun clipboard_and_phrase_action_buttons_share_height_rounding_and_spacing() {
         val clip = ClipboardView(ctx).apply {
-            historyProvider = { listOf("abc") }; applyPalette(pal); refresh(); expandForTest("abc")
+            historyProvider = { clipEntries("abc") }; applyPalette(pal); refresh(); expandForTest("abc")
         }
         layout(clip)
         val phrase = phraseView().apply { expandForTest("你好") }
@@ -443,7 +445,7 @@ class PhrasePanelTest {
 
     @Test fun clipboard_select_mode_keeps_add_phrase_action() {
         val v = ClipboardView(ctx).apply {
-            historyProvider = { listOf("a", "b") }; applyPalette(pal); refresh(); enterSelectForTest(listOf("a"))
+            historyProvider = { clipEntries("a", "b") }; applyPalette(pal); refresh(); enterSelectForTest(listOf("a"))
         }
         val ls = labels(v)
         assertTrue(ctx.getString(com.aegis.ime.R.string.clip_edit_clipboard) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_add_phrase) in ls); assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete) in ls)
@@ -458,7 +460,7 @@ class PhrasePanelTest {
         for (layoutDirection in listOf(View.LAYOUT_DIRECTION_LTR, View.LAYOUT_DIRECTION_RTL)) {
             val clipboard = ClipboardView(ctx).apply {
                 this.layoutDirection = layoutDirection
-                historyProvider = { listOf("a", "b") }; applyPalette(pal); refresh(); enterSelectForTest(listOf("a"))
+                historyProvider = { clipEntries("a", "b") }; applyPalette(pal); refresh(); enterSelectForTest(listOf("a"))
             }
             val phrases = phraseView().apply {
                 this.layoutDirection = layoutDirection
@@ -715,7 +717,7 @@ class PhrasePanelTest {
 
 
     private fun clipboardView(history: List<String>, cats: List<String>): ClipboardView = ClipboardView(ctx).apply {
-        historyProvider = { history }
+        historyProvider = { history.asClipEntries() }
         categoriesProvider = { cats }
         applyPalette(pal); refresh()
     }

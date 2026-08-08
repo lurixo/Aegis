@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.user.asClipEntries
 import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -173,7 +174,7 @@ class BilingualScreenshotTest {
 
         snap(
             ClipboardView(ctx).apply {
-                historyProvider = { history }
+                historyProvider = { history.asClipEntries() }
                 categoriesProvider = { phraseCats }
                 phrasesInProvider = { c -> phrasesOf(c) }
                 applyPalette(pal)

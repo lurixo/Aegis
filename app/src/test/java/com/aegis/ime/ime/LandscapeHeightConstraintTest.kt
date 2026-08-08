@@ -15,6 +15,8 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.user.asClipEntries
+import com.aegis.ime.user.clipEntries
 import android.app.Activity
 import android.content.res.Configuration
 import android.graphics.Rect
@@ -265,7 +267,7 @@ class LandscapeHeight388ConstraintTest {
             settleUiAnimations()
 
             val clipboard = ClipboardView(ctx).apply {
-                historyProvider = { listOf("clipboard-entry") }
+                historyProvider = { clipEntries("clipboard-entry") }
                 categoriesProvider = { listOf("Quick") }
                 phrasesInProvider = { listOf("phrase-entry") }
                 onPick = pickedPanelText::add
@@ -761,7 +763,7 @@ class TinyPanelViewportConstraintTest {
         val deleted = mutableListOf<List<String>>()
         val clips = (1..20).map { "clip$it" }
         val clipboard = ClipboardView(ctx).apply {
-            historyProvider = { clips }
+            historyProvider = { clips.asClipEntries() }
             categoriesProvider = { listOf("A", "B", "C") }
             phrasesInProvider = { category -> (1..20).map { "$category phrase$it" } }
             onDeleteClips = { deleted += it }

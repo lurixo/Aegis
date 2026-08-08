@@ -15,6 +15,7 @@
 
 package com.aegis.ime
 
+import com.aegis.ime.user.historyText
 import android.app.Activity
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -452,7 +453,7 @@ class AegisInputMethodServiceLifecycleTest {
         assertEquals(listOf("，", "检查，", "检查一下，", "检查一下"), connection.composingUpdates)
         assertEquals("检查一下", connection.editable.toString())
         assertEquals(setOf(0, 1), bar.splitSelectedForTest())
-        assertTrue(clipboardStore(f.service).history().isEmpty())
+        assertTrue(clipboardStore(f.service).historyText().isEmpty())
         assertEquals(
             "SYSTEM_SENTINEL",
             systemClipboard.primaryClip?.getItemAt(0)?.text?.toString(),
@@ -882,7 +883,7 @@ class AegisInputMethodServiceLifecycleTest {
             assertEquals(rootHeight, f.view.measuredHeight)
             assertEquals(panelHeight, f.view.panelHeightPx())
             assertEquals(copiedText, cachedPanel(f.service, "lastCopy"))
-            assertEquals(copiedText, store.history().firstOrNull())
+            assertEquals(copiedText, store.historyText().firstOrNull())
 
             if (index == 0) {
                 handleEdit(f.service, EditAction.BACK)
@@ -971,7 +972,7 @@ class AegisInputMethodServiceLifecycleTest {
         assertTrue(f.view.copyBarActiveForTest())
         assertEquals("latest cut", f.view.copyBarForTest().contentForTest())
         assertEquals("latest cut", cachedPanel(f.service, "lastCopy"))
-        assertEquals("latest cut", clipboardStore(f.service).history().firstOrNull())
+        assertEquals("latest cut", clipboardStore(f.service).historyText().firstOrNull())
 
         handleEdit(f.service, EditAction.BACK)
 
