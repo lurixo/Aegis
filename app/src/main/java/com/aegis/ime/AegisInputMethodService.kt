@@ -420,14 +420,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         inputSessionActive = false
         resetControllerOnNextInputView = false
         secureField = false
-        if (userDbLoaded && userModel.dirty) runCatching {
-            userModel.save(userDbFile)
-            userDbMtime = userDbFile.lastModified()
-        }
-        if (userDbLoaded && userLearning.dirty) runCatching {
-            userLearning.save(userLearnFile)
-            userLearnMtime = userLearnFile.lastModified()
-        }
+        if (userDbLoaded) liveUserDictHost.scheduleSave()
     }
 
     private fun downloadedOverride(name: String): File? =
@@ -1187,6 +1180,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         runCatching { decodeWorker.shutdownNow() }
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
         if (UserDictHot.host === liveUserDictHost) UserDictHot.host = null
+        if (userDbLoaded) runCatching { liveUserDictHost.flush() }
+        liveUserDictHost.stopSaving()
         LiveUserData.unregisterClipboardPersistenceHooks(clipboardPendingWriteFlush)
         LiveUserData.onRestored = null
         runCatching {

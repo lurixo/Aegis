@@ -17,6 +17,10 @@ package com.aegis.ime.user
 
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.Callable
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 
 class LiveUserDictHost(
     private val model: UserModel,
@@ -25,6 +29,11 @@ class LiveUserDictHost(
     private val userLearnFile: File? = null,
     private val onSaved: (userDbMtime: Long?, userLearnMtime: Long?) -> Unit = { _, _ -> },
 ) : UserDictHot.Host {
+
+    private val io = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "aegis-userdict-io").apply { isDaemon = true }
+    }
+    private val saveGen = AtomicLong(0)
 
     override fun addWord(reading: String, word: String, now: Long): Boolean {
         if (word.isBlank()) return false
@@ -76,15 +85,43 @@ class LiveUserDictHost(
     }
 
     override fun flush(): Boolean {
-        if (!model.dirty && userLearning?.dirty != true) return true
-        return persist(writeUserDb = model.dirty)
+        if (!anythingUnsaved()) return true
+        return onWriterThread(::persistUnsaved)
     }
 
-    private fun save(): Boolean = persist(writeUserDb = true)
+    fun scheduleSave() {
+        val gen = saveGen.incrementAndGet()
+        val queued = runCatching { io.execute { if (gen == saveGen.get()) persistUnsaved() } }.isSuccess
+        if (!queued) persistUnsaved()
+    }
 
-    private fun saveLearning(): Boolean = persist(writeUserDb = false)
+    fun stopSaving() {
+        runCatching { io.shutdown() }
+    }
 
-    private fun persist(writeUserDb: Boolean): Boolean {
+    private fun anythingUnsaved(): Boolean = model.dirty || userLearning?.dirty == true
+
+    private fun persistUnsaved(): Boolean =
+        if (anythingUnsaved()) persistHere(writeUserDb = model.dirty) else true
+
+    private fun save(): Boolean = onWriterThread { persistHere(writeUserDb = true) }
+
+    private fun saveLearning(): Boolean = onWriterThread { persistHere(writeUserDb = false) }
+
+    private fun onWriterThread(work: () -> Boolean): Boolean {
+        val queued = Callable(work)
+        val pending = runCatching { io.submit(queued) }.getOrNull() ?: return queued.call()
+        return try {
+            pending.get()
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
+        } catch (_: ExecutionException) {
+            false
+        }
+    }
+
+    private fun persistHere(writeUserDb: Boolean): Boolean {
         var savedUserDbMtime: Long? = null
         var savedUserLearnMtime: Long? = null
         val userDbWritten = !writeUserDb || runCatching {
