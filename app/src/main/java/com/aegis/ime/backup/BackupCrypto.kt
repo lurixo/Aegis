@@ -32,11 +32,16 @@ internal object BackupCrypto {
 
     private val secureRandom = SecureRandom()
 
-    fun writeEncrypted(rawOut: OutputStream, password: CharArray, writePlaintext: (OutputStream) -> Unit) {
+    fun writeEncrypted(
+        rawOut: OutputStream,
+        password: CharArray,
+        version: Int = BackupFormat.HEADER_VERSION,
+        writePlaintext: (OutputStream) -> Unit,
+    ) {
         val salt = randomBytes(BackupFormat.SALT_LEN)
         val nonce = randomBytes(BackupFormat.NONCE_LEN)
         val iterations = BackupFormat.PBKDF2_ITERATIONS
-        val header = buildHeader(salt, nonce, iterations)
+        val header = buildHeader(salt, nonce, iterations, version)
 
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         val key = deriveKey(password, salt, iterations)
@@ -69,11 +74,11 @@ internal object BackupCrypto {
         }
     }
 
-    private fun buildHeader(salt: ByteArray, nonce: ByteArray, iterations: Int): ByteArray {
+    private fun buildHeader(salt: ByteArray, nonce: ByteArray, iterations: Int, version: Int): ByteArray {
         val h = ByteArray(BackupFormat.HEADER_LEN)
         var i = 0
         BackupFormat.MAGIC.copyInto(h, 0); i += BackupFormat.MAGIC.size
-        h[i++] = BackupFormat.HEADER_VERSION.toByte()
+        h[i++] = version.toByte()
         h[i++] = BackupFormat.KDF_PBKDF2_HMAC_SHA256.toByte()
         h[i++] = (iterations ushr 24).toByte()
         h[i++] = (iterations ushr 16).toByte()
@@ -96,7 +101,9 @@ internal object BackupCrypto {
         }
         var i = BackupFormat.MAGIC.size
         val version = h[i++].toInt() and 0xFF
-        if (version != BackupFormat.HEADER_VERSION) throw BackupException(BackupError.UNSUPPORTED_VERSION)
+        if (version != BackupFormat.HEADER_VERSION && version != BackupFormat.HEADER_VERSION_CHUNKED_PREFS) {
+            throw BackupException(BackupError.UNSUPPORTED_VERSION)
+        }
         val kdf = h[i++].toInt() and 0xFF
         if (kdf != BackupFormat.KDF_PBKDF2_HMAC_SHA256) throw BackupException(BackupError.UNSUPPORTED_VERSION)
         val iterations = ((h[i].toInt() and 0xFF) shl 24) or ((h[i + 1].toInt() and 0xFF) shl 16) or

@@ -64,10 +64,14 @@ object BackupManager {
     fun export(filesDir: File, prefs: SharedPreferences, password: CharArray, rawOut: OutputStream) {
         UserDictEdit.flushBeforeExport()
         LiveUserData.flushBeforeExport()
-        BackupCrypto.writeEncrypted(rawOut, password) { cipherOut ->
+        val prefsBlob = PrefsCodec.encode(prefs.all.filterKeys { it !in DOWNLOAD_STATE_KEYS })
+        val legacyPrefs = BackupArchive.fitsLegacyPrefsEntry(prefsBlob)
+        val version =
+            if (legacyPrefs) BackupFormat.HEADER_VERSION else BackupFormat.HEADER_VERSION_CHUNKED_PREFS
+        BackupCrypto.writeEncrypted(rawOut, password, version) { cipherOut ->
             val gzip = GZIPOutputStream(cipherOut)
             val out = DataOutputStream(gzip)
-            BackupArchive.writePrefs(out, PrefsCodec.encode(prefs.all.filterKeys { it !in DOWNLOAD_STATE_KEYS }))
+            if (legacyPrefs) BackupArchive.writePrefs(out, prefsBlob) else BackupArchive.writePrefsChunked(out, prefsBlob)
             for (rel in backupRelPaths(filesDir)) {
                 val file = File(filesDir, rel)
                 if (file.isFile) BackupArchive.writeFile(out, rel, file)

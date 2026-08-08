@@ -105,6 +105,22 @@ class BackupCryptoTest {
         expectError(BackupError.UNSUPPORTED_VERSION) { decrypt(file, "pass1234") }
     }
 
+    @Test fun the_chunked_prefs_container_version_is_written_and_accepted() {
+        val bos = ByteArrayOutputStream()
+        BackupCrypto.writeEncrypted(bos, "pass1234".toCharArray(), BackupFormat.HEADER_VERSION_CHUNKED_PREFS) {
+            it.write("payload".toByteArray())
+        }
+        val file = bos.toByteArray()
+        assertEquals(BackupFormat.HEADER_VERSION_CHUNKED_PREFS, file[BackupFormat.MAGIC.size].toInt())
+        assertArrayEquals("payload".toByteArray(), decrypt(file, "pass1234"))
+    }
+
+    @Test fun a_container_version_past_the_known_set_is_reported() {
+        val file = encrypt("x".toByteArray(), "pass1234")
+        file[BackupFormat.MAGIC.size] = 3
+        expectError(BackupError.UNSUPPORTED_VERSION) { decrypt(file, "pass1234") }
+    }
+
     @Test fun an_unknown_kdf_id_is_reported() {
         val file = encrypt("x".toByteArray(), "pass1234")
         file[BackupFormat.MAGIC.size + 1] = 42

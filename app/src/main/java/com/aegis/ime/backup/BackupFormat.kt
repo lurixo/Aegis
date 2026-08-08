@@ -20,6 +20,8 @@ internal object BackupFormat {
 
     const val HEADER_VERSION = 1
 
+    const val HEADER_VERSION_CHUNKED_PREFS = 2
+
     const val KDF_PBKDF2_HMAC_SHA256 = 1
 
     const val PBKDF2_ITERATIONS = 600_000
