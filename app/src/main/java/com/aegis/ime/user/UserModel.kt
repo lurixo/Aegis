@@ -16,6 +16,7 @@
 package com.aegis.ime.user
 
 import java.io.File
+import java.io.IOException
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -40,6 +41,13 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     @Volatile
     var forgottenCount: Int = 0
         private set
+
+    @Volatile
+    var readable: Boolean = true
+        private set
+
+    @Volatile
+    private var unreadableSource: String? = null
 
     private var sweptOnLoad: Int = 0
 
@@ -180,6 +188,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
 
     @Synchronized
     fun save(file: File) {
+        if (unreadableSource == file.absolutePath) throw IOException("user dictionary could not be read")
         val tmp = File(file.absoluteFile.parentFile, file.name + ".tmp")
         try {
             tmp.bufferedWriter().use { w ->
@@ -217,13 +226,24 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         manual.clear()
         forgottenCount = 0
         sweptOnLoad = 0
+        readable = true
+        unreadableSource = null
         applyParsed(parsed)
         version++
     }
 
     @Synchronized
     fun load(file: File, sweepStale: Boolean = true) {
-        applyParsed(parse(file))
+        val parsed = try {
+            parse(file)
+        } catch (e: Exception) {
+            readable = false
+            unreadableSource = file.absolutePath
+            throw e
+        }
+        readable = true
+        unreadableSource = null
+        applyParsed(parsed)
         sweptOnLoad = if (sweepStale) forgetStale(clock()) else 0
         version++
     }
