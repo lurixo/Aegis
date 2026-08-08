@@ -76,6 +76,8 @@ internal fun UserDictPage(onBack: () -> Unit) {
     val addFailedToast = stringResource(R.string.user_dict_toast_add_failed)
     val deletedToast = stringResource(R.string.user_dict_toast_deleted)
     val autoClearedToast = stringResource(R.string.user_dict_toast_auto_cleared)
+    val writeFailedToast = stringResource(R.string.user_dict_toast_write_failed)
+    val exportBlockedToast = stringResource(R.string.user_dict_toast_export_blocked)
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
     var pendingAutoClear by remember { mutableStateOf(false) }
 
@@ -143,10 +145,15 @@ internal fun UserDictPage(onBack: () -> Unit) {
         }
         val reading = UserModel.normalizeReading(newReading)
         val known = entries.any { it.reading == reading && it.word == word }
-        UserDictEdit.add(userDb, word, newReading, System.currentTimeMillis())
-        newWord = ""; newReading = ""
+        val saved = UserDictEdit.add(userDb, word, newReading, System.currentTimeMillis())
+        if (saved) { newWord = ""; newReading = "" }
         reload()
-        Toast.makeText(context, if (known) keptToast else addedToast, Toast.LENGTH_SHORT).show()
+        val message = when {
+            !saved -> writeFailedToast
+            known -> keptToast
+            else -> addedToast
+        }
+        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     }
 
     fun reloadLearned() {
@@ -155,22 +162,30 @@ internal fun UserDictPage(onBack: () -> Unit) {
     }
 
     fun deleteWord(reading: String, word: String) {
-        UserDictEdit.remove(userDb, reading, word)
+        val saved = UserDictEdit.remove(userDb, reading, word)
         reload()
         reloadLearned()
-        Toast.makeText(context, deletedToast, Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, if (saved) deletedToast else writeFailedToast, Toast.LENGTH_SHORT).show()
     }
 
     fun deleteLearned(entry: UserLearning.Formed) {
-        UserLearnEdit.remove(userLearn, entry.word, entry.reading)
+        val saved = UserLearnEdit.remove(userLearn, entry.word, entry.reading)
         reloadLearned()
-        Toast.makeText(context, deletedToast, Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, if (saved) deletedToast else writeFailedToast, Toast.LENGTH_SHORT).show()
     }
 
     fun clearLearned() {
-        UserLearnEdit.clear(userLearn)
+        val saved = UserLearnEdit.clear(userLearn)
         reloadLearned()
-        Toast.makeText(context, autoClearedToast, Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, if (saved) autoClearedToast else writeFailedToast, Toast.LENGTH_SHORT).show()
+    }
+
+    fun startExport() {
+        if (!UserDictEdit.flushBeforeExport()) {
+            Toast.makeText(context, exportBlockedToast, Toast.LENGTH_SHORT).show()
+            return
+        }
+        exportLauncher.launch("aegis-userdb.txt")
     }
 
     Column(
@@ -225,11 +240,8 @@ internal fun UserDictPage(onBack: () -> Unit) {
                                 style = MaterialTheme.typography.bodySmall,
                             )
                             Button(
-                                onClick = {
-                                    UserDictEdit.flushBeforeExport()
-                                    exportLauncher.launch("aegis-userdb.txt")
-                                },
-                                modifier = Modifier.fillMaxWidth(),
+                                onClick = { startExport() },
+                                modifier = Modifier.fillMaxWidth().testTag("user_dict_export"),
                             ) { Text(stringResource(R.string.user_dict_export_button)) }
                             Button(
                                 onClick = { importLauncher.launch(arrayOf("text/plain")) },

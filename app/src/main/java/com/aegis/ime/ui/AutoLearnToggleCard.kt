@@ -54,6 +54,7 @@ internal fun AutoLearnToggleCard() {
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
     val userLearn = File(context.filesDir, "userlearn.txt")
     val clearedToast = stringResource(R.string.user_dict_toast_auto_cleared)
+    val writeFailedToast = stringResource(R.string.user_dict_toast_write_failed)
     var on by remember { mutableStateOf(prefs.getBoolean(PREF_AUTO_LEARN_ON, AUTO_LEARN_DEFAULT_ON)) }
     var learnedCount by remember { mutableStateOf(UserLearnEdit.list(userLearn).size) }
     var learnedHasData by remember { mutableStateOf(UserLearnEdit.hasData(userLearn)) }
@@ -111,11 +112,15 @@ internal fun AutoLearnToggleCard() {
             confirmButton = {
                 TextButton(
                     onClick = {
-                        UserLearnEdit.clear(userLearn)
+                        val saved = UserLearnEdit.clear(userLearn)
                         learnedCount = UserLearnEdit.list(userLearn).size
                         learnedHasData = UserLearnEdit.hasData(userLearn)
                         pendingClear = false
-                        Toast.makeText(context, clearedToast, Toast.LENGTH_SHORT).show()
+                        Toast.makeText(
+                            context,
+                            if (saved) clearedToast else writeFailedToast,
+                            Toast.LENGTH_SHORT,
+                        ).show()
                     },
                 ) {
                     Text(stringResource(R.string.user_dict_auto_clear_confirm))

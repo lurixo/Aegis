@@ -19,6 +19,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -41,6 +42,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import org.robolectric.shadows.ShadowToast
@@ -69,6 +71,7 @@ class UserDictPageTest {
 
     @After fun cleanup() {
         scenario?.close()
+        UserDictHot.host = null
         db.delete()
         learn.delete()
     }
@@ -300,5 +303,104 @@ class UserDictPageTest {
         compose.waitForIdle()
 
         assertTrue("the next word data is gone", learn.readLines().none { it.startsWith("C\t") })
+    }
+
+    private class RefusingHost(
+        private val entries: List<UserModel.Entry>,
+        private val learned: List<UserLearning.Formed>,
+    ) : UserDictHot.Host {
+        override fun addWord(reading: String, word: String, now: Long) = false
+        override fun removeWord(reading: String, word: String) = false
+        override fun importUserDict(importFile: File, merge: Boolean, now: Long) = false
+        override fun entries(): List<UserModel.Entry> = entries
+        override fun learnedEntries(): List<UserLearning.Formed> = learned
+        override fun hasLearnedData() = learned.isNotEmpty()
+        override fun removeLearned(word: String, reading: String) = false
+        override fun clearLearned() = false
+        override fun flush() = false
+    }
+
+    @Test fun a_word_that_never_reached_storage_says_so_and_keeps_what_was_typed() {
+        UserDictHot.host = RefusingHost(emptyList(), emptyList())
+        openUserDictPage()
+
+        ShadowToast.reset()
+        compose.onNodeWithTag("user_dict_new_word").performTextInput("测试词")
+        compose.onNodeWithTag("user_dict_new_reading").performTextInput("ceshici")
+        compose.onNodeWithTag("user_dict_add").performClick()
+        compose.waitForIdle()
+
+        assertEquals(s(R.string.user_dict_toast_write_failed), ShadowToast.getTextOfLatestToast())
+        compose.onNodeWithText("测试词").assertExists()
+        compose.onNodeWithText("ceshici").assertExists()
+    }
+
+    @Test fun a_deletion_that_never_reached_storage_says_so() {
+        UserDictHot.host = RefusingHost(
+            listOf(UserModel.Entry("shanchu", "删除词", 1)),
+            listOf(UserLearning.Formed("你呢嗯", "ninen")),
+        )
+        openUserDictPage()
+
+        ShadowToast.reset()
+        compose.onNodeWithTag("user_dict_search").performTextInput("shanchu")
+        compose.onNodeWithText(s(R.string.user_dict_delete_button)).performClick()
+        compose.waitForIdle()
+        assertEquals(s(R.string.user_dict_toast_write_failed), ShadowToast.getTextOfLatestToast())
+
+        ShadowToast.reset()
+        compose.onNodeWithTag("user_dict_search").performTextClearance()
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(row("你呢嗯", "ninen")))
+        compose.onNodeWithText(row("你呢嗯", "ninen")).assertExists()
+        compose.onAllNodesWithText(s(R.string.user_dict_delete_button)).onLast().performClick()
+        compose.waitForIdle()
+        assertEquals(s(R.string.user_dict_toast_write_failed), ShadowToast.getTextOfLatestToast())
+    }
+
+    @Test fun clearing_the_learned_words_says_so_when_the_write_is_refused() {
+        UserDictHot.host = RefusingHost(emptyList(), listOf(UserLearning.Formed("你呢嗯", "ninen")))
+        openUserDictPage()
+
+        ShadowToast.reset()
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(s(R.string.user_dict_auto_clear_button)))
+        compose.onNodeWithTag("user_dict_auto_clear").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(s(R.string.user_dict_auto_clear_confirm)).performClick()
+        compose.waitForIdle()
+
+        assertEquals(s(R.string.user_dict_toast_write_failed), ShadowToast.getTextOfLatestToast())
+    }
+
+    @Test fun an_export_is_cancelled_rather_than_shipped_stale_when_the_flush_is_refused() {
+        UserDictHot.host = RefusingHost(listOf(UserModel.Entry("nihao", "你好", 1)), emptyList())
+        openUserDictPage()
+
+        ShadowToast.reset()
+        compose.onNodeWithTag("user_dict_export").performClick()
+        compose.waitForIdle()
+
+        assertEquals(s(R.string.user_dict_toast_export_blocked), ShadowToast.getTextOfLatestToast())
+        scenario!!.onActivity { activity ->
+            assertEquals(
+                "no document picker may open when the dictionary on disk is out of date",
+                null,
+                shadowOf(activity).peekNextStartedActivityForResult(),
+            )
+        }
+    }
+
+    @Test fun an_export_opens_the_document_picker_once_the_flush_succeeded() {
+        seed(0, "nihao" to "你好")
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_export").performClick()
+        compose.waitForIdle()
+
+        scenario!!.onActivity { activity ->
+            assertTrue(
+                "the picker must open when there is nothing left unwritten",
+                shadowOf(activity).peekNextStartedActivityForResult() != null,
+            )
+        }
     }
 }

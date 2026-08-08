@@ -154,6 +154,8 @@
     <string name="user_dict_forgotten_format">长期不用、已自动遗忘：%1$d（你添加的词不会被遗忘）</string>
     <string name="user_dict_toast_add_failed">请输入词和它的拼音（仅字母）</string>
     <string name="user_dict_toast_deleted">已删除</string>
+    <string name="user_dict_toast_write_failed">保存失败，改动可能未写入存储</string>
+    <string name="user_dict_toast_export_blocked">最近的改动没能存盘，为免导出不完整，已取消导出</string>
     <string name="user_dict_auto_title">自动学习</string>
     <string name="user_dict_auto_description">你逐字拼出、被自动粘成的词。可以删掉某一条让它不再进候选，也可以全部清空。上面「我的词」不受影响。</string>
     <string name="user_dict_auto_count_format">自动学习：%1$d</string>
