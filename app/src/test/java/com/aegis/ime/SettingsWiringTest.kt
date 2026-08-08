@@ -74,6 +74,10 @@ class SettingsWiringTest {
             svc.contains("userLearning.save(userLearnFile)"),
         )
         assertTrue(svc.contains("userLearnFile.lastModified() > userLearnMtime"))
+        assertTrue(
+            "a reload must stand down while the keyboard's own write is still in flight",
+            svc.contains("val settled = userDbLoaded && !liveUserDictHost.writing"),
+        )
         val restored = svc.substringAfter("LiveUserData.onRestored = {").substringBefore("LiveUserData.registerClipboardPersistenceHooks")
         assertTrue(restored.contains("userLearning.load(userLearnFile)"))
     }

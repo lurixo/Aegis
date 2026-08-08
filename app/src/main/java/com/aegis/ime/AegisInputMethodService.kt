@@ -395,10 +395,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.setLearningBlocked(
             info != null && com.aegis.ime.user.ClipboardPolicy.blocksLearning(info.inputType, info.imeOptions),
         )
-        if (userDbLoaded && !userModel.dirty && userDbFile.lastModified() > userDbMtime) {
+        val settled = userDbLoaded && !liveUserDictHost.writing
+        if (settled && !userModel.dirty && userDbFile.lastModified() > userDbMtime) {
             runCatching { userModel.reload(userDbFile); userDbMtime = userDbFile.lastModified() }
         }
-        if (userDbLoaded && !userLearning.dirty && userLearnFile.lastModified() > userLearnMtime) {
+        if (settled && !userLearning.dirty && userLearnFile.lastModified() > userLearnMtime) {
             userLearning.load(userLearnFile)
             userLearnMtime = userLearnFile.lastModified()
         }

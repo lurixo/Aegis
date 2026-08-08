@@ -29,6 +29,10 @@ class LiveUserDictHost(
     private val onSaved: (userDbMtime: Long?, userLearnMtime: Long?) -> Unit = { _, _ -> },
 ) : UserDictHot.Host {
 
+    @Volatile
+    var writing: Boolean = false
+        private set
+
     private val io = Executors.newSingleThreadExecutor { r ->
         Thread(r, "aegis-userdict-io").apply { isDaemon = true }
     }
@@ -119,6 +123,15 @@ class LiveUserDictHost(
     }
 
     private fun persistHere(writeUserDb: Boolean): Boolean {
+        writing = true
+        try {
+            return writeNow(writeUserDb)
+        } finally {
+            writing = false
+        }
+    }
+
+    private fun writeNow(writeUserDb: Boolean): Boolean {
         var savedUserDbMtime: Long? = null
         var savedUserLearnMtime: Long? = null
         val userDbWritten = !writeUserDb || runCatching {
