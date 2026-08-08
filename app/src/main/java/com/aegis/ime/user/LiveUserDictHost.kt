@@ -43,14 +43,14 @@ class LiveUserDictHost(
     override fun addWord(reading: String, word: String, now: Long): Boolean {
         if (word.isBlank()) return false
         model.addManualWord(reading, word, now)
-        return save()
+        return save().dictionary
     }
 
     override fun removeWord(reading: String, word: String): Boolean {
         if (word.isBlank()) return false
         model.removeWord(reading, word)
         userLearning?.removeWord(word)
-        return save()
+        return save().both
     }
 
     override fun importUserDict(importFile: File, merge: Boolean, now: Long): Boolean {
@@ -68,12 +68,14 @@ class LiveUserDictHost(
         } catch (_: IOException) {
             return false
         }
-        return save()
+        return save().dictionary
     }
 
     override fun entries(): List<UserModel.Entry> = model.userWordEntries()
 
     override fun forgottenCount(): Int = model.forgottenCount
+
+    override fun dictionaryReadable(): Boolean = model.readable
 
     override fun learnedEntries(): List<UserLearning.Formed> = userLearning?.formedEntries().orEmpty()
 
@@ -83,17 +85,22 @@ class LiveUserDictHost(
 
     override fun removeLearned(word: String, reading: String): Boolean {
         userLearning?.removeFormed(word, reading)
-        return saveLearning()
+        return saveLearning().learning
     }
 
     override fun clearLearned(): Boolean {
         userLearning?.clear()
-        return saveLearning()
+        return saveLearning().learning
     }
 
     override fun flush(): Boolean {
         if (!anythingUnsaved()) return true
-        return onWriterThread(::persistUnsaved)
+        return onWriterThread(::persistUnsaved).both
+    }
+
+    override fun flushDictionary(): Boolean {
+        if (!anythingUnsaved()) return true
+        return onWriterThread(::persistUnsaved).dictionary
     }
 
     fun scheduleSave() {
@@ -107,14 +114,14 @@ class LiveUserDictHost(
 
     private fun anythingUnsaved(): Boolean = model.dirty || userLearning?.dirty == true
 
-    private fun persistUnsaved(): Boolean =
-        if (anythingUnsaved()) persistHere(writeUserDb = model.dirty) else true
+    private fun persistUnsaved(): PersistResult =
+        if (anythingUnsaved()) persistHere(writeUserDb = model.dirty) else PersistResult.DONE
 
-    private fun save(): Boolean = onWriterThread { persistHere(writeUserDb = true) }
+    private fun save(): PersistResult = onWriterThread { persistHere(writeUserDb = true) }
 
-    private fun saveLearning(): Boolean = onWriterThread { persistHere(writeUserDb = false) }
+    private fun saveLearning(): PersistResult = onWriterThread { persistHere(writeUserDb = false) }
 
-    private fun onWriterThread(work: () -> Boolean): Boolean {
+    private fun onWriterThread(work: () -> PersistResult): PersistResult {
         val queued = Callable(work)
         if (Thread.currentThread() === writer) return queued.call()
         val pending = runCatching { io.submit(queued) }.getOrNull() ?: return queued.call()
@@ -122,13 +129,13 @@ class LiveUserDictHost(
             pending.get()
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
-            false
+            PersistResult.FAILED
         } catch (_: ExecutionException) {
-            false
+            PersistResult.FAILED
         }
     }
 
-    private fun persistHere(writeUserDb: Boolean): Boolean {
+    private fun persistHere(writeUserDb: Boolean): PersistResult {
         val outer = writing
         writing = true
         try {
@@ -138,7 +145,7 @@ class LiveUserDictHost(
         }
     }
 
-    private fun writeNow(writeUserDb: Boolean): Boolean {
+    private fun writeNow(writeUserDb: Boolean): PersistResult {
         var savedUserDbMtime: Long? = null
         var savedUserLearnMtime: Long? = null
         val userDbWritten = !writeUserDb || runCatching {
@@ -149,7 +156,7 @@ class LiveUserDictHost(
         if (savedUserDbMtime != null || savedUserLearnMtime != null) {
             onSaved(savedUserDbMtime, savedUserLearnMtime)
         }
-        return userDbWritten && learningWritten
+        return PersistResult(dictionary = userDbWritten, learning = learningWritten)
     }
 
     private fun saveDirtyLearning(): Long? {
@@ -158,5 +165,14 @@ class LiveUserDictHost(
         if (!learning.dirty) return null
         learning.save(file)
         return file.lastModified()
+    }
+
+    private data class PersistResult(val dictionary: Boolean, val learning: Boolean) {
+        val both: Boolean get() = dictionary && learning
+
+        companion object {
+            val DONE = PersistResult(dictionary = true, learning = true)
+            val FAILED = PersistResult(dictionary = false, learning = false)
+        }
     }
 }
