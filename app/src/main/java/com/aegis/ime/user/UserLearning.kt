@@ -17,6 +17,7 @@ package com.aegis.ime.user
 
 import com.aegis.ime.decoder.T9Pinyin
 import java.io.File
+import java.io.IOException
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
@@ -48,6 +49,13 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     @Volatile
     var version: Long = 0L
         private set
+
+    @Volatile
+    var readable: Boolean = true
+        private set
+
+    @Volatile
+    private var unreadableSource: String? = null
 
     @Volatile
     var enabled: Boolean = true
@@ -243,7 +251,9 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
 
     @Synchronized
     fun clear() {
-        val had = !isEmpty()
+        val had = !isEmpty() || !readable
+        readable = true
+        unreadableSource = null
         formedByWord.clear()
         formedPairs = 0
         pendingCounts.clear()
@@ -263,6 +273,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
 
     @Synchronized
     fun save(file: File) {
+        if (unreadableSource == file.absolutePath) throw IOException("learning store could not be read")
         val now = clock()
         var mutated = closeChain(now)
         if (sweep(now)) mutated = true
@@ -299,8 +310,10 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     @Synchronized
     fun load(file: File) {
         val parsed = try {
-            parse(file)
+            parse(file).also { readable = true; unreadableSource = null }
         } catch (_: Exception) {
+            readable = false
+            unreadableSource = file.absolutePath
             Parsed()
         }
         formedByWord.clear()
