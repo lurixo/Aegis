@@ -168,7 +168,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var frameworkWillFinishInput = false
     private var panelInputTitle = ""
     private var lastCopy: String? = null
-    @Volatile private var userDbLoaded = false
+    @Volatile private var userStoresLoaded = false
     @Volatile private var engineSig = ""
     @Volatile private var engineReloading = false
     private var imePalette = ImePalette.STATIC_LIGHT
@@ -291,16 +291,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         Thread {
             val (_, engine) = ParallelLoad.both({
                 runCatching { com.aegis.ime.engine.InputAssociations.lookup("nihao") }
-                val userDbRead = runCatching {
+                runCatching {
                     userModel.load(userDbFile)
                     userDbMtime = userDbFile.lastModified()
-                }.onFailure { Log.e("Aegis", "userdb load failed", it) }.isSuccess
-                val userLearnRead = runCatching {
+                }.onFailure { Log.e("Aegis", "userdb load failed", it) }
+                runCatching {
                     userLearning.load(userLearnFile)
                     userLearnMtime = userLearnFile.lastModified()
-                }.onFailure { Log.e("Aegis", "userlearn load failed", it) }.isSuccess
-                userDbLoaded = userDbRead && userLearnRead
-                if (userDbLoaded) UserDictHot.host = liveUserDictHost
+                }.onFailure { Log.e("Aegis", "userlearn load failed", it) }
+                userStoresLoaded = true
+                UserDictHot.host = liveUserDictHost
             }, {
                 buildEngine()
             })
@@ -395,11 +395,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.setLearningBlocked(
             info != null && com.aegis.ime.user.ClipboardPolicy.blocksLearning(info.inputType, info.imeOptions),
         )
-        val settled = userDbLoaded && !liveUserDictHost.writing
-        if (settled && !userModel.dirty && userDbFile.lastModified() > userDbMtime) {
+        val quiet = userStoresLoaded && !liveUserDictHost.writing
+        if (quiet && !userModel.dirty && userDbFile.lastModified() > userDbMtime) {
             runCatching { userModel.reload(userDbFile); userDbMtime = userDbFile.lastModified() }
         }
-        if (settled && !userLearning.dirty && userLearnFile.lastModified() > userLearnMtime) {
+        if (quiet && !userLearning.dirty && userLearnFile.lastModified() > userLearnMtime) {
             userLearning.load(userLearnFile)
             userLearnMtime = userLearnFile.lastModified()
         }

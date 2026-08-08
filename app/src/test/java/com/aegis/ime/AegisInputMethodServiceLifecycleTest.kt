@@ -189,7 +189,7 @@ class AegisInputMethodServiceLifecycleTest {
         val userDb = java.io.File(service.filesDir, "userdb.txt")
         com.aegis.ime.user.UserModel().apply { addManualWord("nihao", "你好", 1L) }.save(userDb)
         val loadedFrom = userDb.lastModified()
-        service.javaClass.getDeclaredField("userDbLoaded").apply { isAccessible = true }.setBoolean(service, true)
+        service.javaClass.getDeclaredField("userStoresLoaded").apply { isAccessible = true }.setBoolean(service, true)
         service.javaClass.getDeclaredField("userDbMtime").apply { isAccessible = true }.setLong(service, loadedFrom)
 
         val learning = service.javaClass.getDeclaredField("userLearning").apply { isAccessible = true }
@@ -217,6 +217,43 @@ class AegisInputMethodServiceLifecycleTest {
             "a word restored into userdb.txt from outside must still reach the running keyboard",
             listOf("外部"),
             model.readingSnapshot()["waibu"],
+        )
+    }
+
+    @Test fun a_learning_file_changed_outside_is_picked_up_although_the_dictionary_could_not_be_read() {
+        val f = fixture()
+        val service = f.service
+        val model = userModelOf(service)
+        val userDb = java.io.File(service.filesDir, "userdb.txt")
+        userDb.writeText("aegis-userdb 99\nW\t坏\t1\t1\n")
+        runCatching { model.load(userDb) }
+        assertFalse("precondition: the dictionary really could not be read", model.readable)
+
+        val userLearn = java.io.File(service.filesDir, "userlearn.txt")
+        val recently = System.currentTimeMillis()
+        val outside = com.aegis.ime.user.UserLearning()
+        repeat(8) {
+            var prev: String? = null
+            for ((word, reading) in listOf("你" to "ni", "呢" to "ne", "嗯" to "n")) {
+                outside.observeCommit(prev, word, reading, recently)
+                prev = word
+            }
+            outside.observeBreak()
+        }
+        outside.save(userLearn)
+
+        service.javaClass.getDeclaredField("userStoresLoaded").apply { isAccessible = true }.setBoolean(service, true)
+        service.javaClass.getDeclaredField("userLearnMtime").apply { isAccessible = true }
+            .setLong(service, userLearn.lastModified() - 5_000L)
+
+        service.onStartInput(editor(), false)
+
+        val learning = service.javaClass.getDeclaredField("userLearning").apply { isAccessible = true }
+            .get(service) as com.aegis.ime.user.UserLearning
+        assertEquals(
+            "one store that could not be read must not stop the other from being picked up",
+            listOf("你呢嗯"),
+            learning.formedWordsFor("ninen"),
         )
     }
 

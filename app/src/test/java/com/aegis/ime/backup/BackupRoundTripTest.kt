@@ -510,6 +510,62 @@ class BackupRoundTripTest {
         }
     }
 
+    @Test fun a_restore_is_not_blocked_by_a_dictionary_that_could_not_be_read() {
+        seedTypicalData()
+        val backup = export()
+        wipeUserData()
+
+        val db = userdbFile().apply { writeText("this is not an aegis user dictionary\nW\t词\t1\t1\n") }
+        val model = UserModel().apply {
+            runCatching { load(db) }
+            record(null, "打过字", 1L)
+        }
+        UserDictHot.host = LiveUserDictHost(model, db, UserLearning(), File(filesDir, "userlearn.txt"))
+        try {
+            restore(backup, BackupManager.Mode.OVERWRITE)
+            assertTrue(
+                "the worse the dictionary is, the more the user needs the restore to go through",
+                UserModel().apply { load(db) }.readingSnapshot().isNotEmpty(),
+            )
+        } finally {
+            UserDictHot.host = null
+        }
+    }
+
+    @Test fun a_restore_is_not_blocked_by_a_learning_store_that_could_not_be_read() {
+        seedTypicalData()
+        val recently = System.currentTimeMillis()
+        UserLearning().apply {
+            repeat(8) {
+                var prev: String? = null
+                for ((word, reading) in listOf("你" to "ni", "呢" to "ne", "嗯" to "n")) {
+                    observeCommit(prev, word, reading, recently)
+                    prev = word
+                }
+                observeBreak()
+            }
+        }.save(File(filesDir, "userlearn.txt"))
+        val backup = export()
+        wipeUserData()
+
+        val learn = File(filesDir, "userlearn.txt").apply { writeText("not a learning file at all\n") }
+        val learning = UserLearning().apply {
+            load(learn)
+            observeCommit(null, "你", "ni", 1L)
+            observeCommit("你", "呢", "ne", 1L)
+        }
+        UserDictHot.host = LiveUserDictHost(UserModel(), userdbFile(), learning, learn)
+        try {
+            restore(backup, BackupManager.Mode.OVERWRITE)
+            assertTrue(
+                "the restored learning file must replace the one that could not be read",
+                learn.readText().startsWith("aegis-userlearn"),
+            )
+        } finally {
+            UserDictHot.host = null
+        }
+    }
+
     private class FlushRefusingHost : UserDictHot.Host {
         override fun addWord(reading: String, word: String, now: Long) = true
         override fun removeWord(reading: String, word: String) = true

@@ -43,14 +43,15 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         private set
 
     @Volatile
-    var readable: Boolean = true
-        private set
+    private var sourceReadable: Boolean = true
 
     @Volatile
     private var unreadableSource: String? = null
 
     @Volatile
     private var partiallyRead: Boolean = false
+
+    val readable: Boolean get() = sourceReadable && !partiallyRead
 
     private var sweptOnLoad: Int = 0
 
@@ -233,21 +234,21 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         partiallyRead = true
         applyParsed(parsed)
         partiallyRead = false
-        readable = true
+        sourceReadable = true
         unreadableSource = null
         version++
     }
 
     @Synchronized
     fun load(file: File, sweepStale: Boolean = true) {
-        readable = false
+        sourceReadable = false
         unreadableSource = file.absolutePath
         val parsed = parse(file)
         partiallyRead = true
         applyParsed(parsed)
         sweptOnLoad = if (sweepStale) forgetStale(clock()) else 0
         partiallyRead = false
-        readable = true
+        sourceReadable = true
         unreadableSource = null
         version++
     }

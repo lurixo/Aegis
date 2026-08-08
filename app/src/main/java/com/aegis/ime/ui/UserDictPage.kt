@@ -85,7 +85,7 @@ internal fun UserDictPage(onBack: () -> Unit) {
     val learned = learnedView.entries
     val learnedHasData = learnedView.hasData
     var summary by remember { mutableStateOf(UserDictEdit.summary(userDb)) }
-    val entries = summary.entries
+    val entries = if (summary.readable) summary.entries else emptyList()
     var query by remember { mutableStateOf("") }
     val searchIndex = remember(entries) { UserDictSearch.index(entries) }
     val filtered = remember(searchIndex, query) { searchIndex.filter(query) }
@@ -179,7 +179,7 @@ internal fun UserDictPage(onBack: () -> Unit) {
     }
 
     fun startExport() {
-        if (!UserDictEdit.flushBeforeExport()) {
+        if (!UserDictEdit.flushBeforeDictionaryExport()) {
             Toast.makeText(context, exportBlockedToast, Toast.LENGTH_SHORT).show()
             return
         }
