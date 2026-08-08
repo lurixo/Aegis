@@ -34,6 +34,8 @@ object UserDictHot {
 
         fun hasLearnedData(): Boolean
 
+        fun learnedReadable(): Boolean = true
+
         fun removeLearned(word: String, reading: String): Boolean
 
         fun clearLearned(): Boolean
