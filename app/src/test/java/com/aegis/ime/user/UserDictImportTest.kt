@@ -110,10 +110,19 @@ class UserDictImportTest {
     }
 
     @Test
-    fun stagingRejectsOversizedInputAndRemovesThePartialFile() {
+    fun stagingKeepsAnInputFarPastTheOldSizeGate() {
         val staged = File.createTempFile("imp-stage", ".txt")
-        val bytes = ByteArray((UserModel.MAX_FILE_BYTES + 1L).toInt())
-        assertFalse(UserDictImport.stage(ByteArrayInputStream(bytes), staged))
-        assertFalse(staged.exists())
+        val bytes = ByteArray(5 * 1024 * 1024)
+        assertTrue(UserDictImport.stage(ByteArrayInputStream(bytes), staged))
+        assertEquals("nothing is dropped on the way in", bytes.size.toLong(), staged.length())
+        staged.delete()
+    }
+
+    @Test
+    fun stagingAnEmptyInputStillFails() {
+        val staged = File.createTempFile("imp-empty", ".txt")
+        assertFalse(UserDictImport.stage(ByteArrayInputStream(ByteArray(0)), staged))
+        assertEquals("nothing is staged", 0L, staged.length())
+        staged.delete()
     }
 }
