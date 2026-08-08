@@ -1292,7 +1292,9 @@ class ExhaustiveDecodeAuditExtTest {
                 climbs.joinToString("\n", postfix = "\n")
         )
         assertTrue("more use must actually move some canonical user word up, otherwise learning is inert " +
-            "(risers=$risers of ${(deep + boundary).size})", risers >= 1)
+            "(risers=$risers of ${(deep + boundary).size}); the sample is recomputed from the installed " +
+            "dictionary on every run, so read ext_e9_risecurve.txt before reading a red here as a boost-curve " +
+            "regression", risers >= 1)
         val boost64 = UserModel().apply { repeat(64) { recordWord("zz", "占位", it.toLong(), incrementCount = true) } }.wordBoost("占位")
         val boost2048 = UserModel().apply { repeat(2048) { recordWord("zz", "占位", it.toLong(), incrementCount = true) } }.wordBoost("占位")
         val w = byMargin.firstOrNull { it.margin > boost64 && it.margin < boost2048 }
