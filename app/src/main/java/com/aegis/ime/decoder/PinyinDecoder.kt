@@ -824,7 +824,8 @@ class PinyinDecoder(
                 .thenBy { supplementarySingleTieRank(it.word) },
         )
         enforceRareAfterCommon(entries, word = { it.word }, frequency = { it.frequency })
-        for (e in entries) out.add(Cand(e.word, e.cov))
+        val emitted = out.mapTo(HashSet<String>(out.size * 2)) { it.word }
+        for (e in entries) if (emitted.add(e.word)) out.add(Cand(e.word, e.cov))
     }
 
     private fun <T> enforceRareAfterCommon(
