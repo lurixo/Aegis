@@ -30,11 +30,14 @@ class LiveUserDictHost(
 ) : UserDictHot.Host {
 
     @Volatile
+    private var writer: Thread? = null
+
+    @Volatile
     var writing: Boolean = false
         private set
 
     private val io = Executors.newSingleThreadExecutor { r ->
-        Thread(r, "aegis-userdict-io").apply { isDaemon = true }
+        Thread(r, "aegis-userdict-io").apply { isDaemon = true }.also { writer = it }
     }
 
     override fun addWord(reading: String, word: String, now: Long): Boolean {
@@ -111,6 +114,7 @@ class LiveUserDictHost(
 
     private fun onWriterThread(work: () -> Boolean): Boolean {
         val queued = Callable(work)
+        if (Thread.currentThread() === writer) return queued.call()
         val pending = runCatching { io.submit(queued) }.getOrNull() ?: return queued.call()
         return try {
             pending.get()
@@ -123,11 +127,12 @@ class LiveUserDictHost(
     }
 
     private fun persistHere(writeUserDb: Boolean): Boolean {
+        val outer = writing
         writing = true
         try {
             return writeNow(writeUserDb)
         } finally {
-            writing = false
+            writing = outer
         }
     }
 
