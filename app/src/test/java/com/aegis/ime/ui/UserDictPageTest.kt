@@ -16,6 +16,7 @@
 package com.aegis.ime.ui
 
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
@@ -35,6 +36,7 @@ import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -303,6 +305,39 @@ class UserDictPageTest {
         compose.waitForIdle()
 
         assertTrue("the next word data is gone", learn.readLines().none { it.startsWith("C\t") })
+    }
+
+    @Test fun a_word_list_that_cannot_be_read_says_so_instead_of_looking_empty() {
+        db.writeText("this is not an aegis user dictionary\nW\t词\t1\t1\n")
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_unreadable").assertExists()
+        compose.onNodeWithTag("user_dict_count").assertDoesNotExist()
+        compose.onNodeWithTag("user_dict_forgotten").assertDoesNotExist()
+        assertThrows(
+            "a list that could not be read must never be presented as an empty one",
+            AssertionError::class.java,
+        ) {
+            compose.onNodeWithTag("user_dict_list").performScrollToNode(hasTestTag("user_dict_empty_note"))
+        }
+        assertTrue(
+            "the file the page could not read must still be on disk untouched",
+            db.readText().startsWith("this is not an aegis user dictionary"),
+        )
+    }
+
+    @Test fun learned_data_that_cannot_be_read_says_so_instead_of_looking_empty() {
+        seed(0, "nihao" to "你好")
+        learn.writeText("not a learning file at all\n")
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(s(R.string.user_learn_unreadable)))
+        compose.onNodeWithTag("user_learn_unreadable").assertExists()
+        compose.onNodeWithTag("user_dict_auto_count").assertDoesNotExist()
+        compose.onNodeWithText(s(R.string.user_dict_auto_empty)).assertDoesNotExist()
+        compose.onNodeWithTag("user_dict_count").assertExists()
+        compose.onNodeWithTag("user_dict_auto_clear").assertIsEnabled()
+        assertTrue("the unreadable learning file is left as it was", learn.readText().startsWith("not a learning file"))
     }
 
     private class RefusingHost(

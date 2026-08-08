@@ -56,8 +56,8 @@ internal fun AutoLearnToggleCard() {
     val clearedToast = stringResource(R.string.user_dict_toast_auto_cleared)
     val writeFailedToast = stringResource(R.string.user_dict_toast_write_failed)
     var on by remember { mutableStateOf(prefs.getBoolean(PREF_AUTO_LEARN_ON, AUTO_LEARN_DEFAULT_ON)) }
-    var learnedCount by remember { mutableStateOf(UserLearnEdit.list(userLearn).size) }
-    var learnedHasData by remember { mutableStateOf(UserLearnEdit.hasData(userLearn)) }
+    var learnedView by remember { mutableStateOf(UserLearnEdit.view(userLearn)) }
+    val learnedHasData = learnedView.hasData
     var pendingClear by remember { mutableStateOf(false) }
 
     Card(modifier = Modifier.fillMaxWidth()) {
@@ -89,14 +89,23 @@ internal fun AutoLearnToggleCard() {
                     modifier = Modifier.testTag("auto_learn_switch"),
                 )
             }
-            Text(
-                stringResource(R.string.user_dict_auto_count_format, learnedCount),
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.testTag("auto_learn_count"),
-            )
+            if (learnedView.readable) {
+                Text(
+                    stringResource(R.string.user_dict_auto_count_format, learnedView.entries.size),
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.testTag("auto_learn_count"),
+                )
+            } else {
+                Text(
+                    stringResource(R.string.user_learn_unreadable),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                    modifier = Modifier.testTag("auto_learn_unreadable"),
+                )
+            }
             Button(
                 onClick = { pendingClear = true },
-                enabled = learnedHasData,
+                enabled = learnedHasData || !learnedView.readable,
                 modifier = Modifier.fillMaxWidth().testTag("auto_learn_clear"),
             ) {
                 Text(stringResource(R.string.user_dict_auto_clear_button))
@@ -113,8 +122,7 @@ internal fun AutoLearnToggleCard() {
                 TextButton(
                     onClick = {
                         val saved = UserLearnEdit.clear(userLearn)
-                        learnedCount = UserLearnEdit.list(userLearn).size
-                        learnedHasData = UserLearnEdit.hasData(userLearn)
+                        learnedView = UserLearnEdit.view(userLearn)
                         pendingClear = false
                         Toast.makeText(
                             context,

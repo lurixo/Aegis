@@ -81,8 +81,9 @@ internal fun UserDictPage(onBack: () -> Unit) {
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
     var pendingAutoClear by remember { mutableStateOf(false) }
 
-    var learned by remember { mutableStateOf(UserLearnEdit.list(userLearn)) }
-    var learnedHasData by remember { mutableStateOf(UserLearnEdit.hasData(userLearn)) }
+    var learnedView by remember { mutableStateOf(UserLearnEdit.view(userLearn)) }
+    val learned = learnedView.entries
+    val learnedHasData = learnedView.hasData
     var summary by remember { mutableStateOf(UserDictEdit.summary(userDb)) }
     val entries = summary.entries
     var query by remember { mutableStateOf("") }
@@ -156,10 +157,7 @@ internal fun UserDictPage(onBack: () -> Unit) {
         Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     }
 
-    fun reloadLearned() {
-        learned = UserLearnEdit.list(userLearn)
-        learnedHasData = UserLearnEdit.hasData(userLearn)
-    }
+    fun reloadLearned() { learnedView = UserLearnEdit.view(userLearn) }
 
     fun deleteWord(reading: String, word: String) {
         val saved = UserDictEdit.remove(userDb, reading, word)
@@ -208,16 +206,25 @@ internal fun UserDictPage(onBack: () -> Unit) {
                 .fillMaxWidth()
                 .testTag("user_dict_search"),
         )
-        Text(
-            stringResource(R.string.user_dict_count_format, entries.size),
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.testTag("user_dict_count"),
-        )
-        Text(
-            stringResource(R.string.user_dict_forgotten_format, summary.forgotten),
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.testTag("user_dict_forgotten"),
-        )
+        if (summary.readable) {
+            Text(
+                stringResource(R.string.user_dict_count_format, entries.size),
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.testTag("user_dict_count"),
+            )
+            Text(
+                stringResource(R.string.user_dict_forgotten_format, summary.forgotten),
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.testTag("user_dict_forgotten"),
+            )
+        } else {
+            Text(
+                stringResource(R.string.user_dict_unreadable),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error,
+                modifier = Modifier.testTag("user_dict_unreadable"),
+            )
+        }
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -283,14 +290,14 @@ internal fun UserDictPage(onBack: () -> Unit) {
                     }
                 }
             }
-            if (filtered.isEmpty() && (query.isBlank() || filteredLearned.isEmpty())) {
+            if (summary.readable && filtered.isEmpty() && (query.isBlank() || filteredLearned.isEmpty())) {
                 item(key = "empty") {
                     Text(
                         stringResource(
                             if (query.isBlank()) R.string.user_dict_manual_empty else R.string.user_dict_search_no_match,
                         ),
                         style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(vertical = 8.dp),
+                        modifier = Modifier.padding(vertical = 8.dp).testTag("user_dict_empty_note"),
                     )
                 }
             }
@@ -324,14 +331,23 @@ internal fun UserDictPage(onBack: () -> Unit) {
                                 stringResource(R.string.user_dict_auto_description),
                                 style = MaterialTheme.typography.bodySmall,
                             )
-                            Text(
-                                stringResource(R.string.user_dict_auto_count_format, learned.size),
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.testTag("user_dict_auto_count"),
-                            )
+                            if (learnedView.readable) {
+                                Text(
+                                    stringResource(R.string.user_dict_auto_count_format, learned.size),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    modifier = Modifier.testTag("user_dict_auto_count"),
+                                )
+                            } else {
+                                Text(
+                                    stringResource(R.string.user_learn_unreadable),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.testTag("user_learn_unreadable"),
+                                )
+                            }
                             Button(
                                 onClick = { pendingAutoClear = true },
-                                enabled = learnedHasData,
+                                enabled = learnedHasData || !learnedView.readable,
                                 modifier = Modifier.fillMaxWidth().testTag("user_dict_auto_clear"),
                             ) {
                                 Text(stringResource(R.string.user_dict_auto_clear_button))
@@ -339,7 +355,7 @@ internal fun UserDictPage(onBack: () -> Unit) {
                         }
                     }
                 }
-                if (learned.isEmpty()) {
+                if (learned.isEmpty() && learnedView.readable) {
                     item(key = "auto_learn_empty") {
                         Text(
                             stringResource(R.string.user_dict_auto_empty),

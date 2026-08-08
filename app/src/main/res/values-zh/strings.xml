@@ -155,6 +155,8 @@
     <string name="user_dict_toast_add_failed">请输入词和它的拼音（仅字母）</string>
     <string name="user_dict_toast_deleted">已删除</string>
     <string name="user_dict_toast_write_failed">保存失败，改动可能未写入存储</string>
+    <string name="user_dict_unreadable">词库读不出来，所以这里不显示。你的文件没有被改动，也没有被清空。导入一份副本可以替换它；在能读出来之前，添加词不会生效。</string>
+    <string name="user_learn_unreadable">学习数据读不出来，所以这里不显示。文件没有被改动，也没有被清空。</string>
     <string name="user_dict_toast_export_blocked">最近的改动没能存盘，为免导出不完整，已取消导出</string>
     <string name="user_dict_auto_title">自动学习</string>
     <string name="user_dict_auto_description">你逐字拼出、被自动粘成的词。可以删掉某一条让它不再进候选，也可以全部清空。上面「我的词」不受影响。</string>

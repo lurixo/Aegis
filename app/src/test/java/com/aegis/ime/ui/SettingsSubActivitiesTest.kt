@@ -240,6 +240,26 @@ class InputSettingsAutoLearnClearTest {
         compose.onNodeWithTag("auto_learn_clear").performScrollTo().assertIsNotEnabled()
     }
 
+    @Test fun learned_data_that_cannot_be_read_says_so_instead_of_bringing_the_page_down() {
+        learn.writeText("not a learning file at all\n")
+
+        scenario = ActivityScenario.launch(InputSettingsActivity::class.java)
+        compose.onNodeWithTag("auto_learn_unreadable").performScrollTo().assertExists()
+        compose.onNodeWithTag("auto_learn_count").assertDoesNotExist()
+        assertTrue("the unreadable file is left as it was", learn.readText().startsWith("not a learning file"))
+
+        compose.onNodeWithTag("auto_learn_clear").performScrollTo().assertIsEnabled().performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(ctxString(R.string.user_dict_auto_clear_confirm)).performClick()
+        compose.waitForIdle()
+
+        assertTrue(
+            "discarding it on purpose is the way back to a store that saves again",
+            learn.readText().startsWith("aegis-userlearn"),
+        )
+        compose.onNodeWithTag("auto_learn_count").performScrollTo().assertExists()
+    }
+
     @Test fun a_clear_that_never_reached_storage_says_so_instead_of_claiming_success() {
         UserDictHot.host = object : UserDictHot.Host {
             override fun addWord(reading: String, word: String, now: Long) = false
