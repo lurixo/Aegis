@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.user.asClipEntries
 import android.view.View
 import android.view.ViewGroup
 import com.aegis.ime.ime.theme.ImePalette
@@ -59,7 +60,7 @@ class ClipboardLazyPagingTest {
     }
 
     private fun clipView(history: List<String>): ClipboardView = ClipboardView(ctx).apply {
-        historyProvider = { history }
+        historyProvider = { history.asClipEntries() }
         applyPalette(pal)
         refresh()
     }

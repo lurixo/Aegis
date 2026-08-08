@@ -15,6 +15,12 @@
 
 package com.aegis.ime.ime
 
+import java.nio.file.Files
+import java.io.File
+import com.aegis.ime.user.ClipboardStore
+import com.aegis.ime.user.ClipEntry
+import com.aegis.ime.user.asClipEntries
+import com.aegis.ime.user.clipEntries
 import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -195,7 +201,7 @@ class ClipboardViewInteractionTest {
     }
 
     private fun clipView(history: List<String>): ClipboardView = ClipboardView(ctx).apply {
-        historyProvider = { history }; applyPalette(pal); refresh()
+        historyProvider = { history.asClipEntries() }; applyPalette(pal); refresh()
     }
     private fun phraseView(phrases: List<String>): ClipboardView = ClipboardView(ctx).apply {
         categoriesProvider = { listOf("默认", "工作") }
@@ -478,7 +484,7 @@ class ClipboardViewInteractionTest {
     @Test fun refresh_renders_new_history_items_without_reopening_panel() {
         val history = mutableListOf("old")
         val v = ClipboardView(ctx).apply {
-            historyProvider = { history.toList() }
+            historyProvider = { history.asClipEntries() }
             applyPalette(pal)
             refresh()
         }
@@ -910,7 +916,7 @@ class ClipboardViewInteractionTest {
         assertTrue("precondition: the text splits into ≥2 blocks", blocks.size >= 2)
         val batches = ArrayList<List<String>>()
         val v = ClipboardView(ctx).apply {
-            historyProvider = { listOf(text) }
+            historyProvider = { clipEntries(text) }
             onCopyBlocksToAegis = { batches.add(it) }
             applyPalette(pal)
             refresh()
@@ -1164,5 +1170,98 @@ class ClipboardViewInteractionTest {
         layout(v)
         assertFalse("an inline return keeps the phrase tab", v.isClipboardTabForTest())
         assertEquals("an inline return retargets the phrase category", "工作", v.phraseCatForTest())
+    }
+
+
+    private val bigBody = "第一段。第二段，第三段！".repeat(8000)
+
+    private fun storeDir(): File = Files.createTempDirectory("clipview").toFile()
+
+    private fun lazyStore(dir: File, vararg bodies: String): ClipboardStore {
+        ClipboardStore(dir).apply {
+            load()
+            bodies.forEach { record(it) }
+            flushPendingWrites()
+        }
+        return ClipboardStore(dir).apply { load() }
+    }
+
+    private fun storeView(store: ClipboardStore): ClipboardView = ClipboardView(ctx).apply {
+        historyProvider = { store.history() }
+        categoriesProvider = { listOf("默认") }
+        applyPalette(pal)
+        refresh()
+    }
+
+    private fun bigRow(v: ClipboardView): TextView =
+        textViews(mainOf(v)).first { it.text?.toString()?.startsWith("第一段。") == true }
+
+    @Test fun a_big_clipboard_row_renders_from_a_bounded_preview() {
+        val dir = storeDir()
+        val store = lazyStore(dir, bigBody)
+        val v = storeView(store)
+        layout(v)
+        val row = bigRow(v)
+        assertEquals("the row shows the panel's capped preview", v.displayCapForTest() + 1, row.text.length)
+        assertTrue("listing a big clip keeps its body out of memory", store.residentBodyChars() <= ClipEntry.PREVIEW_CHARS)
+        assertTrue(
+            "the panel cap must fit inside the preview the store hands out",
+            v.displayCapForTest() < ClipEntry.PREVIEW_CHARS,
+        )
+        dir.deleteRecursively()
+    }
+
+    @Test fun picking_a_big_clipboard_row_commits_the_whole_body() {
+        val dir = storeDir()
+        val store = lazyStore(dir, bigBody)
+        var picked: String? = null
+        val v = storeView(store).apply { onPick = { picked = it } }
+        layout(v)
+        assertTrue(bigRow(v).performClick())
+        assertEquals("上屏 gets the whole original string", bigBody, picked)
+        dir.deleteRecursively()
+    }
+
+    @Test fun splitting_a_big_clipboard_row_sees_the_whole_body() {
+        val dir = storeDir()
+        val store = lazyStore(dir, bigBody)
+        var copied: List<String>? = null
+        val v = storeView(store).apply { onCopyBlocksToAegis = { copied = it } }
+        layout(v)
+        v.showSplitForTest(store.history().first().key)
+        assertTrue(clickText(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_copy_all)))
+        assertEquals("拆分 works on the whole original string", ClipSplitter.copyBlocks(bigBody), copied)
+        dir.deleteRecursively()
+    }
+
+    @Test fun saving_a_big_clipboard_row_as_a_phrase_carries_the_whole_body() {
+        val dir = storeDir()
+        val store = lazyStore(dir, bigBody)
+        var saved: Pair<String, List<String>>? = null
+        val v = storeView(store).apply { onSaveAsPhrasesTo = { c, l -> saved = c to l } }
+        layout(v)
+        v.expandForTest(store.history().first().key)
+        layout(v)
+        val toPhrases = actionButtons(mainOf(v)).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_phrases) }
+        assertTrue(toPhrases.performClick())
+        assertTrue(clickText(overlayOf(v), "默认"))
+        assertEquals("存为短语 gets the whole original string", "默认" to listOf(bigBody), saved)
+        dir.deleteRecursively()
+    }
+
+    @Test fun a_row_whose_sidecar_vanished_is_marked_and_commits_nothing() {
+        val dir = storeDir()
+        val hash = "d".repeat(64)
+        File(dir, "clipboard.txt").writeText("B\t$hash\n")
+        val store = ClipboardStore(dir).apply { load() }
+        var picked: String? = null
+        val v = storeView(store).apply { onPick = { picked = it } }
+        layout(v)
+        val row = textViews(mainOf(v)).first { it.text?.toString()?.startsWith("⚠") == true }
+        assertTrue("the missing row is marked, never shown as clip text", row.text.toString().startsWith("⚠ "))
+        assertTrue("no row impersonates the reference line", labels(mainOf(v)).none { it.startsWith("B\t") })
+        assertTrue(row.performClick())
+        assertNull("a missing body must never be committed as a substitute", picked)
+        dir.deleteRecursively()
     }
 }

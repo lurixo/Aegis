@@ -77,7 +77,7 @@ class NoSilentDataLossTest {
                 w.write("\n")
             }
         }
-        val loaded = ClipboardStore(dir).apply { load() }.history()
+        val loaded = ClipboardStore(dir).apply { load() }.historyText()
         assertSameSequence("an oversized clipboard file", entries, loaded)
     }
 
@@ -86,16 +86,16 @@ class NoSilentDataLossTest {
         val seeded = clipEntries(OLD_HISTORY_CEILING + 50)
         val store = ClipboardStore(dir).apply {
             load()
-            importHistory(seeded, merge = false)
+            importHistory(seeded.asClipEntries(), merge = false)
         }
         store.record("brand new")
         store.flushPendingWrites()
         val expected = listOf("brand new") + seeded
-        assertSameSequence("a capture past the old ceiling", expected, store.history())
+        assertSameSequence("a capture past the old ceiling", expected, store.historyText())
         assertSameSequence(
             "a capture past the old ceiling, reread from disk",
             expected,
-            ClipboardStore(dir).apply { load() }.history(),
+            ClipboardStore(dir).apply { load() }.historyText(),
         )
     }
 
@@ -105,27 +105,27 @@ class NoSilentDataLossTest {
         val replaceDir = tmp.newFolder()
         val replaced = ClipboardStore(replaceDir).apply {
             load()
-            importHistory(incoming, merge = false)
+            importHistory(incoming.asClipEntries(), merge = false)
         }
-        assertSameSequence("a replacing import", incoming, replaced.history())
+        assertSameSequence("a replacing import", incoming, replaced.historyText())
         assertSameSequence(
             "a replacing import, reread from disk",
             incoming,
-            ClipboardStore(replaceDir).apply { load() }.history(),
+            ClipboardStore(replaceDir).apply { load() }.historyText(),
         )
 
         val mergeDir = tmp.newFolder()
         val existing = listOf("kept from before the import")
         val merged = ClipboardStore(mergeDir).apply {
             load()
-            importHistory(existing, merge = false)
-            importHistory(incoming, merge = true)
+            importHistory(existing.asClipEntries(), merge = false)
+            importHistory(incoming.asClipEntries(), merge = true)
         }
-        assertSameSequence("a merging import", existing + incoming, merged.history())
+        assertSameSequence("a merging import", existing + incoming, merged.historyText())
         assertSameSequence(
             "a merging import, reread from disk",
             existing + incoming,
-            ClipboardStore(mergeDir).apply { load() }.history(),
+            ClipboardStore(mergeDir).apply { load() }.historyText(),
         )
     }
 

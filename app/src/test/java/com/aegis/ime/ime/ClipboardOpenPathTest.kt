@@ -15,6 +15,8 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.user.asClipEntries
+import com.aegis.ime.user.clipEntries
 import com.aegis.ime.ime.theme.ImePalette
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -38,7 +40,7 @@ class ClipboardOpenPathTest {
         var historyReads = 0
         var phraseReads = 0
         val v = ClipboardView(ctx).apply {
-            historyProvider = { historyReads++; listOf("clip-a", "clip-b") }
+            historyProvider = { historyReads++; clipEntries("clip-a", "clip-b") }
             phrasesInProvider = { phraseReads++; emptyList() }
         }
 
@@ -55,7 +57,7 @@ class ClipboardOpenPathTest {
     @Test fun large_clipboard_history_open_defers_rows_after_the_first_batch() {
         val clips = (0 until (ClipboardView(ctx).initialSyncRowsForTest() + 5)).map { "clip-$it" }
         val v = ClipboardView(ctx).apply {
-            historyProvider = { clips }
+            historyProvider = { clips.asClipEntries() }
             applyPalette(pal)
         }
 
@@ -77,7 +79,7 @@ class ClipboardOpenPathTest {
         var phraseReads = 0
         var noteReads = 0
         val v = ClipboardView(ctx).apply {
-            historyProvider = { listOf("clip") }
+            historyProvider = { clipEntries("clip") }
             categoriesProvider = { categoryReads++; listOf("默认") }
             phrasesInProvider = { phraseReads++; phrases }
             phraseNoteProvider = { _, _ -> noteReads++; "" }
@@ -104,7 +106,7 @@ class ClipboardOpenPathTest {
     @Test fun refreshing_cancels_a_stale_deferred_append() {
         var clips = (0 until (ClipboardView(ctx).initialSyncRowsForTest() + 5)).map { "old-$it" }
         val v = ClipboardView(ctx).apply {
-            historyProvider = { clips }
+            historyProvider = { clips.asClipEntries() }
             applyPalette(pal)
         }
         assertEquals("large first render leaves rows deferred", v.initialSyncRowsForTest(), v.listRowCountForTest())
@@ -119,7 +121,7 @@ class ClipboardOpenPathTest {
     @Test fun reset_to_default_cancels_a_stale_deferred_append() {
         val clips = (0 until (ClipboardView(ctx).initialSyncRowsForTest() + 5)).map { "old-$it" }
         val v = ClipboardView(ctx).apply {
-            historyProvider = { clips }
+            historyProvider = { clips.asClipEntries() }
             applyPalette(pal)
         }
         assertEquals("large first render leaves rows deferred", v.initialSyncRowsForTest(), v.listRowCountForTest())

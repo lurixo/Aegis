@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import com.aegis.ime.R
+import com.aegis.ime.user.ClipEntry
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
@@ -60,7 +61,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     var onSplitSelectionChanged: (String) -> Unit = {}
     var onSplitSelectionFinished: () -> Unit = {}
     var onBack: () -> Unit = {}
-    var historyProvider: () -> List<String> = { emptyList() }
+    var historyProvider: () -> List<ClipEntry> = { emptyList() }
     var categoriesProvider: () -> List<String> = { emptyList() }
     var phrasesInProvider: (String) -> List<String> = { emptyList() }
     var phraseNoteProvider: (String, String) -> String = { _, _ -> "" }
@@ -299,6 +300,33 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     private fun preview(s: String): CharSequence = if (s.length > DISPLAY_CAP) s.substring(0, DISPLAY_CAP) + "…" else s
+
+    private var clipIndex: Map<String, ClipEntry> = emptyMap()
+
+    private fun clipKeys(): List<String> {
+        val entries = historyProvider()
+        val index = HashMap<String, ClipEntry>(entries.size * 2 + 1)
+        val keys = ArrayList<String>(entries.size)
+        for (e in entries) {
+            keys.add(e.key)
+            index[e.key] = e
+        }
+        clipIndex = index
+        return keys
+    }
+
+    private fun clipTab(): Boolean = st.tab == Tab.CLIPBOARD
+
+    private fun entryDisplay(key: String): String =
+        if (clipTab()) clipIndex[key]?.preview() ?: key else key
+
+    private fun entryBody(key: String): String? {
+        if (!clipTab()) return key
+        val entry = clipIndex[key] ?: return if (ClipEntry.isReferenceKey(key)) null else key
+        return entry.body()
+    }
+
+    private fun entryBodies(keys: List<String>): List<String> = keys.mapNotNull(::entryBody)
 
     private fun ll(w: Int, h: Int, weight: Float = 0f) = LinearLayout.LayoutParams(w, h, weight)
 
@@ -567,6 +595,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     internal fun listRowViewForTest(index: Int): View? = listColumn.getChildAt(index)
     internal fun listRowCountForTest(): Int = listColumn.childCount
     internal fun initialSyncRowsForTest(): Int = INITIAL_SYNC_ROWS
+    internal fun displayCapForTest(): Int = DISPLAY_CAP
     internal fun runPendingListAppendForTest(): Boolean {
         val r = pendingListAppend ?: return false
         removeCallbacks(r)
@@ -683,7 +712,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         if (category != renderedCategorySig) return false
         val entries = when {
             categorySortMode -> categories
-            st.tab == Tab.CLIPBOARD -> historyProvider()
+            st.tab == Tab.CLIPBOARD -> clipKeys()
             else -> phrasesInProvider(category)
         }
         return entries == renderedEntriesSig
@@ -751,7 +780,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun reconcileEntriesInPlace() {
         val categories = if (st.tab == Tab.PHRASE) categoriesProvider() else emptyList()
         val category = if (st.tab == Tab.PHRASE) currentCategory(categories) else ""
-        val entries = if (st.tab == Tab.CLIPBOARD) historyProvider() else phrasesInProvider(category)
+        val entries = if (st.tab == Tab.CLIPBOARD) clipKeys() else phrasesInProvider(category)
         val rowFactory: (String, Int) -> View = { e, i -> card(e, i, category) }
         if (pendingListAppend == null && loadedRows in 1..renderedEntriesSig.size && listColumn.childCount == loadedRows) {
             val reuse = HashMap<String, ArrayDeque<View>>()
@@ -864,7 +893,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun buildNormal() {
         val categories = if (st.tab == Tab.PHRASE) categoriesProvider() else emptyList()
         val category = if (st.tab == Tab.PHRASE) currentCategory(categories) else ""
-        val entries = if (st.tab == Tab.CLIPBOARD) historyProvider() else phrasesInProvider(category)
+        val entries = if (st.tab == Tab.CLIPBOARD) clipKeys() else phrasesInProvider(category)
         recordRenderSignature(categories, category, entries)
         val topBar = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -920,7 +949,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun card(text: String, index: Int, category: String): View {
         val expanded = st.expanded == text
         val phrase = st.tab == Tab.PHRASE
-        val display = if (phrase) phraseDisplayText(category, text) else text
+        val display = if (phrase) phraseDisplayText(category, text) else entryDisplay(text)
         val revealWidthDp = swipeRevealWidthDp(phrase)
         lateinit var header: LinearLayout
         val headerFrame = object : FrameLayout(context) {
@@ -954,7 +983,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
                 when {
                     swipeRevealed == text -> hideSwipe(text)
                     st.expanded == text -> toggleExpandInPlace(text)
-                    else -> onPick(text)
+                    else -> entryBody(text)?.let(onPick)
                 }
             }
             if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
@@ -1802,7 +1831,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun buildSelectMode() {
         val categories = if (st.tab == Tab.PHRASE) categoriesProvider() else emptyList()
         val category = if (st.tab == Tab.PHRASE) currentCategory(categories) else ""
-        val all = if (st.tab == Tab.CLIPBOARD) historyProvider() else phrasesInProvider(category)
+        val all = if (st.tab == Tab.CLIPBOARD) clipKeys() else phrasesInProvider(category)
         recordRenderSignature(categories, category, all)
         lateinit var selectAll: TextView
         lateinit var countView: TextView
@@ -1901,7 +1930,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         val tint = if (on) ACCENT else TEXT_DARK
         Motion.reset(h.row)
         h.radio.bind(tint, on)
-        h.label.text = if (st.tab == Tab.PHRASE) phraseDisplayText(category, text) else text
+        h.label.text = if (st.tab == Tab.PHRASE) phraseDisplayText(category, text) else entryDisplay(text)
         retintRow(h.row, tint)
         h.row.setOnClickListener {
             val nowOn = st.toggleSelect(text)
@@ -2063,18 +2092,19 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         showActionPopup(card)
     }
 
-    private fun chooseCategoryThen(pending: List<String>, after: () -> Unit = {}) {
+    private fun chooseCategoryThen(keys: List<String>, after: () -> Unit = {}) {
         val cats = categoriesProvider()
-        if (cats.isEmpty()) { after(); onAddCategoryThenAdd(pending); return }
+        if (cats.isEmpty()) { after(); onAddCategoryThenAdd(entryBodies(keys)); return }
         val card = menuCard()
         card.addView(menuTitle(context.getString(R.string.clip_choose_category)))
-        for (c in cats) { card.addView(menuItem(displayCat(c)) { hideOverlay(); onSaveAsPhrasesTo(c, pending); after(); refresh() }) }
-        card.addView(menuItem(context.getString(R.string.clip_new_category)) { hideOverlay(); after(); onAddCategoryThenAdd(pending) })
+        for (c in cats) { card.addView(menuItem(displayCat(c)) { hideOverlay(); onSaveAsPhrasesTo(c, entryBodies(keys)); after(); refresh() }) }
+        card.addView(menuItem(context.getString(R.string.clip_new_category)) { hideOverlay(); after(); onAddCategoryThenAdd(entryBodies(keys)) })
         showOverlay(card)
     }
 
-    private fun showSplit(text: String) {
+    private fun showSplit(key: String) {
         finishSplitSelection()
+        val text = entryBody(key) ?: return
         val selection = SplitSelectionModel.from(text)
         splitSelection = selection
         val panel = LinearLayout(context).apply {
@@ -2150,7 +2180,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     private fun currentEntries(): List<String> =
-        if (st.tab == Tab.CLIPBOARD) historyProvider() else phrasesInProvider(currentCategory())
+        if (st.tab == Tab.CLIPBOARD) clipKeys() else phrasesInProvider(currentCategory())
 
     private fun confirmDelete(texts: List<String>, after: () -> Unit = {}) {
         val deleteTab = st.tab

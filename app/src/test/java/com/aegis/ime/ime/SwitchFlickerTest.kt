@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.user.clipEntries
 import android.app.Activity
 import android.graphics.Color
 import android.graphics.drawable.ColorDrawable
@@ -63,7 +64,7 @@ class SwitchFlickerTest {
             host.addView(input)
             activity.setContentView(host)
             val clipboard = ClipboardView(activity).apply {
-                historyProvider = { listOf("current clip") }
+                historyProvider = { clipEntries("current clip") }
                 applyPalette(light)
             }
 

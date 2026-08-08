@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.user.clipEntries
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -138,7 +139,7 @@ class RenderHarness {
     @Test fun seam_strip_over_clipboard() {
         for ((t, pal) in themes) {
             val panel = ClipboardView(ctx).apply {
-                historyProvider = { listOf("第一条复制内容", "second clip on the board") }; applyPalette(pal)
+                historyProvider = { clipEntries("第一条复制内容", "second clip on the board") }; applyPalette(pal)
             }
             stitchStripAndPanel(panel, (300 * density).toInt(), "seam_clipboard_$t.png", pal)
         }
@@ -309,7 +310,7 @@ class RenderHarness {
         val h = (300 * ctx.resources.displayMetrics.density).toInt()
         for ((t, pal) in themes) {
             val v = ClipboardView(ctx).apply {
-                historyProvider = { listOf("第一条复制内容", "second clip on the board", "三") }
+                historyProvider = { clipEntries("第一条复制内容", "second clip on the board", "三") }
                 applyPalette(pal)
             }
             snap(v, h, "clip_normal_$t.png")
@@ -320,7 +321,7 @@ class RenderHarness {
         val h = (300 * ctx.resources.displayMetrics.density).toInt()
         for ((t, pal) in themes) {
             val v = ClipboardView(ctx).apply {
-                historyProvider = { listOf("第一条复制内容") }
+                historyProvider = { clipEntries("第一条复制内容") }
                 applyPalette(pal)
                 showHistoryRecordingMenuForTest()
             }
@@ -332,7 +333,7 @@ class RenderHarness {
         val h = (300 * ctx.resources.displayMetrics.density).toInt()
         for ((t, pal) in themes) {
             val v = ClipboardView(ctx).apply {
-                historyProvider = { listOf("hello world", "复制的一段文字") }
+                historyProvider = { clipEntries("hello world", "复制的一段文字") }
                 applyPalette(pal)
                 enterSelectForTest(listOf("hello world"))
             }
@@ -430,7 +431,7 @@ class RenderHarness {
         val h = (300 * density).toInt()
         for ((t, pal) in themes) {
             val v = ClipboardView(ctx).apply {
-                historyProvider = { listOf("第一条复制内容", "second clip") }
+                historyProvider = { clipEntries("第一条复制内容", "second clip") }
                 applyPalette(pal); refresh(); revealSwipeForTest("第一条复制内容")
             }
             snap(v, h, "clip_swipe_$t.png")
@@ -469,12 +470,12 @@ class RenderHarness {
         val h = (300 * density).toInt()
         for ((t, pal) in themes) {
             val neutral = ClipboardView(ctx).apply {
-                historyProvider = { listOf("在铅笔下面abc") }; applyPalette(pal); refresh(); showSplitForTest("在铅笔下面abc")
+                historyProvider = { clipEntries("在铅笔下面abc") }; applyPalette(pal); refresh(); showSplitForTest("在铅笔下面abc")
             }
             snap(neutral, h, "split_neutral_$t.png")
             assertTrue("$t: 全部复制 present", neutral.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_copy_all)))
             val tapped = ClipboardView(ctx).apply {
-                historyProvider = { listOf("在铅笔下面abc") }; applyPalette(pal); refresh(); showSplitForTest("在铅笔下面abc")
+                historyProvider = { clipEntries("在铅笔下面abc") }; applyPalette(pal); refresh(); showSplitForTest("在铅笔下面abc")
             }
             findViewsWithText(tapped, "在铅笔下面").firstOrNull { it.hasOnClickListeners() }?.performClick()
             snap(tapped, h, "split_tapped_$t.png")
