@@ -481,6 +481,45 @@ class BackupRoundTripTest {
         }
     }
 
+    @Test fun restore_reports_failure_when_the_live_stores_cannot_be_flushed_first() {
+        seedTypicalData()
+        val backup = export()
+        wipeUserData()
+
+        UserDictHot.host = FlushRefusingHost()
+        try {
+            expectRestoreIoFailure(backup, BackupManager.Mode.OVERWRITE)
+        } finally {
+            UserDictHot.host = null
+        }
+    }
+
+    @Test fun export_reports_failure_when_the_live_stores_cannot_be_flushed_first() {
+        seedTypicalData()
+
+        UserDictHot.host = FlushRefusingHost()
+        try {
+            export()
+            fail("expected export to report a persistence failure")
+        } catch (e: BackupException) {
+            assertEquals(BackupError.IO_ERROR, e.error)
+        } finally {
+            UserDictHot.host = null
+        }
+    }
+
+    private class FlushRefusingHost : UserDictHot.Host {
+        override fun addWord(reading: String, word: String, now: Long) = true
+        override fun removeWord(reading: String, word: String) = true
+        override fun importUserDict(importFile: File, merge: Boolean, now: Long) = true
+        override fun entries(): List<UserModel.Entry> = emptyList()
+        override fun learnedEntries(): List<UserLearning.Formed> = emptyList()
+        override fun hasLearnedData() = false
+        override fun removeLearned(word: String, reading: String) = true
+        override fun clearLearned() = true
+        override fun flush() = false
+    }
+
     @Test fun restore_reports_failure_when_preference_commit_fails_after_decoding_prefs() {
         seedTypicalData()
         val backup = export()
