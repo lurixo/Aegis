@@ -580,7 +580,6 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
                         "C" -> {
                             require(isCollocatable(p[1]) && isCollocatable(p[2])) { "invalid userlearn follow row" }
                             val m = parsed.follows.getOrPut(p[1]) { HashMap() }
-                            require(m.size < FOLLOW_PER_PREV) { "userlearn has too many follow rows" }
                             require(m.put(p[2], Usage(count, seen)) == null) { "duplicate userlearn follow row" }
                         }
                         else -> throw IllegalArgumentException("invalid userlearn row")
