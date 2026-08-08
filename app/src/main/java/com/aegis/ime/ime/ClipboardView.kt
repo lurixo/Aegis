@@ -220,10 +220,12 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {
             super.onScrollChanged(l, t, oldl, oldt)
             if (!applyingListScroll && !listScrollRestoreActive) listScrollY = t
+            scheduleListAppendIfNeeded()
         }
 
         override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
             super.onLayout(changed, l, t, r, b)
+            scheduleListAppendIfNeeded()
             if (!listScrollRestoreActive) return
             val max = (listColumn.height - height).coerceAtLeast(0)
             val target = listScrollRestoreTarget.coerceIn(0, max)
@@ -249,6 +251,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private var fixedChromeCompressed: Boolean? = null
     private var listRenderGeneration = 0
     private var pendingListAppend: Runnable? = null
+    private var pagedEntries: List<String> = emptyList()
+    private var pagedRow: ((String, Int) -> View)? = null
+    private var loadedRows = 0
     private var selectAllAction: TextView? = null
     private var cancelSelectAction: TextView? = null
 
@@ -281,6 +286,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         const val DISPLAY_CAP = 2000
         const val INITIAL_SYNC_ROWS = 12
         const val APPEND_ROWS_PER_FRAME = 12
+        const val LIST_LOOKAHEAD_VIEWPORTS = 2
         const val SWIPE_ACTION_SIZE_DP = 44
         const val SWIPE_ACTION_GAP_DP = 4
         const val COMPACT_ACTION_HEIGHT_DP = 36
@@ -746,19 +752,27 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         val categories = if (st.tab == Tab.PHRASE) categoriesProvider() else emptyList()
         val category = if (st.tab == Tab.PHRASE) currentCategory(categories) else ""
         val entries = if (st.tab == Tab.CLIPBOARD) historyProvider() else phrasesInProvider(category)
-        if (pendingListAppend == null && renderedEntriesSig.isNotEmpty() && listColumn.childCount == renderedEntriesSig.size) {
+        val rowFactory: (String, Int) -> View = { e, i -> card(e, i, category) }
+        if (pendingListAppend == null && loadedRows in 1..renderedEntriesSig.size && listColumn.childCount == loadedRows) {
             val reuse = HashMap<String, ArrayDeque<View>>()
-            for (i in renderedEntriesSig.indices) {
+            for (i in 0 until loadedRows) {
                 val child = listColumn.getChildAt(i) ?: continue
                 reuse.getOrPut(renderedEntriesSig[i]) { ArrayDeque() }.addLast(child)
             }
+            val grown = (entries.size - renderedEntriesSig.size).coerceIn(0, APPEND_ROWS_PER_FRAME.coerceAtLeast(1))
+            val keep = min(entries.size, loadedRows + grown)
             listColumn.removeAllViews()
+            pagedEntries = entries
+            pagedRow = rowFactory
+            loadedRows = 0
             if (entries.isEmpty()) {
                 listColumn.addView(emptyHint())
             } else {
-                for ((i, e) in entries.withIndex()) {
-                    listColumn.addView(reuse[e]?.removeFirstOrNull() ?: card(e, i, category))
+                for (i in 0 until keep) {
+                    listColumn.addView(reuse[entries[i]]?.removeFirstOrNull() ?: rowFactory(entries[i], i))
                 }
+                loadedRows = keep
+                scheduleListAppendIfNeeded()
             }
         } else {
             val target = listScroll.scrollY
@@ -766,7 +780,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             listScrollY = target
             listScrollRestoreTarget = target
             listScrollRestoreActive = !listTouchActive
-            populateListRows(entries) { e, i -> card(e, i, category) }
+            populateListRows(entries, rowFactory)
         }
         recordRenderSignature(categories, category, entries)
         renderedExpanded = st.expanded
@@ -800,30 +814,47 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun invalidateListRender() {
         cancelPendingListAppend()
         listRenderGeneration++
+        pagedEntries = emptyList()
+        pagedRow = null
+        loadedRows = 0
     }
 
     private fun populateListRows(entries: List<String>, row: (String, Int) -> View) {
         listColumn.removeAllViews()
+        pagedEntries = entries
+        pagedRow = row
+        loadedRows = 0
         if (entries.isEmpty()) {
             listColumn.addView(emptyHint())
             return
         }
-        val firstEnd = min(entries.size, INITIAL_SYNC_ROWS)
-        appendListRows(entries, 0, firstEnd, row)
-        if (firstEnd < entries.size) scheduleListAppend(entries, firstEnd, listRenderGeneration, row)
+        appendListRows(INITIAL_SYNC_ROWS.coerceAtLeast(1))
+        scheduleListAppendIfNeeded()
     }
 
-    private fun appendListRows(entries: List<String>, start: Int, end: Int, row: (String, Int) -> View) {
-        for (i in start until end) listColumn.addView(row(entries[i], i))
+    private fun appendListRows(end: Int) {
+        val row = pagedRow ?: return
+        val limit = min(end, pagedEntries.size)
+        for (i in loadedRows until limit) listColumn.addView(row(pagedEntries[i], i))
+        loadedRows = maxOf(loadedRows, limit)
     }
 
-    private fun scheduleListAppend(entries: List<String>, start: Int, generation: Int, row: (String, Int) -> View) {
+    private fun listNeedsMoreRows(): Boolean {
+        if (pagedRow == null || loadedRows >= pagedEntries.size) return false
+        val viewport = listScroll.height
+        if (viewport <= 0) return true
+        val anchor = if (listScrollRestoreActive) maxOf(listScroll.scrollY, listScrollRestoreTarget) else listScroll.scrollY
+        return listColumn.height < anchor + viewport * LIST_LOOKAHEAD_VIEWPORTS
+    }
+
+    private fun scheduleListAppendIfNeeded() {
+        if (pendingListAppend != null || !listNeedsMoreRows()) return
+        val generation = listRenderGeneration
         val r = Runnable {
             if (generation != listRenderGeneration) return@Runnable
             pendingListAppend = null
-            val end = min(entries.size, start + APPEND_ROWS_PER_FRAME)
-            appendListRows(entries, start, end, row)
-            if (end < entries.size) scheduleListAppend(entries, end, generation, row)
+            appendListRows(loadedRows + APPEND_ROWS_PER_FRAME.coerceAtLeast(1))
+            scheduleListAppendIfNeeded()
         }
         pendingListAppend = r
         postOnAnimation(r)
