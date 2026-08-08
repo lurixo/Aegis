@@ -110,7 +110,7 @@ class AssembledCandidateOrderTest {
     @Test fun theGluedWordStaysReachableRightBehindTheDictionaryWord() {
         assets()
         val learning = chain("我" to "wo", "呢" to "ne", "嗯" to "n", "的" to "de")
-        assumeTrue("the chain forms the glued word", "我呢嗯的" in learning.formedWordsFor("wonende"))
+        assertTrue("the chain forms the glued word", "我呢嗯的" in learning.formedWordsFor("wonende"))
         for ((path, got) in paths(digits(ul = learning), "9663633", setOf(2, 5))) {
             assertEquals("9-key/$path: 我们的 leads, was ${got.take(6)}", "我们的", got.first())
             val at = got.indexOf("我呢嗯的")

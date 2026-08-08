@@ -39,7 +39,7 @@ class FuzzyEvalTest {
             val t = it.indexOf('\t'); if (t <= 0) null else it.substring(0, t) to it.substring(t + 1)
         }
         val relevant = pairs.filter { Fuzzy.normalize(it.first) != it.first }
-        assumeTrue("have fuzzy-relevant sentences", relevant.isNotEmpty())
+        assertTrue("the checked-in evaluation set must hold sentences a fuzzy rule rewrites", relevant.isNotEmpty())
 
         val off = PinyinDecoder(dict, lm)
         val on = PinyinDecoder(dict, lm, fuzzyRules = Fuzzy.RULES.mapTo(LinkedHashSet()) { it.key })
