@@ -62,7 +62,7 @@ object BackupManager {
 
 
     fun export(filesDir: File, prefs: SharedPreferences, password: CharArray, rawOut: OutputStream) {
-        UserDictEdit.flushBeforeExport()
+        if (!UserDictEdit.flushBeforeExport()) throw BackupException(BackupError.IO_ERROR)
         LiveUserData.flushBeforeExport()
         val prefsBlob = PrefsCodec.encode(prefs.all.filterKeys { it !in DOWNLOAD_STATE_KEYS })
         val legacyPrefs = BackupArchive.fitsLegacyPrefsEntry(prefsBlob)
@@ -127,7 +127,7 @@ object BackupManager {
         var handedOff = false
         try {
             try {
-                UserDictHot.host?.flush()
+                if (UserDictHot.host?.flush() == false) throw IOException("user dictionary flush failed")
                 LiveUserData.flushBeforeRestore()
             } catch (e: Exception) {
                 throw BackupException(BackupError.IO_ERROR, e)
