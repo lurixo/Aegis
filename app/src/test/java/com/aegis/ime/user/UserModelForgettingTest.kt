@@ -176,6 +176,28 @@ class UserModelForgettingTest {
         assertEquals(0, at(t0, file).forgottenCount)
     }
 
+    @Test fun aStoreCarryingNothingFromTheThirdFormatIsNotStampedWithIt() {
+        val file = db()
+        UserModel { t0 }.apply { addManualWord("zwm", "张伟明", t0) }.save(file)
+        assertEquals(
+            "a build that only knows the first two formats must still be able to read this file",
+            "aegis-userdb 2",
+            file.readLines().first(),
+        )
+
+        val aged = db("aged.txt")
+        aged.writeText("aegis-userdb 2\nW\t旧词\t1\t${t0 - 400L * day}\nR\tjiuci\t旧词\n")
+        val swept = at(t0, aged)
+        assertEquals("precondition: this store really did forget something", 1, swept.forgottenCount)
+        swept.save(aged)
+        assertEquals(
+            "once the file carries a third-format row it must say so",
+            "aegis-userdb 3",
+            aged.readLines().first(),
+        )
+        assertTrue(aged.readLines().any { it.startsWith("G\t") })
+    }
+
     @Test fun theThirdFormatStillReadsWhatTheFirstAndSecondWrote() {
         val one = db("v1.txt")
         one.writeText("aegis-userdb 1\nW\t张伟明\t4\t$t0\nR\tzwm\t张伟明\n")

@@ -192,7 +192,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         val tmp = File(file.absoluteFile.parentFile, file.name + ".tmp")
         try {
             tmp.bufferedWriter().use { w ->
-                w.write("$HEADER\n")
+                w.write("${if (forgottenCount > 0) HEADER else MARKED_HEADER}\n")
                 if (forgottenCount > 0) w.write("G\t$forgottenCount\n")
                 for ((word, c) in count) w.write("W\t$word\t$c\t${lastUsed[word] ?: 0}\n")
                 for ((prev, m) in bigram) for ((word, c) in m) w.write("B\t$prev\t$word\t$c\n")
