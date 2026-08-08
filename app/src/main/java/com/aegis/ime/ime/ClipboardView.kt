@@ -317,8 +317,14 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
     private fun clipTab(): Boolean = st.tab == Tab.CLIPBOARD
 
-    private fun entryDisplay(key: String): String =
-        if (clipTab()) clipIndex[key]?.preview() ?: key else key
+    private fun entryDisplay(key: String): String {
+        if (!clipTab()) return key
+        val entry = clipIndex[key] ?: return key
+        if (!entry.available) {
+            return context.getString(R.string.clipboard_entry_lost_format, entry.hash.orEmpty().take(8))
+        }
+        return entry.preview()
+    }
 
     private fun entryBody(key: String): String? {
         if (!clipTab()) return key
