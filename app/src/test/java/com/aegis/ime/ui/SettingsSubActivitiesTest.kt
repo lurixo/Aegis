@@ -39,6 +39,8 @@ import androidx.test.ext.junit.rules.ActivityScenarioRule
 import com.aegis.ime.R
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserLearnEdit
+import com.aegis.ime.user.UserLearning
+import com.aegis.ime.user.UserModel
 import org.junit.After
 import org.junit.Before
 import org.junit.Assert.assertEquals
@@ -52,6 +54,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.shadows.ShadowToast
 
 private fun ctxString(id: Int) = RuntimeEnvironment.getApplication().getString(id)
 
@@ -219,6 +222,7 @@ class InputSettingsAutoLearnClearTest {
 
     @After fun cleanup() {
         scenario?.close()
+        UserDictHot.host = null
         learn.delete()
     }
 
@@ -234,6 +238,33 @@ class InputSettingsAutoLearnClearTest {
 
         assertTrue("the next word data is gone", learn.readLines().none { it.startsWith("C\t") })
         compose.onNodeWithTag("auto_learn_clear").performScrollTo().assertIsNotEnabled()
+    }
+
+    @Test fun a_clear_that_never_reached_storage_says_so_instead_of_claiming_success() {
+        UserDictHot.host = object : UserDictHot.Host {
+            override fun addWord(reading: String, word: String, now: Long) = false
+            override fun removeWord(reading: String, word: String) = false
+            override fun importUserDict(importFile: java.io.File, merge: Boolean, now: Long) = false
+            override fun entries(): List<UserModel.Entry> = emptyList()
+            override fun learnedEntries(): List<UserLearning.Formed> =
+                listOf(UserLearning.Formed("你呢嗯", "ninen"))
+            override fun hasLearnedData() = true
+            override fun removeLearned(word: String, reading: String) = false
+            override fun clearLearned() = false
+            override fun flush() = false
+        }
+
+        scenario = ActivityScenario.launch(InputSettingsActivity::class.java)
+        ShadowToast.reset()
+        compose.onNodeWithTag("auto_learn_clear").performScrollTo().assertIsEnabled().performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(ctxString(R.string.user_dict_auto_clear_confirm)).performClick()
+        compose.waitForIdle()
+
+        assertEquals(
+            ctxString(R.string.user_dict_toast_write_failed),
+            ShadowToast.getTextOfLatestToast(),
+        )
     }
 }
 
