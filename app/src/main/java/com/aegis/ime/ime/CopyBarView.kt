@@ -30,6 +30,7 @@ import android.view.View
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.TextView
+import kotlin.math.roundToInt
 
 class CopyBarView(context: Context) : LinearLayout(context) {
 
@@ -42,6 +43,9 @@ class CopyBarView(context: Context) : LinearLayout(context) {
     private fun dp(v: Int) = (v * density).toInt()
 
     private var palette = ImePalette.STATIC_LIGHT
+
+    private var preview: CopyBarPreview? = null
+    private var sliding = false
 
     private val ctl = CopyBarController(
         commit = { onCommit(it) },
@@ -84,12 +88,10 @@ class CopyBarView(context: Context) : LinearLayout(context) {
 
     private fun render() {
         row.removeAllViews()
+        preview = null
         row.addView(icon(), lp(dp(26), dp(26)))
         if (!ctl.splitMode) {
-            row.addView(
-                HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(content(ctl.content.orEmpty())) },
-                lp(0, WC, 1f),
-            )
+            row.addView(contentScroller(ctl.content.orEmpty()), lp(0, WC, 1f))
             row.addView(divider(), lp(dp(1), dp(18)))
             row.addView(pill(context.getString(R.string.copybar_split)) { toggleSplit() }, lp(WC, WC))
         } else {
@@ -105,6 +107,43 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         row.addView(pill("×") { ctl.close() }, lp(dp(34), WC))
     }
 
+    private fun contentScroller(s: String): HorizontalScrollView {
+        val window = CopyBarPreview(s, WINDOW_CHARS, STEP_CHARS)
+        preview = window
+        val text = content(window.text())
+        val scroller = HorizontalScrollView(context)
+        scroller.isHorizontalScrollBarEnabled = false
+        scroller.addView(text)
+        if (window.slides) scroller.setOnScrollChangeListener { _, _, _, _, _ -> slide(scroller, text, window, s) }
+        return scroller
+    }
+
+    private fun slide(scroller: HorizontalScrollView, text: TextView, window: CopyBarPreview, source: String) {
+        if (sliding) return
+        val viewport = scroller.width - scroller.paddingLeft - scroller.paddingRight
+        val edge = text.width - viewport
+        if (viewport <= 0 || edge <= 0) return
+        val zone = minOf(viewport, edge / 3)
+        val x = scroller.scrollX
+        val from = window.start
+        val moved = when {
+            x >= edge - zone -> window.forward()
+            x <= zone -> window.back()
+            else -> false
+        }
+        if (!moved) return
+        val to = window.start
+        val shift = text.paint.measureText(source, minOf(from, to), maxOf(from, to)).roundToInt()
+        sliding = true
+        try {
+            text.text = window.text()
+            scroller.scrollTo(if (to > from) x - shift else x + shift, 0)
+        } finally {
+            sliding = false
+        }
+    }
+
+    internal fun previewStartForTest(): Int = preview?.start ?: 0
     internal fun toggleSplitForTest() = toggleSplit()
     internal fun splitModeForTest(): Boolean = ctl.splitMode
     internal fun contentForTest(): String? = ctl.content
@@ -134,7 +173,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
     }
 
     private fun content(s: String): TextView = TextView(context).apply {
-        text = if (s.length > DISPLAY_CAP) s.substring(0, DISPLAY_CAP) else s
+        text = s
         maxLines = 1
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setTextColor(palette.candidateText)
@@ -181,8 +220,9 @@ class CopyBarView(context: Context) : LinearLayout(context) {
 
     private fun lp(w: Int, h: Int, weight: Float = 0f) = LinearLayout.LayoutParams(w, h, weight)
 
-    private companion object {
+    internal companion object {
         const val WC = LinearLayout.LayoutParams.WRAP_CONTENT
-        const val DISPLAY_CAP = 2000
+        const val WINDOW_CHARS = 2000
+        const val STEP_CHARS = 500
     }
 }
