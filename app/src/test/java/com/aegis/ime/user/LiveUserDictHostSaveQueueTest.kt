@@ -219,6 +219,28 @@ class LiveUserDictHostSaveQueueTest {
         }
     }
 
+    @Test fun a_write_still_in_flight_is_visible_after_the_store_has_gone_clean() {
+        db = File(tmp.root, "userdb.txt")
+        learnFile = File(tmp.root, "userlearn.txt")
+        val inWrite = CountDownLatch(1)
+        val go = CountDownLatch(1)
+        val h = LiveUserDictHost(model, db, null, learnFile) { userDbMtime, userLearnMtime ->
+            watermark(userDbMtime, userLearnMtime)
+            inWrite.countDown()
+            go.await(5, TimeUnit.SECONDS)
+        }
+        model.record(null, "写到一半", 1L)
+        val pending = helper().submit<Boolean> { h.flush() }
+        assertTrue("precondition: the writer reached the watermark callback", inWrite.await(2, TimeUnit.SECONDS))
+
+        assertFalse("the store goes clean before the caller learns the write happened", model.dirty)
+        assertTrue("a write still in flight must be visible so a reload gate can stand down", h.writing)
+
+        go.countDown()
+        assertTrue(pending.get(5, TimeUnit.SECONDS))
+        assertFalse("the flag must clear once the write is done", h.writing)
+    }
+
     @Test fun stopping_the_writer_still_lets_a_last_edit_be_written_and_reported() {
         val h = host()
         h.stopSaving()
