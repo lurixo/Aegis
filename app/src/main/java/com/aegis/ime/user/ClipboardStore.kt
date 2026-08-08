@@ -131,17 +131,20 @@ class ClipboardStore(private val dir: File) {
         private set
 
     fun load() {
-        history.clear()
-        purgeLegacyImageDir()
-        val seen = HashSet<String>()
-        historyReadable = runCatching {
-            if (histFile.exists()) histFile.readLines().forEach { line ->
-                readEntry(line)?.let { e ->
-                    if (e.key.isNotBlank() && !isLegacyImageEntry(e.key) && seen.add(e.key)) history.add(e)
+        flushPendingWrites()
+        synchronized(history) {
+            history.clear()
+            purgeLegacyImageDir()
+            val seen = HashSet<String>()
+            historyReadable = runCatching {
+                if (histFile.exists()) histFile.readLines().forEach { line ->
+                    readEntry(line)?.let { e ->
+                        if (e.key.isNotBlank() && !isLegacyImageEntry(e.key) && seen.add(e.key)) history.add(e)
+                    }
                 }
-            }
-        }.isSuccess
-        if (!historyReadable) history.clear()
+            }.isSuccess
+            if (!historyReadable) history.clear()
+        }
         loadPhrases()
     }
 
@@ -209,25 +212,39 @@ class ClipboardStore(private val dir: File) {
     fun record(text: String?) {
         val t = text?.trim().orEmpty()
         if (t.isEmpty()) return
-        val entry = adopt(t)
-        history.remove(entry)
-        history.add(0, entry)
-        scheduleSave()
+        val gen = saveGen.incrementAndGet()
+        val queued = runCatching { io.execute { recordHere(t, gen) } }.isSuccess
+        if (!queued) recordHere(t, gen)
+    }
+
+    private fun recordHere(text: String, gen: Long) {
+        val entry = adopt(text)
+        val snapshot = synchronized(history) {
+            history.remove(entry)
+            history.add(0, entry)
+            ArrayList(history)
+        }
+        if (gen != saveGen.get() || !historyReadable) return
+        runCatching { writeHistory(snapshot) }
     }
 
     fun importHistory(entries: List<ClipEntry>, merge: Boolean) {
+        flushPendingWrites()
         val incoming = entries.mapNotNull(::adopt)
-        if (merge) {
-            if (!historyReadable) throw IOException("clipboard history could not be read")
-            val present = HashSet(history)
-            for (e in incoming) if (present.add(e)) history.add(e)
-        } else {
-            history.clear()
-            val seen = HashSet<ClipEntry>()
-            for (e in incoming) if (seen.add(e)) history.add(e)
-            historyReadable = true
+        val snapshot = synchronized(history) {
+            if (merge) {
+                if (!historyReadable) throw IOException("clipboard history could not be read")
+                val present = HashSet(history)
+                for (e in incoming) if (present.add(e)) history.add(e)
+            } else {
+                history.clear()
+                val seen = HashSet<ClipEntry>()
+                for (e in incoming) if (seen.add(e)) history.add(e)
+                historyReadable = true
+            }
+            ArrayList(history)
         }
-        writeHistory(ArrayList(history))
+        writeHistory(snapshot)
     }
 
     private fun adopt(text: String): ClipEntry =
@@ -243,18 +260,36 @@ class ClipboardStore(private val dir: File) {
         return if (body.isEmpty()) null else adopt(body)
     }
 
-    fun delete(text: String) { if (history.removeAll { it.key == text }) scheduleSave() }
+    fun delete(text: String) = deleteAll(listOf(text))
+
     fun deleteAll(texts: Collection<String>) {
+        flushPendingWrites()
         val keys = texts.toSet()
-        if (history.removeAll { it.key in keys }) scheduleSave()
+        if (synchronized(history) { history.removeAll { it.key in keys } }) scheduleSave()
     }
-    fun clearHistory() { if (history.isNotEmpty()) { history.clear(); scheduleSave() } }
 
-    fun history(): List<ClipEntry> = history.toList()
+    fun clearHistory() {
+        flushPendingWrites()
+        val emptied = synchronized(history) { history.isNotEmpty().also { history.clear() } }
+        if (emptied) scheduleSave()
+    }
 
-    internal fun latest(): String? = history.firstOrNull()?.body()
+    fun history(): List<ClipEntry> {
+        flushPendingWrites()
+        return snapshot()
+    }
 
-    internal fun residentBodyChars(): Long = history.sumOf { it.residentChars().toLong() }
+    internal fun latest(): String? {
+        flushPendingWrites()
+        return synchronized(history) { history.firstOrNull() }?.body()
+    }
+
+    internal fun residentBodyChars(): Long {
+        flushPendingWrites()
+        return snapshot().sumOf { it.residentChars().toLong() }
+    }
+
+    private fun snapshot(): List<ClipEntry> = synchronized(history) { ArrayList(history) }
 
 
     fun reloadPhrases() = loadPhrases()
@@ -395,7 +430,7 @@ class ClipboardStore(private val dir: File) {
 
     private fun scheduleSave() {
         if (!historyReadable) return
-        val snapshot = ArrayList(history)
+        val snapshot = snapshot()
         val gen = saveGen.incrementAndGet()
         runCatching { io.execute { if (gen == saveGen.get()) runCatching { writeHistory(snapshot) } } }
     }
