@@ -62,6 +62,15 @@ class LiveUserDictHostTest {
 
     private fun unwritable(name: String): File = File(tmp.newFile("blocker-$name"), name)
 
+    private fun brokenLearning(file: File): UserLearning {
+        file.writeText("not a learning file at all\n")
+        return UserLearning { CLOCK }.apply {
+            load(file)
+            observeCommit(null, "你", "ni", CLOCK)
+            observeCommit("你", "呢", "ne", CLOCK)
+        }
+    }
+
     private fun rewrittenOutside(mtime: Long) {
         UserModel().apply {
             if (db.exists()) load(db)
@@ -425,6 +434,96 @@ class LiveUserDictHostTest {
         assertNull(saves.last().first)
         assertEquals(learnFile.lastModified(), userLearnWatermark)
         assertEquals(0L, userDbWatermark)
+    }
+
+    @Test fun a_word_added_while_the_learning_store_is_broken_is_still_reported_saved() {
+        db = File(tmp.root, "userdb.txt")
+        val learnFile = File(tmp.root, "userlearn.txt")
+        val learning = brokenLearning(learnFile)
+        val h = LiveUserDictHost(model, db, learning, learnFile, ::watermark)
+
+        assertTrue("the word reached the dictionary, so the caller must hear success", h.addWord("nihao", "你好", now = 1L))
+
+        assertFalse("the word really is on disk", model.dirty)
+        assertEquals(listOf("你好"), reloadFromDisk().readingSnapshot()["nihao"])
+        assertTrue("the broken learning store still has unsaved work", learning.dirty)
+        assertEquals("and its file is left byte for byte as it was", "not a learning file at all\n", learnFile.readText())
+        assertEquals(1, saves.size)
+        assertNotNull("the dictionary watermark moved", saves.last().first)
+        assertNull("the learning watermark did not", saves.last().second)
+    }
+
+    @Test fun an_import_over_a_broken_learning_store_is_still_reported_applied() {
+        db = File(tmp.root, "userdb.txt")
+        val learnFile = File(tmp.root, "userlearn.txt")
+        val learning = brokenLearning(learnFile)
+        val h = LiveUserDictHost(model, db, learning, learnFile, ::watermark)
+        val imported = tmp.newFile("import.txt").apply {
+            writeText("aegis-userdb 1\nW\t测试\t3\t7\nR\tceshi\t测试\n")
+        }
+
+        assertTrue(h.importUserDict(imported, merge = true, now = 8L))
+
+        assertEquals(listOf("测试"), reloadFromDisk().readingSnapshot()["ceshi"])
+        assertTrue("the broken learning store still has unsaved work", learning.dirty)
+    }
+
+    @Test fun a_remove_still_reports_failure_when_the_learning_scrub_cannot_land() {
+        db = File(tmp.root, "userdb.txt")
+        val learnFile = File(tmp.root, "userlearn.txt")
+        val learning = brokenLearning(learnFile)
+        val h = LiveUserDictHost(model, db, learning, learnFile, ::watermark)
+        model.addManualWord("nihao", "你呢", 1L)
+
+        assertFalse("a remove touches both stores, so half of it failing must be reported", h.removeWord("nihao", "你呢"))
+
+        assertFalse("the dictionary half still landed", model.dirty)
+        assertTrue("the learning half did not", learning.dirty)
+    }
+
+    @Test fun a_backup_flush_still_refuses_while_the_learning_store_cannot_be_written() {
+        db = File(tmp.root, "userdb.txt")
+        val learnFile = File(tmp.root, "userlearn.txt")
+        val learning = brokenLearning(learnFile)
+        val h = LiveUserDictHost(model, db, learning, learnFile, ::watermark)
+        model.addManualWord("nihao", "你好", 1L)
+
+        assertFalse("a backup must not ship without the learned data it claims to carry", h.flush())
+    }
+
+    @Test fun a_dictionary_flush_goes_through_although_the_learning_store_cannot_be_written() {
+        db = File(tmp.root, "userdb.txt")
+        val learnFile = File(tmp.root, "userlearn.txt")
+        val learning = brokenLearning(learnFile)
+        val h = LiveUserDictHost(model, db, learning, learnFile, ::watermark)
+        model.addManualWord("nihao", "你好", 1L)
+
+        assertTrue("restoring is the way out of a broken learning store, so it must not be gated by it", h.flushDictionary())
+
+        assertFalse("the dictionary was still written first", model.dirty)
+        assertEquals(listOf("你好"), reloadFromDisk().readingSnapshot()["nihao"])
+    }
+
+    @Test fun a_dictionary_flush_still_refuses_when_the_dictionary_itself_cannot_be_written() {
+        db = unwritable("userdb.txt")
+        val h = LiveUserDictHost(model, db, onSaved = ::watermark)
+        model.addManualWord("nihao", "你好", 1L)
+
+        assertFalse("a dictionary that could not be written must still stop a restore", h.flushDictionary())
+    }
+
+    @Test fun clearing_a_broken_learning_store_is_reported_saved_and_makes_it_writable_again() {
+        db = File(tmp.root, "userdb.txt")
+        val learnFile = File(tmp.root, "userlearn.txt")
+        val learning = brokenLearning(learnFile)
+        val h = LiveUserDictHost(model, db, learning, learnFile, ::watermark)
+
+        assertTrue("clearing on purpose is the way back", h.clearLearned())
+
+        assertTrue(learnFile.readText().startsWith("aegis-userlearn"))
+        assertTrue(learning.readable)
+        assertFalse(learning.dirty)
+        assertTrue("and now a word reports success too", h.addWord("nihao", "你好", now = 3L))
     }
 
     @Test fun a_failed_write_is_carried_by_the_next_flush() {

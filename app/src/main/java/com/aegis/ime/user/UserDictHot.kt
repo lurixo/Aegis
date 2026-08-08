@@ -30,6 +30,8 @@ object UserDictHot {
 
         fun forgottenCount(): Int? = null
 
+        fun dictionaryReadable(): Boolean = true
+
         fun learnedEntries(): List<UserLearning.Formed>
 
         fun hasLearnedData(): Boolean
@@ -41,6 +43,8 @@ object UserDictHot {
         fun clearLearned(): Boolean
 
         fun flush(): Boolean
+
+        fun flushDictionary(): Boolean = flush()
     }
 
     @Volatile
