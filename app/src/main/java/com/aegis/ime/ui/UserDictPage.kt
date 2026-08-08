@@ -72,6 +72,7 @@ internal fun UserDictPage(onBack: () -> Unit) {
     val importOverwrittenToast = stringResource(R.string.user_dict_toast_import_overwritten)
     val importFailedToast = stringResource(R.string.user_dict_toast_import_failed)
     val addedToast = stringResource(R.string.user_dict_toast_added)
+    val keptToast = stringResource(R.string.user_dict_toast_kept)
     val addFailedToast = stringResource(R.string.user_dict_toast_add_failed)
     val deletedToast = stringResource(R.string.user_dict_toast_deleted)
     val autoClearedToast = stringResource(R.string.user_dict_toast_auto_cleared)
@@ -80,13 +81,18 @@ internal fun UserDictPage(onBack: () -> Unit) {
 
     var learned by remember { mutableStateOf(UserLearnEdit.list(userLearn)) }
     var learnedHasData by remember { mutableStateOf(UserLearnEdit.hasData(userLearn)) }
-    var entries by remember { mutableStateOf(UserDictEdit.list(userDb)) }
+    var summary by remember { mutableStateOf(UserDictEdit.summary(userDb)) }
+    val entries = summary.entries
     var query by remember { mutableStateOf("") }
     val searchIndex = remember(entries) { UserDictSearch.index(entries) }
     val filtered = remember(searchIndex, query) { searchIndex.filter(query) }
+    val learnedIndex = remember(learned) { UserDictSearch.indexLearned(learned) }
+    val filteredLearned = remember(learnedIndex, query) {
+        if (query.isBlank()) learned else learnedIndex.filter(query)
+    }
     var newWord by remember { mutableStateOf("") }
     var newReading by remember { mutableStateOf("") }
-    fun reload() { entries = UserDictEdit.list(userDb) }
+    fun reload() { summary = UserDictEdit.summary(userDb) }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain"),
@@ -135,10 +141,12 @@ internal fun UserDictPage(onBack: () -> Unit) {
             Toast.makeText(context, addFailedToast, Toast.LENGTH_SHORT).show()
             return
         }
+        val reading = UserModel.normalizeReading(newReading)
+        val known = entries.any { it.reading == reading && it.word == word }
         UserDictEdit.add(userDb, word, newReading, System.currentTimeMillis())
         newWord = ""; newReading = ""
         reload()
-        Toast.makeText(context, addedToast, Toast.LENGTH_SHORT).show()
+        Toast.makeText(context, if (known) keptToast else addedToast, Toast.LENGTH_SHORT).show()
     }
 
     fun reloadLearned() {
@@ -189,6 +197,11 @@ internal fun UserDictPage(onBack: () -> Unit) {
             stringResource(R.string.user_dict_count_format, entries.size),
             style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.testTag("user_dict_count"),
+        )
+        Text(
+            stringResource(R.string.user_dict_forgotten_format, summary.forgotten),
+            style = MaterialTheme.typography.bodySmall,
+            modifier = Modifier.testTag("user_dict_forgotten"),
         )
         LazyColumn(
             modifier = Modifier
@@ -258,7 +271,7 @@ internal fun UserDictPage(onBack: () -> Unit) {
                     }
                 }
             }
-            if (filtered.isEmpty()) {
+            if (filtered.isEmpty() && (query.isBlank() || filteredLearned.isEmpty())) {
                 item(key = "empty") {
                     Text(
                         stringResource(
@@ -268,9 +281,20 @@ internal fun UserDictPage(onBack: () -> Unit) {
                         modifier = Modifier.padding(vertical = 8.dp),
                     )
                 }
-            } else {
-                items(filtered, key = { "${it.reading}\t${it.word}" }) { entry ->
-                    UserDictEntryRow(entry, onDelete = { deleteWord(entry.reading, entry.word) })
+            }
+            items(filtered, key = { "${it.reading}\t${it.word}" }) { entry ->
+                UserDictEntryRow(entry, onDelete = { deleteWord(entry.reading, entry.word) })
+            }
+            if (query.isNotBlank() && filteredLearned.isNotEmpty()) {
+                item(key = "auto_learn_header") {
+                    Text(
+                        stringResource(R.string.user_dict_auto_title),
+                        style = MaterialTheme.typography.titleSmall,
+                        modifier = Modifier.padding(top = 8.dp).testTag("user_dict_auto_header"),
+                    )
+                }
+                items(filteredLearned, key = { "auto\t${it.word}\t${it.reading}" }) { entry ->
+                    LearnedEntryRow(entry, onDelete = { deleteLearned(entry) })
                 }
             }
             if (query.isBlank()) {

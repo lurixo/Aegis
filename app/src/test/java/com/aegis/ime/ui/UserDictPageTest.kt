@@ -31,6 +31,7 @@ import com.aegis.ime.user.UserDictEdit
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserLearnEdit
 import com.aegis.ime.user.UserLearning
+import com.aegis.ime.user.UserModel
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -42,6 +43,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.shadows.ShadowToast
 import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
@@ -214,6 +216,75 @@ class UserDictPageTest {
         assertTrue("confirming clears the learned data", UserLearnEdit.list(learn).isEmpty())
         compose.onNodeWithText(s(R.string.user_dict_auto_empty)).assertExists()
         assertTrue("the words the user added by hand survive", UserDictEdit.list(db).any { it.word == "你好" })
+    }
+
+    @Test fun re_adding_a_word_that_is_already_there_says_it_is_yours_from_now_on() {
+        val used = System.currentTimeMillis()
+        db.writeText("aegis-userdb 1\nW\t自动词\t3\t$used\nR\tzidongci\t自动词\n")
+        openUserDictPage()
+
+        ShadowToast.reset()
+        compose.onNodeWithTag("user_dict_new_word").performTextInput("自动词")
+        compose.onNodeWithTag("user_dict_new_reading").performTextInput("zidongci")
+        compose.onNodeWithTag("user_dict_add").performClick()
+        compose.waitForIdle()
+        assertEquals(s(R.string.user_dict_toast_kept), ShadowToast.getTextOfLatestToast())
+        assertEquals(
+            "the word is marked as the user's own, which is what exempts it from fading out",
+            mapOf("zidongci" to setOf("自动词")),
+            UserModel().apply { load(db, sweepStale = false) }.manualSnapshot(),
+        )
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_count_format, 1)).assertExists()
+
+        ShadowToast.reset()
+        compose.onNodeWithTag("user_dict_new_word").performTextInput("全新词")
+        compose.onNodeWithTag("user_dict_new_reading").performTextInput("quanxinci")
+        compose.onNodeWithTag("user_dict_add").performClick()
+        compose.waitForIdle()
+        assertEquals(
+            "a word that was not there yet keeps the plain confirmation",
+            s(R.string.user_dict_toast_added),
+            ShadowToast.getTextOfLatestToast(),
+        )
+    }
+
+    @Test fun searching_also_reaches_the_automatically_learned_words() {
+        seed(0, "nihao" to "你好")
+        seedLearned("你" to "ni", "呢" to "ne", "嗯" to "n")
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_search").performTextInput("ninen")
+        compose.onNodeWithText(row("你呢嗯", "ninen")).assertExists()
+        compose.onNodeWithText(row("你好", "nihao")).assertDoesNotExist()
+        compose.onNodeWithText(s(R.string.user_dict_search_no_match)).assertDoesNotExist()
+
+        compose.onNodeWithTag("user_dict_search").performTextClearance()
+        compose.onNodeWithTag("user_dict_search").performTextInput("你呢")
+        compose.onNodeWithText(row("你呢嗯", "ninen")).assertExists()
+
+        compose.onNodeWithTag("user_dict_search").performTextClearance()
+        compose.onNodeWithTag("user_dict_search").performTextInput("nihao")
+        compose.onNodeWithText(row("你好", "nihao")).assertExists()
+        compose.onNodeWithText(row("你呢嗯", "ninen")).assertDoesNotExist()
+
+        compose.onNodeWithTag("user_dict_search").performTextClearance()
+        compose.onNodeWithTag("user_dict_search").performTextInput("zzzz9")
+        compose.onNodeWithText(s(R.string.user_dict_search_no_match)).assertExists()
+    }
+
+    @Test fun the_page_says_how_many_words_faded_out_and_keeps_the_ones_the_user_owns() {
+        val ancient = System.currentTimeMillis() - 400L * 24L * 60L * 60L * 1000L
+        db.writeText(
+            "aegis-userdb 2\nW\t旧词\t1\t$ancient\nW\t留着\t1\t$ancient\n" +
+                "R\tjiuci\t旧词\nR\tliuzhe\t留着\nM\tliuzhe\t留着\n",
+        )
+        openUserDictPage()
+
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_count_format, 1)).assertExists()
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_forgotten_format, 1)).assertExists()
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(row("留着", "liuzhe")))
+        compose.onNodeWithText(row("留着", "liuzhe")).assertExists()
+        compose.onNodeWithText(row("旧词", "jiuci")).assertDoesNotExist()
     }
 
     @Test fun the_clear_button_still_works_when_only_the_next_word_data_is_left() {

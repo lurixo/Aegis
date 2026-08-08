@@ -133,7 +133,10 @@ class UserDictEditDispatchTest {
         assertTrue(UserDictEdit.add(db, "你好", "nihao", now = 1L))
         assertEquals(listOf("你好"), UserDictEdit.list(db).filter { it.reading == "nihao" }.map { it.word })
 
-        val imp = tmp.newFile("import.txt").apply { writeText("aegis-userdb 1\nW\t测试\t3\t7\nR\tceshi\t测试\n") }
+        val used = System.currentTimeMillis()
+        val imp = tmp.newFile("import.txt").apply {
+            writeText("aegis-userdb 1\nW\t测试\t3\t$used\nR\tceshi\t测试\n")
+        }
         assertTrue(UserDictEdit.applyImport(db, imp, merge = true, now = 2L))
         val readings = UserDictEdit.list(db).map { it.reading to it.word }
         assertTrue(("nihao" to "你好") in readings)

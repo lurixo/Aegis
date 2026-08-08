@@ -28,6 +28,8 @@ object UserDictHot {
 
         fun entries(): List<UserModel.Entry>
 
+        fun forgottenCount(): Int? = null
+
         fun learnedEntries(): List<UserLearning.Formed>
 
         fun hasLearnedData(): Boolean

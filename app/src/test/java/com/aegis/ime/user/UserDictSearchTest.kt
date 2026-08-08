@@ -51,6 +51,19 @@ class UserDictSearchTest {
         assertEquals(listOf("你好呀"), words("nihaoy"))
     }
 
+    @Test fun the_automatically_learned_words_are_searchable_the_same_way() {
+        val learned = listOf(
+            UserLearning.Formed("你呢嗯", "ninen"),
+            UserLearning.Formed("测试", "ceshi"),
+        )
+        val index = UserDictSearch.indexLearned(learned)
+        assertEquals("a blank query returns everything", learned, index.filter(""))
+        assertEquals(listOf("你呢嗯"), index.filter("nin").map { it.word })
+        assertEquals(listOf("你呢嗯"), index.filter("你呢").map { it.word })
+        assertEquals(listOf("测试"), index.filter("ceshi").map { it.word })
+        assertEquals(emptyList<String>(), index.filter("zzzz").map { it.word })
+    }
+
     @Test fun prebuilt_index_matches_the_legacy_filter_api() {
         val queries = listOf("", "nih", "ni hao", "测", "OKGO", "zzzz9", "好a好")
         for (q in queries) {

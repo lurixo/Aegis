@@ -131,12 +131,12 @@ class UserModelTest {
 
     @Test
     fun readingEntries_persistAcrossSaveLoad() {
-        val m = UserModel()
+        val m = UserModel { 10L }
         m.recordWord("ceshi", "测试", 1, incrementCount = true)
         m.recordWord("beijing", "北京", 2, incrementCount = true)
         val f = File.createTempFile("userdb-r", ".txt")
         m.save(f)
-        val loaded = UserModel().apply { load(f) }
+        val loaded = UserModel { 10L }.apply { load(f) }
         assertEquals(listOf("测试"), loaded.readingSnapshot()["ceshi"])
         assertEquals(listOf("北京"), loaded.readingSnapshot()["beijing"])
         assertEquals("boost survives the round trip", m.wordBoost("测试"), loaded.wordBoost("测试"), 1e-9)

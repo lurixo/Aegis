@@ -112,7 +112,7 @@ class UserModelOriginTest {
         m.addManualWord("yx", "我的邮箱", clock)
         m.save(db())
         val lines = db().readLines()
-        assertEquals("aegis-userdb 2", lines.first())
+        assertEquals("aegis-userdb 3", lines.first())
         assertTrue("the word added by hand is marked", "M\tyx\t我的邮箱" in lines)
         assertFalse("the migrated one is not", "M\tzwm\t张伟明" in lines)
         assertEquals(mapOf("yx" to setOf("我的邮箱")), reloaded(db()).manualSnapshot())
