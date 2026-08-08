@@ -279,7 +279,6 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
                     for ((word, u) in m) w.write("C\t$prev\t$word\t${u.count}\t${u.lastSeen}\n")
                 }
             }
-            require(tmp.length() <= MAX_FILE_BYTES) { "userlearn exceeds size limit" }
             try {
                 Files.move(
                     tmp.toPath(),
@@ -345,7 +344,6 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
             val key = pendingKey(joined, word)
             val u = pendingCounts[key]
             if (u == null) {
-                if (pendingCounts.size >= PENDING_CAP) evictWeakestPending(now)
                 pendingCounts[key] = Usage(1.0, now)
             } else {
                 touch(u, now, PENDING_HALF_LIFE_MILLIS)
@@ -408,7 +406,6 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
             touch(existing, now, FORMED_HALF_LIFE_MILLIS)
             return
         }
-        if (formedPairs >= FORMED_CAP) evictWeakestFormed(now)
         formedByWord.getOrPut(word) { HashMap() }[reading] = Usage(seed, now)
         formedPairs++
     }
@@ -417,7 +414,6 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         if (!isCollocatable(prev) || !isCollocatable(word)) return false
         val m = followsByPrev[prev]
         if (m == null) {
-            if (followsByPrev.size >= FOLLOW_PREV_CAP) evictStalestPrev()
             followsByPrev[prev] = hashMapOf(word to Usage(1.0, now))
             return true
         }
@@ -441,53 +437,6 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         }
         m[word] = Usage(1.0, now)
         return true
-    }
-
-    private fun evictWeakestFormed(now: Long) {
-        var worstWord: String? = null
-        var worstReading: String? = null
-        var worst = Double.MAX_VALUE
-        for ((word, m) in formedByWord) {
-            for ((reading, u) in m) {
-                val eff = decayed(u.count, u.lastSeen, now, FORMED_HALF_LIFE_MILLIS)
-                if (eff < worst) {
-                    worst = eff
-                    worstWord = word
-                    worstReading = reading
-                }
-            }
-        }
-        val word = worstWord ?: return
-        val m = formedByWord[word] ?: return
-        if (m.remove(worstReading) != null) formedPairs--
-        if (m.isEmpty()) formedByWord.remove(word)
-    }
-
-    private fun evictWeakestPending(now: Long) {
-        var worstKey: String? = null
-        var worst = Double.MAX_VALUE
-        for ((key, u) in pendingCounts) {
-            val eff = decayed(u.count, u.lastSeen, now, PENDING_HALF_LIFE_MILLIS)
-            if (eff < worst) {
-                worst = eff
-                worstKey = key
-            }
-        }
-        worstKey?.let { pendingCounts.remove(it) }
-    }
-
-    private fun evictStalestPrev() {
-        var worstPrev: String? = null
-        var worstSeen = Long.MAX_VALUE
-        for ((prev, m) in followsByPrev) {
-            var latest = 0L
-            for (u in m.values) if (u.lastSeen > latest) latest = u.lastSeen
-            if (latest < worstSeen) {
-                worstSeen = latest
-                worstPrev = prev
-            }
-        }
-        worstPrev?.let { followsByPrev.remove(it) }
     }
 
     private fun sweep(now: Long): Boolean {
@@ -539,14 +488,10 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     internal companion object {
         internal const val WINDOW_MAX = 4
         internal const val PROMOTE_AT = 2.5
-        internal const val FORMED_CAP = 500
-        internal const val PENDING_CAP = 2000
-        internal const val FOLLOW_PREV_CAP = 1500
         internal const val FOLLOW_PER_PREV = 8
         internal const val PENDING_HALF_LIFE_MILLIS = 14L * 24L * 60L * 60L * 1000L
         internal const val FORMED_HALF_LIFE_MILLIS = 30L * 24L * 60L * 60L * 1000L
         internal const val FOLLOW_HALF_LIFE_MILLIS = 14L * 24L * 60L * 60L * 1000L
-        internal const val MAX_FILE_BYTES = 2L * 1024L * 1024L
         private const val HEADER = "aegis-userlearn 1"
         private const val MAX_LINE_LENGTH = 4_096
         private const val MAX_COLLOC_LEN = 4
@@ -606,10 +551,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
 
         private fun parse(file: File): Parsed {
             if (!file.exists() || file.length() == 0L) return Parsed()
-            require(file.length() <= MAX_FILE_BYTES) { "userlearn size is invalid" }
             val parsed = Parsed()
-            var formedRows = 0
-            var pendingRows = 0
             file.bufferedReader().use { reader ->
                 require(reader.readLine() == HEADER) { "unsupported userlearn header" }
                 while (true) {
@@ -626,13 +568,11 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
                     when (p[0]) {
                         "F" -> {
                             require(isFormedReading(p[1]) && isFormableWord(p[2])) { "invalid userlearn formed row" }
-                            require(++formedRows <= FORMED_CAP) { "userlearn has too many formed rows" }
                             val m = parsed.formed.getOrPut(p[2]) { HashMap() }
                             require(m.put(p[1], Usage(count, seen)) == null) { "duplicate userlearn formed row" }
                         }
                         "P" -> {
                             require(isFormedReading(p[1]) && isFormableWord(p[2])) { "invalid userlearn pending row" }
-                            require(++pendingRows <= PENDING_CAP) { "userlearn has too many pending rows" }
                             require(parsed.pending.put(pendingKey(p[1], p[2]), Usage(count, seen)) == null) {
                                 "duplicate userlearn pending row"
                             }
@@ -640,7 +580,6 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
                         "C" -> {
                             require(isCollocatable(p[1]) && isCollocatable(p[2])) { "invalid userlearn follow row" }
                             val m = parsed.follows.getOrPut(p[1]) { HashMap() }
-                            require(parsed.follows.size <= FOLLOW_PREV_CAP) { "userlearn has too many follow keys" }
                             require(m.size < FOLLOW_PER_PREV) { "userlearn has too many follow rows" }
                             require(m.put(p[2], Usage(count, seen)) == null) { "duplicate userlearn follow row" }
                         }
