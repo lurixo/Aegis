@@ -45,7 +45,7 @@ class LiveUserDictHost(
             if (merge) {
                 if (!model.importFrom(importFile, now)) return false
             } else {
-                val incoming = UserModel().apply { load(importFile) }
+                val incoming = UserModel().apply { load(importFile, sweepStale = false) }
                 if (incoming.isEmpty()) return false
                 model.reload(importFile)
             }
@@ -58,6 +58,8 @@ class LiveUserDictHost(
     }
 
     override fun entries(): List<UserModel.Entry> = model.userWordEntries()
+
+    override fun forgottenCount(): Int = model.forgottenCount
 
     override fun learnedEntries(): List<UserLearning.Formed> = userLearning?.formedEntries().orEmpty()
 
