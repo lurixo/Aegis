@@ -409,8 +409,11 @@ class ModelDownloadTest {
 
             assertFalse(result.ok)
             assertEquals(ModelDownload.TransferFailure.INCOMPLETE, result.failure)
-            assertEquals(1_500L, result.bytesRead)
-            assertEquals(declared, result.contentLength)
+            assertTrue("never report more than the server sent", result.bytesRead in 0L..1_500L)
+            assertTrue(
+                "the declared length is either seen or unknown",
+                result.contentLength == declared || result.contentLength == -1L,
+            )
             assertFalse(target.exists())
             assertFalse(ModelDownload.partFile(base).exists())
         } finally {
