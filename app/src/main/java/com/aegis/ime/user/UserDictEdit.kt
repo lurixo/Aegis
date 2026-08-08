@@ -55,13 +55,15 @@ object UserDictEdit {
         return UserModel().apply { if (userDb.exists()) load(userDb) }.userWordEntries()
     }
 
-    class Summary(val entries: List<UserModel.Entry>, val forgotten: Int)
+    class Summary(val entries: List<UserModel.Entry>, val forgotten: Int, val readable: Boolean = true)
 
     fun summary(userDb: File): Summary {
         UserDictHot.host?.let { host ->
             return Summary(host.entries(), host.forgottenCount() ?: forgottenFromFile(userDb))
         }
-        val m = UserModel().apply { if (userDb.exists()) load(userDb) }
+        val m = UserModel()
+        val read = runCatching { if (userDb.exists()) m.load(userDb) }.isSuccess
+        if (!read) return Summary(emptyList(), 0, readable = false)
         return Summary(m.userWordEntries(), m.forgottenCount)
     }
 

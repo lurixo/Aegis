@@ -29,6 +29,16 @@ object UserLearnEdit {
         return !loaded(userLearn).isEmpty()
     }
 
+    class View(val entries: List<UserLearning.Formed>, val hasData: Boolean, val readable: Boolean = true)
+
+    fun view(userLearn: File): View {
+        UserDictHot.host?.let { return View(it.learnedEntries(), it.hasLearnedData()) }
+        val learning = UserLearning()
+        val read = runCatching { if (userLearn.exists()) learning.load(userLearn) }.isSuccess
+        if (!read || !learning.readable) return View(emptyList(), false, readable = false)
+        return View(learning.formedEntries(), !learning.isEmpty())
+    }
+
     fun remove(userLearn: File, word: String, reading: String): Boolean {
         UserDictHot.host?.let { return it.removeLearned(word, reading) }
         return runCatching {
