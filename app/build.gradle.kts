@@ -66,6 +66,12 @@ kotlin {
 tasks.withType<Test>().configureEach {
     maxHeapSize = "1g"
     jvmArgs("--enable-native-access=ALL-UNNAMED")
+    val scratchDir = layout.buildDirectory.dir("tmp/test-jvm/$name").get().asFile
+    systemProperty("java.io.tmpdir", scratchDir.absolutePath)
+    doFirst {
+        scratchDir.deleteRecursively()
+        scratchDir.mkdirs()
+    }
     inputs.files(
         layout.projectDirectory.file("src/main/assets/aegis_dict.bin"),
         layout.projectDirectory.file("src/main/assets/aegis_t9.bin"),
