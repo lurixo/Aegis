@@ -32,7 +32,7 @@ object UserLearnEdit {
     class View(val entries: List<UserLearning.Formed>, val hasData: Boolean, val readable: Boolean = true)
 
     fun view(userLearn: File): View {
-        UserDictHot.host?.let { return View(it.learnedEntries(), it.hasLearnedData()) }
+        UserDictHot.host?.let { return View(it.learnedEntries(), it.hasLearnedData(), it.learnedReadable()) }
         val learning = UserLearning()
         val read = runCatching { if (userLearn.exists()) learning.load(userLearn) }.isSuccess
         if (!read || !learning.readable) return View(emptyList(), false, readable = false)

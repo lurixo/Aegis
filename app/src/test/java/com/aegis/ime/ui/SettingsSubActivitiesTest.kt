@@ -37,6 +37,7 @@ import androidx.compose.ui.test.performScrollTo
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import com.aegis.ime.R
+import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserLearnEdit
 import com.aegis.ime.user.UserLearning
@@ -258,6 +259,28 @@ class InputSettingsAutoLearnClearTest {
             learn.readText().startsWith("aegis-userlearn"),
         )
         compose.onNodeWithTag("auto_learn_count").performScrollTo().assertExists()
+    }
+
+    @Test fun a_live_keyboard_holding_an_unreadable_learning_store_still_says_so_and_offers_the_way_out() {
+        val learning = UserLearning()
+        learn.writeText("not a learning file at all\n")
+        learning.load(learn)
+        assertFalse("precondition: the live store knows it could not be read", learning.readable)
+        UserDictHot.host = LiveUserDictHost(UserModel(), java.io.File(ctx.filesDir, "userdb.txt"), learning, learn)
+
+        scenario = ActivityScenario.launch(InputSettingsActivity::class.java)
+
+        compose.onNodeWithTag("auto_learn_unreadable").performScrollTo().assertExists()
+        compose.onNodeWithTag("auto_learn_count").assertDoesNotExist()
+        compose.onNodeWithTag("auto_learn_clear").performScrollTo().assertIsEnabled().performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(ctxString(R.string.user_dict_auto_clear_confirm)).performClick()
+        compose.waitForIdle()
+
+        assertTrue(
+            "clearing on purpose is the way back to a store that saves again",
+            learn.readText().startsWith("aegis-userlearn"),
+        )
     }
 
     @Test fun a_clear_that_never_reached_storage_says_so_instead_of_claiming_success() {
