@@ -37,7 +37,7 @@ jobs:
       - name: Run the dictionary pack builder tests
         run: python3 tools/release/test_build_dictionary_pack.py
 
-      - name: Set up JDK 17
+      - name: Set up JDK 25
         uses: actions/setup-java@v5
         with:
           distribution: temurin
