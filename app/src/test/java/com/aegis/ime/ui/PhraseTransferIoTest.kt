@@ -18,16 +18,20 @@ package com.aegis.ime.ui
 import com.aegis.ime.user.ClipboardStore
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.io.OutputStream
-import java.nio.file.Files
 
 class PhraseTransferIoTest {
 
-    private fun newDir(): File = Files.createTempDirectory("phrase-transfer").toFile()
+    @get:Rule
+    val tmp = TemporaryFolder()
+
+    private fun newDir(): File = tmp.newFolder()
 
     @Test fun exportPhrases_reloads_persisted_store_and_writes_category_phrase_data() {
         val dir = newDir()
