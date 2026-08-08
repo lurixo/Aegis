@@ -47,7 +47,6 @@ class ClipboardStore(private val dir: File) {
                 }
             }
         }
-        while (history.size > MAX_HISTORY) history.removeAt(history.size - 1)
         loadPhrases()
     }
 
@@ -117,7 +116,6 @@ class ClipboardStore(private val dir: File) {
         if (t.isEmpty()) return
         history.remove(t)
         history.add(0, t)
-        while (history.size > MAX_HISTORY) history.removeAt(history.size - 1)
         scheduleSave()
     }
 
@@ -131,7 +129,6 @@ class ClipboardStore(private val dir: File) {
             val seen = HashSet<String>()
             for (e in incoming) if (seen.add(e)) history.add(e)
         }
-        while (history.size > MAX_HISTORY) history.removeAt(history.size - 1)
         writeHistory(ArrayList(history))
     }
 
@@ -392,7 +389,6 @@ class ClipboardStore(private val dir: File) {
         private const val BIG_LINE = "B\t"
         const val BIG_THRESHOLD = 64 * 1024
 
-        private const val MAX_HISTORY = 100000
         const val DEFAULT_CATEGORY_ID = "default"
         private const val LEGACY_DEFAULT_NAME = "默认"
         private val DEFAULT_PHRASES = emptyList<String>()
