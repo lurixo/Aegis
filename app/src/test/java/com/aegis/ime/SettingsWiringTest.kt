@@ -64,7 +64,15 @@ class SettingsWiringTest {
         assertTrue("secondary learning must load after userdb", userDbLoad in 1 until userLearnLoad)
         assertTrue(svc.contains("controller.userLearning = userLearning"))
         assertTrue(svc.contains("octagram, userLearning)"))
-        assertTrue(svc.contains("if (userDbLoaded && userLearning.dirty) runCatching"))
+        assertTrue(svc.contains("if (userDbLoaded) liveUserDictHost.scheduleSave()"))
+        assertFalse(
+            "the end of an input session must not write the user dictionary on the main thread",
+            svc.contains("userModel.save(userDbFile)"),
+        )
+        assertFalse(
+            "the end of an input session must not write the learning store on the main thread",
+            svc.contains("userLearning.save(userLearnFile)"),
+        )
         assertTrue(svc.contains("userLearnFile.lastModified() > userLearnMtime"))
         val restored = svc.substringAfter("LiveUserData.onRestored = {").substringBefore("LiveUserData.registerClipboardPersistenceHooks")
         assertTrue(restored.contains("userLearning.load(userLearnFile)"))
@@ -81,6 +89,17 @@ class SettingsWiringTest {
             "onDestroy must leave restore guard ownership to restore/reload code",
             onDestroy.contains("LiveUserData.restoreInProgress = false"),
         )
+        assertTrue(
+            "onDestroy must land whatever the user dictionary still owes before the process goes away",
+            onDestroy.contains("if (userDbLoaded) runCatching { liveUserDictHost.flush() }"),
+        )
+        assertTrue(
+            "onDestroy must stop the user dictionary writer it started",
+            onDestroy.contains("liveUserDictHost.stopSaving()"),
+        )
+        val flush = onDestroy.indexOf("liveUserDictHost.flush()")
+        val stop = onDestroy.indexOf("liveUserDictHost.stopSaving()")
+        assertTrue("the final flush must precede stopping the writer", flush in 1 until stop)
     }
 
     @Test fun engine_reload_rechecks_after_initial_build_and_after_a_successful_hot_reload() {
