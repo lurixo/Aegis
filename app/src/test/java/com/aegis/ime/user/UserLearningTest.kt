@@ -18,6 +18,7 @@ package com.aegis.ime.user
 import com.aegis.ime.decoder.T9Pinyin
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -212,6 +213,49 @@ class UserLearningTest {
         val elsewhere = tempFile("userdb-elsewhere")
         m.save(elsewhere)
         assertTrue(UserModel { now }.apply { load(elsewhere) }.wordBoost("新词") > 0.0)
+    }
+
+    @Test
+    fun aUserDictionaryThatDiedPartWayIntoLoadingIsNeverWrittenAnywhere() {
+        val f = tempFile("userdb-half-applied")
+        UserModel { now }.apply { addManualWord("yx", "我的邮箱", now) }.save(f)
+        val before = f.readText()
+
+        val m = UserModel { throw OutOfMemoryError("ran out of room part way in") }
+        assertThrows(OutOfMemoryError::class.java) { m.load(f) }
+        assertFalse("a store that only got half way in must not pass for a readable one", m.readable)
+
+        assertTrue("writing back over the file it choked on must fail loudly", runCatching { m.save(f) }.isFailure)
+        assertEquals("the file is left byte for byte as it was", before, f.readText())
+
+        val elsewhere = tempFile("userdb-half-applied-elsewhere")
+        elsewhere.delete()
+        assertTrue(
+            "a half applied store is unfit for any file, not just the one it came from",
+            runCatching { m.save(elsewhere) }.isFailure,
+        )
+        assertFalse("nothing at all is written", elsewhere.exists())
+    }
+
+    @Test
+    fun aUserDictionaryThatDiedPartWayInIsMadeWritableAgainByReplacingItWholesale() {
+        val f = tempFile("userdb-half-then-replaced")
+        UserModel { now }.apply { addManualWord("yx", "我的邮箱", now) }.save(f)
+
+        val m = UserModel { throw OutOfMemoryError("ran out of room part way in") }
+        assertThrows(OutOfMemoryError::class.java) { m.load(f) }
+        assertTrue("precondition: it refuses to write", runCatching { m.save(f) }.isFailure)
+
+        val replacement = tempFile("userdb-replacement")
+        UserModel { now }.apply { addManualWord("dz", "地址", now) }.save(replacement)
+        m.reload(replacement)
+        assertTrue("replacing the store wholesale is the way back out", m.readable)
+
+        m.save(f)
+        assertEquals(
+            listOf("地址"),
+            UserModel { now }.apply { load(f) }.userWordEntries().map { it.word },
+        )
     }
 
     @Test
