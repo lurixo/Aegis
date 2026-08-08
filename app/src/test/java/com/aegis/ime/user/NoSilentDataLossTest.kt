@@ -81,6 +81,54 @@ class NoSilentDataLossTest {
         assertSameSequence("an oversized clipboard file", entries, loaded)
     }
 
+    @Test fun recordingPastTheOldCeilingKeepsTheOldestEntry() {
+        val dir = tmp.newFolder()
+        val seeded = clipEntries(OLD_HISTORY_CEILING + 50)
+        val store = ClipboardStore(dir).apply {
+            load()
+            importHistory(seeded.asClipEntries(), merge = false)
+        }
+        store.record("brand new")
+        store.flushPendingWrites()
+        val expected = listOf("brand new") + seeded
+        assertSameSequence("a capture past the old ceiling", expected, store.historyText())
+        assertSameSequence(
+            "a capture past the old ceiling, reread from disk",
+            expected,
+            ClipboardStore(dir).apply { load() }.historyText(),
+        )
+    }
+
+    @Test fun importingPastTheOldCeilingKeepsEveryEntry() {
+        val incoming = clipEntries(OLD_HISTORY_CEILING + 60)
+
+        val replaceDir = tmp.newFolder()
+        val replaced = ClipboardStore(replaceDir).apply {
+            load()
+            importHistory(incoming.asClipEntries(), merge = false)
+        }
+        assertSameSequence("a replacing import", incoming, replaced.historyText())
+        assertSameSequence(
+            "a replacing import, reread from disk",
+            incoming,
+            ClipboardStore(replaceDir).apply { load() }.historyText(),
+        )
+
+        val mergeDir = tmp.newFolder()
+        val existing = listOf("kept from before the import")
+        val merged = ClipboardStore(mergeDir).apply {
+            load()
+            importHistory(existing.asClipEntries(), merge = false)
+            importHistory(incoming.asClipEntries(), merge = true)
+        }
+        assertSameSequence("a merging import", existing + incoming, merged.historyText())
+        assertSameSequence(
+            "a merging import, reread from disk",
+            existing + incoming,
+            ClipboardStore(mergeDir).apply { load() }.historyText(),
+        )
+    }
+
     private fun writeTallUserDb(file: File, words: Int) {
         val m = UserModel { clock }
         for (i in 0 until words) m.recordWord(letters(i), "词$i", clock, incrementCount = true)

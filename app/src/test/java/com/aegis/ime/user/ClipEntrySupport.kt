@@ -15,6 +15,10 @@
 
 package com.aegis.ime.user
 
+fun clipEntries(vararg text: String): List<ClipEntry> = text.map(ClipEntry::of)
+
+fun List<String>.asClipEntries(): List<ClipEntry> = map(ClipEntry::of)
+
 fun ClipboardStore.historyText(): List<String> = history().map { it.body().orEmpty() }
 
 fun ClipboardStore.historyKeys(): List<String> = history().map { it.key }

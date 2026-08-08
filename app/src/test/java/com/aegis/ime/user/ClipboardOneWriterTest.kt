@@ -16,6 +16,7 @@
 package com.aegis.ime.user
 
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -60,6 +61,15 @@ class ClipboardOneWriterTest {
         return gate
     }
 
+    private fun parked(t: Thread) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
+        while (System.nanoTime() < deadline) {
+            val state = t.state
+            if (!t.isAlive || state == Thread.State.WAITING || state == Thread.State.TIMED_WAITING) return
+            Thread.onSpinWait()
+        }
+    }
+
     @Test(timeout = 120_000) fun a_clip_delete_the_writer_never_answers_lets_the_caller_go_and_reports_later() {
         val dir = newDir()
         val s = store(dir)
@@ -91,5 +101,53 @@ class ClipboardOneWriterTest {
         val landed = reported.poll(30, TimeUnit.SECONDS)
         assertNotNull("the write the caller walked away from must still report back", landed)
         assertFalse("a write that never reached the file must not be reported as one that landed", landed!!)
+    }
+
+    @Test fun an_imported_history_is_written_by_the_store_writer_alone() {
+        val dir = newDir()
+        val s = store(dir)
+        val firstGate = occupy(s)
+        val queuedBehind = CountDownLatch(1)
+        val secondGate = CountDownLatch(1).also { gates += it }
+        val finished = CountDownLatch(1)
+
+        val importer = Thread {
+            s.importHistory(listOf("导入的一条").asClipEntries(), merge = false)
+            finished.countDown()
+        }.apply { isDaemon = true; start() }
+        parked(importer)
+        writer(s).execute {
+            queuedBehind.countDown()
+            secondGate.await(30, TimeUnit.SECONDS)
+        }
+        firstGate.countDown()
+        assertTrue(
+            "precondition: the writer reached the task queued behind the import",
+            queuedBehind.await(30, TimeUnit.SECONDS),
+        )
+
+        assertFalse(
+            "an import must wait its turn on the writer that owns the file, not write beside it",
+            finished.await(3, TimeUnit.SECONDS),
+        )
+        assertFalse("and nothing of it may have reached the disk yet", File(dir, "clipboard.txt").exists())
+
+        secondGate.countDown()
+        importer.join(TimeUnit.SECONDS.toMillis(30))
+        assertFalse("the import must go through once the writer is free", importer.isAlive)
+        assertEquals(listOf("导入的一条"), store(dir).historyText())
+    }
+
+    @Test fun an_imported_history_still_reports_what_the_writer_could_not_do() {
+        val dir = newDir()
+        val s = store(dir)
+        File(dir, "clipboard.txt").let {
+            assertTrue("precondition: the history path is occupied", it.mkdirs())
+            File(it, "blocker").writeText("x")
+        }
+
+        val failure = runCatching { s.importHistory(listOf("进不去").asClipEntries(), merge = false) }
+
+        assertTrue("the failure the writer hit must come back whole", failure.isFailure)
     }
 }

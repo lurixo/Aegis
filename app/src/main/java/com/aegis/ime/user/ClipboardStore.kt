@@ -19,6 +19,7 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.security.MessageDigest
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
@@ -93,6 +94,9 @@ class ClipEntry private constructor(
 
         internal fun stored(dir: File, hash: String): ClipEntry =
             ClipEntry(File(dir, "$hash.txt"), null, hash, null)
+
+        internal fun rehomed(dir: File, hash: String, origin: File?): ClipEntry =
+            ClipEntry(File(dir, "$hash.txt"), origin, hash, null)
 
         private fun lostLabel(hash: String): String = LOST_MARK + hash.take(8)
 
@@ -218,8 +222,43 @@ class ClipboardStore(private val dir: File) {
         onWriteLane { if (pending.gen == saveGen.get()) historyWriteFailed = runCatching { writeHistory(pending.rows) }.isFailure }
     }
 
+    fun importHistory(entries: List<ClipEntry>, merge: Boolean) {
+        flushPendingWrites()
+        val incoming = entries.mapNotNull(::adopt)
+        val snapshot = synchronized(history) {
+            if (merge) {
+                if (!historyReadable) throw IOException("clipboard history could not be read")
+                val present = HashSet(history)
+                for (e in incoming) if (present.add(e)) history.add(e)
+            } else {
+                history.clear()
+                val seen = HashSet<ClipEntry>()
+                for (e in incoming) if (seen.add(e)) history.add(e)
+            }
+            ArrayList(history)
+        }
+        try {
+            onWriteLaneNow { writeHistory(snapshot) }
+        } catch (failure: Throwable) {
+            historyWriteFailed = true
+            throw failure
+        }
+        historyWriteFailed = false
+        if (!merge) historyReadable = true
+    }
+
     private fun adopt(text: String): ClipEntry =
         if (text.length > BIG_THRESHOLD) ClipEntry.pending(clipsDir(), sha256(text), text) else ClipEntry.of(text)
+
+    private fun adopt(entry: ClipEntry): ClipEntry? {
+        entry.hash?.let { hash ->
+            val pending = entry.pendingBody()
+            return if (pending != null) ClipEntry.pending(clipsDir(), hash, pending)
+            else ClipEntry.rehomed(clipsDir(), hash, entry.importSource())
+        }
+        val body = entry.body().orEmpty()
+        return if (body.isBlank()) null else adopt(body)
+    }
 
     fun delete(text: String) = deleteAll(listOf(text))
 
@@ -328,6 +367,19 @@ class ClipboardStore(private val dir: File) {
     private fun onWriteLane(work: () -> Unit) {
         val queued = runCatching { io.execute(work) }.isSuccess
         if (!queued) work()
+    }
+
+    private fun onWriteLaneNow(work: () -> Unit) {
+        if (Thread.currentThread() === writer) return work()
+        val pending = runCatching { io.submit(work) }.getOrNull() ?: return work()
+        try {
+            pending.get()
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw IOException("clipboard write did not finish", e)
+        } catch (e: ExecutionException) {
+            throw e.cause ?: e
+        }
     }
 
     private fun encode(s: String) = s.replace("\\", "\\\\").replace("\n", "\\n").replace("\r", "\\r")

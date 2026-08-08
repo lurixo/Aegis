@@ -308,6 +308,50 @@ class ClipboardStoreTest {
         dir.deleteRecursively()
     }
 
+    @Test fun an_overwriting_import_takes_back_a_history_nobody_could_read() {
+        val dir = newDir()
+        val index = File(dir, "clipboard.txt").apply { writeText("读不出来的一条\n") }
+        assertTrue("precondition: the index cannot be read back", index.setReadable(false, false))
+        val s = ClipboardStore(dir).apply { load() }
+        assertFalse("precondition: the store knows it could not read the history", s.historyReadable)
+
+        s.importHistory(listOf("覆盖进来的").asClipEntries(), merge = false)
+        s.flushPendingWrites()
+
+        assertTrue("a history the import did write is one the store can read again", s.historyReadable)
+        assertEquals(listOf("覆盖进来的"), s.historyText())
+        assertTrue(index.setReadable(true, false))
+        assertEquals("覆盖进来的\n", index.readText())
+    }
+
+    @Test fun an_overwriting_import_that_never_reached_the_file_takes_nothing_back() {
+        val dir = newDir()
+        val index = File(dir, "clipboard.txt").apply { writeText("读不出来的一条\n") }
+        assertTrue("precondition: the index cannot be read back", index.setReadable(false, false))
+        val s = ClipboardStore(dir).apply { load() }
+        assertFalse("precondition: the store knows it could not read the history", s.historyReadable)
+        val blocker = s.tempFileFor(index)
+        assertTrue("precondition: the history write is blocked", blocker.mkdirs())
+        assertTrue(File(blocker, "occupied").createNewFile())
+
+        val imported = runCatching { s.importHistory(listOf("覆盖进来的").asClipEntries(), merge = false) }
+
+        assertTrue("precondition: the import never reached the file", imported.isFailure)
+        assertFalse(
+            "a history the import never wrote must not be reported as one the store could read",
+            s.historyReadable,
+        )
+        s.record("导入失败之后复制的")
+        s.flushPendingWrites()
+
+        assertTrue(index.setReadable(true, false))
+        assertEquals(
+            "what could not be read must not be written over by the edits that follow",
+            "读不出来的一条\n",
+            index.readText(),
+        )
+    }
+
     @Test fun a_delete_that_could_not_be_written_says_it_was_not_written() {
         val dir = newDir()
         val s = ClipboardStore(dir).apply { load(); record("要删的"); record("留下的"); flushPendingWrites() }

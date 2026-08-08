@@ -38,6 +38,62 @@ class ClipboardRestoreWriteGuardTest {
 
     private fun store(dir: File) = ClipboardStore(dir).apply { load() }.also { stores += it }
 
+    private fun sideFiles(dir: File): List<String> =
+        File(dir, "clips").listFiles()?.filter { it.isFile }?.map { it.name }?.sorted().orEmpty()
+
+    private fun big(marker: String): String = marker + "大".repeat(ClipboardStore.BIG_THRESHOLD)
+
+    @Test fun a_panel_delete_during_a_restore_never_overwrites_what_the_restore_just_wrote() {
+        val dir = newDir()
+        val live = store(dir)
+        live.record("旧一")
+        live.record("旧二")
+        live.flushPendingWrites()
+
+        LiveUserData.restoreInProgress = true
+        store(dir).importHistory(clipEntries("恢复一", "恢复二"), merge = false)
+        live.deleteAll(listOf(live.historyKeys().first()))
+        live.flushPendingWrites()
+
+        assertEquals(listOf("恢复一", "恢复二"), store(dir).historyText())
+    }
+
+    @Test fun a_panel_delete_during_a_restore_never_sweeps_a_restored_side_file() {
+        val dir = newDir()
+        val live = store(dir)
+        live.record("旧一")
+        live.flushPendingWrites()
+
+        val restored = big("恢复的大剪贴")
+        LiveUserData.restoreInProgress = true
+        store(dir).importHistory(clipEntries(restored), merge = false)
+        assertEquals("precondition: the restore left a side file behind", 1, sideFiles(dir).size)
+
+        live.deleteAll(listOf(live.historyKeys().first()))
+        live.flushPendingWrites()
+
+        assertEquals(
+            "the sweep in a write is driven by the snapshot it carries, so an old snapshot deletes live data",
+            1,
+            sideFiles(dir).size,
+        )
+        assertEquals(listOf(restored), store(dir).historyText())
+    }
+
+    @Test fun recording_a_clip_during_a_restore_never_overwrites_restored_history() {
+        val dir = newDir()
+        val live = store(dir)
+        live.record("旧一")
+        live.flushPendingWrites()
+
+        LiveUserData.restoreInProgress = true
+        store(dir).importHistory(clipEntries("恢复一"), merge = false)
+        live.record("恢复期复制的")
+        live.flushPendingWrites()
+
+        assertEquals(listOf("恢复一"), store(dir).historyText())
+    }
+
     @Test fun recording_a_symbol_during_a_restore_never_overwrites_the_restored_history() {
         val dir = newDir()
         val live = SymbolUsageStore(dir).apply { load(); record("★", "符号") }
