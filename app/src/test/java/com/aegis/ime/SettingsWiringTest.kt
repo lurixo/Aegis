@@ -64,7 +64,11 @@ class SettingsWiringTest {
         assertTrue("secondary learning must load after userdb", userDbLoad in 1 until userLearnLoad)
         assertTrue(svc.contains("controller.userLearning = userLearning"))
         assertTrue(svc.contains("octagram, userLearning)"))
-        assertTrue(svc.contains("if (userDbLoaded) liveUserDictHost.scheduleSave()"))
+        assertTrue(
+            "a store that could not be read refuses its own write, so one store's failure must not gate the other",
+            svc.contains("liveUserDictHost.scheduleSave()") &&
+                !svc.contains("if (userDbLoaded) liveUserDictHost.scheduleSave()"),
+        )
         assertFalse(
             "the end of an input session must not write the user dictionary on the main thread",
             svc.contains("userModel.save(userDbFile)"),
@@ -95,7 +99,7 @@ class SettingsWiringTest {
         )
         assertTrue(
             "onDestroy must land whatever the user dictionary still owes before the process goes away",
-            onDestroy.contains("if (userDbLoaded) runCatching { liveUserDictHost.flush() }"),
+            onDestroy.contains("runCatching { liveUserDictHost.flush() }"),
         )
         assertTrue(
             "onDestroy must stop the user dictionary writer it started",

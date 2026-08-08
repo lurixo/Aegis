@@ -196,6 +196,25 @@ class UserLearningTest {
     }
 
     @Test
+    fun aUserDictionaryThatCouldNotBeReadIsNeverWrittenBackOverTheSameFile() {
+        val f = tempFile("userdb-unreadable")
+        f.writeText("aegis-userdb 99\nW\t坏\t1\t1\n")
+        val before = f.readText()
+        val m = UserModel { now }
+        assertTrue("precondition: this file does not parse", runCatching { m.load(f) }.isFailure)
+        assertFalse("a file that would not parse must not pass for a readable store", m.readable)
+
+        m.record(null, "新词", now)
+        assertTrue("writing back over what could not be read must fail loudly", runCatching { m.save(f) }.isFailure)
+        assertEquals("the unreadable file is left byte for byte as it was", before, f.readText())
+        assertTrue("the data stays queued for a store that can take it", m.dirty)
+
+        val elsewhere = tempFile("userdb-elsewhere")
+        m.save(elsewhere)
+        assertTrue(UserModel { now }.apply { load(elsewhere) }.wordBoost("新词") > 0.0)
+    }
+
+    @Test
     fun aStoreThatCouldNotBeReadIsNeverWrittenBackOverTheSameFile() {
         val f = tempFile("userlearn-unreadable")
         f.writeText("garbage that is not a learning store\n")

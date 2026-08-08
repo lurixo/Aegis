@@ -204,6 +204,40 @@ class AegisInputMethodServicePersistenceTest {
         )
     }
 
+    @Test fun a_user_dictionary_that_could_not_be_read_does_not_take_the_learning_store_down_with_it() {
+        userDb.writeText("aegis-userdb 99\nW\t坏\t1\t1\n")
+        val service = started()
+        assertFalse("precondition: the dictionary really did fail to load", userDbLoaded(service))
+        glue(learning(service))
+        assertTrue("precondition: the learning store has something worth keeping", learning(service).dirty)
+
+        service.onFinishInput()
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (System.nanoTime() < deadline && !userLearn.exists()) Thread.yield()
+
+        assertTrue("the healthy learning store must still be written", userLearn.exists())
+        assertFalse("and it must not still be waiting to be written", learning(service).dirty)
+        assertEquals(
+            "the unreadable dictionary is still left exactly as it was found",
+            "aegis-userdb 99\nW\t坏\t1\t1\n",
+            userDb.readText(),
+        )
+    }
+
+    @Test fun the_end_of_an_input_session_is_what_puts_the_words_on_disk() {
+        val service = started()
+        model(service).record(null, "会话末尾", 1L)
+        glue(learning(service))
+
+        service.onFinishInput()
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (System.nanoTime() < deadline && !(userDb.exists() && userLearn.exists())) Thread.yield()
+
+        assertTrue("finishing an input session must persist the dictionary by itself", userDb.exists())
+        assertTrue("finishing an input session must persist the learning store by itself", userLearn.exists())
+        assertTrue(UserModel { 10L }.apply { load(userDb) }.wordBoost("会话末尾") > 0.0)
+    }
+
     @Test fun the_watermark_only_moves_for_the_file_the_handed_over_write_touched() {
         val service = started()
         val marker = 1_600_000_000_000L
