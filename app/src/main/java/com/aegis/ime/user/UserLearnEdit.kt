@@ -29,24 +29,22 @@ object UserLearnEdit {
         return !loaded(userLearn).isEmpty()
     }
 
-    fun remove(userLearn: File, word: String, reading: String) {
-        UserDictHot.host?.let {
-            it.removeLearned(word, reading)
-            return
-        }
-        val learning = loaded(userLearn)
-        learning.removeFormed(word, reading)
-        if (learning.dirty) learning.save(userLearn)
+    fun remove(userLearn: File, word: String, reading: String): Boolean {
+        UserDictHot.host?.let { return it.removeLearned(word, reading) }
+        return runCatching {
+            val learning = loaded(userLearn)
+            learning.removeFormed(word, reading)
+            if (learning.dirty) learning.save(userLearn)
+        }.isSuccess
     }
 
-    fun clear(userLearn: File) {
-        UserDictHot.host?.let {
-            it.clearLearned()
-            return
-        }
-        val learning = loaded(userLearn)
-        learning.clear()
-        if (learning.dirty) learning.save(userLearn)
+    fun clear(userLearn: File): Boolean {
+        UserDictHot.host?.let { return it.clearLearned() }
+        return runCatching {
+            val learning = loaded(userLearn)
+            learning.clear()
+            if (learning.dirty) learning.save(userLearn)
+        }.isSuccess
     }
 
     private fun loaded(userLearn: File): UserLearning =

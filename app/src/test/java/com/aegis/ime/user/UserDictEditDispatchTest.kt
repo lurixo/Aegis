@@ -17,6 +17,7 @@ package com.aegis.ime.user
 
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -55,15 +56,27 @@ class UserDictEditDispatchTest {
             calls += "hasLearnedData"
             return true
         }
-        override fun removeLearned(word: String, reading: String) {
-            calls += "removeLearned:$word:$reading"
+        override fun removeLearned(word: String, reading: String): Boolean {
+            calls += "removeLearned:$word:$reading"; return true
         }
-        override fun clearLearned() {
-            calls += "clearLearned"
+        override fun clearLearned(): Boolean {
+            calls += "clearLearned"; return true
         }
-        override fun flush() {
-            calls += "flush"
+        override fun flush(): Boolean {
+            calls += "flush"; return true
         }
+    }
+
+    private class RefusingHost : UserDictHot.Host {
+        override fun addWord(reading: String, word: String, now: Long) = false
+        override fun removeWord(reading: String, word: String) = false
+        override fun importUserDict(importFile: File, merge: Boolean, now: Long) = false
+        override fun entries(): List<UserModel.Entry> = emptyList()
+        override fun learnedEntries(): List<UserLearning.Formed> = emptyList()
+        override fun hasLearnedData() = false
+        override fun removeLearned(word: String, reading: String) = false
+        override fun clearLearned() = false
+        override fun flush() = false
     }
 
     @Test fun with_a_live_host_every_operation_routes_to_it_and_never_touches_the_file() {
@@ -79,9 +92,9 @@ class UserDictEditDispatchTest {
         val learn = File(tmp.root, "userlearn.txt")
         assertEquals(listOf(UserLearning.Formed("活粘词", "huozhanci")), UserLearnEdit.list(learn))
         assertTrue(UserLearnEdit.hasData(learn))
-        UserLearnEdit.remove(learn, "活粘词", "huozhanci")
-        UserLearnEdit.clear(learn)
-        UserDictEdit.flushBeforeExport()
+        assertTrue(UserLearnEdit.remove(learn, "活粘词", "huozhanci"))
+        assertTrue(UserLearnEdit.clear(learn))
+        assertTrue(UserDictEdit.flushBeforeExport())
 
         assertEquals(
             listOf(
@@ -99,6 +112,20 @@ class UserDictEditDispatchTest {
         )
         assertTrue("the learning file must not be used while a live host is registered", !learn.exists())
         assertTrue("the file path must not be used while a live host is registered", !db.exists())
+    }
+
+    @Test fun a_host_that_could_not_write_is_reported_to_every_caller() {
+        UserDictHot.host = RefusingHost()
+        val db = File(tmp.root, "userdb.txt")
+        val learn = File(tmp.root, "userlearn.txt")
+        val imp = tmp.newFile("import.txt").apply { writeText("aegis-userdb 1\nR\tci\t词\n") }
+
+        assertFalse("a word that never reached the disk must not be reported as added", UserDictEdit.add(db, "词", "ci", now = 1L))
+        assertFalse(UserDictEdit.remove(db, "ci", "词"))
+        assertFalse(UserDictEdit.applyImport(db, imp, merge = true, now = 2L))
+        assertFalse(UserLearnEdit.remove(learn, "活粘词", "huozhanci"))
+        assertFalse(UserLearnEdit.clear(learn))
+        assertFalse("an export must not silently ship a stale dictionary", UserDictEdit.flushBeforeExport())
     }
 
     @Test fun without_a_host_operations_fall_back_to_the_file_and_round_trip() {

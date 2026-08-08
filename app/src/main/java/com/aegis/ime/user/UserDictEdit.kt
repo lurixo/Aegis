@@ -22,23 +22,25 @@ object UserDictEdit {
     fun add(userDb: File, word: String, reading: String, now: Long): Boolean {
         if (word.isBlank()) return false
         UserDictHot.host?.let { return it.addWord(reading, word, now) }
-        val m = UserModel().apply { if (userDb.exists()) load(userDb) }
-        m.addManualWord(reading, word, now)
-        m.save(userDb)
-        return true
+        return runCatching {
+            val m = UserModel().apply { if (userDb.exists()) load(userDb) }
+            m.addManualWord(reading, word, now)
+            m.save(userDb)
+        }.isSuccess
     }
 
     fun remove(userDb: File, reading: String, word: String): Boolean {
         if (word.isBlank()) return false
         UserDictHot.host?.let { return it.removeWord(reading, word) }
-        val m = UserModel().apply { if (userDb.exists()) load(userDb) }
-        m.removeWord(reading, word)
-        m.save(userDb)
-        val userLearn = File(userDb.absoluteFile.parentFile, "userlearn.txt")
-        val learning = UserLearning().apply { if (userLearn.exists()) load(userLearn) }
-        learning.removeWord(word)
-        if (learning.dirty) learning.save(userLearn)
-        return true
+        return runCatching {
+            val m = UserModel().apply { if (userDb.exists()) load(userDb) }
+            m.removeWord(reading, word)
+            m.save(userDb)
+            val userLearn = File(userDb.absoluteFile.parentFile, "userlearn.txt")
+            val learning = UserLearning().apply { if (userLearn.exists()) load(userLearn) }
+            learning.removeWord(word)
+            if (learning.dirty) learning.save(userLearn)
+        }.isSuccess
     }
 
     fun applyImport(userDb: File, importFile: File, merge: Boolean, now: Long): Boolean {
@@ -46,9 +48,7 @@ object UserDictEdit {
         return UserDictImport.apply(importFile, userDb, merge, now)
     }
 
-    fun flushBeforeExport() {
-        UserDictHot.host?.flush()
-    }
+    fun flushBeforeExport(): Boolean = UserDictHot.host?.flush() ?: true
 
     fun list(userDb: File): List<UserModel.Entry> {
         UserDictHot.host?.let { return it.entries() }

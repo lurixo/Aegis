@@ -247,9 +247,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     )
 
     private val liveUserDictHost by lazy {
-        LiveUserDictHost(userModel, userDbFile, userLearning, userLearnFile) {
-            userDbMtime = it
-            userLearnMtime = userLearnFile.lastModified()
+        LiveUserDictHost(userModel, userDbFile, userLearning, userLearnFile) { savedUserDb, savedUserLearn ->
+            savedUserDb?.let { userDbMtime = it }
+            savedUserLearn?.let { userLearnMtime = it }
         }
     }
 

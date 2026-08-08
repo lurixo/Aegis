@@ -18,11 +18,16 @@ package com.aegis.ime.user
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import java.io.File
 import java.nio.file.Files
 
 class UserDictEditTest {
+
+    @get:Rule
+    val tmp = TemporaryFolder()
 
     @Test fun add_persists_and_isReadableByTheModel() {
         val db = File.createTempFile("userdb-edit", ".txt").also { it.deleteOnExit() }
@@ -97,5 +102,61 @@ class UserDictEditTest {
     @Test fun blankWord_isRejected() {
         val db = File.createTempFile("userdb-edit4", ".txt").also { it.deleteOnExit() }
         assertFalse(UserDictEdit.add(db, "   ", "ceshi", 1))
+    }
+
+    @Test fun a_word_that_cannot_be_written_is_reported_and_keeps_the_saved_ones() {
+        val db = File(tmp.newFolder("userdict-add"), "userdb.txt")
+        assertTrue(UserDictEdit.add(db, "北京", "beijing", 1))
+        blockTheWriteTo(db)
+
+        assertFalse("the user must be told the word never reached the disk", UserDictEdit.add(db, "测试", "ceshi", 2))
+
+        assertEquals("what was already saved survives", listOf("北京"), UserDictEdit.list(db).map { it.word })
+    }
+
+    @Test fun a_removal_that_cannot_be_written_is_reported_and_keeps_the_entry() {
+        val db = File(tmp.newFolder("userdict-remove"), "userdb.txt")
+        assertTrue(UserDictEdit.add(db, "测试", "ceshi", 1))
+        blockTheWriteTo(db)
+
+        assertFalse("the user must be told the word is still there", UserDictEdit.remove(db, "ceshi", "测试"))
+
+        assertEquals("the entry survives a removal that never reached the disk", listOf("测试"), UserDictEdit.list(db).map { it.word })
+    }
+
+    @Test fun a_learning_removal_that_cannot_be_written_is_reported_and_keeps_the_data() {
+        val userLearn = File(tmp.newFolder("userlearn-remove"), "userlearn.txt")
+        seedLearning(userLearn)
+        blockTheWriteTo(userLearn)
+
+        assertFalse(UserLearnEdit.remove(userLearn, "你好", "nihao"))
+
+        assertTrue("nothing may be dropped by a removal that failed", UserLearnEdit.hasData(userLearn))
+    }
+
+    @Test fun a_learning_clear_that_cannot_be_written_is_reported_and_keeps_the_data() {
+        val userLearn = File(tmp.newFolder("userlearn-clear"), "userlearn.txt")
+        seedLearning(userLearn)
+        blockTheWriteTo(userLearn)
+
+        assertFalse(UserLearnEdit.clear(userLearn))
+
+        assertTrue("nothing may be dropped by a clear that failed", UserLearnEdit.hasData(userLearn))
+    }
+
+    private fun blockTheWriteTo(file: File) {
+        assertTrue(File(file.parentFile, file.name + ".tmp").mkdir())
+    }
+
+    private fun seedLearning(userLearn: File) {
+        UserLearning { 1_000L }.apply {
+            repeat(3) {
+                observeCommit(null, "你", "ni", 1_000L)
+                observeCommit("你", "好", "hao", 1_000L)
+                observeBreak()
+            }
+            save(userLearn)
+        }
+        assertTrue(UserLearnEdit.hasData(userLearn))
     }
 }
