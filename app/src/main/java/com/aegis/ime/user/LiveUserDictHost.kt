@@ -20,7 +20,6 @@ import java.io.IOException
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
-import java.util.concurrent.atomic.AtomicLong
 
 class LiveUserDictHost(
     private val model: UserModel,
@@ -33,7 +32,6 @@ class LiveUserDictHost(
     private val io = Executors.newSingleThreadExecutor { r ->
         Thread(r, "aegis-userdict-io").apply { isDaemon = true }
     }
-    private val saveGen = AtomicLong(0)
 
     override fun addWord(reading: String, word: String, now: Long): Boolean {
         if (word.isBlank()) return false
@@ -90,8 +88,7 @@ class LiveUserDictHost(
     }
 
     fun scheduleSave() {
-        val gen = saveGen.incrementAndGet()
-        val queued = runCatching { io.execute { if (gen == saveGen.get()) persistUnsaved() } }.isSuccess
+        val queued = runCatching { io.execute { persistUnsaved() } }.isSuccess
         if (!queued) persistUnsaved()
     }
 
