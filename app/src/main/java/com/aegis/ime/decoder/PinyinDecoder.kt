@@ -360,8 +360,10 @@ class PinyinDecoder(
         if (contextTail.isEmpty()) 0.0
         else bestSuffixGram(contextTail + word, contextTail.length)
 
+    private val activeLearning: UserLearning? get() = userLearning?.takeIf { it.enabled }
+
     private fun userLearningScore(contextTail: String, word: String): Double =
-        userLearning?.let { it.formedWeight(word) + it.followBoost(contextTail, word) } ?: 0.0
+        activeLearning?.let { it.formedWeight(word) + it.followBoost(contextTail, word) } ?: 0.0
 
     private fun advanceRankingTail(contextTail: String, word: String): String =
         if (octagram == null && userLearning == null) "" else rollingHanTail(contextTail, word)
@@ -706,6 +708,7 @@ class PinyinDecoder(
         val model = lm
         val condMemo = HashMap<Long, Double>()
         val nSyl = B.size - 1
+        val learn = activeLearning
         val dp = Array(B.size) { ArrayList<APath>() }
         dp[0].add(APath("", ctx.cp, if (octagram == null && userLearning == null) "" else ctx.tail, 0.0))
         for (i in 0 until nSyl) {
@@ -733,13 +736,13 @@ class PinyinDecoder(
                     val lastCp = w.codePointBefore(w.length)
                     val uni = ln(wf.freq.toDouble()) - lnTotal
                     val boost = (userModel?.wordBoost(w) ?: 0.0) +
-                        (userLearning?.formedWeight(w) ?: 0.0)
+                        (learn?.formedWeight(w) ?: 0.0)
                     val inner = if (model == null) 0.0 else lambda * internalBigramScore(w, model, condMemo)
                     for (p in src) {
                         val bw = if (p.text.isEmpty() && p.lastCp != BOS) contextWeight else lambda
                         val bi = if (model == null || p.lastCp == BOS) 0.0 else bw * logCondMemo(condMemo, model, model.charId(p.lastCp), idFirst)
                         val og = octagramWeight * contextArm(p.tail, w)
-                        val follow = userLearning?.followBoost(p.tail, w) ?: 0.0
+                        val follow = learn?.followBoost(p.tail, w) ?: 0.0
                         dp[j].add(
                             APath(
                                 p.text + w,
@@ -983,6 +986,7 @@ class PinyinDecoder(
 
     private fun bestSentence(input: String, cuts: Set<Int> = emptySet(), ctx: Ctx = Ctx.EMPTY): String? {
         val model = lm
+        val learn = activeLearning
         val condMemo = HashMap<Long, Double>()
         val n = input.length
         val dp = Array<MutableMap<SentenceState, Cell>>(n + 1) {
@@ -1002,7 +1006,7 @@ class PinyinDecoder(
                     val w = e.word
                     val uni = ln(e.freq.toDouble()) - lnTotal
                     val boost = (userModel?.wordBoost(w) ?: 0.0) +
-                        (userLearning?.formedWeight(w) ?: 0.0)
+                        (learn?.formedWeight(w) ?: 0.0)
                     val firstCp = w.codePointAt(0)
                     val idFirst = model?.charId(firstCp) ?: -1
                     val lastCp = w.codePointBefore(w.length)
@@ -1012,7 +1016,7 @@ class PinyinDecoder(
                         val bi = if (model == null || state.lastCp == BOS) 0.0
                         else bw * logCondMemo(condMemo, model, model.charId(state.lastCp), idFirst)
                         val og = octagramWeight * contextArm(state.tail, w)
-                        val follow = userLearning?.followBoost(state.tail, w) ?: 0.0
+                        val follow = learn?.followBoost(state.tail, w) ?: 0.0
                         val score = cell.score + uni + bi + inner + boost + follow - e.penalty + og
                         val nextState = SentenceState(lastCp, advanceRankingTail(state.tail, w))
                         val cur = dp[q][nextState]
