@@ -48,8 +48,8 @@ class SettingsWiringTest {
             "onDestroy must withdraw only its own host",
             svc.contains("if (UserDictHot.host === liveUserDictHost) UserDictHot.host = null"),
         )
-        val loadGate = svc.indexOf("userDbLoaded = true")
-        val hostReg = svc.indexOf("UserDictHot.host = liveUserDictHost")
+        val loadGate = svc.indexOf("userDbLoaded = userDbRead && userLearnRead")
+        val hostReg = svc.indexOf("if (userDbLoaded) UserDictHot.host = liveUserDictHost")
         assertTrue("host registration must follow the userDbLoaded gate", loadGate in 1 until hostReg)
     }
 
@@ -58,13 +58,13 @@ class SettingsWiringTest {
         assertTrue(svc.contains("private val userLearning = UserLearning()"))
         assertTrue(svc.contains("private val userLearnFile by lazy { File(filesDir, \"userlearn.txt\") }"))
         val initialLoad = svc.substringAfter("runCatching { com.aegis.ime.engine.InputAssociations.lookup(\"nihao\") }")
-            .substringBefore("userDbLoaded = true")
+            .substringBefore("userDbLoaded = userDbRead && userLearnRead")
         val userDbLoad = initialLoad.indexOf("userModel.load(userDbFile)")
         val userLearnLoad = initialLoad.indexOf("userLearning.load(userLearnFile)")
         assertTrue("secondary learning must load after userdb", userDbLoad in 1 until userLearnLoad)
         assertTrue(svc.contains("controller.userLearning = userLearning"))
         assertTrue(svc.contains("octagram, userLearning)"))
-        assertTrue(svc.contains("if (userLearning.dirty) runCatching"))
+        assertTrue(svc.contains("if (userDbLoaded && userLearning.dirty) runCatching"))
         assertTrue(svc.contains("userLearnFile.lastModified() > userLearnMtime"))
         val restored = svc.substringAfter("LiveUserData.onRestored = {").substringBefore("LiveUserData.registerClipboardPersistenceHooks")
         assertTrue(restored.contains("userLearning.load(userLearnFile)"))
