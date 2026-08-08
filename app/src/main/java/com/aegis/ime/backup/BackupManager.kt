@@ -127,7 +127,10 @@ object BackupManager {
         var handedOff = false
         try {
             try {
-                if (UserDictHot.host?.flush() == false) throw IOException("user dictionary flush failed")
+                val live = UserDictHot.host
+                if (live != null && !live.flushDictionary() && live.dictionaryReadable()) {
+                    throw IOException("user dictionary flush failed")
+                }
                 LiveUserData.flushBeforeRestore()
             } catch (e: Exception) {
                 throw BackupException(BackupError.IO_ERROR, e)

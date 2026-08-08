@@ -48,9 +48,13 @@ class SettingsWiringTest {
             "onDestroy must withdraw only its own host",
             svc.contains("if (UserDictHot.host === liveUserDictHost) UserDictHot.host = null"),
         )
-        val loadGate = svc.indexOf("userDbLoaded = userDbRead && userLearnRead")
-        val hostReg = svc.indexOf("if (userDbLoaded) UserDictHot.host = liveUserDictHost")
-        assertTrue("host registration must follow the userDbLoaded gate", loadGate in 1 until hostReg)
+        val loadDone = svc.indexOf("userStoresLoaded = true")
+        val hostReg = svc.indexOf("UserDictHot.host = liveUserDictHost")
+        assertTrue("host registration must follow the initial load", loadDone in 1 until hostReg)
+        assertFalse(
+            "a store that could not be read must not leave the settings page writing the same files as the keyboard",
+            svc.contains(") UserDictHot.host = liveUserDictHost"),
+        )
     }
 
     @Test fun service_loads_saves_reloads_and_routes_user_learning() {
@@ -58,7 +62,7 @@ class SettingsWiringTest {
         assertTrue(svc.contains("private val userLearning = UserLearning()"))
         assertTrue(svc.contains("private val userLearnFile by lazy { File(filesDir, \"userlearn.txt\") }"))
         val initialLoad = svc.substringAfter("runCatching { com.aegis.ime.engine.InputAssociations.lookup(\"nihao\") }")
-            .substringBefore("userDbLoaded = userDbRead && userLearnRead")
+            .substringBefore("userStoresLoaded = true")
         val userDbLoad = initialLoad.indexOf("userModel.load(userDbFile)")
         val userLearnLoad = initialLoad.indexOf("userLearning.load(userLearnFile)")
         assertTrue("secondary learning must load after userdb", userDbLoad in 1 until userLearnLoad)
@@ -67,7 +71,7 @@ class SettingsWiringTest {
         assertTrue(
             "a store that could not be read refuses its own write, so one store's failure must not gate the other",
             svc.contains("liveUserDictHost.scheduleSave()") &&
-                !svc.contains("if (userDbLoaded) liveUserDictHost.scheduleSave()"),
+                !svc.contains(") liveUserDictHost.scheduleSave()"),
         )
         assertFalse(
             "the end of an input session must not write the user dictionary on the main thread",
@@ -80,7 +84,12 @@ class SettingsWiringTest {
         assertTrue(svc.contains("userLearnFile.lastModified() > userLearnMtime"))
         assertTrue(
             "a reload must stand down while the keyboard's own write is still in flight",
-            svc.contains("val settled = userDbLoaded && !liveUserDictHost.writing"),
+            svc.contains("val quiet = userStoresLoaded && !liveUserDictHost.writing"),
+        )
+        assertTrue(
+            "each store's reload must turn on its own state only, never on the other store's",
+            svc.contains("if (quiet && !userModel.dirty && userDbFile.lastModified() > userDbMtime)") &&
+                svc.contains("if (quiet && !userLearning.dirty && userLearnFile.lastModified() > userLearnMtime)"),
         )
         val restored = svc.substringAfter("LiveUserData.onRestored = {").substringBefore("LiveUserData.registerClipboardPersistenceHooks")
         assertTrue(restored.contains("userLearning.load(userLearnFile)"))

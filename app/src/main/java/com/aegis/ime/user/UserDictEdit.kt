@@ -50,6 +50,9 @@ object UserDictEdit {
 
     fun flushBeforeExport(): Boolean = UserDictHot.host?.flush() ?: true
 
+    fun flushBeforeDictionaryExport(): Boolean =
+        UserDictHot.host?.let { it.flushDictionary() || !it.dictionaryReadable() } ?: true
+
     fun list(userDb: File): List<UserModel.Entry> {
         UserDictHot.host?.let { return it.entries() }
         return UserModel().apply { if (userDb.exists()) load(userDb) }.userWordEntries()
@@ -59,7 +62,11 @@ object UserDictEdit {
 
     fun summary(userDb: File): Summary {
         UserDictHot.host?.let { host ->
-            return Summary(host.entries(), host.forgottenCount() ?: forgottenFromFile(userDb))
+            return Summary(
+                host.entries(),
+                host.forgottenCount() ?: forgottenFromFile(userDb),
+                host.dictionaryReadable(),
+            )
         }
         val m = UserModel()
         val read = runCatching { if (userDb.exists()) m.load(userDb) }.isSuccess

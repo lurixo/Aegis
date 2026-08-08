@@ -29,6 +29,7 @@ import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.test.core.app.ActivityScenario
 import com.aegis.ime.R
+import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.UserDictEdit
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserLearnEdit
@@ -36,6 +37,7 @@ import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -324,6 +326,64 @@ class UserDictPageTest {
             "the file the page could not read must still be on disk untouched",
             db.readText().startsWith("this is not an aegis user dictionary"),
         )
+    }
+
+    private fun unreadableDictionaryHost(): LiveUserDictHost {
+        db.writeText("this is not an aegis user dictionary\nW\t词\t1\t1\n")
+        val model = UserModel().apply {
+            runCatching { load(db) }
+            record(null, "打过字", 1L)
+        }
+        return LiveUserDictHost(model, db, UserLearning(), learn)
+    }
+
+    @Test fun a_live_keyboard_holding_an_unreadable_word_list_still_says_so() {
+        UserDictHot.host = unreadableDictionaryHost()
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_unreadable").assertExists()
+        compose.onNodeWithTag("user_dict_count").assertDoesNotExist()
+        compose.onNodeWithTag("user_dict_forgotten").assertDoesNotExist()
+    }
+
+    @Test fun a_word_added_onto_an_unreadable_word_list_is_never_shown_as_if_it_landed() {
+        UserDictHot.host = unreadableDictionaryHost()
+        openUserDictPage()
+
+        ShadowToast.reset()
+        compose.onNodeWithTag("user_dict_new_word").performTextInput("幽灵词")
+        compose.onNodeWithTag("user_dict_new_reading").performTextInput("youlingci")
+        compose.onNodeWithTag("user_dict_add").performClick()
+        compose.waitForIdle()
+
+        assertEquals(s(R.string.user_dict_toast_write_failed), ShadowToast.getTextOfLatestToast())
+        compose.onNodeWithTag("user_dict_unreadable").assertExists()
+        assertThrows(
+            "a word that never reached storage must not be listed as though it had",
+            AssertionError::class.java,
+        ) {
+            compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(row("幽灵词", "youlingci")))
+        }
+        assertTrue(
+            "the file the page could not read must still be on disk untouched",
+            db.readText().startsWith("this is not an aegis user dictionary"),
+        )
+    }
+
+    @Test fun an_export_is_not_blocked_by_a_word_list_that_could_not_be_read() {
+        UserDictHot.host = unreadableDictionaryHost()
+        openUserDictPage()
+
+        ShadowToast.reset()
+        compose.onNodeWithTag("user_dict_export").performClick()
+        compose.waitForIdle()
+
+        scenario!!.onActivity { activity ->
+            assertNotNull(
+                "carrying the broken file out to repair it by hand must stay possible",
+                shadowOf(activity).peekNextStartedActivityForResult(),
+            )
+        }
     }
 
     @Test fun learned_data_that_cannot_be_read_says_so_instead_of_looking_empty() {

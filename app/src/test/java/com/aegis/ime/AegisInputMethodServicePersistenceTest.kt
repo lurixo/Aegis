@@ -19,6 +19,7 @@ import android.view.inputmethod.EditorInfo
 import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.UserDictHot
+import com.aegis.ime.user.UserLearnEdit
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
 import org.junit.After
@@ -77,8 +78,8 @@ class AegisInputMethodServicePersistenceTest {
         return service
     }
 
-    private fun userDbLoaded(service: AegisInputMethodService): Boolean =
-        service.javaClass.getDeclaredField("userDbLoaded").run {
+    private fun userStoresLoaded(service: AegisInputMethodService): Boolean =
+        service.javaClass.getDeclaredField("userStoresLoaded").run {
             isAccessible = true
             getBoolean(service)
         }
@@ -130,7 +131,7 @@ class AegisInputMethodServicePersistenceTest {
 
     @Test fun the_cold_start_leaves_the_live_host_serving() {
         val service = started()
-        assertTrue("both user stores loaded, so the gate must be open", userDbLoaded(service))
+        assertTrue("the cold start finished, so the reload gate must be open", userStoresLoaded(service))
         assertTrue("the live host must be serving once the cold start finished", UserDictHot.host === liveHost(service))
     }
 
@@ -191,7 +192,7 @@ class AegisInputMethodServicePersistenceTest {
     @Test fun a_store_that_could_not_be_read_is_never_written_back() {
         userDb.writeText("aegis-userdb 99\nW\t坏\t1\t1\n")
         val service = started()
-        assertFalse("a store that failed to load must leave the gate shut", userDbLoaded(service))
+        assertFalse("a store that failed to load must say so", model(service).readable)
         model(service).record(null, "不可写回", 1L)
 
         service.onFinishInput()
@@ -204,10 +205,35 @@ class AegisInputMethodServicePersistenceTest {
         )
     }
 
+    @Test fun clearing_the_learned_words_while_the_dictionary_is_unreadable_is_not_undone_by_the_keyboard() {
+        userDb.writeText("aegis-userdb 99\nW\t坏\t1\t1\n")
+        val service = started()
+        glue(learning(service))
+        service.onFinishInput()
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (System.nanoTime() < deadline && !userLearn.exists()) Thread.yield()
+        assertTrue("precondition: the learned words really did reach the disk", userLearn.exists())
+
+        assertTrue("the settings page must be able to clear them", UserLearnEdit.clear(userLearn))
+
+        model(service).record(null, "接着打字", 2L)
+        service.onFinishInput()
+        liveHost(service).flush()
+
+        assertTrue(
+            "an explicit clear must not be undone by the next thing the user types",
+            UserLearning().apply { load(userLearn) }.isEmpty(),
+        )
+    }
+
     @Test fun a_user_dictionary_that_could_not_be_read_does_not_take_the_learning_store_down_with_it() {
         userDb.writeText("aegis-userdb 99\nW\t坏\t1\t1\n")
         val service = started()
-        assertFalse("precondition: the dictionary really did fail to load", userDbLoaded(service))
+        assertFalse("precondition: the dictionary really did fail to load", model(service).readable)
+        assertTrue(
+            "a dictionary that could not be read must still leave the keyboard serving as the single writer",
+            UserDictHot.host === liveHost(service),
+        )
         glue(learning(service))
         assertTrue("precondition: the learning store has something worth keeping", learning(service).dirty)
 
