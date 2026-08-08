@@ -48,6 +48,7 @@ import com.aegis.ime.ime.ImeHost
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.ime.LayoutPanelView
+import com.aegis.ime.ime.ParallelLoad
 import com.aegis.ime.ime.SelectionMath
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.SymbolsView
@@ -288,18 +289,21 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.setCustomSymbols(customSymbolStore.list())
         controller.setCustomOperators(customOperatorStore.list())
         Thread {
-            runCatching { com.aegis.ime.engine.InputAssociations.lookup("nihao") }
-            val userDbRead = runCatching {
-                userModel.load(userDbFile)
-                userDbMtime = userDbFile.lastModified()
-            }.onFailure { Log.e("Aegis", "userdb load failed", it) }.isSuccess
-            val userLearnRead = runCatching {
-                userLearning.load(userLearnFile)
-                userLearnMtime = userLearnFile.lastModified()
-            }.onFailure { Log.e("Aegis", "userlearn load failed", it) }.isSuccess
-            userDbLoaded = userDbRead && userLearnRead
-            if (userDbLoaded) UserDictHot.host = liveUserDictHost
-            val engine = buildEngine()
+            val (_, engine) = ParallelLoad.both({
+                runCatching { com.aegis.ime.engine.InputAssociations.lookup("nihao") }
+                val userDbRead = runCatching {
+                    userModel.load(userDbFile)
+                    userDbMtime = userDbFile.lastModified()
+                }.onFailure { Log.e("Aegis", "userdb load failed", it) }.isSuccess
+                val userLearnRead = runCatching {
+                    userLearning.load(userLearnFile)
+                    userLearnMtime = userLearnFile.lastModified()
+                }.onFailure { Log.e("Aegis", "userlearn load failed", it) }.isSuccess
+                userDbLoaded = userDbRead && userLearnRead
+                if (userDbLoaded) UserDictHot.host = liveUserDictHost
+            }, {
+                buildEngine()
+            })
             Handler(Looper.getMainLooper()).post {
                 controller.setEngine(engine)
                 maybeReloadEngine()
@@ -311,7 +315,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         com.aegis.ime.dict.ModelDownload.recoverInterruptedDictionaryInstall(filesDir)
         val (sig, dictionaries) = com.aegis.ime.dict.ModelDownload.withDictionaryGeneration {
             EngineAssets.signature(File(filesDir, "downloaded")) to
-                com.aegis.ime.dict.ModelDownload.DICT_BIN_FILES.map(::loadDict)
+                ParallelLoad.results(com.aegis.ime.dict.ModelDownload.DICT_BIN_FILES.map { { loadDict(it) } })
         }
         val (dict, t9Dict, initialsDict) = dictionaries
         val fuzzyRules = currentFuzzyRules()
