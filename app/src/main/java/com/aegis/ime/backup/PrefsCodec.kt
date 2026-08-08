@@ -101,11 +101,9 @@ internal object PrefsCodec {
 
     private fun readString(input: DataInputStream): String {
         val len = input.readInt()
-        if (len < 0 || len > MAX_STRING_BYTES) throw BackupCorruptException("bad string length $len")
+        if (len < 0 || len > input.available()) throw BackupCorruptException("bad string length $len")
         val bytes = ByteArray(len)
         input.readFully(bytes)
         return String(bytes, Charsets.UTF_8)
     }
-
-    private const val MAX_STRING_BYTES = 8 * 1024 * 1024
 }

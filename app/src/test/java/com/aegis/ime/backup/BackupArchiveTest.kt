@@ -17,6 +17,7 @@ package com.aegis.ime.backup
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.fail
 import org.junit.Test
@@ -66,6 +67,66 @@ class BackupArchiveTest {
         assertArrayEquals(byteArrayOf(1, 2, 3, 4), collected.prefs)
         assertArrayEquals(a.readBytes(), collected.bytes("userdb.txt"))
         assertArrayEquals(b.readBytes(), collected.bytes("clips/deadbeef.txt"))
+    }
+
+    @Test fun round_trips_a_prefs_blob_far_beyond_the_legacy_entry_cap() {
+        val blob = ByteArray(9 * 1024 * 1024 + 12_345) { (it * 31 + 7).toByte() }
+        assertFalse(BackupArchive.fitsLegacyPrefsEntry(blob))
+
+        val bos = ByteArrayOutputStream()
+        DataOutputStream(bos).use { out ->
+            BackupArchive.writePrefsChunked(out, blob)
+            BackupArchive.writeEnd(out)
+        }
+
+        assertArrayEquals(blob, readAll(bos.toByteArray()).prefs)
+    }
+
+    @Test fun a_chunked_prefs_entry_stays_aligned_with_later_entries() {
+        val dir = Files.createTempDirectory("archive4").toFile()
+        val f = File(dir, "u").apply { writeBytes(byteArrayOf(7, 8, 9)) }
+        val blob = ByteArray(200_000) { it.toByte() }
+        val bos = ByteArrayOutputStream()
+        DataOutputStream(bos).use { out ->
+            BackupArchive.writePrefsChunked(out, blob)
+            BackupArchive.writeFile(out, "userdb.txt", f)
+            BackupArchive.writeEnd(out)
+        }
+        val collected = readAll(bos.toByteArray())
+        assertArrayEquals(blob, collected.prefs)
+        assertArrayEquals(byteArrayOf(7, 8, 9), collected.bytes("userdb.txt"))
+    }
+
+    @Test fun a_legacy_prefs_entry_over_the_cap_is_still_corrupt() {
+        val bos = ByteArrayOutputStream()
+        DataOutputStream(bos).use { out ->
+            out.writeByte('P'.code)
+            out.writeInt(9 * 1024 * 1024)
+        }
+        assertCorrupt { readAll(bos.toByteArray()) }
+    }
+
+    @Test fun an_absurd_chunk_length_in_a_prefs_entry_is_corrupt() {
+        val bos = ByteArrayOutputStream()
+        DataOutputStream(bos).use { out ->
+            out.writeByte('p'.code)
+            out.writeInt(64 * 1024 * 1024)
+        }
+        assertCorrupt { readAll(bos.toByteArray()) }
+    }
+
+    @Test fun a_truncated_chunked_prefs_entry_is_rejected() {
+        val bos = ByteArrayOutputStream()
+        DataOutputStream(bos).use { out ->
+            BackupArchive.writePrefsChunked(out, ByteArray(300_000) { it.toByte() })
+            BackupArchive.writeEnd(out)
+        }
+        val full = bos.toByteArray()
+        try {
+            readAll(full.copyOfRange(0, full.size - 100_000))
+            fail("expected the truncated archive to be rejected")
+        } catch (_: java.io.IOException) {
+        }
     }
 
     @Test fun consecutive_file_entries_stay_aligned() {

@@ -18,7 +18,10 @@ package com.aegis.ime.backup
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
+import java.io.ByteArrayOutputStream
+import java.io.DataOutputStream
 
 class PrefsCodecTest {
 
@@ -55,7 +58,61 @@ class PrefsCodecTest {
         assertEquals(PrefsCodec.Value.Str(big), decoded["custom_symbols"])
     }
 
+    @Test fun round_trips_a_value_far_beyond_eight_megabytes() {
+        val big = "符".repeat(4 * 1024 * 1024)
+        val decoded = PrefsCodec.decode(PrefsCodec.encode(mapOf("custom_symbols" to big, "layout" to "alpha")))
+        assertEquals(PrefsCodec.Value.Str(big), decoded["custom_symbols"])
+        assertEquals(PrefsCodec.Value.Str("alpha"), decoded["layout"])
+    }
+
+    @Test fun round_trips_a_string_set_member_beyond_eight_megabytes() {
+        val big = "x".repeat(9 * 1024 * 1024)
+        val decoded = PrefsCodec.decode(PrefsCodec.encode(mapOf("bag" to setOf(big, "small"))))
+        assertEquals(PrefsCodec.Value.StrSet(setOf(big, "small")), decoded["bag"])
+    }
+
+    @Test fun a_string_length_beyond_the_blob_is_corrupt() {
+        val bos = ByteArrayOutputStream()
+        DataOutputStream(bos).use { out ->
+            out.writeInt(1)
+            out.writeInt(3)
+            out.write("key".toByteArray())
+            out.writeByte('S'.code)
+            out.writeInt(Int.MAX_VALUE)
+            out.write(byteArrayOf(1, 2, 3))
+        }
+        assertCorrupt { PrefsCodec.decode(bos.toByteArray()) }
+    }
+
+    @Test fun a_negative_string_length_is_corrupt() {
+        val bos = ByteArrayOutputStream()
+        DataOutputStream(bos).use { out ->
+            out.writeInt(1)
+            out.writeInt(-5)
+        }
+        assertCorrupt { PrefsCodec.decode(bos.toByteArray()) }
+    }
+
+    @Test fun an_unknown_value_type_is_corrupt() {
+        val bos = ByteArrayOutputStream()
+        DataOutputStream(bos).use { out ->
+            out.writeInt(1)
+            out.writeInt(3)
+            out.write("key".toByteArray())
+            out.writeByte('?'.code)
+        }
+        assertCorrupt { PrefsCodec.decode(bos.toByteArray()) }
+    }
+
     @Test fun round_trips_an_empty_map() {
         assertTrue(PrefsCodec.decode(PrefsCodec.encode(emptyMap())).isEmpty())
+    }
+
+    private fun assertCorrupt(block: () -> Unit) {
+        try {
+            block()
+            fail("expected BackupCorruptException")
+        } catch (_: BackupCorruptException) {
+        }
     }
 }

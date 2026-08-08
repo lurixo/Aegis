@@ -18,6 +18,7 @@ package com.aegis.ime.backup
 import android.content.Context
 import android.content.SharedPreferences
 import com.aegis.ime.user.ClipboardStore
+import com.aegis.ime.user.CustomSymbolStore
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.SymbolUsageStore
@@ -908,5 +909,113 @@ class BackupRoundTripTest {
             "an empty-phrases backup must not wipe the device's phrases on overwrite",
             freshClip().phrases().contains("请勿删除的短语"),
         )
+    }
+
+
+    private fun containerVersion(backup: ByteArray): Int = backup[BackupFormat.MAGIC.size].toInt() and 0xFF
+
+    private fun firstEntryTag(backup: ByteArray): Int {
+        var tag = -1
+        BackupCrypto.readDecrypted(ByteArrayInputStream(backup), password.toCharArray()) { plain ->
+            java.util.zip.GZIPInputStream(plain).use { gz -> tag = gz.read() }
+        }
+        return tag
+    }
+
+    private fun legacyFormatBackup(): ByteArray {
+        val bos = ByteArrayOutputStream()
+        BackupCrypto.writeEncrypted(bos, password.toCharArray(), BackupFormat.HEADER_VERSION) { cipherOut ->
+            val gzip = java.util.zip.GZIPOutputStream(cipherOut)
+            val out = java.io.DataOutputStream(gzip)
+            BackupArchive.writePrefs(out, PrefsCodec.encode(prefs.all.filterKeys { it !in DOWNLOAD_KEYS }))
+            for (rel in listOf("userdb.txt", "userlearn.txt", "phrases.txt", "clipboard.txt", "symbol_usage.txt", "emoji/symbol_usage.txt")) {
+                val f = File(filesDir, rel)
+                if (f.isFile) BackupArchive.writeFile(out, rel, f)
+            }
+            BackupArchive.writeEnd(out)
+            out.flush()
+            gzip.finish()
+        }
+        return bos.toByteArray()
+    }
+
+    private fun hugeSymbolList(): String {
+        val sb = StringBuilder(12 * 1024 * 1024)
+        var i = 0
+        while (sb.length < 12 * 1024 * 1024) {
+            sb.append("sym").append(i++).append('\n')
+        }
+        sb.append("符号").append('\n').append("¶")
+        return sb.toString()
+    }
+
+    @Test fun an_ordinary_backup_keeps_the_legacy_container_version_and_prefs_entry() {
+        seedTypicalData()
+        val backup = export()
+
+        assertEquals(BackupFormat.HEADER_VERSION, containerVersion(backup))
+        assertEquals('P'.code, firstEntryTag(backup))
+    }
+
+    @Test fun a_legacy_container_backup_still_restores() {
+        seedTypicalData()
+        val backup = legacyFormatBackup()
+        assertEquals(BackupFormat.HEADER_VERSION, containerVersion(backup))
+        assertEquals('P'.code, firstEntryTag(backup))
+
+        wipeUserData()
+        prefs.edit().clear().commit()
+
+        restore(backup, BackupManager.Mode.OVERWRITE)
+
+        assertEquals("alpha", prefs.getString("cn_layout", null))
+        assertEquals("§\n¶", prefs.getString("custom_symbols", null))
+        assertEquals(7, prefs.getInt("some_int", -1))
+        val entries = UserModel().apply { load(userdbFile()) }.userWordEntries().map { it.reading to it.word }
+        assertEquals(setOf("nihao" to "你好", "shijie" to "世界"), entries.toSet())
+        val clip = freshClip()
+        assertTrue(clip.history().containsAll(listOf("剪贴内容一", "剪贴内容二")))
+        assertTrue(clip.phrasesIn("工作").containsAll(listOf("已收到", "好的")))
+        assertTrue(SymbolUsageStore(filesDir).apply { load() }.recent().containsAll(listOf("！", "？")))
+    }
+
+    @Test fun prefs_far_beyond_the_legacy_cap_survive_a_full_export_and_restore() {
+        seedTypicalData()
+        val symbols = hugeSymbolList()
+        assertTrue("precondition: the value alone exceeds the old 8 MB gate", symbols.toByteArray().size > 8 * 1024 * 1024)
+        prefs.edit().putString("custom_symbols", symbols).commit()
+
+        val backup = export()
+        assertEquals(BackupFormat.HEADER_VERSION_CHUNKED_PREFS, containerVersion(backup))
+        assertEquals('p'.code, firstEntryTag(backup))
+
+        wipeUserData()
+        prefs.edit().clear().commit()
+
+        restore(backup, BackupManager.Mode.OVERWRITE)
+
+        assertEquals(symbols, prefs.getString("custom_symbols", null))
+        assertEquals("alpha", prefs.getString("cn_layout", null))
+        assertFalse(prefs.getBoolean("fuzzy", true))
+        assertEquals(7, prefs.getInt("some_int", -1))
+        for (k in DOWNLOAD_KEYS) assertFalse("download-state key $k must not be restored", prefs.contains(k))
+
+        val entries = UserModel().apply { load(userdbFile()) }.userWordEntries().map { it.reading to it.word }
+        assertEquals(setOf("nihao" to "你好", "shijie" to "世界"), entries.toSet())
+        assertTrue(freshClip().history().containsAll(listOf("剪贴内容一", "剪贴内容二")))
+        assertTrue(SymbolUsageStore(File(filesDir, "emoji")).apply { load() }.recent().contains("😀"))
+    }
+
+    @Test fun a_custom_symbol_store_beyond_the_legacy_cap_survives_a_restore() {
+        val store = CustomSymbolStore(prefs)
+        prefs.edit().putString("custom_symbols", hugeSymbolList()).commit()
+        val before = store.list()
+        assertTrue(before.size > 100_000)
+
+        val backup = export()
+        prefs.edit().clear().commit()
+        restore(backup, BackupManager.Mode.OVERWRITE)
+
+        assertEquals(before, CustomSymbolStore(prefs).list())
     }
 }

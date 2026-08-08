@@ -15,6 +15,7 @@
 
 package com.aegis.ime.backup
 
+import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
@@ -23,6 +24,7 @@ import java.io.OutputStream
 internal object BackupArchive {
 
     private const val ENTRY_PREFS = 'P'.code
+    private const val ENTRY_PREFS_CHUNKED = 'p'.code
     private const val ENTRY_FILE = 'F'.code
     private const val ENTRY_END = 'X'.code
     private const val COPY_CHUNK = 64 * 1024
@@ -31,10 +33,24 @@ internal object BackupArchive {
 
     private const val MAX_CHUNK_BYTES = 16 * 1024 * 1024
 
+    fun fitsLegacyPrefsEntry(blob: ByteArray): Boolean = blob.size <= MAX_PREFS_BYTES
+
     fun writePrefs(out: DataOutputStream, blob: ByteArray) {
         out.writeByte(ENTRY_PREFS)
         out.writeInt(blob.size)
         out.write(blob)
+    }
+
+    fun writePrefsChunked(out: DataOutputStream, blob: ByteArray) {
+        out.writeByte(ENTRY_PREFS_CHUNKED)
+        var off = 0
+        while (off < blob.size) {
+            val n = minOf(COPY_CHUNK, blob.size - off)
+            out.writeInt(n)
+            out.write(blob, off, n)
+            off += n
+        }
+        out.writeInt(0)
     }
 
     fun writeFile(out: DataOutputStream, name: String, file: File) {
@@ -78,6 +94,11 @@ internal object BackupArchive {
                     val blob = ByteArray(len)
                     input.readFully(blob)
                     visitor.onPrefs(blob)
+                }
+                ENTRY_PREFS_CHUNKED -> {
+                    val blob = ByteArrayOutputStream()
+                    copyChunks(input, blob, buf)
+                    visitor.onPrefs(blob.toByteArray())
                 }
                 ENTRY_FILE -> {
                     val nameLen = input.readUnsignedShort()
