@@ -49,6 +49,9 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     @Volatile
     private var unreadableSource: String? = null
 
+    @Volatile
+    private var partiallyRead: Boolean = false
+
     private var sweptOnLoad: Int = 0
 
     @Volatile
@@ -188,6 +191,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
 
     @Synchronized
     fun save(file: File) {
+        if (partiallyRead) throw IOException("user dictionary was only partly read")
         if (unreadableSource == file.absolutePath) throw IOException("user dictionary could not be read")
         val tmp = File(file.absoluteFile.parentFile, file.name + ".tmp")
         try {
@@ -226,25 +230,25 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         manual.clear()
         forgottenCount = 0
         sweptOnLoad = 0
+        partiallyRead = true
+        applyParsed(parsed)
+        partiallyRead = false
         readable = true
         unreadableSource = null
-        applyParsed(parsed)
         version++
     }
 
     @Synchronized
     fun load(file: File, sweepStale: Boolean = true) {
-        val parsed = try {
-            parse(file)
-        } catch (e: Exception) {
-            readable = false
-            unreadableSource = file.absolutePath
-            throw e
-        }
-        readable = true
-        unreadableSource = null
+        readable = false
+        unreadableSource = file.absolutePath
+        val parsed = parse(file)
+        partiallyRead = true
         applyParsed(parsed)
         sweptOnLoad = if (sweepStale) forgetStale(clock()) else 0
+        partiallyRead = false
+        readable = true
+        unreadableSource = null
         version++
     }
 
