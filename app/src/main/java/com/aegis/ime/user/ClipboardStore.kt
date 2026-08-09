@@ -260,7 +260,7 @@ class ClipboardStore(private val dir: File) {
             }
             ArrayList(history)
         }
-        writeHistory(snapshot)
+        onWriteLaneNow { writeHistory(snapshot) }
     }
 
     private fun adopt(text: String): ClipEntry =
