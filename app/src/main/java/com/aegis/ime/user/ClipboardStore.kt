@@ -227,6 +227,7 @@ class ClipboardStore(private val dir: File) {
     }
 
     private fun recordHere(text: String) {
+        if (LiveUserData.restoreInProgress) return
         val entry = adopt(text)
         val pending = synchronized(history) {
             history.remove(entry)
@@ -446,7 +447,7 @@ class ClipboardStore(private val dir: File) {
         synchronized(history) { PendingWrite(saveGen.incrementAndGet(), ArrayList(history)) }
 
     private fun scheduleSave() {
-        if (!historyReadable) return
+        if (!historyReadable || LiveUserData.restoreInProgress) return
         val pending = stampPendingWrite()
         runCatching { io.execute { if (pending.gen == saveGen.get()) runCatching { writeHistory(pending.rows) } } }
     }
@@ -545,6 +546,7 @@ class ClipboardStore(private val dir: File) {
     }
 
     private fun savePhrases() {
+        if (LiveUserData.restoreInProgress) return
         val text = serializePhrases()
         onWriteLane { runCatching { atomicWrite(phraseFile, text) } }
     }
