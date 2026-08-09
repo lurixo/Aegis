@@ -243,7 +243,7 @@ class UserModelForgettingTest {
 
     @Test fun aFileFromAFormatThisBuildDoesNotKnowFailsLoudlyAndChangesNothing() {
         val newer = db("newer.txt")
-        newer.writeText("aegis-userdb 4\nW\t张伟明\t1\t$t0\nR\tzwm\t张伟明\n")
+        newer.writeText("aegis-userdb 5\nW\t张伟明\t1\t$t0\nR\tzwm\t张伟明\n")
         assertThrows(IllegalArgumentException::class.java) { at(t0, newer) }
 
         val store = db()

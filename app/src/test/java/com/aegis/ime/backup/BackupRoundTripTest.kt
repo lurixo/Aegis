@@ -30,6 +30,7 @@ import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.After
@@ -42,12 +43,15 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.DataInputStream
 import java.io.File
+import java.io.OutputStream
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.zip.GZIPInputStream
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -152,6 +156,58 @@ class BackupRoundTripTest {
         }
         File(filesDir, "clips").deleteRecursively()
         File(filesDir, "emoji").deleteRecursively()
+    }
+
+    private fun archiveEntries(backup: ByteArray): Map<String, ByteArray> {
+        val entries = LinkedHashMap<String, ByteArrayOutputStream>()
+        BackupCrypto.readDecrypted(ByteArrayInputStream(backup), password.toCharArray()) { plain ->
+            GZIPInputStream(plain).use { gzip ->
+                BackupArchive.read(
+                    DataInputStream(gzip),
+                    object : BackupArchive.Visitor {
+                        override fun onPrefs(blob: ByteArray) = Unit
+
+                        override fun openFile(relativePath: String): OutputStream =
+                            entries.getOrPut(relativePath) { ByteArrayOutputStream() }
+                    },
+                )
+            }
+        }
+        return entries.mapValues { it.value.toByteArray() }
+    }
+
+    private fun aWordListThatOwesADeletion(): File {
+        val db = userdbFile()
+        UserModel().apply {
+            addManualWord("ci", "词", 1_000L)
+            assertTrue(addTombstone("你呢嗯", ""))
+        }.save(db)
+        assertTrue("precondition: the device file says it owes a deletion", db.readText().startsWith("aegis-userdb 4\n"))
+        return db
+    }
+
+    @Test fun an_archive_carries_a_word_list_without_the_deletions_the_device_owes() {
+        aWordListThatOwesADeletion()
+
+        val carried = archiveEntries(export())["userdb.txt"]
+
+        assertNotNull("the archive must carry the word list", carried)
+        val text = carried!!.toString(Charsets.UTF_8)
+        assertFalse("an archive must not carry a deletion the device owes", text.contains("\nD\t"))
+        assertFalse("nor head the word list as one that carries them", text.startsWith("aegis-userdb 4"))
+        assertTrue("and it must still carry the words themselves", text.contains("R\tci\t词\n"))
+    }
+
+    @Test fun a_restore_leaves_the_deletions_the_device_owes_where_they_are() {
+        UserModel().apply { addManualWord("bei", "备", 2_000L) }.save(userdbFile())
+        val backup = export()
+        val db = aWordListThatOwesADeletion()
+
+        restore(backup, BackupManager.Mode.OVERWRITE)
+
+        val after = UserModel().apply { load(db, sweepStale = false) }
+        assertEquals(listOf("你呢嗯" to ""), after.tombstones())
+        assertEquals(listOf("备"), after.userWordEntries().map { it.word })
     }
 
     private fun blockFilePathWithDirectory(relativePath: String) {

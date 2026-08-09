@@ -71,6 +71,21 @@ internal object BackupArchive {
         }
     }
 
+    fun writeBytes(out: DataOutputStream, name: String, bytes: ByteArray) {
+        val nameBytes = name.toByteArray(Charsets.UTF_8)
+        out.writeByte(ENTRY_FILE)
+        out.writeShort(nameBytes.size)
+        out.write(nameBytes)
+        var off = 0
+        while (off < bytes.size) {
+            val n = minOf(COPY_CHUNK, bytes.size - off)
+            out.writeInt(n)
+            out.write(bytes, off, n)
+            off += n
+        }
+        out.writeInt(0)
+    }
+
     fun writeEnd(out: DataOutputStream) {
         out.writeByte(ENTRY_END)
     }

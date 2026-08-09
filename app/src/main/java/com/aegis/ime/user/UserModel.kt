@@ -29,6 +29,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     private val bigram = HashMap<String, HashMap<String, Int>>()
     private val readings = HashMap<String, LinkedHashSet<String>>()
     private val manual = HashMap<String, LinkedHashSet<String>>()
+    private val tombstones = LinkedHashSet<Pair<String, String>>()
 
     @Volatile
     var dirty: Boolean = false
@@ -137,6 +138,31 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         if (changed) { dirty = true; version++ }
     }
 
+    @Synchronized
+    fun addTombstone(word: String, reading: String): Boolean {
+        val w = word.trim()
+        val r = sanitizeReading(reading)
+        if (!isValidWord(w) || r.length > MAX_READING_LENGTH) return false
+        if (!tombstones.add(w to r)) return false
+        dirty = true
+        version++
+        return true
+    }
+
+    @Synchronized
+    fun tombstones(): List<Pair<String, String>> = ArrayList(tombstones)
+
+    @Synchronized
+    fun hasTombstones(): Boolean = tombstones.isNotEmpty()
+
+    @Synchronized
+    fun dropTombstones(done: Collection<Pair<String, String>>): Boolean {
+        if (!tombstones.removeAll(done.toSet())) return false
+        dirty = true
+        version++
+        return true
+    }
+
     data class Entry(val reading: String, val word: String, val count: Int)
 
     @Synchronized
@@ -198,8 +224,14 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         val tmp = File(file.absoluteFile.parentFile, file.name + ".tmp")
         try {
             tmp.bufferedWriter().use { w ->
-                w.write("${if (forgottenCount > 0) HEADER else MARKED_HEADER}\n")
+                val header = when {
+                    tombstones.isNotEmpty() -> TOMBSTONE_HEADER
+                    forgottenCount > 0 -> HEADER
+                    else -> MARKED_HEADER
+                }
+                w.write("$header\n")
                 if (forgottenCount > 0) w.write("G\t$forgottenCount\n")
+                for ((word, reading) in tombstones) w.write("D\t$word\t$reading\n")
                 for ((word, c) in count) w.write("W\t$word\t$c\t${lastUsed[word] ?: 0}\n")
                 for ((prev, m) in bigram) for ((word, c) in m) w.write("B\t$prev\t$word\t$c\n")
                 for ((reading, ws) in readings) for (word in ws) w.write("R\t$reading\t$word\n")
@@ -311,6 +343,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         for ((reading, words) in parsed.manual) {
             manual.getOrPut(reading) { LinkedHashSet() }.addAll(words)
         }
+        tombstones.addAll(parsed.tombstones)
         dirty = false
     }
 
@@ -339,10 +372,12 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         val bigram: HashMap<String, HashMap<String, Int>> = HashMap(),
         val readings: HashMap<String, LinkedHashSet<String>> = HashMap(),
         val manual: HashMap<String, LinkedHashSet<String>> = HashMap(),
+        val tombstones: LinkedHashSet<Pair<String, String>> = LinkedHashSet(),
         var forgotten: Int = 0,
     )
 
     companion object {
+        private const val TOMBSTONE_HEADER = "aegis-userdb 4"
         private const val HEADER = "aegis-userdb 3"
         private const val MARKED_HEADER = "aegis-userdb 2"
         private const val LEGACY_HEADER = "aegis-userdb 1"
@@ -362,11 +397,15 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
             val parsed = Parsed()
             file.bufferedReader().use { reader ->
                 val header = reader.readLine()
-                require(header == HEADER || header == MARKED_HEADER || header == LEGACY_HEADER) {
+                require(
+                    header == TOMBSTONE_HEADER || header == HEADER || header == MARKED_HEADER ||
+                        header == LEGACY_HEADER,
+                ) {
                     "unsupported userdb header"
                 }
                 val marked = header != LEGACY_HEADER
-                val counted = header == HEADER
+                val counted = header == HEADER || header == TOMBSTONE_HEADER
+                val tombstoned = header == TOMBSTONE_HEADER
                 var sawForgotten = false
                 while (true) {
                     val line = reader.readLine() ?: break
@@ -410,6 +449,14 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
                             require(parsed.manual.getOrPut(p[1]) { LinkedHashSet() }.add(p[2])) {
                                 "duplicate userdb manual"
                             }
+                        }
+                        "D" -> {
+                            require(tombstoned) { "unsupported userdb row" }
+                            require(
+                                p.size == 3 && isValidWord(p[1]) &&
+                                    p[2] == sanitizeReading(p[2]) && p[2].length <= MAX_READING_LENGTH,
+                            ) { "invalid userdb tombstone row" }
+                            require(parsed.tombstones.add(p[1] to p[2])) { "duplicate userdb tombstone" }
                         }
                         "G" -> {
                             require(counted) { "unsupported userdb row" }
