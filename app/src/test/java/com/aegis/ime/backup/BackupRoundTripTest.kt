@@ -1226,6 +1226,40 @@ class BackupRoundTripTest {
         assertEquals('P'.code, firstEntryTag(backup))
     }
 
+    @Test fun a_backup_whose_settings_section_is_damaged_is_reported_as_damaged_not_as_an_io_fault() {
+        seedTypicalData()
+        val damaged = ByteArrayOutputStream()
+        java.io.DataOutputStream(damaged).use { blob ->
+            blob.writeInt(1)
+            val key = "cn_layout".toByteArray(Charsets.UTF_8)
+            blob.writeInt(key.size)
+            blob.write(key)
+            blob.writeByte('X'.code)
+        }
+        val bos = ByteArrayOutputStream()
+        BackupCrypto.writeEncrypted(bos, password.toCharArray(), BackupFormat.HEADER_VERSION) { cipherOut ->
+            val gzip = java.util.zip.GZIPOutputStream(cipherOut)
+            val out = java.io.DataOutputStream(gzip)
+            BackupArchive.writePrefs(out, damaged.toByteArray())
+            BackupArchive.writeEnd(out)
+            out.flush()
+            gzip.finish()
+        }
+
+        try {
+            restore(bos.toByteArray(), BackupManager.Mode.OVERWRITE)
+            fail("expected the damaged settings section to be refused")
+        } catch (e: BackupException) {
+            assertEquals(
+                "a file the app cannot parse is a damaged file, not a disk that would not read",
+                BackupError.WRONG_PASSWORD_OR_CORRUPT,
+                e.error,
+            )
+        }
+        assertFalse("staging must be cleaned up", File(filesDir, "backup_staging").exists())
+        assertFalse("guard must not stay latched after a failed restore", LiveUserData.restoreInProgress)
+    }
+
     @Test fun a_legacy_container_backup_still_restores() {
         seedTypicalData()
         val backup = legacyFormatBackup()
