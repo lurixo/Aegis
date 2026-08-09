@@ -46,6 +46,8 @@ internal enum class BackupError {
     IO_ERROR,
 
     DAMAGED_CONTENT,
+
+    ALREADY_RESTORING,
 }
 
 internal class BackupException(

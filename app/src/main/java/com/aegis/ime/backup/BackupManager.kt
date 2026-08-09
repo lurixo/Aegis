@@ -30,6 +30,7 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.zip.GZIPInputStream
 import java.util.zip.GZIPOutputStream
 
@@ -59,6 +60,8 @@ object BackupManager {
         "dict_release_tag",
         "dict_release_published_at",
     )
+
+    private val restoring = AtomicBoolean(false)
 
     enum class Mode { OVERWRITE, MERGE }
 
@@ -134,6 +137,21 @@ object BackupManager {
 
 
     fun restore(
+        filesDir: File,
+        prefs: SharedPreferences,
+        password: CharArray,
+        rawIn: InputStream,
+        mode: Mode,
+    ): Mode {
+        if (!restoring.compareAndSet(false, true)) throw BackupException(BackupError.ALREADY_RESTORING)
+        return try {
+            restoreOnce(filesDir, prefs, password, rawIn, mode)
+        } finally {
+            restoring.set(false)
+        }
+    }
+
+    private fun restoreOnce(
         filesDir: File,
         prefs: SharedPreferences,
         password: CharArray,
