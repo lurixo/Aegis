@@ -18,6 +18,8 @@ package com.aegis.ime.user
 import com.aegis.ime.layout.SymbolCatalog
 import java.io.File
 import java.io.IOException
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executors
 
 class SymbolUsageStore(private val dir: File) {
 
@@ -31,6 +33,7 @@ class SymbolUsageStore(private val dir: File) {
         private set
 
     fun load() {
+        flushPendingWrites()
         used.clear()
         val seen = HashSet<String>()
         readable = runCatching {
@@ -51,7 +54,8 @@ class SymbolUsageStore(private val dir: File) {
         used.removeAll { SymbolCatalog.foldFullWidth(it.symbol) == key }
         used.add(0, Entry(symbol, origin))
         while (used.size > MAX) used.removeAt(used.size - 1)
-        runCatching { persist() }
+        val text = serialize()
+        onWriteLane { runCatching { writeAtomically(text) } }
     }
 
     fun clear() {
@@ -71,8 +75,33 @@ class SymbolUsageStore(private val dir: File) {
         return true
     }
 
+    private fun onWriteLane(work: () -> Unit) {
+        val queued = runCatching { io.execute(work) }.isSuccess
+        if (!queued) work()
+    }
+
+    private fun onWriteLaneNow(work: () -> Unit) {
+        if (Thread.currentThread() === writer) return work()
+        val pending = runCatching { io.submit(work) }.getOrNull() ?: return work()
+        try {
+            pending.get()
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw IOException("symbol usage write did not finish", e)
+        } catch (e: ExecutionException) {
+            throw e.cause ?: e
+        }
+    }
+
     private fun persist() {
-        val text = used.joinToString("\n") { if (it.origin == null) it.symbol else "${it.symbol}\t${it.origin}" }
+        val text = serialize()
+        onWriteLaneNow { writeAtomically(text) }
+    }
+
+    private fun serialize(): String =
+        used.joinToString("\n") { if (it.origin == null) it.symbol else "${it.symbol}\t${it.origin}" }
+
+    private fun writeAtomically(text: String) {
         val tmp = File(dir, "symbol_usage.txt.tmp")
         tmp.writeText(text)
         if (!tmp.renameTo(file)) {
@@ -93,5 +122,19 @@ class SymbolUsageStore(private val dir: File) {
         return used.firstOrNull { SymbolCatalog.foldFullWidth(it.symbol) == key }?.origin
     }
 
-    private companion object { const val MAX = 30 }
+    companion object {
+        private const val MAX = 30
+
+        @Volatile
+        private var writer: Thread? = null
+
+        private val io = Executors.newSingleThreadExecutor { r ->
+            Thread(r, "aegis-usage-io").apply { isDaemon = true }.also { writer = it }
+        }
+
+        internal fun flushPendingWrites() {
+            if (Thread.currentThread() === writer) return
+            runCatching { io.submit { }.get() }
+        }
+    }
 }

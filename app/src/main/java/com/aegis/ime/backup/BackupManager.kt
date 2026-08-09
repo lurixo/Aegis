@@ -73,6 +73,7 @@ object BackupManager {
     ): ExportReport {
         if (!UserDictEdit.flushBeforeExport()) throw BackupException(BackupError.IO_ERROR)
         LiveUserData.flushBeforeExport()
+        SymbolUsageStore.flushPendingWrites()
         val omitted = StoreHealth.unreadableIn(filesDir, liveStores = true)
         val prefsBlob = PrefsCodec.encode(prefs.all.filterKeys { it !in DOWNLOAD_STATE_KEYS })
         val legacyPrefs = BackupArchive.fitsLegacyPrefsEntry(prefsBlob)
