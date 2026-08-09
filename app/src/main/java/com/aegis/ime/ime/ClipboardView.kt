@@ -292,6 +292,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         const val SWIPE_ACTION_SIZE_DP = 44
         const val SWIPE_ACTION_GAP_DP = 4
         const val TAB_PILL_DP = 76
+        const val SHRINK_PASSES = 4
         const val COMPACT_ACTION_HEIGHT_DP = 36
         const val SWIPE_VERTICAL_BIAS = 1.5f
         const val DRAG_HORIZONTAL_INTENT_FRACTION = 0.5f
@@ -905,7 +906,44 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         val category = if (st.tab == Tab.PHRASE) currentCategory(categories) else ""
         val entries = if (st.tab == Tab.CLIPBOARD) clipKeys() else phrasesInProvider(category)
         recordRenderSignature(categories, category, entries)
-        val topBar = LinearLayout(context).apply {
+        val topBar = object : LinearLayout(context) {
+            private fun spanned(): Int {
+                var total = paddingLeft + paddingRight
+                for (i in 0 until childCount) {
+                    val child = getChildAt(i)
+                    val lp = child.layoutParams as ViewGroup.MarginLayoutParams
+                    total += child.measuredWidth + lp.marginStart + lp.marginEnd
+                }
+                return total
+            }
+
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val back = getChildAt(0) as? TextView
+                val label = context.getString(R.string.clip_back)
+                back?.apply {
+                    text = label
+                    setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                }
+                super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+                val room = MeasureSpec.getSize(widthMeasureSpec)
+                if (back == null || room <= 0) return
+                val smallest = ImeType.body * density
+                var pass = 0
+                while (spanned() > room && pass < SHRINK_PASSES) {
+                    val drawn = back.paint.measureText(label)
+                    val fitted = (back.textSize * (drawn - (spanned() - room)) / drawn)
+                        .coerceAtLeast(smallest)
+                    if (fitted >= back.textSize) break
+                    back.setTextSize(TypedValue.COMPLEX_UNIT_PX, fitted)
+                    super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+                    pass++
+                }
+                if (spanned() > room) {
+                    back.text = ""
+                    super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+                }
+            }
+        }.apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(8), dp(4), dp(8), dp(4))
@@ -2241,12 +2279,24 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         addView(pill(context.getString(R.string.clip_phrases), st.tab == Tab.PHRASE, false) { if (st.switchTab(Tab.PHRASE)) { swipeRevealed = null; sortMode = false; categorySortMode = false; refresh() } }, ll(dp(TAB_PILL_DP), MP))
     }
 
+    private fun shrinkToWidth(view: TextView, availablePx: Int) {
+        if (availablePx <= 0) return
+        val label = view.text?.toString() ?: return
+        repeat(SHRINK_PASSES) {
+            val needed = view.paint.measureText(label)
+            if (needed <= availablePx) return
+            view.setTextSize(TypedValue.COMPLEX_UNIT_PX, view.textSize * availablePx / needed)
+        }
+    }
+
     private fun pill(label: String, on: Boolean, left: Boolean, onClick: () -> Unit): TextView = TextView(context).apply {
         text = label; gravity = Gravity.CENTER
+        maxLines = 1
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         background = if (on) tabSegment(GREY_PILL, left) else null
         setTextColor(if (on) ACCENT else TEXT_DARK)
         setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
+        shrinkToWidth(this, dp(TAB_PILL_DP))
         foreground = RippleDrawable(
             ColorStateList.valueOf(Motion.withAlpha(if (on) ACCENT else TEXT_DARK, 0x24)),
             null,
