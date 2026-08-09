@@ -259,6 +259,12 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         adoptReloaded(parse(file))
     }
 
+    fun replaceWordsFrom(file: File) {
+        val parsed = parse(file)
+        parsed.tombstones.clear()
+        adoptReloaded(parsed)
+    }
+
     fun reloadIfUnchanged(file: File): Boolean {
         val mark = version
         val parsed = parse(file)

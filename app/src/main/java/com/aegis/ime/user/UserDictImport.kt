@@ -29,13 +29,18 @@ object UserDictImport {
                 target.save(userDb)
                 true
             } else {
-                val incoming = UserModel().apply { load(importFile, sweepStale = false) }
+                val incoming = UserModel().apply { replaceWordsFrom(importFile) }
                 if (incoming.isEmpty()) return false
+                for ((word, reading) in owedBy(userDb)) incoming.addTombstone(word, reading)
                 incoming.save(userDb)
                 true
             }
         }.getOrDefault(false)
     }
+
+    private fun owedBy(userDb: File): List<Pair<String, String>> = runCatching {
+        if (!userDb.exists()) emptyList() else UserModel().apply { load(userDb, sweepStale = false) }.tombstones()
+    }.getOrDefault(emptyList())
 
     fun stage(input: InputStream, file: File): Boolean {
         file.delete()

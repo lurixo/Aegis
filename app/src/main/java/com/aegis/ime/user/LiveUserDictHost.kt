@@ -65,9 +65,9 @@ class LiveUserDictHost(
             if (merge) {
                 if (!model.importFrom(importFile, now)) return false
             } else {
-                val incoming = UserModel().apply { load(importFile, sweepStale = false) }
+                val incoming = UserModel().apply { replaceWordsFrom(importFile) }
                 if (incoming.isEmpty()) return false
-                model.reload(importFile)
+                model.replaceWordsFrom(importFile)
             }
         } catch (_: IllegalArgumentException) {
             return false
