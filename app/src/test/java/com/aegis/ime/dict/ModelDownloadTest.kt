@@ -1098,8 +1098,9 @@ class ModelDownloadTest {
             assertEquals(listOf<String?>(null, "bytes=$cut-"), requests.map { it.first })
             assertEquals(listOf<String?>(null, "model-1"), requests.map { it.second })
             assertArrayEquals(body, target.readBytes())
-            assertEquals("model-1", requireNotNull(snapshot).validator)
-            assertEquals(sha256Hex(body), snapshot!!.sha256)
+            val installed = requireNotNull(snapshot)
+            assertEquals("model-1", installed.validator)
+            assertEquals(sha256Hex(body), installed.sha256)
             assertFalse(part.exists())
             assertFalse(sidecar.exists())
         } finally {
