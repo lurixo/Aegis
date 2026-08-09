@@ -20,6 +20,8 @@ import java.io.IOException
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.TimeoutException
 
 class LiveUserDictHost(
     private val model: UserModel,
@@ -129,11 +131,13 @@ class LiveUserDictHost(
         if (Thread.currentThread() === writer) return queued.call()
         val pending = runCatching { io.submit(queued) }.getOrNull() ?: return queued.call()
         return try {
-            pending.get()
+            pending.get(WRITE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             PersistResult.FAILED
         } catch (_: ExecutionException) {
+            PersistResult.FAILED
+        } catch (_: TimeoutException) {
             PersistResult.FAILED
         }
     }
@@ -177,5 +181,9 @@ class LiveUserDictHost(
             val DONE = PersistResult(dictionary = true, learning = true)
             val FAILED = PersistResult(dictionary = false, learning = false)
         }
+    }
+
+    private companion object {
+        const val WRITE_TIMEOUT_MILLIS = 5_000L
     }
 }
