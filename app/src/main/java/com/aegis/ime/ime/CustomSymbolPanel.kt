@@ -106,6 +106,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     override fun resetToDefault() {
         Motion.reset(contentColumn)
         contentScroll.scrollTo(0, 0)
+        contentScroll.fling(0)
     }
 
     fun applyPalette(p: ImePalette) {

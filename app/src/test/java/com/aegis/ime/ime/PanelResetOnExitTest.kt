@@ -200,6 +200,91 @@ class PanelResetOnExitTest {
         assertEquals(ctx.getString(com.aegis.ime.R.string.edit_start_select), ep.selectingLabelForTest())
     }
 
+    private fun railOf(tab: TextView): ScrollView = (tab.parent as View).parent as ScrollView
+
+    private fun host(activity: Activity, panel: View, width: Int, height: Int) {
+        val root = android.widget.FrameLayout(ctx)
+        activity.setContentView(root)
+        root.addView(panel, android.widget.FrameLayout.LayoutParams(width, height))
+    }
+
+    @Test fun a_fling_in_the_symbols_panel_does_not_outlive_its_dismissal() = hosted { activity ->
+        val recents = (1..80).map { "S$it" }
+        val sv = SymbolsView(ctx).apply { recentProvider = { recents }; applyPalette(light) }
+        host(activity, sv, 480, 220)
+        val dismiss = { sv.resetToDefault() }
+        val reopen = { sv.resetToDefault(); sv.applyPalette(light) }
+        assertEquals(
+            "the symbols rail reopens at the top",
+            0,
+            flingSurvivingDismissal("symbols rail", sv, railOf(sv.railTabForTest(0)), 480, 220, dismiss, reopen),
+        )
+        assertEquals(
+            "the symbols grid reopens at the top",
+            0,
+            flingSurvivingDismissal("symbols grid", sv, sv.gridViewportForTest() as ScrollView, 480, 220, dismiss, reopen),
+        )
+    }
+
+    @Test fun a_fling_in_the_emoji_panel_does_not_outlive_its_dismissal() = hosted { activity ->
+        val recents = EmojiCatalog.categories.first().emoji
+        val ev = EmojiView(ctx).apply { recentProvider = { recents }; applyPalette(light) }
+        host(activity, ev, 480, 220)
+        val dismiss = { ev.resetToDefault() }
+        val reopen = { ev.resetToDefault(); ev.applyPalette(light) }
+        assertEquals(
+            "the emoji rail reopens at the top",
+            0,
+            flingSurvivingDismissal("emoji rail", ev, railOf(ev.railTabForTest(0)), 480, 220, dismiss, reopen),
+        )
+        assertEquals(
+            "the emoji grid reopens at the top",
+            0,
+            flingSurvivingDismissal("emoji grid", ev, ev.gridViewportForTest() as ScrollView, 480, 220, dismiss, reopen),
+        )
+    }
+
+    @Test fun a_fling_in_the_custom_symbol_panel_does_not_outlive_its_dismissal() = hosted { activity ->
+        val panel = CustomSymbolPanel(ctx).apply {
+            addPalette = (1..48).map { "S$it" }
+            current = { emptyList() }
+            applyPalette(light)
+            refresh()
+        }
+        host(activity, panel, 480, 220)
+        assertEquals(
+            "the custom symbol page reopens at the top",
+            0,
+            flingSurvivingDismissal(
+                "custom symbols",
+                panel,
+                panel.contentViewportForTest() as ScrollView,
+                480,
+                220,
+                { panel.resetToDefault() },
+                { panel.resetToDefault(); panel.applyPalette(light) },
+            ),
+        )
+    }
+
+    @Test fun a_fling_in_the_edit_panel_does_not_outlive_its_dismissal() = hosted { activity ->
+        val ep = EditPanelView(ctx).apply { applyPalette(light) }
+        host(activity, ep, 480, 160)
+        assertEquals(
+            "the edit actions reopen at the top",
+            0,
+            flingSurvivingDismissal(
+                "edit actions",
+                ep,
+                ep.actionViewportForTest() as ScrollView,
+                480,
+                160,
+                { ep.resetToDefault() },
+                { ep.applyPalette(light); ep.setSelecting(false) },
+            ),
+        )
+    }
+
     private val clips = (1..60).map { "剪贴板条目-$it" }
     private val phrases = (1..60).map { "常用语条目-$it" }
 

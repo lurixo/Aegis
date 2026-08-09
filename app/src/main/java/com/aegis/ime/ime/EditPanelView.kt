@@ -324,6 +324,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
         Motion.reset(selectBtn)
         renderSelectingLabel()
         actionScroll.scrollTo(0, 0)
+        actionScroll.fling(0)
     }
 
     override fun onDetachedFromWindow() {
