@@ -284,6 +284,8 @@ class PinyinDecoder(
     private fun resolveCtxId(ctxCp: Int): Int =
         if (ctxCp == BOS) NO_CTX else lm?.charId(ctxCp) ?: NO_CTX
 
+    private fun activeLambda(ctx: Ctx): Double = if (ctx.cp == BOS) lambda else 0.0
+
     private fun logCondMemo(memo: HashMap<Long, Double>, model: CharBigramLM, id1: Int, id2: Int): Double {
         val key = (id1.toLong() shl 32) or (id2.toLong() and 0xFFFFFFFFL)
         memo[key]?.let { return it }
@@ -316,7 +318,7 @@ class PinyinDecoder(
             userLearningScore(ctx.tail, word) +
             (octagram?.let { octagramWeight * (it.rawScore(word) ?: 0.0) } ?: 0.0) +
             (lm?.let {
-                lambda * internalBigramScore(word, it, condMemo) +
+                activeLambda(ctx) * internalBigramScore(word, it, condMemo) +
                     if (ctxId != NO_CTX) contextWeight * logCondMemo(condMemo, it, ctxId, it.charId(word.codePointAt(0))) else 0.0
             } ?: 0.0) +
             octagramWeight * contextArm(ctx.tail, word)
@@ -707,6 +709,7 @@ class PinyinDecoder(
     ): List<SentencePath> {
         val model = lm
         val condMemo = HashMap<Long, Double>()
+        val lam = activeLambda(ctx)
         val nSyl = B.size - 1
         val learn = activeLearning
         val dp = Array(B.size) { ArrayList<APath>() }
@@ -737,9 +740,9 @@ class PinyinDecoder(
                     val uni = ln(wf.freq.toDouble()) - lnTotal
                     val boost = (userModel?.wordBoost(w) ?: 0.0) +
                         (learn?.formedWeight(w) ?: 0.0)
-                    val inner = if (model == null) 0.0 else lambda * internalBigramScore(w, model, condMemo)
+                    val inner = if (model == null) 0.0 else lam * internalBigramScore(w, model, condMemo)
                     for (p in src) {
-                        val bw = if (p.text.isEmpty() && p.lastCp != BOS) contextWeight else lambda
+                        val bw = if (p.text.isEmpty() && p.lastCp != BOS) contextWeight else lam
                         val bi = if (model == null || p.lastCp == BOS) 0.0 else bw * logCondMemo(condMemo, model, model.charId(p.lastCp), idFirst)
                         val og = octagramWeight * contextArm(p.tail, w)
                         val follow = learn?.followBoost(p.tail, w) ?: 0.0
@@ -988,6 +991,7 @@ class PinyinDecoder(
         val model = lm
         val learn = activeLearning
         val condMemo = HashMap<Long, Double>()
+        val lam = activeLambda(ctx)
         val n = input.length
         val dp = Array<MutableMap<SentenceState, Cell>>(n + 1) {
             if (octagram == null && userLearning == null) HashMap() else LinkedHashMap()
@@ -1010,9 +1014,9 @@ class PinyinDecoder(
                     val firstCp = w.codePointAt(0)
                     val idFirst = model?.charId(firstCp) ?: -1
                     val lastCp = w.codePointBefore(w.length)
-                    val inner = if (model == null) 0.0 else lambda * internalBigramScore(w, model, condMemo)
+                    val inner = if (model == null) 0.0 else lam * internalBigramScore(w, model, condMemo)
                     for ((state, cell) in from) {
-                        val bw = if (cell.prevPos < 0 && state.lastCp != BOS) contextWeight else lambda
+                        val bw = if (cell.prevPos < 0 && state.lastCp != BOS) contextWeight else lam
                         val bi = if (model == null || state.lastCp == BOS) 0.0
                         else bw * logCondMemo(condMemo, model, model.charId(state.lastCp), idFirst)
                         val og = octagramWeight * contextArm(state.tail, w)
