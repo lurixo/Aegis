@@ -68,6 +68,8 @@ class KeyboardView(context: Context) : View(context) {
     private var scrollColumn: ScrollColumn? = null
     private val scrollRegion = RectF()
     private var scrollCellH = 0f
+    private var scrollAccentIndex = -1
+    private var pendingAccentReveal = false
     private var scrollY = 0f
     private var scrollPressedIndex = -1
     private var scrollVisualPressedIndex = -1
@@ -206,6 +208,9 @@ class KeyboardView(context: Context) : View(context) {
         val snap = if (faceSwap && width > 0) Motion.snapshot(this, palette.keyboardBg) else null
         layoutApplies++
         val sameColumn = newLayout.scrollColumn?.items?.map { it.label } == layout.scrollColumn?.items?.map { it.label }
+        val accentIndex = newLayout.scrollColumn?.items?.indexOfFirst { it.accent } ?: -1
+        if (accentIndex >= 0 && (!sameColumn || accentIndex != scrollAccentIndex)) pendingAccentReveal = true
+        scrollAccentIndex = accentIndex
         val modeChanged = newLayout.id != layout.id
         layout = newLayout
         shifted = isShifted
@@ -279,6 +284,10 @@ class KeyboardView(context: Context) : View(context) {
             val visible = (sc.h / sc.cellHFrac).roundToInt().coerceAtLeast(1)
             scrollCellH = scrollRegion.height() / visible
             clampScroll()
+            if (pendingAccentReveal) {
+                revealScrollIndex(scrollAccentIndex)
+                pendingAccentReveal = false
+            }
         }
         val cells = layout.cells
         if (cells != null) {
@@ -392,6 +401,16 @@ class KeyboardView(context: Context) : View(context) {
 
     private fun clampScroll() {
         scrollY = scrollY.coerceIn(0f, maxScroll())
+    }
+
+    private fun revealScrollIndex(index: Int) {
+        val sc = scrollColumn ?: return
+        if (index !in sc.items.indices || scrollCellH <= 0f) return
+        val top = index * scrollCellH
+        val bottom = top + scrollCellH
+        val window = scrollRegion.height()
+        if (top < scrollY) scrollY = top else if (bottom > scrollY + window) scrollY = bottom - window
+        clampScroll()
     }
 
     override fun computeScroll() {

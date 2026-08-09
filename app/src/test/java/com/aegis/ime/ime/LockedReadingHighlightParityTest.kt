@@ -76,6 +76,7 @@ class LockedReadingHighlightParityTest {
             "ni" -> listOf(Syllable("ni", 0, 2))
             "nihao" -> listOf(Syllable("ni", 0, 2), Syllable("hao", 2, 5))
             "nihe" -> listOf(Syllable("ni", 0, 2), Syllable("he", 2, 4))
+            "nihaoni" -> listOf(Syllable("ni", 0, 2), Syllable("hao", 2, 5), Syllable("ni", 5, 7))
             else -> emptyList()
         }
         override fun homophonesForReadingAt(letters: String, index: Int): List<String> =
@@ -163,6 +164,13 @@ class LockedReadingHighlightParityTest {
 
     private fun markedCells(kb: KeyboardView): List<Int> =
         kb.scrollColumnKeysForTest().withIndex().filter { it.value.accent }.map { it.index }
+
+    private fun cellIsOnScreen(kb: KeyboardView, index: Int): Boolean {
+        val region = kb.scrollRegionForTest()
+        val cell = kb.scrollCellHeightForTest()
+        val top = region.top - kb.scrollOffsetForTest() + index * cell
+        return top >= region.top - 0.5f && top + cell <= region.bottom + 0.5f
+    }
 
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun nine_key_left_column_paints_the_locked_reading_with_the_accent_color() {
@@ -305,6 +313,89 @@ class LockedReadingHighlightParityTest {
         val labels = kb.scrollColumnKeysForTest().map { it.label }
         assertTrue("precondition: the column offers the last lock's alternatives, was $labels", "he" in labels)
         assertEquals("none of which the column may mark while an earlier syllable is drilled", emptyList<Int>(), markedCells(kb))
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test fun the_locked_reading_is_scrolled_into_view_wherever_it_sits_in_the_column() {
+        val cases = listOf("64" to "ni", "586" to "jun", "7426" to "shan")
+        for ((digits, reading) in cases) {
+            val (c, _, kb) = nineSession(syllabic, digits)
+            c.onPickReadingIndex(c.expandedReadings().indexOf(reading))
+
+            val marked = markedCells(kb)
+            assertEquals("$reading is the only marked cell", 1, marked.size)
+            assertEquals("$reading is the marked reading", reading, kb.scrollColumnKeysForTest()[marked.single()].label)
+            assertTrue(
+                "$reading sits at cell ${marked.single()} of ${kb.scrollColumnKeysForTest().size} and must be brought on screen",
+                cellIsOnScreen(kb, marked.single()),
+            )
+            assertTrue(
+                "$reading is painted with the accent color where the user can see it",
+                pixels(frame(kb), cellRect(kb, marked.single()), palette.accentBottom) > 0,
+            )
+        }
+    }
+
+    @Test fun a_drill_marks_its_own_syllable_at_every_reachable_position() {
+        val first = session(syllabic)
+        first.first.onKey(act(KeyAction.SWITCH_ALPHA))
+        "nihao".forEach { first.first.onKey(out(it.toString())) }
+        first.first.onPickReadingIndex(first.first.expandedReadings().indexOf("ni"))
+        first.first.onPickReadingIndex(first.first.expandedReadings().indexOf("ni"))
+        assertEquals("the first syllable of two is drilled", 0, first.first.drilledSyllableForTest())
+        assertEquals("and the source names that syllable", "ni", first.first.lockedHighlightReading())
+        first.second.showExpandedCandidates()
+        assertEquals(
+            "which the expanded grid marks",
+            palette.accentBottom,
+            first.second.expandedReadingTextColorForTest(first.first.expandedReadings().indexOf("ni")),
+        )
+
+        val middle = session(syllabic)
+        middle.first.onKey(act(KeyAction.SWITCH_ALPHA))
+        "nihaoni".forEach { middle.first.onKey(out(it.toString())) }
+        middle.first.onPickReadingIndex(middle.first.expandedReadings().indexOf("ni"))
+        middle.first.onPickReadingIndex(middle.first.expandedReadings().indexOf("hao"))
+        middle.first.onPickReadingIndex(middle.first.expandedReadings().indexOf("hao"))
+        assertEquals("the middle syllable of three is drilled", 1, middle.first.drilledSyllableForTest())
+        assertEquals("and the source names that syllable", "hao", middle.first.lockedHighlightReading())
+        middle.second.showExpandedCandidates()
+        assertEquals(
+            "which the expanded grid marks",
+            palette.accentBottom,
+            middle.second.expandedReadingTextColorForTest(middle.first.expandedReadings().indexOf("hao")),
+        )
+
+        val (last, lastView, _) = nineSession(syllabic, "64")
+        last.onPickReadingIndex(last.expandedReadings().indexOf("ni"))
+        last.onPickReadingIndex(last.expandedReadings().indexOf("ni"))
+        assertEquals("the last syllable is drilled", 0, last.drilledSyllableForTest())
+        assertEquals("and the source names that syllable", "ni", last.lockedHighlightReading())
+        lastView.showExpandedCandidates()
+        assertEquals(
+            "which the expanded grid marks",
+            palette.accentBottom,
+            lastView.expandedReadingTextColorForTest(last.expandedReadings().indexOf("ni")),
+        )
+    }
+
+    @Test fun the_reading_column_never_faces_the_user_while_a_drill_is_open() {
+        val (c, iv, kb) = nineSession(syllabic, "7426")
+        c.onPickReadingIndex(c.expandedReadings().indexOf("shan"))
+        iv.showExpandedCandidates()
+        c.onPickReadingIndex(c.expandedReadings().indexOf("shan"))
+
+        assertTrue("precondition: a drill is open", c.drilledSyllableForTest() >= 0)
+        assertEquals("the keyboard, and with it the reading column, is off screen", View.GONE, kb.visibility)
+
+        iv.showPanel(null)
+
+        assertEquals("closing the grid ends the drill", -1, c.drilledSyllableForTest())
+        assertEquals("the keyboard comes back", View.VISIBLE, kb.visibility)
+        val marked = markedCells(kb)
+        assertEquals("with the lock marked again", 1, marked.size)
+        assertEquals("and it is the locked reading", "shan", kb.scrollColumnKeysForTest()[marked.single()].label)
+        assertTrue("brought on screen", cellIsOnScreen(kb, marked.single()))
     }
 
     @Test fun alpha_layout_keeps_the_expanded_locked_reading_highlight() {
