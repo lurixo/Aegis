@@ -253,6 +253,7 @@
     <string name="backup_export_failed">Export failed</string>
     <string name="backup_export_interrupted">The export was interrupted — no backup was written</string>
     <string name="backup_import_interrupted">The import was interrupted before it began — nothing was changed</string>
+    <string name="backup_job_interrupted">Aegis stopped while this was running — anything already written may be incomplete</string>
     <string name="backup_import_ok_overwrite">Backup restored</string>
     <string name="backup_import_ok_merge">Backup merged</string>
     <string name="backup_error_not_a_backup">This is not an Aegis backup file</string>

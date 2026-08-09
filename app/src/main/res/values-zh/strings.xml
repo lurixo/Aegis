@@ -251,6 +251,7 @@
     <string name="backup_export_failed">导出失败</string>
     <string name="backup_export_interrupted">导出中断，未写出备份</string>
     <string name="backup_import_interrupted">导入在开始前中断，本机数据未改动</string>
+    <string name="backup_job_interrupted">Aegis 中途退出，已写入的部分可能不完整</string>
     <string name="backup_import_ok_overwrite">已恢复备份</string>
     <string name="backup_import_ok_merge">已合并备份</string>
     <string name="backup_error_not_a_backup">这不是 Aegis 备份文件</string>

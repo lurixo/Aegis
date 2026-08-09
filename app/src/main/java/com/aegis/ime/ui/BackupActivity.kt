@@ -89,6 +89,7 @@ class BackupActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        uiState = resumedState(savedInstanceState)
         bootstrapSettingsEdgeToEdge()
         setContent {
             SettingsActivityChrome {
@@ -119,6 +120,24 @@ class BackupActivity : ComponentActivity() {
     override fun onStop() {
         BackupJob.stopReportingTo(onJobResult)
         super.onStop()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        val working = uiState == BackupUiState.Working
+        outState.putBoolean(STATE_WORKING, working)
+        outState.putBoolean(STATE_WORKING_JOB, working && BackupJob.awaitingReport)
+        outState.putBoolean(STATE_IMPORT_PENDING, pendingImportUri != null)
+    }
+
+    private fun resumedState(savedInstanceState: Bundle?): BackupUiState = when {
+        BackupJob.awaitingReport -> BackupUiState.Working
+        savedInstanceState?.getBoolean(STATE_WORKING_JOB) == true ->
+            BackupUiState.Result(R.string.backup_job_interrupted)
+        savedInstanceState?.getBoolean(STATE_WORKING) == true -> BackupUiState.Working
+        savedInstanceState?.getBoolean(STATE_IMPORT_PENDING) == true ->
+            BackupUiState.Result(R.string.backup_import_interrupted)
+        else -> BackupUiState.Menu
     }
 
     override fun onDestroy() {
@@ -211,6 +230,9 @@ class BackupActivity : ComponentActivity() {
     private companion object {
         const val MIME_TYPE = "application/octet-stream"
         const val DEFAULT_FILE_NAME = "aegis-backup.aegisbak"
+        const val STATE_WORKING = "backup_working"
+        const val STATE_WORKING_JOB = "backup_working_job"
+        const val STATE_IMPORT_PENDING = "backup_import_pending"
     }
 }
 
@@ -227,6 +249,8 @@ internal object BackupJob {
 
     private var finished: BackupUiState.Result? = null
     private var listener: ((BackupUiState.Result) -> Unit)? = null
+
+    val awaitingReport: Boolean get() = inProgress || finished != null
 
     fun start(work: () -> BackupUiState.Result) {
         inProgress = true
