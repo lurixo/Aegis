@@ -122,7 +122,7 @@ class ClipboardStore(private val dir: File) {
 
     internal fun owns(other: File): Boolean = dir == other
 
-    internal fun tempFileFor(dest: File): File = File(dest.parentFile, "${dest.name}.$tmpTag.tmp")
+    internal fun tempFileFor(dest: File): File = AtomicFileSwap.stagingFor(dest, tmpTag)
 
     private val history = ArrayList<ClipEntry>()
 
@@ -504,27 +504,9 @@ class ClipboardStore(private val dir: File) {
         return if (line.startsWith(BIG_LINE) && ClipEntry.isSidecarHash(line.substring(BIG_LINE.length))) "\\$line" else line
     }
 
-    private fun atomicWrite(dest: File, text: String) {
-        val tmp = tempFileFor(dest)
-        tmp.writeText(text)
-        swapInto(tmp, dest)
-    }
+    private fun atomicWrite(dest: File, text: String) = AtomicFileSwap.write(dest, tmpTag, text)
 
-    private fun atomicCopy(source: File, dest: File) {
-        val tmp = tempFileFor(dest)
-        source.copyTo(tmp, overwrite = true)
-        swapInto(tmp, dest)
-    }
-
-    private fun swapInto(tmp: File, dest: File) {
-        if (!tmp.renameTo(dest)) {
-            dest.delete()
-            if (!tmp.renameTo(dest)) {
-                tmp.delete()
-                throw IOException("atomic write swap failed")
-            }
-        }
-    }
+    private fun atomicCopy(source: File, dest: File) = AtomicFileSwap.copy(source, dest, tmpTag)
 
     private fun sha256(s: String): String =
         MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it.toInt() and 0xFF) }
