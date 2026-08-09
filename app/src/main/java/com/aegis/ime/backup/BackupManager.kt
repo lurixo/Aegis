@@ -157,8 +157,8 @@ object BackupManager {
 
             val reload = LiveUserData.onRestored
             if (reload != null) {
-                handedOff = true
                 reload()
+                handedOff = true
             }
             return mode
         } finally {
