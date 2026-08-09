@@ -15,4 +15,11 @@
 
 package com.aegis.ime.backup
 
-internal enum class BackupItem(val relativePath: String)
+internal enum class BackupItem(val relativePath: String) {
+    DICTIONARY("userdb.txt"),
+    LEARNING("userlearn.txt"),
+    PHRASES("phrases.txt"),
+    CLIPBOARD("clipboard.txt"),
+    SYMBOL_USAGE("symbol_usage.txt"),
+    EMOJI_USAGE("emoji/symbol_usage.txt"),
+}
