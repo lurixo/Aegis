@@ -19,9 +19,11 @@ import com.aegis.ime.user.clipEntries
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.text.InputType
+import android.util.TypedValue
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
@@ -35,6 +37,7 @@ import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.ime.PanelBackButton
 import com.aegis.ime.ime.EditPanelView
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.engine.CandidateEngine
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -286,22 +289,99 @@ class SharedPanelBackControlTest {
 
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test
-    @Config(qualifiers = "w360dp-h780dp-xhdpi", fontScale = 1.3f)
-    fun the_clipboard_top_bar_fits_without_scrolling_when_the_system_font_is_enlarged() {
-        assertEquals(
-            "precondition: the system font must be enlarged",
-            1.3f,
-            ctx.resources.configuration.fontScale,
-            0.001f,
-        )
-        for (phrase in listOf(false, true)) {
-            val clipboard = clipboardView(phrase)
-            layout(clipboard, width = dp(360), height = dp(400))
-            val name = if (phrase) "phrases" else "clipboard"
-            val bar = topBarOf(clipboard)
-            assertEquals("$name back label stays on one line", 1, backControls(clipboard).single().lineCount)
-            assertFalse("$name still fits the whole top bar at a large font", bar.canScrollHorizontally(1))
-            assertEquals("$name top bar content fills the viewport", bar.width, bar.getChildAt(0).width)
+    @Config(qualifiers = "w360dp-h780dp-xhdpi")
+    fun the_clipboard_top_bar_fits_without_scrolling_at_every_system_font_scale() {
+        try {
+            for (locale in listOf("+en-rUS", "+zh-rCN")) {
+                RuntimeEnvironment.setQualifiers(locale)
+                for (scale in listOf(1f, 1.3f, 1.4f, 1.5f, 1.8f, 2f)) {
+                    RuntimeEnvironment.setFontScale(scale)
+                    assertEquals(
+                        "precondition: the system font must be at $scale",
+                        scale,
+                        ctx.resources.configuration.fontScale,
+                        0.001f,
+                    )
+                    for (phrase in listOf(false, true)) {
+                        val clipboard = clipboardView(phrase)
+                        layout(clipboard, width = dp(360), height = dp(400))
+                        val name = "$locale at x$scale ${if (phrase) "phrases" else "clipboard"}"
+                        val bar = topBarOf(clipboard)
+                        val content = bar.getChildAt(0)
+                        val back = backControls(clipboard).single()
+                        val viewport = boundsIn(clipboard, bar)
+                        assertEquals("$name back label stays on one line", 1, back.lineCount)
+                        assertFalse("$name must fit the whole top bar", bar.canScrollHorizontally(1))
+                        assertEquals("$name top bar content fills the viewport", bar.width, content.width)
+                        for (target in topBarTargets(content)) {
+                            val box = boundsIn(clipboard, target)
+                            assertTrue(
+                                "$name leaves a target outside the viewport unscrolled: $box in $viewport",
+                                box.left >= viewport.left && box.right <= viewport.right,
+                            )
+                        }
+                        val clear = ctx.getString(
+                            if (phrase) R.string.clip_clear_category else R.string.clip_clear_history,
+                        )
+                        val destructive = topBarTargets(content)
+                            .single { it.contentDescription?.toString() == clear }
+                        val destructiveBox = boundsIn(clipboard, destructive)
+                        assertTrue(
+                            "$name pushes '$clear' out of reach: $destructiveBox in $viewport",
+                            destructiveBox.left >= viewport.left && destructiveBox.right <= viewport.right,
+                        )
+                        assertEquals(
+                            "$name must keep the back label at 360dp",
+                            ctx.getString(R.string.clip_back),
+                            back.text.toString(),
+                        )
+                        assertTrue(
+                            "$name draws the back label at ${back.textSize}px, below the unscaled size it is authored at",
+                            back.textSize >= ImeType.body * density - 0.01f,
+                        )
+                    }
+                }
+            }
+        } finally {
+            RuntimeEnvironment.setFontScale(1f)
+            RuntimeEnvironment.setQualifiers("+en-rUS")
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w320dp-h640dp-mdpi")
+    fun the_clipboard_top_bar_drops_the_back_label_before_it_pushes_a_target_off_screen() {
+        try {
+            for (scale in listOf(1f, 2f)) {
+                RuntimeEnvironment.setFontScale(scale)
+                for (phrase in listOf(false, true)) {
+                    val clipboard = clipboardView(phrase)
+                    layout(clipboard, width = dp(320), height = dp(400))
+                    val name = "x$scale ${if (phrase) "phrases" else "clipboard"}"
+                    val bar = topBarOf(clipboard)
+                    val content = bar.getChildAt(0)
+                    val back = backControls(clipboard).single()
+                    val viewport = boundsIn(clipboard, bar)
+                    assertFalse("$name must fit the whole top bar at 320dp", bar.canScrollHorizontally(1))
+                    for (target in topBarTargets(content)) {
+                        val box = boundsIn(clipboard, target)
+                        assertTrue(
+                            "$name leaves a target outside the viewport unscrolled: $box in $viewport",
+                            box.left >= viewport.left && box.right <= viewport.right,
+                        )
+                    }
+                    assertEquals("$name yields the back label rather than the buttons", "", back.text.toString())
+                    assertEquals(
+                        "$name keeps naming the back control for accessibility",
+                        ctx.getString(R.string.clip_back),
+                        back.contentDescription.toString(),
+                    )
+                    assertTrue("$name keeps the back glyph", back.compoundDrawables[0] != null)
+                    assertTrue("$name keeps the back control tappable", back.hasOnClickListeners())
+                }
+            }
+        } finally {
+            RuntimeEnvironment.setFontScale(1f)
         }
     }
 
@@ -325,6 +405,58 @@ class SharedPanelBackControlTest {
                 )
                 assertEquals("$name tab '$label' must stay on one line", 1, pill.lineCount)
             }
+        }
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test
+    @Config(qualifiers = "w360dp-h780dp-xhdpi")
+    fun the_clipboard_tabs_keep_their_labels_inside_their_pills_at_every_system_font_scale() {
+        try {
+            for (locale in listOf("+en-rUS", "+zh-rCN")) {
+                RuntimeEnvironment.setQualifiers(locale)
+                val labels = listOf(ctx.getString(R.string.clip_clipboard), ctx.getString(R.string.clip_phrases))
+                for (scale in listOf(1f, 1.3f, 1.5f, 2f)) {
+                    RuntimeEnvironment.setFontScale(scale)
+                    assertEquals(
+                        "precondition: the system font must be at $scale",
+                        scale,
+                        ctx.resources.configuration.fontScale,
+                        0.001f,
+                    )
+                    for (phrase in listOf(false, true)) {
+                        val clipboard = clipboardView(phrase)
+                        layout(clipboard, width = dp(360), height = dp(400))
+                        val content = topBarOf(clipboard).getChildAt(0)
+                        for (label in labels) {
+                            val pill = topBarTextViews(content).single { it.text.toString() == label }
+                            val available = (pill.width - pill.paddingLeft - pill.paddingRight).toFloat()
+                            val drawn = pill.paint.measureText(label)
+                            val authored = TypedValue.applyDimension(
+                                TypedValue.COMPLEX_UNIT_SP,
+                                ImeType.body,
+                                ctx.resources.displayMetrics,
+                            )
+                            val oneStepLarger = Paint(pill.paint).apply { textSize = pill.textSize + density }
+                            val name = "$locale at x$scale tab '$label'"
+                            assertEquals("$name must stay on one line", 1, pill.lineCount)
+                            assertTrue("$name must fit its pill: needs $drawn in $available", drawn <= available)
+                            assertTrue(
+                                "$name is drawn at ${pill.textSize}px, larger than the ${authored}px the panel asks for",
+                                pill.textSize <= authored + 0.01f,
+                            )
+                            assertTrue(
+                                "$name is drawn at ${pill.textSize}px although a larger size still fits its $available pill",
+                                pill.textSize >= authored - 0.01f ||
+                                    oneStepLarger.measureText(label) > available,
+                            )
+                        }
+                    }
+                }
+            }
+        } finally {
+            RuntimeEnvironment.setFontScale(1f)
+            RuntimeEnvironment.setQualifiers("+en-rUS")
         }
     }
 
