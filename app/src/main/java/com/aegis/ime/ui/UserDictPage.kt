@@ -74,6 +74,7 @@ internal fun UserDictPage(onBack: () -> Unit) {
     val addedToast = stringResource(R.string.user_dict_toast_added)
     val keptToast = stringResource(R.string.user_dict_toast_kept)
     val addFailedToast = stringResource(R.string.user_dict_toast_add_failed)
+    val addRejectedToast = stringResource(R.string.user_dict_toast_add_rejected)
     val deletedToast = stringResource(R.string.user_dict_toast_deleted)
     val autoClearedToast = stringResource(R.string.user_dict_toast_auto_cleared)
     val writeFailedToast = stringResource(R.string.user_dict_toast_write_failed)
@@ -142,6 +143,10 @@ internal fun UserDictPage(onBack: () -> Unit) {
         val word = newWord.trim()
         if (word.isEmpty() || !readingHasLetter(newReading)) {
             Toast.makeText(context, addFailedToast, Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (!UserModel.acceptsManualWord(word, newReading)) {
+            Toast.makeText(context, addRejectedToast, Toast.LENGTH_SHORT).show()
             return
         }
         val reading = UserModel.normalizeReading(newReading)

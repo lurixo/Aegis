@@ -114,6 +114,20 @@ class UserDictEditTest {
         assertEquals("what was already saved survives", listOf("北京"), UserDictEdit.list(db).map { it.word })
     }
 
+    @Test fun a_word_the_dictionary_cannot_hold_is_reported_as_not_added() {
+        val db = File(tmp.newFolder("userdict-reject"), "userdb.txt")
+        assertTrue(UserDictEdit.add(db, "北京", "beijing", 1))
+        val before = db.readText()
+
+        assertFalse(
+            "a word the format cannot hold never reaches the file, so it must not be reported as added",
+            UserDictEdit.add(db, "词".repeat(257), "ceshi", 2),
+        )
+
+        assertEquals("the file is left byte for byte as it was", before, db.readText())
+        assertEquals(listOf("北京"), UserDictEdit.list(db).map { it.word })
+    }
+
     @Test fun a_removal_that_cannot_be_written_is_reported_and_keeps_the_entry() {
         val db = File(tmp.newFolder("userdict-remove"), "userdb.txt")
         assertTrue(UserDictEdit.add(db, "测试", "ceshi", 1))

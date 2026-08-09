@@ -24,9 +24,10 @@ object UserDictEdit {
         UserDictHot.host?.let { return it.addWord(reading, word, now) }
         return runCatching {
             val m = UserModel().apply { if (userDb.exists()) load(userDb) }
-            m.addManualWord(reading, word, now)
-            m.save(userDb)
-        }.isSuccess
+            val added = m.addManualWord(reading, word, now)
+            if (added) m.save(userDb)
+            added
+        }.getOrDefault(false)
     }
 
     fun remove(userDb: File, reading: String, word: String): Boolean {

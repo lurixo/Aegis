@@ -153,6 +153,7 @@
     <string name="user_dict_toast_kept">Already in the dictionary: it is one of your words now and will never be forgotten automatically</string>
     <string name="user_dict_forgotten_format">Forgotten after months unused: %1$d (words you add are never forgotten)</string>
     <string name="user_dict_toast_add_failed">Enter a word and its pinyin (letters only)</string>
+    <string name="user_dict_toast_add_rejected">That word cannot be stored: keep it under 256 characters, with no tabs or line breaks</string>
     <string name="user_dict_toast_deleted">Word deleted</string>
     <string name="user_dict_toast_write_failed">Could not save; the change may not have reached storage</string>
     <string name="user_dict_unreadable">The word list could not be read, so it is not shown here. Your file has not been changed or emptied. Importing a copy replaces it; adding a word will not work until it can be read again.</string>

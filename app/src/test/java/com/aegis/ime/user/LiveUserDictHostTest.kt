@@ -402,6 +402,20 @@ class LiveUserDictHostTest {
         assertFalse(db.exists())
     }
 
+    @Test fun a_word_the_dictionary_cannot_hold_is_reported_as_not_added() {
+        val h = host()
+
+        assertFalse(
+            "a word the format cannot hold never reaches the file, so it must not be reported as added",
+            h.addWord("nihao", "词".repeat(257), now = 1L),
+        )
+
+        assertTrue("no ghost may be left in the keyboard's own model", model.userWordEntries().isEmpty())
+        assertFalse("and nothing may be left queued", model.dirty)
+        assertEquals("a write that never happened must not move a watermark", 0, saves.size)
+        assertFalse(db.exists())
+    }
+
     @Test fun a_remove_that_cannot_be_persisted_is_reported_as_a_failure() {
         db = unwritable("userdb.txt")
         val h = liveHost(model, db, onSaved = ::watermark)
