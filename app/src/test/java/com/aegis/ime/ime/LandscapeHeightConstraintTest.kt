@@ -46,7 +46,6 @@ import org.robolectric.Robolectric
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
@@ -661,7 +660,6 @@ class TinyPanelViewportConstraintTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun edit_custom_and_clipboard_important_actions_remain_inside_and_root_clickable() {
         val iv = InputView(ctx).apply {
             simulateNavInsetForTest(12)
@@ -762,7 +760,6 @@ class TinyPanelViewportConstraintTest {
         activity.pause().stop().destroy()
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun clipboard_select_phrase_sort_and_category_sort_keep_readable_root_clickable_actions() {
         val deleted = mutableListOf<List<String>>()
         val clips = (1..20).map { "clip$it" }

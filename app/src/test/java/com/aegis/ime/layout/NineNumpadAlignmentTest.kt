@@ -25,7 +25,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
@@ -47,7 +46,6 @@ class NineNumpadAlignmentTest {
         layout(0, 0, measuredWidth, measuredHeight)
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test
     fun longestSyllableShowsFullyInTheLeftReadoutColumn() {
         val displayed = T9Pinyin.SYLLABLES.filter {

@@ -39,7 +39,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
 import org.robolectric.annotation.LooperMode
 
 @RunWith(RobolectricTestRunner::class)
@@ -529,7 +528,6 @@ class CandidateBarChevronTest {
         assertTrue("the collapse chevron is no longer over-wide", chevron.width() < 1.64f * 9f * density * 1.2f)
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun idle_toolbar_press_highlight_fills_the_visible_end_cell_and_is_clipped() {
         val view = idleBar(320)
         val capsule = view.toolbarCapsuleBoundsForTest()
@@ -552,7 +550,6 @@ class CandidateBarChevronTest {
         view.dispatchTouchEvent(MotionEvent.obtain(0, 10, MotionEvent.ACTION_CANCEL, capsule.left + density, capsule.centerY(), 0))
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun idle_toolbar_has_semicircular_ends_and_no_chevron_divider() {
         val view = idleBar(360)
         val controls = view.toolbarControlBoundsForTest()
@@ -563,7 +560,6 @@ class CandidateBarChevronTest {
         assertEquals(ImePalette.STATIC_LIGHT.keySurface, bitmap.getPixel(dividerX, controls.last().centerY().toInt()))
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun idle_toolbar_brand_slot_renders_the_brand_icon() {
         val view = idleBar(320)
         val slot = view.toolbarControlBoundsForTest().first()
@@ -586,7 +582,6 @@ class CandidateBarChevronTest {
         assertTrue(found)
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun idle_toolbar_phrase_slot_renders_the_approved_v1_geometry() {
         val view = idleBar(320)
         val slot = view.toolbarControlBoundsForTest()[5]

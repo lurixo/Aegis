@@ -51,7 +51,6 @@ import org.robolectric.Robolectric
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
 import java.time.Duration
 
 @RunWith(RobolectricTestRunner::class)
@@ -685,7 +684,6 @@ class ClipboardViewInteractionTest {
         }
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun clipboard_swipe_split_reuses_the_expanded_boxed_split_character() {
         val v = clipView(listOf("第一条"))
         v.revealSwipeForTest("第一条")
@@ -727,7 +725,6 @@ class ClipboardViewInteractionTest {
         assertEquals(listOf(listOf("第一条")), pending)
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun phrase_swipe_move_reuses_the_expanded_boxed_move_character() {
         val v = phraseView(listOf("你好"))
         v.revealSwipeForTest("你好")
@@ -802,7 +799,6 @@ class ClipboardViewInteractionTest {
         }
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test
     @Config(qualifiers = "zh-rCN-mdpi")
     fun batch_management_entry_header_and_count_are_exact_single_line_text_at_supported_widths() {

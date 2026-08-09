@@ -42,7 +42,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -111,7 +110,6 @@ class PanelIconAlignmentTest {
         )
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun edit_panel_back_action_is_limited_to_the_back_button() {
         val v = EditPanelView(ctx)
         val actions = mutableListOf<EditAction>()
@@ -179,7 +177,6 @@ class PanelIconAlignmentTest {
         }
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun edit_panel_arrow_glyphs_use_option_a_line_geometry_and_stay_centered() {
         val v = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
         layout(v, width = 600, height = 320)

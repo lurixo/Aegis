@@ -34,11 +34,9 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
 class BottomBarSymmetryTest {
 
     private val ctx = RuntimeEnvironment.getApplication()

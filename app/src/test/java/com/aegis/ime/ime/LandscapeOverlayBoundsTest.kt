@@ -41,10 +41,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Robolectric
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w853dp-h388dp-land-hdpi")
 class LandscapeOverlayBoundsTest {
 
@@ -365,7 +363,6 @@ class RotationOverlayBoundsTest {
 }
 
 @RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-port-mdpi")
 class PortraitOverlayBoundsTest {
 
