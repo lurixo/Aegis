@@ -26,6 +26,8 @@ object UserDictHot {
 
         fun importUserDict(importFile: File, merge: Boolean, now: Long): Boolean
 
+        fun reloadDictionary(): Boolean
+
         fun entries(): List<UserModel.Entry>
 
         fun forgottenCount(): Int? = null

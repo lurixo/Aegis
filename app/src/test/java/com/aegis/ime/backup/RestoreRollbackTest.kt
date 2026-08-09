@@ -209,6 +209,38 @@ class RestoreRollbackTest {
         assertEquals(listOf("本地"), UserModel().apply { load(File(filesDir, "userdb.txt")) }.userWordEntries().map { it.word })
     }
 
+    private fun liveDictionary(): LiveUserDictHost {
+        val userDb = File(filesDir, "userdb.txt")
+        val model = UserModel().apply { if (userDb.isFile) load(userDb, sweepStale = false) }
+        return LiveUserDictHost(model, userDb, UserLearning(), File(filesDir, "userlearn.txt"))
+            .also { hosts += it; UserDictHot.host = it }
+    }
+
+    @Test fun a_device_that_had_no_word_list_is_not_left_holding_the_archive_words() {
+        seedBackupData()
+        val backup = export()
+        wipe()
+        seedLocalData()
+        assertTrue("precondition: the device carries no word list of its own", File(filesDir, "userdb.txt").delete())
+        blockTheLastStore()
+        val host = liveDictionary()
+        assertEquals(emptyList<String>(), host.entries().map { it.word })
+
+        expectTheRestoreToFail(backup)
+
+        assertEquals(
+            "the rollback took the word list back off the device, so the running dictionary must let go of it too",
+            emptyList<String>(),
+            host.entries().map { it.word },
+        )
+        assertTrue(host.addWord("xz", "新增", 3_000L))
+        assertEquals(
+            "or the next word written puts the whole archive back on disk",
+            listOf("新增"),
+            UserModel().apply { load(File(filesDir, "userdb.txt")) }.userWordEntries().map { it.word },
+        )
+    }
+
     @Test fun the_live_clipboard_holds_the_device_phrases_again_after_a_restore_that_could_not_finish() {
         seedBackupData()
         val backup = export()

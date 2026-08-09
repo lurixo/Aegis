@@ -350,6 +350,7 @@ class InputSettingsAutoLearnClearTest {
         override fun addWord(reading: String, word: String, now: Long) = false
         override fun removeWord(reading: String, word: String) = false
         override fun importUserDict(importFile: java.io.File, merge: Boolean, now: Long) = false
+        override fun reloadDictionary() = false
         override fun entries(): List<UserModel.Entry> = emptyList()
         override fun learnedEntries(): List<UserLearning.Formed> =
             if (reached.get()) emptyList() else listOf(UserLearning.Formed("你呢嗯", "ninen"))
@@ -389,6 +390,7 @@ class InputSettingsAutoLearnClearTest {
             override fun addWord(reading: String, word: String, now: Long) = false
             override fun removeWord(reading: String, word: String) = false
             override fun importUserDict(importFile: java.io.File, merge: Boolean, now: Long) = false
+            override fun reloadDictionary() = false
             override fun entries(): List<UserModel.Entry> = emptyList()
             override fun learnedEntries(): List<UserLearning.Formed> =
                 listOf(UserLearning.Formed("你呢嗯", "ninen"))

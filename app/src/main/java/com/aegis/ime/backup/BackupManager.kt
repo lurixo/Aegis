@@ -187,7 +187,7 @@ object BackupManager {
                 commit(filesDir, prefs, staging, visitor.prefsBlob, mode)
                 journal.markDone()
             } catch (e: Exception) {
-                if (runCatching { journal.rollBack(prefs) }.isSuccess) handedOff = reloadLiveStores(filesDir)
+                if (runCatching { journal.rollBack(prefs) }.isSuccess) handedOff = reloadLiveStores()
                 throw when (e) {
                     is BackupCorruptException -> BackupException(BackupError.WRONG_PASSWORD_OR_CORRUPT, e)
                     else -> BackupException(BackupError.IO_ERROR, e)
@@ -207,12 +207,8 @@ object BackupManager {
         }
     }
 
-    private fun reloadLiveStores(filesDir: File): Boolean {
-        val host = UserDictHot.host
-        val userDb = File(filesDir, USERDB)
-        if (host != null && userDb.isFile) {
-            runCatching { host.importUserDict(userDb, false, System.currentTimeMillis()) }
-        }
+    private fun reloadLiveStores(): Boolean {
+        UserDictHot.host?.let { host -> runCatching { host.reloadDictionary() } }
         val reload = LiveUserData.onRestored ?: return false
         return runCatching { reload() }.isSuccess
     }
