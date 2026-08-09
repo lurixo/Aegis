@@ -136,13 +136,18 @@ class PanelResetOnExitTest {
     }
 
 
-    @Test fun symbols_panel_resets_to_the_common_tab_unlocked_and_scrolled_up() {
-        val sv = SymbolsView(ctx)
+    @Test fun symbols_panel_resets_to_the_common_tab_unlocked_and_scrolled_up() = hosted { activity ->
+        val sv = SymbolsView(ctx).apply { recentProvider = { (1..80).map { "S$it" } } }
         sv.applyPalette(light)
-        sv.openCategoryForTest(4)
+        host(activity, sv, 480, 220)
+        sv.openCategoryForTest(5)
         sv.toggleLockForTest()
-        assertEquals(4, sv.selectedCategoryForTest())
+        layout(sv, 480, 220)
+        val grid = sv.gridViewportForTest() as ScrollView
+        grid.scrollTo(0, maxScrollOf(grid))
+        assertEquals(5, sv.selectedCategoryForTest())
         assertTrue(sv.lockedForTest())
+        assertTrue("precondition: the grid is parked away from the top", sv.gridScrollYForTest() > 0)
 
         sv.resetToDefault()
 
@@ -180,9 +185,11 @@ class PanelResetOnExitTest {
         assertTrue("precondition: stale lock", stale.lockedForTest())
         assertEquals("precondition: stale category", 3, stale.selectedCategoryForTest())
 
+        val goneIv = InputView(ctx)
+        goneIv.showPanel(stale)
+        goneIv.showPanel(null)
+
         val freshIv = InputView(ctx)
-        freshIv.showPanel(null)
-        stale.resetToDefault()
         freshIv.showPanel(stale)
 
         assertEquals("reopens on 常用", 0, stale.selectedCategoryForTest())
@@ -439,5 +446,93 @@ class PanelResetOnExitTest {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(16))
         val entry = tapFullyVisibleRow(cv, "first tap", 9000)
         assertEquals("the first tap after reopening must commit the entry", entry, picked)
+    }
+
+    private val stubEngine = object : CandidateEngine {
+        override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
+    }
+
+    private fun startedService(): Pair<AegisInputMethodService, InputView> {
+        val service = Robolectric.buildService(AegisInputMethodService::class.java).get()
+        service.javaClass.getDeclaredField("controller").apply {
+            isAccessible = true
+            set(service, KeyboardController(service, stubEngine, null))
+        }
+        val info = EditorInfo().apply {
+            packageName = "com.example.editor"
+            fieldId = 7
+            inputType = InputType.TYPE_CLASS_TEXT
+        }
+        service.onStartInput(info, false)
+        val view = service.onCreateInputView() as InputView
+        service.onStartInputView(info, false)
+        return service to view
+    }
+
+    private fun press(service: AegisInputMethodService, entry: String) {
+        service.javaClass.getDeclaredMethod(entry).run {
+            isAccessible = true
+            invoke(service)
+        }
+    }
+
+    private fun openClipboardView(service: AegisInputMethodService): ClipboardView =
+        service.javaClass.getDeclaredField("clipboardView").run {
+            isAccessible = true
+            get(service) as ClipboardView
+        }
+
+    @Test fun pressing_the_phrases_key_while_it_is_open_returns_to_the_top() = hosted { activity ->
+        val (service, iv) = startedService()
+        activity.setContentView(iv)
+        press(service, "showPhrasePanel")
+        idle()
+        val cv = openClipboardView(service)
+        seedClipboard(cv)
+        iv.showPanel(null); idle()
+        press(service, "showPhrasePanel"); idle()
+        settleClipboard(cv)
+        assertFalse("precondition: the phrases tab is open", cv.isClipboardTabForTest())
+        val target = scrollClipboardDown(cv, "phrases key")
+        assertTrue("precondition: the list is parked away from the top", target > 0)
+
+        press(service, "showPhrasePanel")
+        idle()
+        settleClipboard(cv)
+
+        assertTrue("pressing 常用语 again keeps the panel open", iv.isPanelShowing(cv))
+        assertFalse("pressing 常用语 again stays on the phrases tab", cv.isClipboardTabForTest())
+        assertEquals("pressing 常用语 again returns to the top of the list", 0, cv.listScrollYForTest())
+    }
+
+    @Test fun pressing_the_clipboard_key_while_the_panel_is_open_closes_it() = hosted { activity ->
+        val (service, iv) = startedService()
+        activity.setContentView(iv)
+        press(service, "showPhrasePanel")
+        idle()
+        val cv = openClipboardView(service)
+        assertTrue("precondition: the panel is open on the phrases tab", iv.isPanelShowing(cv))
+        assertFalse("precondition: the phrases tab is showing", cv.isClipboardTabForTest())
+
+        press(service, "showClipboardPanel")
+        idle()
+
+        assertFalse("the 剪贴板 key toggles the open panel closed rather than reopening it", iv.isPanelShowing(cv))
+    }
+
+    @Test fun switching_between_the_two_tabs_returns_to_the_top() = hosted { activity ->
+        val iv = InputView(ctx)
+        activity.setContentView(iv)
+        val cv = ClipboardView(ctx).also(::seedClipboard)
+        openClipboardLikeTheService(iv, cv)
+        settleClipboard(cv)
+        assertTrue("precondition: clipboard list scrolled", scrollClipboardDown(cv, "tab switch out") > 0)
+        cv.switchTabForTest(toClipboard = false)
+        settleClipboard(cv)
+        assertEquals("switching to 常用语 starts at the top", 0, cv.listScrollYForTest())
+        assertTrue("precondition: phrases list scrolled", scrollClipboardDown(cv, "tab switch back") > 0)
+        cv.switchTabForTest(toClipboard = true)
+        settleClipboard(cv)
+        assertEquals("switching back to 剪贴板 starts at the top", 0, cv.listScrollYForTest())
     }
 }

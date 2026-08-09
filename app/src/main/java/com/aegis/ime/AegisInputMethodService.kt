@@ -897,8 +897,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun showPhrasePanel() {
         val iv = inputView ?: return
         val open = clipboardView
-        if (iv.isPanelShowing(open)) {
-            open?.showPhraseTab("")
+        if (open != null && iv.isPanelShowing(open)) {
+            open.resetToDefault()
+            open.showPhraseTab("")
             return
         }
         showClipboardPanel()
