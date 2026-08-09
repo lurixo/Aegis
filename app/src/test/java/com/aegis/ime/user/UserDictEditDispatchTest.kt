@@ -44,6 +44,9 @@ class UserDictEditDispatchTest {
         override fun importUserDict(importFile: File, merge: Boolean, now: Long): Boolean {
             calls += "import:merge=$merge"; return true
         }
+        override fun reloadDictionary(): Boolean {
+            calls += "reloadDictionary"; return true
+        }
         override fun entries(): List<UserModel.Entry> {
             calls += "entries"
             return listOf(UserModel.Entry("live", "活词", 9))
@@ -71,6 +74,7 @@ class UserDictEditDispatchTest {
         override fun addWord(reading: String, word: String, now: Long) = false
         override fun removeWord(reading: String, word: String) = false
         override fun importUserDict(importFile: File, merge: Boolean, now: Long) = false
+        override fun reloadDictionary() = false
         override fun entries(): List<UserModel.Entry> = emptyList()
         override fun learnedEntries(): List<UserLearning.Formed> = emptyList()
         override fun hasLearnedData() = false

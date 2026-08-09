@@ -443,6 +443,7 @@ class UserDictPageTest {
             return true
         }
         override fun importUserDict(importFile: File, merge: Boolean, now: Long) = false
+        override fun reloadDictionary() = false
         override fun entries(): List<UserModel.Entry> =
             if (reached.get()) emptyList() else listOf(UserModel.Entry("shanchu", "删除词", 1))
         override fun learnedEntries(): List<UserLearning.Formed> = emptyList()
@@ -533,6 +534,7 @@ class UserDictPageTest {
         override fun addWord(reading: String, word: String, now: Long) = false
         override fun removeWord(reading: String, word: String) = false
         override fun importUserDict(importFile: File, merge: Boolean, now: Long) = false
+        override fun reloadDictionary() = false
         override fun entries(): List<UserModel.Entry> = entries
         override fun learnedEntries(): List<UserLearning.Formed> = learned
         override fun hasLearnedData() = learned.isNotEmpty()

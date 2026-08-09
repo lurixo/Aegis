@@ -546,6 +546,7 @@ class BackupRoundTripTest {
             override fun addWord(reading: String, word: String, now: Long) = true
             override fun removeWord(reading: String, word: String) = true
             override fun importUserDict(importFile: File, merge: Boolean, now: Long) = false
+            override fun reloadDictionary() = false
             override fun entries(): List<UserModel.Entry> = emptyList()
             override fun learnedEntries(): List<UserLearning.Formed> = emptyList()
             override fun hasLearnedData(): Boolean = false
@@ -748,6 +749,7 @@ class BackupRoundTripTest {
         override fun addWord(reading: String, word: String, now: Long) = true
         override fun removeWord(reading: String, word: String) = true
         override fun importUserDict(importFile: File, merge: Boolean, now: Long) = true
+        override fun reloadDictionary() = true
         override fun entries(): List<UserModel.Entry> = emptyList()
         override fun learnedEntries(): List<UserLearning.Formed> = emptyList()
         override fun hasLearnedData() = false

@@ -77,6 +77,9 @@ class LiveUserDictHost(
         return save().dictionary
     }
 
+    override fun reloadDictionary(): Boolean =
+        onWriterThread(false) { runCatching { model.reload(userDb) }.isSuccess }
+
     override fun entries(): List<UserModel.Entry> = model.userWordEntries()
 
     override fun forgottenCount(): Int = model.forgottenCount
@@ -110,12 +113,12 @@ class LiveUserDictHost(
 
     override fun flush(): Boolean {
         if (!anythingUnsaved()) return true
-        return onWriterThread(::persistUnsaved).both
+        return onWriterThread(PersistResult.FAILED, ::persistUnsaved).both
     }
 
     override fun flushDictionary(): Boolean {
         if (!anythingUnsaved()) return true
-        return onWriterThread(::persistUnsaved).dictionary
+        return onWriterThread(PersistResult.FAILED, ::persistUnsaved).dictionary
     }
 
     fun scheduleSave() {
@@ -134,11 +137,13 @@ class LiveUserDictHost(
     private fun persistUnsaved(): PersistResult =
         if (anythingUnsaved()) persistHere(writeUserDb = model.dirty) else PersistResult.DONE
 
-    private fun save(): PersistResult = onWriterThread { persistHere(writeUserDb = true) }
+    private fun save(): PersistResult =
+        onWriterThread(PersistResult.FAILED) { persistHere(writeUserDb = true) }
 
-    private fun saveLearning(): PersistResult = onWriterThread { persistHere(writeUserDb = false) }
+    private fun saveLearning(): PersistResult =
+        onWriterThread(PersistResult.FAILED) { persistHere(writeUserDb = false) }
 
-    private fun onWriterThread(work: () -> PersistResult): PersistResult {
+    private fun <T> onWriterThread(failed: T, work: () -> T): T {
         val queued = Callable(work)
         if (Thread.currentThread() === writer) return queued.call()
         val pending = runCatching { io.submit(queued) }.getOrNull() ?: return queued.call()
@@ -146,11 +151,11 @@ class LiveUserDictHost(
             pending.get(WRITE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
-            PersistResult.FAILED
+            failed
         } catch (_: ExecutionException) {
-            PersistResult.FAILED
+            failed
         } catch (_: TimeoutException) {
-            PersistResult.FAILED
+            failed
         }
     }
 
