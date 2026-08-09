@@ -35,7 +35,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "zh")
@@ -102,7 +101,6 @@ class LayoutPanelTest {
         assertEquals(view.toolbarFunctionsForTest().size + 1, view.toolbarControlBoundsForTest().size)
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun idle_toolbar_layout_slot_renders_the_keyboard_icon() {
         val view = idleBar(320)
         val slot = view.toolbarControlBoundsForTest()[2]
@@ -213,7 +211,6 @@ class LayoutPanelTest {
         }
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun the_active_card_paints_the_accent_green() {
         val panel = LayoutPanelView(ctx).apply {
             applyPalette(light)
@@ -259,7 +256,6 @@ class LayoutPanelTest {
         assertEquals((40 * density).toInt() + (18 * density).toInt(), panel.cardRowTopForTest())
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Config(sdk = [34], qualifiers = "zh-xxhdpi")
     @Test fun the_card_icon_ink_stays_centered_despite_the_badge() {
         val panel = LayoutPanelView(ctx).apply { applyPalette(light) }

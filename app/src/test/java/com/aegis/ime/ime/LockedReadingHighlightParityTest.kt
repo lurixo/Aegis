@@ -37,7 +37,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -172,7 +171,6 @@ class LockedReadingHighlightParityTest {
         return top >= region.top - 0.5f && top + cell <= region.bottom + 0.5f
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun nine_key_left_column_paints_the_locked_reading_with_the_accent_color() {
         val (c, _, kb) = nineSession(syllabic, "64")
         assertTrue(
@@ -198,7 +196,6 @@ class LockedReadingHighlightParityTest {
         )
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun nine_key_left_column_leaves_unlocked_readings_in_the_plain_key_label_color() {
         val readings = listOf("ni", "nu", "ne", "na")
         val column = readings.mapIndexed { i, r ->
@@ -315,7 +312,6 @@ class LockedReadingHighlightParityTest {
         assertEquals("none of which the column may mark while an earlier syllable is drilled", emptyList<Int>(), markedCells(kb))
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun the_locked_reading_is_scrolled_into_view_wherever_it_sits_in_the_column() {
         val cases = listOf("64" to "ni", "586" to "jun", "7426" to "shan")
         for ((digits, reading) in cases) {

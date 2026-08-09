@@ -51,7 +51,6 @@ import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
@@ -274,7 +273,6 @@ class SharedPanelBackControlTest {
         )
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test
     @Config(qualifiers = "w360dp-h780dp-xhdpi")
     fun the_clipboard_top_bar_fits_without_scrolling_at_three_hundred_sixty_dp() {
@@ -287,7 +285,6 @@ class SharedPanelBackControlTest {
         assertEquals("360dp top bar content fills the viewport", bar.width, bar.getChildAt(0).width)
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test
     @Config(qualifiers = "w360dp-h780dp-xhdpi")
     fun the_clipboard_top_bar_fits_without_scrolling_at_every_system_font_scale() {
@@ -385,7 +382,6 @@ class SharedPanelBackControlTest {
         }
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test
     @Config(qualifiers = "w360dp-h780dp-xhdpi")
     fun the_clipboard_tabs_keep_their_labels_inside_their_pills() {
@@ -408,7 +404,6 @@ class SharedPanelBackControlTest {
         }
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test
     @Config(qualifiers = "w360dp-h780dp-xhdpi")
     fun the_clipboard_tabs_keep_their_labels_inside_their_pills_at_every_system_font_scale() {
@@ -460,7 +455,6 @@ class SharedPanelBackControlTest {
         }
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun the_clipboard_top_bar_keeps_its_flexible_gap_when_the_window_is_wide() {
         val clipboard = clipboardView(phrase = true)
         layout(clipboard, width = dp(411), height = dp(400))
@@ -475,7 +469,6 @@ class SharedPanelBackControlTest {
         )
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test
     @Config(qualifiers = "w320dp-h640dp-mdpi")
     fun the_clipboard_top_bar_keeps_every_target_reachable_at_three_hundred_twenty_dp() {
@@ -579,7 +572,6 @@ class SharedPanelBackControlTest {
         return inkBounds(bitmap)
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun the_shared_back_control_draws_a_sixteen_dp_icon_box_on_every_panel() {
         val clipboard = clipboardView(phrase = false)
         layout(clipboard)

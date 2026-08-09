@@ -38,7 +38,6 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
@@ -184,7 +183,6 @@ class CustomSymbolPanelTest {
     }
 
     @Test
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     fun the_remove_mark_is_drawn_in_the_secondary_colour_in_light_and_dark() {
         for (colors in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
             assertFalse(
@@ -212,7 +210,6 @@ class CustomSymbolPanelTest {
     }
 
     @Test
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     fun long_symbols_widen_their_capsule_instead_of_clipping_it() {
         val long = "arcsin"
         val longPalette = "arctan"

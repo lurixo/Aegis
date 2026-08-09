@@ -156,10 +156,7 @@ class Md3MotionSystemTest {
     private fun coverPair(activity: Activity): Pair<View, View> {
         val host = FrameLayout(activity)
         val outgoing = View(ctx).apply { setBackgroundColor(Color.GREEN) }
-        val incoming = View(ctx).apply {
-            setBackgroundColor(Color.RED)
-            visibility = View.GONE
-        }
+        val incoming = View(ctx).apply { setBackgroundColor(Color.RED) }
         host.addView(outgoing, FrameLayout.LayoutParams(80, 80))
         host.addView(incoming, FrameLayout.LayoutParams(80, 80))
         activity.setContentView(host)
@@ -168,6 +165,7 @@ class Md3MotionSystemTest {
             View.MeasureSpec.makeMeasureSpec(80, View.MeasureSpec.EXACTLY),
         )
         host.layout(0, 0, 80, 80)
+        incoming.visibility = View.GONE
         return incoming to outgoing
     }
 

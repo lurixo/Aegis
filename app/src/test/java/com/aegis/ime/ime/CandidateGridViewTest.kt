@@ -41,10 +41,8 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34])
 class CandidateGridViewTest {
 
@@ -155,7 +153,6 @@ class CandidateGridViewTest {
         assertEquals("redo keeps its label centered so the three share one line", Gravity.CENTER, v.clearButtonForTest().gravity)
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun grid_collapse_glyph_matches_the_toolbar_collapse_chevron_box() {
         val v = CandidateGridView(ctx)
         val collapse = glyphInkBounds(v.collapseGlyphForTest())

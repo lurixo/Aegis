@@ -40,7 +40,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -129,7 +128,6 @@ class KeyFeedbackTest {
         }
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Config(sdk = [34], qualifiers = "xxhdpi")
     @Test fun ordinary_key_background_renders_without_an_outer_stroke_in_every_alpha_and_nine_reachable_layout_state() {
         val controller = KeyboardController(
@@ -164,7 +162,6 @@ class KeyFeedbackTest {
         }
     }
 
-    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Config(sdk = [34], qualifiers = "xxhdpi")
     @Test fun function_keys_fill_with_the_rail_background_while_space_and_enter_keep_their_fills() {
         val palette = ImePalette.STATIC_LIGHT.copy(

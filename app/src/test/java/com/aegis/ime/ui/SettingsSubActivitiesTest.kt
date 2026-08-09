@@ -54,7 +54,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
-import org.robolectric.annotation.GraphicsMode
 import org.robolectric.shadows.ShadowToast
 
 private fun ctxString(id: Int) = RuntimeEnvironment.getApplication().getString(id)
@@ -165,7 +164,6 @@ private fun <A : ComponentActivity> AndroidComposeTestRule<ActivityScenarioRule<
 }
 
 @RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
 class InputSettingsActivityTest {
     @get:Rule val compose = createAndroidComposeRule<InputSettingsActivity>()
@@ -207,7 +205,6 @@ class InputSettingsActivityTest {
 }
 
 @RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
 class InputSettingsAutoLearnClearTest {
     @get:Rule val compose = createEmptyComposeRule()
@@ -343,7 +340,6 @@ class InputSettingsAutoLearnClearTest {
 
 
 @RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
 class DictSettingsActivityTest {
     @get:Rule val compose = createAndroidComposeRule<DictSettingsActivity>()
@@ -358,7 +354,6 @@ class DictSettingsActivityTest {
 }
 
 @RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
 class UserDictActivityTest {
     @get:Rule val compose = createAndroidComposeRule<UserDictActivity>()
@@ -373,7 +368,6 @@ class UserDictActivityTest {
 }
 
 @RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
 class AboutActivityTest {
     @get:Rule val compose = createAndroidComposeRule<AboutActivity>()
@@ -403,7 +397,6 @@ class AboutActivityTest {
 }
 
 @RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "zh-rCN-w411dp-h891dp-xxhdpi")
 class AboutActivityChineseTest {
     @get:Rule val compose = createAndroidComposeRule<AboutActivity>()
@@ -413,7 +406,6 @@ class AboutActivityChineseTest {
 }
 
 @RunWith(RobolectricTestRunner::class)
-@GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
 class LicensesActivityTest {
     @get:Rule val compose = createAndroidComposeRule<LicensesActivity>()
