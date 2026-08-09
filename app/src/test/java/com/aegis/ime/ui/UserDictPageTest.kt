@@ -65,8 +65,18 @@ class UserDictPageTest {
     private val db = File(ctx.filesDir, "userdb.txt")
     private val learn = File(ctx.filesDir, "userlearn.txt")
     private var scenario: ActivityScenario<UserDictActivity>? = null
+    private val hosts = ArrayList<LiveUserDictHost>()
     private fun s(id: Int) = ctx.getString(id)
     private fun row(word: String, reading: String) = ctx.getString(R.string.user_dict_entry_format, word, reading)
+
+    private fun liveHost(
+        model: UserModel,
+        userDb: File,
+        userLearning: UserLearning? = null,
+        userLearnFile: File? = null,
+        onSaved: (Long?, Long?) -> Unit = { _, _ -> },
+    ): LiveUserDictHost =
+        LiveUserDictHost(model, userDb, userLearning, userLearnFile, onSaved).also { hosts += it }
 
     @Before fun reset() {
         UserDictHot.host = null
@@ -77,6 +87,7 @@ class UserDictPageTest {
     @After fun cleanup() {
         scenario?.close()
         UserDictHot.host = null
+        hosts.forEach { runCatching { it.stopSaving() } }
         db.delete()
         learn.delete()
     }
@@ -336,7 +347,7 @@ class UserDictPageTest {
             runCatching { load(db) }
             record(null, "打过字", 1L)
         }
-        return LiveUserDictHost(model, db, UserLearning(), learn)
+        return liveHost(model, db, UserLearning(), learn)
     }
 
     @Test fun a_live_keyboard_holding_an_unreadable_word_list_still_says_so() {

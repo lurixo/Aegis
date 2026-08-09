@@ -41,6 +41,16 @@ class LiveUserDictHostSaveQueueTest {
     private val savedOn = Collections.synchronizedList(ArrayList<Thread>())
     private val saves = Collections.synchronizedList(ArrayList<Pair<Long?, Long?>>())
     private val helpers = ArrayList<ExecutorService>()
+    private val hosts = ArrayList<LiveUserDictHost>()
+
+    private fun liveHost(
+        model: UserModel,
+        userDb: File,
+        userLearning: UserLearning? = null,
+        userLearnFile: File? = null,
+        onSaved: (Long?, Long?) -> Unit = { _, _ -> },
+    ): LiveUserDictHost =
+        LiveUserDictHost(model, userDb, userLearning, userLearnFile, onSaved).also { hosts += it }
 
     private fun watermark(userDbMtime: Long?, userLearnMtime: Long?) {
         savedOn += Thread.currentThread()
@@ -50,7 +60,7 @@ class LiveUserDictHostSaveQueueTest {
     private fun host(learning: UserLearning? = null): LiveUserDictHost {
         db = File(tmp.root, "userdb.txt")
         learnFile = File(tmp.root, "userlearn.txt")
-        return LiveUserDictHost(model, db, learning, learnFile, ::watermark)
+        return liveHost(model, db, learning, learnFile, ::watermark)
     }
 
     private fun saveQueue(h: LiveUserDictHost): ExecutorService {
@@ -76,6 +86,7 @@ class LiveUserDictHostSaveQueueTest {
 
     @After fun stopHelpers() {
         helpers.forEach { it.shutdownNow() }
+        hosts.forEach { runCatching { it.stopSaving() } }
     }
 
     @Test fun the_end_of_an_input_session_never_writes_on_the_thread_that_asked() {
@@ -164,7 +175,7 @@ class LiveUserDictHostSaveQueueTest {
         db = File(tmp.root, "userdb.txt")
         learnFile = File(tmp.root, "userlearn.txt")
         var interleave = true
-        val h = LiveUserDictHost(model, db, null, learnFile) { userDbMtime, userLearnMtime ->
+        val h = liveHost(model, db, null, learnFile) { userDbMtime, userLearnMtime ->
             watermark(userDbMtime, userLearnMtime)
             if (interleave) {
                 interleave = false
@@ -184,7 +195,7 @@ class LiveUserDictHostSaveQueueTest {
         val blocker = tmp.newFile("blocker")
         db = File(blocker, "userdb.txt")
         learnFile = File(tmp.root, "userlearn.txt")
-        val h = LiveUserDictHost(model, db, null, learnFile, ::watermark)
+        val h = liveHost(model, db, null, learnFile, ::watermark)
         model.record(null, "留住", 1L)
         h.scheduleSave()
         assertFalse("a write that could not land must report failure", h.flush())
@@ -224,7 +235,7 @@ class LiveUserDictHostSaveQueueTest {
         learnFile = File(tmp.root, "userlearn.txt")
         val inWrite = CountDownLatch(1)
         val go = CountDownLatch(1)
-        val h = LiveUserDictHost(model, db, null, learnFile) { userDbMtime, userLearnMtime ->
+        val h = liveHost(model, db, null, learnFile) { userDbMtime, userLearnMtime ->
             watermark(userDbMtime, userLearnMtime)
             inWrite.countDown()
             go.await(5, TimeUnit.SECONDS)
@@ -246,7 +257,7 @@ class LiveUserDictHostSaveQueueTest {
         learnFile = File(tmp.root, "userlearn.txt")
         var reentered = false
         lateinit var h: LiveUserDictHost
-        h = LiveUserDictHost(model, db, null, learnFile) { userDbMtime, userLearnMtime ->
+        h = liveHost(model, db, null, learnFile) { userDbMtime, userLearnMtime ->
             watermark(userDbMtime, userLearnMtime)
             if (!reentered) {
                 reentered = true

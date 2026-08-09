@@ -15,6 +15,7 @@
 
 package com.aegis.ime.user
 
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -36,15 +37,30 @@ class LiveUserDictHostTest {
     private var userDbWatermark = 0L
     private var userLearnWatermark = 0L
 
+    private val hosts = ArrayList<LiveUserDictHost>()
+
     private fun watermark(userDbMtime: Long?, userLearnMtime: Long?) {
         saves += userDbMtime to userLearnMtime
         userDbMtime?.let { userDbWatermark = it }
         userLearnMtime?.let { userLearnWatermark = it }
     }
 
+    private fun liveHost(
+        model: UserModel,
+        userDb: File,
+        userLearning: UserLearning? = null,
+        userLearnFile: File? = null,
+        onSaved: (Long?, Long?) -> Unit = { _, _ -> },
+    ): LiveUserDictHost =
+        LiveUserDictHost(model, userDb, userLearning, userLearnFile, onSaved).also { hosts += it }
+
+    @After fun stopHosts() {
+        hosts.forEach { runCatching { it.stopSaving() } }
+    }
+
     private fun host(): LiveUserDictHost {
         db = File(tmp.root, "userdb.txt")
-        return LiveUserDictHost(model, db, onSaved = ::watermark)
+        return liveHost(model, db, onSaved = ::watermark)
     }
 
     private fun reloadFromDisk() = UserModel { 10L }.apply { if (db.exists()) load(db) }
@@ -152,7 +168,7 @@ class LiveUserDictHostTest {
             learning.observeBreak()
         }
         learning.observeCommit("前", "你好", "", 1_000L)
-        val h = LiveUserDictHost(model, db, learning, userLearnFile)
+        val h = liveHost(model, db, learning, userLearnFile)
         h.addWord("nihao", "你好", now = 1_000L)
 
         assertTrue(h.removeWord("nihao", "你好"))
@@ -209,7 +225,7 @@ class LiveUserDictHostTest {
         val ancient = System.currentTimeMillis() - 400L * 24L * 60L * 60L * 1000L
         db.writeText("aegis-userdb 2\nW\t旧词\t1\t$ancient\nR\tjiuci\t旧词\n")
         model.load(db)
-        val h = LiveUserDictHost(model, db, onSaved = ::watermark)
+        val h = liveHost(model, db, onSaved = ::watermark)
         assertEquals(1, model.forgottenCount)
 
         assertEquals(1, h.forgottenCount())
@@ -265,7 +281,7 @@ class LiveUserDictHostTest {
         val learnFile = File(tmp.root, "userlearn.txt")
         learnFile.writeText("aegis-userlearn 1\nC\t你\t好\t3.0\t1700000000000\n")
         val learning = UserLearning { CLOCK }.apply { load(learnFile) }
-        val h = LiveUserDictHost(model, db, learning, learnFile, ::watermark)
+        val h = liveHost(model, db, learning, learnFile, ::watermark)
 
         assertTrue("there is no glued word to list", h.learnedEntries().isEmpty())
         assertTrue("but the store is not empty", h.hasLearnedData())
@@ -278,7 +294,7 @@ class LiveUserDictHostTest {
         db = File(tmp.root, "userdb.txt")
         val learnFile = File(tmp.root, "userlearn.txt")
         val learning = glued()
-        val h = LiveUserDictHost(model, db, learning, learnFile, ::watermark)
+        val h = liveHost(model, db, learning, learnFile, ::watermark)
         assertTrue(h.addWord("zwm", "张伟明", now = 1L))
 
         assertEquals(listOf("你呢嗯"), h.learnedEntries().map { it.word })
@@ -312,7 +328,7 @@ class LiveUserDictHostTest {
         db = File(tmp.root, "userdb.txt")
         val learnFile = File(tmp.root, "userlearn.txt")
         val learning = glued()
-        val h = LiveUserDictHost(model, db, learning, learnFile, ::watermark)
+        val h = liveHost(model, db, learning, learnFile, ::watermark)
         assertTrue(h.addWord("nihao", "你好", now = 1L))
         val loadedFrom = userDbWatermark
         rewrittenOutside(loadedFrom + 5_000L)
@@ -333,7 +349,7 @@ class LiveUserDictHostTest {
         db = File(tmp.root, "userdb.txt")
         val learnFile = File(tmp.root, "userlearn.txt")
         val learning = glued()
-        val h = LiveUserDictHost(model, db, learning, learnFile, ::watermark)
+        val h = liveHost(model, db, learning, learnFile, ::watermark)
         assertTrue(h.addWord("nihao", "你好", now = 1L))
         val loadedFrom = userDbWatermark
         rewrittenOutside(loadedFrom + 5_000L)
@@ -355,7 +371,7 @@ class LiveUserDictHostTest {
         db = File(tmp.root, "userdb.txt")
         val learnFile = File(tmp.root, "userlearn.txt")
         val learning = glued()
-        val h = LiveUserDictHost(model, db, learning, learnFile, ::watermark)
+        val h = liveHost(model, db, learning, learnFile, ::watermark)
         assertTrue(h.addWord("nihao", "你好", now = 1L))
         assertNotNull("the first save writes both stores", saves.last().second)
         val learnedFrom = userLearnWatermark
@@ -375,7 +391,7 @@ class LiveUserDictHostTest {
 
     @Test fun a_user_dictionary_write_that_fails_is_reported_and_keeps_the_word_recoverable() {
         db = unwritable("userdb.txt")
-        val h = LiveUserDictHost(model, db, onSaved = ::watermark)
+        val h = liveHost(model, db, onSaved = ::watermark)
 
         assertFalse("a word that never reached the disk must not be reported as added", h.addWord("nihao", "你好", now = 1L))
 
@@ -388,7 +404,7 @@ class LiveUserDictHostTest {
 
     @Test fun a_remove_that_cannot_be_persisted_is_reported_as_a_failure() {
         db = unwritable("userdb.txt")
-        val h = LiveUserDictHost(model, db, onSaved = ::watermark)
+        val h = liveHost(model, db, onSaved = ::watermark)
         model.addManualWord("nihao", "你好", 1L)
 
         assertFalse(h.removeWord("nihao", "你好"))
@@ -398,7 +414,7 @@ class LiveUserDictHostTest {
 
     @Test fun an_import_that_cannot_be_persisted_is_reported_as_a_failure() {
         db = unwritable("userdb.txt")
-        val h = LiveUserDictHost(model, db, onSaved = ::watermark)
+        val h = liveHost(model, db, onSaved = ::watermark)
         val imported = tmp.newFile("import.txt").apply {
             writeText("aegis-userdb 1\nW\t测试\t3\t7\nR\tceshi\t测试\n")
         }
@@ -414,7 +430,7 @@ class LiveUserDictHostTest {
         db = File(tmp.root, "userdb.txt")
         val learnFile = unwritable("userlearn.txt")
         val learning = glued()
-        val h = LiveUserDictHost(model, db, learning, learnFile, ::watermark)
+        val h = liveHost(model, db, learning, learnFile, ::watermark)
 
         assertFalse(h.clearLearned())
 
@@ -430,7 +446,7 @@ class LiveUserDictHostTest {
         db = unwritable("userdb.txt")
         val learnFile = File(tmp.root, "userlearn.txt")
         val learning = glued()
-        val h = LiveUserDictHost(model, db, learning, learnFile, ::watermark)
+        val h = liveHost(model, db, learning, learnFile, ::watermark)
 
         assertFalse("the caller must hear that half of it failed", h.removeWord("nihao", "你呢嗯"))
 
@@ -445,7 +461,7 @@ class LiveUserDictHostTest {
         db = File(tmp.root, "userdb.txt")
         val learnFile = File(tmp.root, "userlearn.txt")
         val learning = brokenLearning(learnFile)
-        val h = LiveUserDictHost(model, db, learning, learnFile, ::watermark)
+        val h = liveHost(model, db, learning, learnFile, ::watermark)
 
         assertTrue("the word reached the dictionary, so the caller must hear success", h.addWord("nihao", "你好", now = 1L))
 
@@ -462,7 +478,7 @@ class LiveUserDictHostTest {
         db = File(tmp.root, "userdb.txt")
         val learnFile = File(tmp.root, "userlearn.txt")
         val learning = brokenLearning(learnFile)
-        val h = LiveUserDictHost(model, db, learning, learnFile, ::watermark)
+        val h = liveHost(model, db, learning, learnFile, ::watermark)
         val imported = tmp.newFile("import.txt").apply {
             writeText("aegis-userdb 1\nW\t测试\t3\t7\nR\tceshi\t测试\n")
         }
@@ -477,7 +493,7 @@ class LiveUserDictHostTest {
         db = File(tmp.root, "userdb.txt")
         val learnFile = File(tmp.root, "userlearn.txt")
         val learning = brokenLearning(learnFile)
-        val h = LiveUserDictHost(model, db, learning, learnFile, ::watermark)
+        val h = liveHost(model, db, learning, learnFile, ::watermark)
         model.addManualWord("nihao", "你呢", 1L)
 
         assertFalse("a remove touches both stores, so half of it failing must be reported", h.removeWord("nihao", "你呢"))
@@ -490,7 +506,7 @@ class LiveUserDictHostTest {
         db = File(tmp.root, "userdb.txt")
         val learnFile = File(tmp.root, "userlearn.txt")
         val learning = brokenLearning(learnFile)
-        val h = LiveUserDictHost(model, db, learning, learnFile, ::watermark)
+        val h = liveHost(model, db, learning, learnFile, ::watermark)
         model.addManualWord("nihao", "你好", 1L)
 
         assertFalse("a flush that could not write both stores must say so; whether that blocks anything is the caller's call", h.flush())
@@ -500,7 +516,7 @@ class LiveUserDictHostTest {
         db = File(tmp.root, "userdb.txt")
         val learnFile = File(tmp.root, "userlearn.txt")
         val learning = brokenLearning(learnFile)
-        val h = LiveUserDictHost(model, db, learning, learnFile, ::watermark)
+        val h = liveHost(model, db, learning, learnFile, ::watermark)
         model.addManualWord("nihao", "你好", 1L)
 
         assertTrue("restoring is the way out of a broken learning store, so it must not be gated by it", h.flushDictionary())
@@ -511,7 +527,7 @@ class LiveUserDictHostTest {
 
     @Test fun a_dictionary_flush_still_refuses_when_the_dictionary_itself_cannot_be_written() {
         db = unwritable("userdb.txt")
-        val h = LiveUserDictHost(model, db, onSaved = ::watermark)
+        val h = liveHost(model, db, onSaved = ::watermark)
         model.addManualWord("nihao", "你好", 1L)
 
         assertFalse("a dictionary that could not be written must still stop a restore", h.flushDictionary())
@@ -521,7 +537,7 @@ class LiveUserDictHostTest {
         db = File(tmp.root, "userdb.txt")
         val learnFile = File(tmp.root, "userlearn.txt")
         val learning = brokenLearning(learnFile)
-        val h = LiveUserDictHost(model, db, learning, learnFile, ::watermark)
+        val h = liveHost(model, db, learning, learnFile, ::watermark)
 
         assertTrue("clearing on purpose is the way back", h.clearLearned())
 
@@ -535,7 +551,7 @@ class LiveUserDictHostTest {
         db = File(tmp.root, "userdb.txt")
         val broken = brokenDictionary(db)
         val before = db.readText()
-        val h = LiveUserDictHost(broken, db, onSaved = ::watermark)
+        val h = liveHost(broken, db, onSaved = ::watermark)
 
         assertFalse("a word that cannot possibly be saved must be refused before anything moves", h.addWord("nihao", "你好", now = 1L))
 
@@ -551,7 +567,7 @@ class LiveUserDictHostTest {
         val learnFile = File(tmp.root, "userlearn.txt")
         val learning = glued().apply { save(learnFile) }
         val learnedBefore = learnFile.readText()
-        val h = LiveUserDictHost(broken, db, learning, learnFile, ::watermark)
+        val h = liveHost(broken, db, learning, learnFile, ::watermark)
 
         assertFalse(h.removeWord("ninen", "你呢嗯"))
 
@@ -566,7 +582,7 @@ class LiveUserDictHostTest {
     @Test fun a_merge_import_is_refused_when_the_dictionary_could_not_be_read() {
         db = File(tmp.root, "userdb.txt")
         val broken = brokenDictionary(db)
-        val h = LiveUserDictHost(broken, db, onSaved = ::watermark)
+        val h = liveHost(broken, db, onSaved = ::watermark)
         val imported = tmp.newFile("merge.txt").apply {
             writeText("aegis-userdb 1\nW\t测试\t3\t7\nR\tceshi\t测试\n")
         }
@@ -580,7 +596,7 @@ class LiveUserDictHostTest {
     @Test fun an_overwrite_import_still_repairs_a_dictionary_that_could_not_be_read() {
         db = File(tmp.root, "userdb.txt")
         val broken = brokenDictionary(db)
-        val h = LiveUserDictHost(broken, db, onSaved = ::watermark)
+        val h = liveHost(broken, db, onSaved = ::watermark)
         val imported = tmp.newFile("overwrite.txt").apply {
             writeText("aegis-userdb 1\nW\t测试\t3\t7\nR\tceshi\t测试\n")
         }
@@ -593,11 +609,11 @@ class LiveUserDictHostTest {
 
     @Test fun a_failed_write_is_carried_by_the_next_flush() {
         db = unwritable("userdb.txt")
-        val failing = LiveUserDictHost(model, db, onSaved = ::watermark)
+        val failing = liveHost(model, db, onSaved = ::watermark)
         assertFalse(failing.addWord("nihao", "你好", now = 1L))
 
         db = File(tmp.root, "userdb.txt")
-        val recovered = LiveUserDictHost(model, db, onSaved = ::watermark)
+        val recovered = liveHost(model, db, onSaved = ::watermark)
         assertTrue(recovered.flush())
 
         assertEquals("nothing the user typed was lost", listOf("你好"), reloadFromDisk().readingSnapshot()["nihao"])
