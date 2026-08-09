@@ -255,7 +255,7 @@ class ExhaustiveDecodeAuditExtTest {
         writeTsv(File(outDir(), "ext_e2.tsv"), fails)
         summary(File(outDir(), "ext_e2_summary.txt"), "E2 — later-syllable homophones vs displayed reading",
             "pairs covered: ${syls.size.toLong() * syls.size}; pairs segmenting exactly [S1,S2]: $exactSeg", fails)
-        assertTrue("E2 report written", File(outDir(), "ext_e2.tsv").exists())
+        assertTrue("E2 — later-syllable homophones must match the displayed reading: ${fails.take(8)}", fails.isEmpty())
     }
 
     @Test fun e3_partialCommitContinue_allPairs() {

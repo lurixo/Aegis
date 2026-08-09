@@ -24,6 +24,7 @@ import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
@@ -316,6 +317,7 @@ class UserDictPageTest {
         compose.onNodeWithTag("user_dict_unreadable").assertExists()
         compose.onNodeWithTag("user_dict_count").assertDoesNotExist()
         compose.onNodeWithTag("user_dict_forgotten").assertDoesNotExist()
+        compose.onNodeWithTag("user_dict_list").assertExists()
         assertThrows(
             "a list that could not be read must never be presented as an empty one",
             AssertionError::class.java,
@@ -351,13 +353,15 @@ class UserDictPageTest {
         openUserDictPage()
 
         ShadowToast.reset()
-        compose.onNodeWithTag("user_dict_new_word").performTextInput("幽灵词")
-        compose.onNodeWithTag("user_dict_new_reading").performTextInput("youlingci")
-        compose.onNodeWithTag("user_dict_add").performClick()
+        compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("幽灵词")
+        compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("youlingci")
+        compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
         compose.waitForIdle()
+        compose.waitUntil(5_000) { ShadowToast.getTextOfLatestToast() != null }
 
         assertEquals(s(R.string.user_dict_toast_write_failed), ShadowToast.getTextOfLatestToast())
         compose.onNodeWithTag("user_dict_unreadable").assertExists()
+        compose.onNodeWithTag("user_dict_list").assertExists()
         assertThrows(
             "a word that never reached storage must not be listed as though it had",
             AssertionError::class.java,
