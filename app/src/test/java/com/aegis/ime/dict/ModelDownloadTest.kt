@@ -18,6 +18,7 @@ package com.aegis.ime.dict
 import com.sun.net.httpserver.HttpExchange
 import com.sun.net.httpserver.HttpServer
 import java.io.File
+import java.io.IOException
 import java.net.InetSocketAddress
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
@@ -663,7 +664,10 @@ class ModelDownloadTest {
         val outcome = ModelDownload.recordPendingDictionarySha(base, "a".repeat(64))
 
         assertTrue(outcome is ModelDownload.PendingMarker.NotWritten)
-        assertNotNull((outcome as ModelDownload.PendingMarker.NotWritten).error)
+        assertTrue(
+            "the cause the marker keeps must be the write that failed",
+            (outcome as ModelDownload.PendingMarker.NotWritten).error is IOException,
+        )
         assertFalse(ModelDownload.unmarkedDictionaryRecoveryRequired(base))
 
         base.deleteRecursively()
