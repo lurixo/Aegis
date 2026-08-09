@@ -174,6 +174,22 @@ class ClipboardRecordQueueTest {
         assertEquals(emptyList<String>(), sideFiles(dir))
     }
 
+    @Test fun a_stopped_store_still_lands_the_writes_already_queued() {
+        val dir = newDir()
+        val s = store(dir)
+        occupy(s)
+
+        s.record("交班前的最后一条")
+        s.stopSaving()
+        release?.countDown()
+        assertTrue(
+            "the writer must be allowed to finish what it was given",
+            writer(s).awaitTermination(10, TimeUnit.SECONDS),
+        )
+
+        assertEquals(listOf("交班前的最后一条"), store(dir).historyText())
+    }
+
     @Test fun a_reload_never_sees_half_of_a_clip_that_was_still_being_filed() {
         val dir = newDir()
         val s = store(dir)
