@@ -88,11 +88,11 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     }
 
     @Synchronized
-    fun addManualWord(reading: String, word: String, now: Long) {
+    fun addManualWord(reading: String, word: String, now: Long): Boolean {
         val w = word.trim()
-        if (!isValidWord(w)) return
+        if (!acceptsManualWord(w, reading)) return false
         val r = sanitizeReading(reading)
-        if (r.isNotEmpty() && r.length <= MAX_READING_LENGTH) {
+        if (r.isNotEmpty()) {
             readings.getOrPut(r) { LinkedHashSet() }.add(w)
             manual.getOrPut(r) { LinkedHashSet() }.add(w)
         }
@@ -100,6 +100,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         lastUsed[w] = now.coerceAtLeast(0L)
         dirty = true
         version++
+        return true
     }
 
     @Synchronized
@@ -448,6 +449,11 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
 
         private fun isStorableWord(word: String): Boolean =
             word.none { it == '\t' || it == '\n' || it == '\r' }
+
+        internal fun acceptsManualWord(word: String, reading: String): Boolean {
+            val r = sanitizeReading(reading)
+            return isValidWord(word.trim()) && (r.isEmpty() || r.length <= MAX_READING_LENGTH)
+        }
 
         internal fun normalizeReading(reading: String): String = sanitizeReading(reading)
 

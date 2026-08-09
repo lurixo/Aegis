@@ -153,6 +153,7 @@
     <string name="user_dict_toast_kept">词库里已经有这条：现在它是「我的词」，不会再被自动遗忘</string>
     <string name="user_dict_forgotten_format">长期不用、已自动遗忘：%1$d（你添加的词不会被遗忘）</string>
     <string name="user_dict_toast_add_failed">请输入词和它的拼音（仅字母）</string>
+    <string name="user_dict_toast_add_rejected">这个词存不了：长度需在 256 字符以内，且不能含制表符或换行</string>
     <string name="user_dict_toast_deleted">已删除</string>
     <string name="user_dict_toast_write_failed">保存失败，改动可能未写入存储</string>
     <string name="user_dict_unreadable">词库读不出来，所以这里不显示。你的文件没有被改动，也没有被清空。导入一份副本可以替换它；在能读出来之前，添加词不会生效。</string>

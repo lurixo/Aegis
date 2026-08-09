@@ -268,6 +268,20 @@ class UserDictPageTest {
         )
     }
 
+    @Test fun a_word_the_dictionary_cannot_hold_is_never_reported_as_added() {
+        seed(0)
+        openUserDictPage()
+
+        ShadowToast.reset()
+        compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("词".repeat(257))
+        compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("ceshi")
+        compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
+        compose.waitForIdle()
+
+        assertEquals(s(R.string.user_dict_toast_add_rejected), ShadowToast.getTextOfLatestToast())
+        assertTrue("a word that cannot be stored must not be listed as though it had been", UserDictEdit.list(db).isEmpty())
+    }
+
     @Test fun searching_also_reaches_the_automatically_learned_words() {
         seed(0, "nihao" to "你好")
         seedLearned("你" to "ni", "呢" to "ne", "嗯" to "n")

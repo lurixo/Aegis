@@ -189,6 +189,26 @@ class UserModelTest {
     }
 
     @Test
+    fun a_word_the_file_format_cannot_hold_is_reported_as_not_added() {
+        val m = UserModel()
+        assertFalse("a word carrying a delimiter can never be stored", m.addManualWord("ceshi", "测\t试", 1))
+        assertFalse("nor can one longer than the format holds", m.addManualWord("ceshi", "词".repeat(257), 2))
+        assertTrue("a word that was refused leaves nothing behind", m.isEmpty())
+        assertFalse("and queues nothing for the next save", m.dirty)
+        assertTrue("a word that does fit is still added", m.addManualWord("ceshi", "词".repeat(256), 3))
+    }
+
+    @Test
+    fun a_reading_too_long_to_store_is_reported_as_not_added_and_leaves_no_half_entry() {
+        val m = UserModel()
+        assertFalse(m.addManualWord("a".repeat(257), "测试", 1))
+        assertTrue("a reading that cannot be stored indexes nothing", m.readingSnapshot().isEmpty())
+        assertEquals("and the word behind it is not half written either", 0.0, m.wordBoost("测试"), 0.0)
+        assertTrue(m.isEmpty())
+        assertFalse(m.dirty)
+    }
+
+    @Test
     fun readingScopedRemove_keepsOtherReadingsOfSameWord() {
         val m = UserModel()
         m.recordWord("chang", "长", 1, incrementCount = true)

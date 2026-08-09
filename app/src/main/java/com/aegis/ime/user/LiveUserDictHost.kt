@@ -42,7 +42,7 @@ class LiveUserDictHost(
 
     override fun addWord(reading: String, word: String, now: Long): Boolean {
         if (word.isBlank() || !model.readable) return false
-        model.addManualWord(reading, word, now)
+        if (!model.addManualWord(reading, word, now)) return false
         return save().dictionary
     }
 
