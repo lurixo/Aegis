@@ -84,6 +84,7 @@ class BackupRoundTripTest {
         File(filesDir, "clips").deleteRecursively()
         File(filesDir, "emoji").deleteRecursively()
         File(filesDir, "backup_staging").deleteRecursively()
+        File(filesDir, "restore_journal").deleteRecursively()
         prefs.edit().clear().commit()
     }
 
@@ -244,6 +245,11 @@ class BackupRoundTripTest {
             private val editedKeys: MutableSet<String>,
             private val onCommit: () -> Unit,
         ) : SharedPreferences.Editor by delegate {
+            override fun clear(): SharedPreferences.Editor {
+                delegate.clear()
+                return this
+            }
+
             override fun putBoolean(key: String, value: Boolean): SharedPreferences.Editor {
                 editedKeys.add(key)
                 delegate.putBoolean(key, value)
@@ -777,6 +783,20 @@ class BackupRoundTripTest {
         assertTrue("preference editor commit must be reached", failingPrefs.commitCalled)
         assertFalse("staging must be cleaned up", File(filesDir, "backup_staging").exists())
         assertFalse("guard must not stay latched after a failed restore", LiveUserData.restoreInProgress)
+
+        val journal = File(filesDir, "restore_journal")
+        assertTrue(
+            "a roll back that could not finish must leave its journal on disk for the next attempt",
+            journal.isDirectory,
+        )
+        assertTrue("the kept journal must still hold the settings from before the restore", File(journal, "before/settings.bin").isFile)
+        assertTrue("the kept journal must still be marked ready to replay", File(journal, "ready").isFile)
+        assertFalse("the kept journal must not claim the restore finished", File(journal, "done").exists())
+        assertTrue(
+            "the kept journal must still roll the device back once preferences can be written again",
+            RestoreJournal.finishAnyInterrupted(filesDir, prefs),
+        )
+        assertFalse("a replayed journal must be spent", journal.exists())
     }
 
     @Test fun restore_reports_failure_when_phrase_persistence_fails() {
