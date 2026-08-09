@@ -397,11 +397,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         )
         val quiet = userStoresLoaded && !liveUserDictHost.writing
         if (quiet && !userModel.dirty && userDbFile.lastModified() > userDbMtime) {
-            runCatching { userModel.reload(userDbFile); userDbMtime = userDbFile.lastModified() }
+            val readAt = userDbFile.lastModified()
+            runCatching { userModel.reload(userDbFile) }
+            userDbMtime = readAt
         }
         if (quiet && !userLearning.dirty && userLearnFile.lastModified() > userLearnMtime) {
-            userLearning.load(userLearnFile)
-            userLearnMtime = userLearnFile.lastModified()
+            val readAt = userLearnFile.lastModified()
+            runCatching { userLearning.load(userLearnFile) }
+            userLearnMtime = readAt
         }
         maybeReloadEngine()
     }
