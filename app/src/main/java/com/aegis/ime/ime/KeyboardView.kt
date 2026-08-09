@@ -417,6 +417,7 @@ class KeyboardView(context: Context) : View(context) {
         canvas.clipRect(scrollRegion)
         val paint = scrollLabelPaint
         val baseTextSize = paint.textSize
+        val baseColor = paint.color
         val avail = scrollRegion.width() - 12f * density
         val minTextSize = 11f * density
         for ((i, key) in sc.items.withIndex()) {
@@ -431,6 +432,7 @@ class KeyboardView(context: Context) : View(context) {
             }
             val label = displayLabel(key)
             paint.textSize = baseTextSize
+            paint.color = if (key.accent) palette.accentBottom else baseColor
             val w = paint.measureText(label)
             if (w > avail && avail > 0f) paint.textSize = (baseTextSize * avail / w).coerceAtLeast(minTextSize)
             paint.getTextBounds(label, 0, label.length, inkBounds)
@@ -442,6 +444,7 @@ class KeyboardView(context: Context) : View(context) {
             }
         }
         paint.textSize = baseTextSize
+        paint.color = baseColor
         canvas.restore()
         val contentH = sc.items.size * scrollCellH
         val trackH = scrollRegion.height()
@@ -1087,6 +1090,8 @@ class KeyboardView(context: Context) : View(context) {
 
     internal fun scrollOffsetForTest(): Float = scrollY
     internal fun scrollRegionForTest(): RectF = RectF(scrollRegion)
+    internal fun scrollCellHeightForTest(): Float = scrollCellH
+    internal fun scrollColumnKeysForTest(): List<Key> = scrollColumn?.items ?: emptyList()
     internal fun maxScrollForTest(): Float = maxScroll()
     internal fun isFlingingForTest(): Boolean = !fling.isFinished
     internal fun flingFinalForTest(): Float = fling.finalOffset()
