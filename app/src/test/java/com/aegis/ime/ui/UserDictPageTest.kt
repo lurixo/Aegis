@@ -80,6 +80,7 @@ class UserDictPageTest {
 
     @Before fun reset() {
         UserDictHot.host = null
+        ShadowToast.reset()
         db.delete()
         learn.delete()
     }
@@ -171,9 +172,9 @@ class UserDictPageTest {
     @Test fun add_writes_the_word_into_userdb_and_the_list() {
         seed(0)
         openUserDictPage()
-        compose.onNodeWithTag("user_dict_new_word").performTextInput("测试词")
-        compose.onNodeWithTag("user_dict_new_reading").performTextInput("ceshici")
-        compose.onNodeWithTag("user_dict_add").performClick()
+        compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("测试词")
+        compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("ceshici")
+        compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
         compose.waitForIdle()
         assertEquals(listOf("测试词"), UserDictEdit.list(db).filter { it.reading == "ceshici" }.map { it.word })
         compose.onNodeWithText(ctx.getString(R.string.user_dict_count_format, 1)).assertExists()
@@ -243,9 +244,9 @@ class UserDictPageTest {
         openUserDictPage()
 
         ShadowToast.reset()
-        compose.onNodeWithTag("user_dict_new_word").performTextInput("自动词")
-        compose.onNodeWithTag("user_dict_new_reading").performTextInput("zidongci")
-        compose.onNodeWithTag("user_dict_add").performClick()
+        compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("自动词")
+        compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("zidongci")
+        compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
         compose.waitForIdle()
         assertEquals(s(R.string.user_dict_toast_kept), ShadowToast.getTextOfLatestToast())
         assertEquals(
@@ -256,9 +257,9 @@ class UserDictPageTest {
         compose.onNodeWithText(ctx.getString(R.string.user_dict_count_format, 1)).assertExists()
 
         ShadowToast.reset()
-        compose.onNodeWithTag("user_dict_new_word").performTextInput("全新词")
-        compose.onNodeWithTag("user_dict_new_reading").performTextInput("quanxinci")
-        compose.onNodeWithTag("user_dict_add").performClick()
+        compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("全新词")
+        compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("quanxinci")
+        compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
         compose.waitForIdle()
         assertEquals(
             "a word that was not there yet keeps the plain confirmation",
@@ -435,9 +436,9 @@ class UserDictPageTest {
         openUserDictPage()
 
         ShadowToast.reset()
-        compose.onNodeWithTag("user_dict_new_word").performTextInput("测试词")
-        compose.onNodeWithTag("user_dict_new_reading").performTextInput("ceshici")
-        compose.onNodeWithTag("user_dict_add").performClick()
+        compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("测试词")
+        compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("ceshici")
+        compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
         compose.waitForIdle()
 
         assertEquals(s(R.string.user_dict_toast_write_failed), ShadowToast.getTextOfLatestToast())
