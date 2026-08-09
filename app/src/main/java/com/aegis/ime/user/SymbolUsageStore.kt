@@ -53,7 +53,7 @@ class SymbolUsageStore(private val dir: File) {
     }
 
     fun record(symbol: String, origin: String? = null) {
-        if (symbol.isEmpty()) return
+        if (symbol.isEmpty() || !readable) return
         val key = SymbolCatalog.foldFullWidth(symbol)
         used.removeAll { SymbolCatalog.foldFullWidth(it.symbol) == key }
         used.add(0, Entry(symbol, origin))
@@ -63,13 +63,20 @@ class SymbolUsageStore(private val dir: File) {
         onWriteLane { runCatching { writeAtomically(text) } }
     }
 
-    fun clear() {
+    fun clear(): Boolean {
+        if (!readable) return false
+        if (runCatching { onWriteLaneNow { writeAtomically("") } }.isFailure) return false
         used.clear()
-        persist()
+        return true
     }
 
     fun importEntries(incoming: List<Entry>, merge: Boolean): Boolean {
-        if (!merge) used.clear()
+        if (merge) {
+            if (!readable) return false
+        } else {
+            used.clear()
+            readable = true
+        }
         val seen = used.mapTo(HashSet()) { SymbolCatalog.foldFullWidth(it.symbol) }
         for (e in incoming) {
             if (e.symbol.isEmpty()) continue

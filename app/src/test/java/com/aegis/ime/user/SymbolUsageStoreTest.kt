@@ -84,11 +84,54 @@ class SymbolUsageStoreTest {
             record("÷", "math")
             record("≈", "math")
         }
-        store.clear()
+        assertTrue("a clear that emptied the file must say it was done", store.clear())
         assertTrue(store.recent().isEmpty())
         assertTrue(store.recentEntries().isEmpty())
         assertTrue(SymbolUsageStore(dir).apply { load() }.recent().isEmpty())
         assertEquals("", File(dir, "symbol_usage.txt").readText())
+    }
+
+    @Test fun a_symbol_history_nobody_could_read_is_never_written_over() {
+        val dir = newDir()
+        val file = File(dir, "symbol_usage.txt").apply { writeText("★\t符号\n") }
+        assertTrue("precondition: the file cannot be read back", file.setReadable(false, false))
+        val s = SymbolUsageStore(dir).apply { load() }
+        assertFalse("precondition: the store knows it could not read the history", s.readable)
+
+        s.record("☆", "符号")
+        SymbolUsageStore.flushPendingWrites()
+        assertTrue("a symbol used afterwards must not stand in for the history", s.recent().isEmpty())
+
+        assertFalse("a clear over a history nobody could read must not be reported as done", s.clear())
+        SymbolUsageStore.flushPendingWrites()
+        assertFalse(
+            "merging into a history nobody could read must not be reported as done",
+            s.importEntries(listOf(SymbolUsageStore.Entry("☆", "符号")), merge = true),
+        )
+
+        assertTrue(file.setReadable(true, false))
+        assertEquals("what could not be read must not be thrown away either", "★\t符号\n", file.readText())
+    }
+
+    @Test fun an_overwriting_import_takes_back_a_symbol_history_nobody_could_read() {
+        val dir = newDir()
+        val file = File(dir, "symbol_usage.txt").apply { writeText("★\t符号\n") }
+        assertTrue("precondition: the file cannot be read back", file.setReadable(false, false))
+        val s = SymbolUsageStore(dir).apply { load() }
+        assertFalse("precondition: the store knows it could not read the history", s.readable)
+
+        assertTrue(
+            "a restore that replaces the file outright is what takes it back",
+            s.importEntries(listOf(SymbolUsageStore.Entry("☆", "符号")), merge = false),
+        )
+        SymbolUsageStore.flushPendingWrites()
+
+        assertTrue("and the store is readable again", s.readable)
+        assertTrue(file.setReadable(true, false))
+        assertEquals("☆\t符号", file.readText())
+        s.record("★", "符号")
+        SymbolUsageStore.flushPendingWrites()
+        assertEquals(listOf("★", "☆"), s.recent())
     }
 
     @Test fun load_dedupes_a_file_with_duplicate_lines() {
