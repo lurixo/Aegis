@@ -63,6 +63,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     var onBack: () -> Unit = {}
     var historyProvider: () -> List<ClipEntry> = { emptyList() }
     var historyReadableProvider: () -> Boolean = { true }
+    var phrasesReadableProvider: () -> Boolean = { true }
     var categoriesProvider: () -> List<String> = { emptyList() }
     var phrasesInProvider: (String) -> List<String> = { emptyList() }
     var phraseNoteProvider: (String, String) -> String = { _, _ -> "" }
@@ -2331,6 +2332,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             }
             addView(hint(context.getString(R.string.clip_clipboard_empty), 16f, TEXT_DARK)); addView(hint(context.getString(R.string.clip_clipboard_empty_hint), 14f, HINT))
         } else {
+            if (!phrasesReadableProvider()) {
+                addView(hint(context.getString(R.string.clip_phrases_unreadable), 16f, RED))
+                addView(hint(context.getString(R.string.clip_phrases_unreadable_hint), 14f, HINT))
+                return@apply
+            }
             addView(hint(context.getString(R.string.clip_phrases_empty), 16f, TEXT_DARK)); addView(hint(context.getString(R.string.clip_phrases_empty_hint), 14f, HINT))
         }
     }

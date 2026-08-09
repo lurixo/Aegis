@@ -921,6 +921,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onClearHistory = { clipboardStore.clearHistory() }
             it.historyEnabledProvider = { historyEnabled() }
             it.historyReadableProvider = { clipboardStore.historyReadable }
+            it.phrasesReadableProvider = { clipboardStore.phrasesReadable }
             it.onSetHistoryEnabled = { on -> setHistoryEnabled(on) }
             clipboardView = it
         }

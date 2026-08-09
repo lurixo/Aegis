@@ -252,6 +252,10 @@ class SettingsWiringTest {
             "the clipboard panel must be told when the history could not be read, or it claims to be empty",
             svc.contains("it.historyReadableProvider = { clipboardStore.historyReadable }"),
         )
+        assertTrue(
+            "the phrase page must be told when the phrases could not be read, or it claims to be empty",
+            svc.contains("it.phrasesReadableProvider = { clipboardStore.phrasesReadable }"),
+        )
         val onDestroy = memberBody(svc, "override fun onDestroy()")
         assertTrue(
             "onDestroy must stop the clipboard writer it started",
