@@ -647,6 +647,11 @@ class BackupRoundTripTest {
                 "one store going bad must not take away the user's ability to back up everything else",
                 backup.isNotEmpty(),
             )
+            assertFalse(
+                "a dictionary nobody could read has nothing worth carrying into the archive",
+                "userdb.txt" in decodeFileNamesFromBackup(backup),
+            )
+            assertTrue("phrases.txt" in decodeFileNamesFromBackup(backup))
         } finally {
             UserDictHot.host = null
         }
@@ -664,9 +669,14 @@ class BackupRoundTripTest {
         try {
             val backup = export()
             assertTrue(
-                "the archive copies the files on disk, so a store that cannot be flushed changes nothing in it",
+                "one store going bad must not take away the user's ability to back up everything else",
                 backup.isNotEmpty(),
             )
+            assertFalse(
+                "a learning store that could not be read is left out instead of copied in as it stands",
+                "userlearn.txt" in decodeFileNamesFromBackup(backup),
+            )
+            assertTrue("userdb.txt" in decodeFileNamesFromBackup(backup))
         } finally {
             UserDictHot.host = null
         }

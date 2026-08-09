@@ -36,15 +36,15 @@ import java.util.zip.GZIPOutputStream
 object BackupManager {
 
 
-    private const val USERDB = "userdb.txt"
-    private const val USERLEARN = "userlearn.txt"
-    private const val PHRASES = "phrases.txt"
-    private const val CLIPBOARD = "clipboard.txt"
+    private val USERDB = BackupItem.DICTIONARY.relativePath
+    private val USERLEARN = BackupItem.LEARNING.relativePath
+    private val PHRASES = BackupItem.PHRASES.relativePath
+    private val CLIPBOARD = BackupItem.CLIPBOARD.relativePath
     private const val CLIPS_DIR = "clips"
     private const val BIG_CLIP_LINE = "B\t"
-    private const val SYMBOL_USAGE = "symbol_usage.txt"
+    private val SYMBOL_USAGE = BackupItem.SYMBOL_USAGE.relativePath
     private const val EMOJI_DIR = "emoji"
-    private const val EMOJI_USAGE = "emoji/symbol_usage.txt"
+    private val EMOJI_USAGE = BackupItem.EMOJI_USAGE.relativePath
     private const val STAGING_DIR = "backup_staging"
 
     private val DOWNLOAD_STATE_KEYS = setOf(
@@ -62,10 +62,18 @@ object BackupManager {
 
     enum class Mode { OVERWRITE, MERGE }
 
+    internal class ExportReport(val omitted: Set<BackupItem>)
 
-    fun export(filesDir: File, prefs: SharedPreferences, password: CharArray, rawOut: OutputStream) {
+
+    internal fun export(
+        filesDir: File,
+        prefs: SharedPreferences,
+        password: CharArray,
+        rawOut: OutputStream,
+    ): ExportReport {
         if (!UserDictEdit.flushBeforeExport()) throw BackupException(BackupError.IO_ERROR)
         LiveUserData.flushBeforeExport()
+        val omitted = StoreHealth.unreadableIn(filesDir, liveStores = true)
         val prefsBlob = PrefsCodec.encode(prefs.all.filterKeys { it !in DOWNLOAD_STATE_KEYS })
         val legacyPrefs = BackupArchive.fitsLegacyPrefsEntry(prefsBlob)
         val version =
@@ -74,7 +82,7 @@ object BackupManager {
             val gzip = GZIPOutputStream(cipherOut)
             val out = DataOutputStream(gzip)
             if (legacyPrefs) BackupArchive.writePrefs(out, prefsBlob) else BackupArchive.writePrefsChunked(out, prefsBlob)
-            for (rel in backupRelPaths(filesDir)) {
+            for (rel in backupRelPaths(filesDir, omitted)) {
                 val file = File(filesDir, rel)
                 if (!file.isFile) continue
                 if (rel == USERDB) {
@@ -89,14 +97,16 @@ object BackupManager {
             out.flush()
             gzip.finish()
         }
+        return ExportReport(omitted)
     }
 
-    private fun backupRelPaths(filesDir: File): List<String> {
+    private fun backupRelPaths(filesDir: File, omitted: Set<BackupItem>): List<String> {
         val paths = ArrayList<String>()
-        for (name in listOf(USERDB, USERLEARN, PHRASES, CLIPBOARD, SYMBOL_USAGE)) {
-            if (File(filesDir, name).isFile) paths.add(name)
+        for (item in BackupItem.entries) {
+            if (item in omitted) continue
+            if (File(filesDir, item.relativePath).isFile) paths.add(item.relativePath)
         }
-        if (File(filesDir, EMOJI_USAGE).isFile) paths.add(EMOJI_USAGE)
+        if (BackupItem.CLIPBOARD in omitted) return paths
         val referencedClips = referencedClipSidecarNames(File(filesDir, CLIPBOARD))
         File(filesDir, CLIPS_DIR).listFiles()?.sortedBy { it.name }?.forEach { f ->
             if (f.name !in referencedClips) return@forEach
