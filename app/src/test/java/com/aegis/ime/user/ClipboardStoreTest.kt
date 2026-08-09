@@ -742,6 +742,28 @@ class ClipboardStoreTest {
         assertEquals(listOf("留下的"), ClipboardStore(dir).apply { load() }.historyText())
     }
 
+    @Test fun a_phrase_delete_that_could_not_be_written_says_it_was_not_written() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply {
+            load()
+            addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("留下的", "要删的常用语"))
+        }
+        s.flushPendingWrites()
+        val blocker = s.tempFileFor(File(dir, "phrases.txt"))
+        assertTrue("precondition: the phrase write is blocked", blocker.mkdirs())
+        assertTrue(File(blocker, "occupied").createNewFile())
+
+        assertFalse(
+            "a phrase delete that never reached the file must not come back as one that did",
+            s.deletePhraseFrom(ClipboardStore.DEFAULT_CATEGORY_ID, "要删的常用语"),
+        )
+
+        assertEquals(
+            listOf("留下的", "要删的常用语"),
+            ClipboardStore(dir).apply { load() }.phrases().sorted(),
+        )
+    }
+
     @Test fun a_delete_after_the_writer_was_handed_back_says_it_was_not_written() {
         val dir = newDir()
         val s = ClipboardStore(dir).apply { load(); record("a"); record("b"); flushPendingWrites() }
@@ -768,6 +790,34 @@ class ClipboardStoreTest {
             a.stopSaving()
             b.stopSaving()
         }
+    }
+
+    @Test fun an_import_that_could_not_be_written_leaves_the_phrases_the_device_had() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("原有的常用语")) }
+        s.flushPendingWrites()
+        val blocker = s.tempFileFor(File(dir, "phrases.txt"))
+        assertTrue("precondition: the phrase write is blocked", blocker.mkdirs())
+        assertTrue(File(blocker, "occupied").createNewFile())
+
+        val imported = runCatching { s.importPhrasesText("C\t甲\nP\t导入的常用语\n", merge = false) }
+
+        assertTrue("an import that never reached the disk must not come back as one that did", imported.isFailure)
+        assertEquals(
+            "the phrases the keyboard is using must still be the ones the file holds",
+            listOf("原有的常用语"),
+            s.phrases(),
+        )
+        assertEquals(listOf("原有的常用语"), ClipboardStore(dir).apply { load() }.phrases())
+
+        assertTrue(File(blocker, "occupied").delete())
+        assertTrue(blocker.delete())
+        assertEquals(1, s.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("后来加的")))
+        s.flushPendingWrites()
+
+        val onDisk = ClipboardStore(dir).apply { load() }.phrases()
+        assertTrue("an edit after a refused import must not carry the import to the disk", "原有的常用语" in onDisk)
+        assertFalse("and it must never write out phrases the user was told were not imported", "导入的常用语" in onDisk)
     }
 
     @Test fun a_phrase_file_that_reads_fine_is_reported_as_readable() {

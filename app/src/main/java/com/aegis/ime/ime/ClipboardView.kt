@@ -67,7 +67,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     var phrasesInProvider: (String) -> List<String> = { emptyList() }
     var phraseNoteProvider: (String, String) -> String = { _, _ -> "" }
     var onDeleteClips: (List<String>) -> Boolean = { true }
-    var onDeletePhrasesFrom: (String, List<String>) -> Unit = { _, _ -> }
+    var onDeletePhrasesFrom: (String, List<String>) -> Boolean = { _, _ -> true }
     var onSaveAsPhrasesTo: (String, List<String>) -> Unit = { _, _ -> }
     var onEditPhrase: (String, String) -> Unit = { _, _ -> }
     var onMovePhrase: (String, String, String) -> Unit = { _, _, _ -> }
@@ -2260,12 +2260,15 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         card.addView(menuItem(context.getString(R.string.clip_delete)) {
             hideOverlay()
             val saved =
-                if (deleteTab == Tab.CLIPBOARD) onDeleteClips(texts) else { onDeletePhrasesFrom(category, texts); true }
+                if (deleteTab == Tab.CLIPBOARD) onDeleteClips(texts) else onDeletePhrasesFrom(category, texts)
             texts.forEach(st::collapseIfExpanded)
             swipeRevealed?.let { if (it in texts) swipeRevealed = null }
             after()
             refresh()
-            if (!saved) showNotice(R.string.clip_change_not_saved)
+            if (!saved) showNotice(
+                if (deleteTab == Tab.CLIPBOARD) R.string.clip_change_not_saved
+                else R.string.clip_phrase_change_not_saved,
+            )
         })
         card.addView(menuItem(context.getString(R.string.clip_cancel)) { hideOverlay() })
         showOverlay(card)

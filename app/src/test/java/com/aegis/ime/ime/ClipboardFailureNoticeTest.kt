@@ -104,6 +104,47 @@ class ClipboardFailureNoticeTest {
         layout(v)
     }
 
+    private fun phraseView(onDelete: (String, List<String>) -> Boolean): ClipboardView = ClipboardView(ctx).apply {
+        categoriesProvider = { listOf("默认") }
+        phrasesInProvider = { c -> if (c == "默认") listOf("要删的常用语") else emptyList() }
+        onDeletePhrasesFrom = onDelete
+        applyPalette(pal)
+        forcePhrasesStateForTest("默认")
+        refresh()
+        layout(this)
+    }
+
+    private fun deleteFirstPhrase(v: ClipboardView, row: String) {
+        v.expandForTest(row)
+        layout(v)
+        clickText(mainOf(v), text(R.string.clip_delete))
+        layout(v)
+        assertTrue("the confirm card must ask first", text(R.string.clip_delete_phrase_confirm) in labels(v))
+        clickText(overlayOf(v), text(R.string.clip_delete))
+        layout(v)
+    }
+
+    @Test fun a_phrase_delete_that_was_not_written_says_so() {
+        val v = phraseView { _, _ -> false }
+
+        deleteFirstPhrase(v, "要删的常用语")
+
+        assertTrue(text(R.string.clip_phrase_change_not_saved) in labels(v))
+        assertFalse(
+            "a phrase that was not written must not point the user at the clipboard history",
+            text(R.string.clip_change_not_saved) in labels(v),
+        )
+    }
+
+    @Test fun a_phrase_delete_that_was_written_says_nothing() {
+        val v = phraseView { _, _ -> true }
+
+        deleteFirstPhrase(v, "要删的常用语")
+
+        assertFalse(text(R.string.clip_phrase_change_not_saved) in labels(v))
+        assertFalse(text(R.string.clip_change_not_saved) in labels(v))
+    }
+
     @Test fun a_clipboard_that_could_not_be_read_is_not_shown_as_an_empty_one() {
         val v = view(emptyList(), readable = false)
 
@@ -135,6 +176,10 @@ class ClipboardFailureNoticeTest {
         deleteFirstRow(v, "要删的")
 
         assertTrue(text(R.string.clip_change_not_saved) in labels(v))
+        assertFalse(
+            "a clip that was not written must not point the user at the phrase list",
+            text(R.string.clip_phrase_change_not_saved) in labels(v),
+        )
     }
 
     @Test fun a_delete_that_was_written_says_nothing() {

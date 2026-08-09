@@ -138,6 +138,39 @@ class ClipboardRestoreWriteGuardTest {
         assertFalse(live.clearHistory())
     }
 
+    @Test fun a_phrase_delete_during_a_restore_says_it_was_not_written() {
+        val dir = newDir()
+        val live = store(dir)
+        live.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("留下的", "要删的常用语"))
+        live.flushPendingWrites()
+
+        LiveUserData.restoreInProgress = true
+
+        assertFalse(
+            "a phrase delete nobody wrote must not be reported as done",
+            live.deletePhraseFrom(ClipboardStore.DEFAULT_CATEGORY_ID, "要删的常用语"),
+        )
+        assertEquals(
+            "the phrase is still in the file, which is what the panel has to own up to",
+            listOf("留下的", "要删的常用语"),
+            store(dir).phrases().sorted(),
+        )
+    }
+
+    @Test fun a_phrase_delete_outside_a_restore_says_it_was_written() {
+        val dir = newDir()
+        val live = store(dir)
+        live.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("留下的", "要删的常用语"))
+        live.flushPendingWrites()
+
+        assertTrue(live.deletePhraseFrom(ClipboardStore.DEFAULT_CATEGORY_ID, "要删的常用语"))
+        assertTrue(
+            "a phrase delete with nothing to remove has nothing to report",
+            live.deletePhraseFrom(ClipboardStore.DEFAULT_CATEGORY_ID, "不存在"),
+        )
+        assertEquals(listOf("留下的"), store(dir).phrases())
+    }
+
     @Test fun a_panel_delete_outside_a_restore_says_it_was_written() {
         val dir = newDir()
         val live = store(dir)

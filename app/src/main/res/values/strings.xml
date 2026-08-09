@@ -390,6 +390,7 @@
     <string name="clip_clipboard_unreadable">Clipboard history could not be read</string>
     <string name="clip_clipboard_unreadable_hint">The file has not been changed or emptied.</string>
     <string name="clip_change_not_saved">This change could not be written to the clipboard history, so it will come back</string>
+    <string name="clip_phrase_change_not_saved">This change could not be written to your saved phrases, so it will come back</string>
     <string name="clip_entry_lost_body">This clip is no longer stored on this device</string>
     <string name="clip_entry_unreadable_body">This clip is still on this device but could not be read</string>
 </resources>
