@@ -17,9 +17,12 @@ package com.aegis.ime.user
 
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import java.io.File
+import java.io.IOException
 import java.nio.file.Files
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
@@ -172,6 +175,51 @@ class ClipboardRecordQueueTest {
 
         assertEquals(listOf("stays"), store(dir).historyText())
         assertEquals(emptyList<String>(), sideFiles(dir))
+    }
+
+    @Test fun a_phrase_edit_does_not_write_on_the_thread_that_made_it() {
+        val dir = newDir()
+        val s = store(dir)
+        occupy(s)
+
+        s.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("排队中的常用语"))
+
+        assertFalse(
+            "a phrase edit must be handed to the writer, not written where it was made",
+            File(dir, "phrases.txt").exists(),
+        )
+        release?.countDown()
+        s.flushPendingWrites()
+        assertEquals(listOf("排队中的常用语"), store(dir).phrases())
+    }
+
+    @Test fun an_export_flush_lands_a_phrase_edit_that_was_still_queued() {
+        val dir = newDir()
+        val s = store(dir)
+        occupy(s)
+
+        s.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("待落盘"))
+        release?.countDown()
+        s.flushPendingWrites()
+
+        assertEquals(listOf("待落盘"), store(dir).phrases())
+    }
+
+    @Test fun a_phrase_import_reports_the_failure_it_hit_on_the_writer() {
+        val dir = newDir()
+        val s = store(dir)
+        File(dir, "phrases.txt").let {
+            it.deleteRecursively()
+            assertTrue("precondition: the phrase file path is occupied", it.mkdirs())
+            File(it, "blocker").writeText("x")
+        }
+
+        try {
+            s.importPhrasesText("C\t甲\nP\t进不去\n", merge = false)
+            fail("expected the blocked phrase file to be reported")
+        } catch (e: IOException) {
+            assertTrue("the failure the writer hit must come back whole", e.message.orEmpty().isNotEmpty())
+        }
     }
 
     @Test fun a_stopped_store_still_lands_the_writes_already_queued() {

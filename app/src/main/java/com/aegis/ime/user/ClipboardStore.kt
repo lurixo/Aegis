@@ -18,6 +18,7 @@ package com.aegis.ime.user
 import java.io.File
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 
@@ -119,7 +120,10 @@ class ClipboardStore(private val dir: File) {
 
     private val history = ArrayList<ClipEntry>()
 
-    private val io = Executors.newSingleThreadExecutor { r -> Thread(r, "aegis-clip-io").apply { isDaemon = true } }
+    private var writer: Thread? = null
+    private val io = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "aegis-clip-io").apply { isDaemon = true }.also { writer = it }
+    }
     private val saveGen = AtomicLong(0)
 
     private class Phrase(var text: String, var note: String = "")
@@ -299,7 +303,10 @@ class ClipboardStore(private val dir: File) {
     private fun snapshot(): List<ClipEntry> = synchronized(history) { ArrayList(history) }
 
 
-    fun reloadPhrases() = loadPhrases()
+    fun reloadPhrases() {
+        flushPendingWrites()
+        loadPhrases()
+    }
 
     fun categories(): List<String> = phraseCats.map { it.name }
 
@@ -514,9 +521,33 @@ class ClipboardStore(private val dir: File) {
 
     fun stopSaving() { runCatching { io.shutdown() } }
 
-    private fun savePhrases() { runCatching { savePhrasesOrThrow() } }
+    private fun onWriteLane(work: () -> Unit) {
+        val queued = runCatching { io.execute(work) }.isSuccess
+        if (!queued) work()
+    }
 
-    private fun savePhrasesOrThrow() { atomicWrite(phraseFile, serializePhrases()) }
+    private fun onWriteLaneNow(work: () -> Unit) {
+        if (Thread.currentThread() === writer) return work()
+        val pending = runCatching { io.submit(work) }.getOrNull() ?: return work()
+        try {
+            pending.get()
+        } catch (e: InterruptedException) {
+            Thread.currentThread().interrupt()
+            throw IOException("clipboard write did not finish", e)
+        } catch (e: ExecutionException) {
+            throw e.cause ?: e
+        }
+    }
+
+    private fun savePhrases() {
+        val text = serializePhrases()
+        onWriteLane { runCatching { atomicWrite(phraseFile, text) } }
+    }
+
+    private fun savePhrasesOrThrow() {
+        val text = serializePhrases()
+        onWriteLaneNow { atomicWrite(phraseFile, text) }
+    }
 
     private fun serializePhrases(): String {
         val sb = StringBuilder()

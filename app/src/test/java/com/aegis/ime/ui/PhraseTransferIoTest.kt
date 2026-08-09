@@ -43,6 +43,7 @@ class PhraseTransferIoTest {
             addCategory("工作")
             addPhrasesTo("工作", listOf("已收到"))
             setPhraseNote("工作", "已收到", "回执")
+            flushPendingWrites()
         }
 
         val out = ByteArrayOutputStream()
@@ -57,14 +58,14 @@ class PhraseTransferIoTest {
 
     @Test fun exportPhrases_treats_null_output_as_failure() {
         val dir = newDir()
-        ClipboardStore(dir).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("已收到")) }
+        ClipboardStore(dir).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("已收到")); flushPendingWrites() }
 
         assertFalse(PhraseTransferIo.exportPhrases(dir) { null })
     }
 
     @Test fun exportPhrases_treats_unwritable_output_as_failure() {
         val dir = newDir()
-        ClipboardStore(dir).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("已收到")) }
+        ClipboardStore(dir).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("已收到")); flushPendingWrites() }
 
         assertFalse(PhraseTransferIo.exportPhrases(dir) { FailingOutputStream() })
     }

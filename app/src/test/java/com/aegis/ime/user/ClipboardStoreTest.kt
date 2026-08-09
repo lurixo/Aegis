@@ -260,6 +260,7 @@ class ClipboardStoreTest {
         assertEquals("blank + duplicate dropped", 2, added)
         assertTrue("自定义短语" in s.phrases())
         assertTrue("另一条" in s.phrases())
+        s.flushPendingWrites()
         val reloaded = ClipboardStore(dir).apply { load() }
         assertTrue("自定义短语" in reloaded.phrases())
         assertEquals(before + 2, reloaded.phrases().size)
@@ -289,7 +290,7 @@ class ClipboardStoreTest {
 
     @Test fun existing_user_phrases_survive_the_no_seed_change() {
         val dir = newDir()
-        ClipboardStore(dir).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("已收到")) }
+        ClipboardStore(dir).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("已收到")); flushPendingWrites() }
         val reloaded = ClipboardStore(dir).apply { load() }
         assertTrue("工作" in reloaded.categories())
         assertEquals(listOf("已收到"), reloaded.phrasesIn("工作"))
@@ -303,11 +304,13 @@ class ClipboardStoreTest {
         assertFalse("duplicate rejected", s.addCategory("工作"))
         assertEquals(3, s.addPhrasesTo("工作", listOf("已收到，马上处理", "请稍等", "已收到，马上处理", "会后回复")))
         assertEquals(listOf("已收到，马上处理", "请稍等", "会后回复"), s.phrasesIn("工作"))
+        s.flushPendingWrites()
         val reloaded = ClipboardStore(dir).apply { load() }
         assertTrue("工作" in reloaded.categories())
         assertEquals(listOf("已收到，马上处理", "请稍等", "会后回复"), reloaded.phrasesIn("工作"))
         reloaded.deleteCategory("工作")
         assertFalse("工作" in reloaded.categories())
+        reloaded.flushPendingWrites()
         assertTrue("工作" !in ClipboardStore(dir).apply { load() }.categories())
     }
 
@@ -316,6 +319,7 @@ class ClipboardStoreTest {
         val s = ClipboardStore(dir).apply { load(); addCategory("A"); addCategory("B") }
         assertFalse("collision rejected", s.renameCategory("A", "B"))
         assertTrue(s.renameCategory("A", "甲"))
+        s.flushPendingWrites()
         assertTrue("甲" in ClipboardStore(dir).apply { load() }.categories())
     }
 
@@ -342,6 +346,7 @@ class ClipboardStoreTest {
         val s = ClipboardStore(dir).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("一", "二", "三")) }
         assertTrue(s.editPhrase("工作", "二", "  贰  "))
         assertEquals(listOf("一", "贰", "三"), s.phrasesIn("工作"))
+        s.flushPendingWrites()
         val reloaded = ClipboardStore(dir).apply { load() }
         assertEquals(listOf("一", "贰", "三"), reloaded.phrasesIn("工作"))
     }
@@ -382,6 +387,7 @@ class ClipboardStoreTest {
         assertTrue(s.movePhrase("甲", "x", "乙"))
         assertEquals(listOf("y"), s.phrasesIn("甲"))
         assertEquals(listOf("z", "x"), s.phrasesIn("乙"))
+        s.flushPendingWrites()
         val reloaded = ClipboardStore(dir).apply { load() }
         assertEquals(listOf("y"), reloaded.phrasesIn("甲"))
         assertEquals(listOf("z", "x"), reloaded.phrasesIn("乙"))
@@ -425,6 +431,7 @@ class ClipboardStoreTest {
         assertEquals(2, s.movePhrasesTo("甲", listOf("a", "b", "ghost"), "乙"))
         assertEquals(listOf("c"), s.phrasesIn("甲"))
         assertEquals(listOf("b", "a"), s.phrasesIn("乙"))
+        s.flushPendingWrites()
         val reloaded = ClipboardStore(dir).apply { load() }
         assertEquals(listOf("c"), reloaded.phrasesIn("甲"))
         assertEquals(listOf("b", "a"), reloaded.phrasesIn("乙"))
@@ -444,6 +451,7 @@ class ClipboardStoreTest {
         assertEquals(listOf("b", "c", "a", "d"), s.phrasesIn("甲"))
         assertTrue(s.reorderPhrase("甲", 3, 0))
         assertEquals(listOf("d", "b", "c", "a"), s.phrasesIn("甲"))
+        s.flushPendingWrites()
         assertEquals(listOf("d", "b", "c", "a"), ClipboardStore(dir).apply { load() }.phrasesIn("甲"))
     }
 
@@ -453,6 +461,7 @@ class ClipboardStoreTest {
         val name = "工作".trim()
         s.addCategory(name); s.addPhrasesTo(name, listOf("hello"))
         assertEquals(listOf("hello"), s.phrasesIn("工作"))
+        s.flushPendingWrites()
         assertFalse("未确认不应创建分类", "私人" in ClipboardStore(dir).apply { load() }.categories())
     }
 
@@ -480,6 +489,7 @@ class ClipboardStoreTest {
         assertEquals(listOf(ClipboardStore.DEFAULT_CATEGORY_ID, "丙", "甲", "乙"), s.categories())
         assertTrue(s.reorderCategory(0, 3))
         assertEquals(listOf("丙", "甲", "乙", ClipboardStore.DEFAULT_CATEGORY_ID), s.categories())
+        s.flushPendingWrites()
         assertEquals(listOf("丙", "甲", "乙", ClipboardStore.DEFAULT_CATEGORY_ID), ClipboardStore(dir).apply { load() }.categories())
     }
 
@@ -497,6 +507,7 @@ class ClipboardStoreTest {
         ClipboardStore(dir).apply {
             load(); addCategory("甲"); addPhrasesTo("甲", listOf("你好世界"))
             assertTrue(setPhraseNote("甲", "你好世界", "招呼"))
+            flushPendingWrites()
         }
         val r = ClipboardStore(dir).apply { load() }
         assertEquals("note persists across reload", "招呼", r.noteFor("甲", "你好世界"))
@@ -624,6 +635,7 @@ class ClipboardStoreTest {
         assertEquals(1, s.categories().count { it == "工作" })
         assertEquals(listOf("本机一", "本机二", "共同", "备份一"), s.phrasesIn("工作"))
         assertEquals("本机注", s.noteFor("工作", "共同"))
+        s.flushPendingWrites()
         assertEquals(1, ClipboardStore(dir).apply { load() }.categories().count { it == "工作" })
     }
 
@@ -691,7 +703,7 @@ class ClipboardStoreTest {
 
     @Test fun a_phrase_file_that_reads_fine_is_reported_as_readable() {
         val dir = newDir()
-        ClipboardStore(dir).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("keep")) }
+        ClipboardStore(dir).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("keep")); flushPendingWrites() }
         assertTrue(ClipboardStore(dir).apply { load() }.phrasesReadable)
     }
 
@@ -701,7 +713,7 @@ class ClipboardStoreTest {
 
     @Test fun a_phrase_file_that_cannot_be_read_is_reported_as_unreadable() {
         val dir = newDir()
-        ClipboardStore(dir).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("keep")) }
+        ClipboardStore(dir).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("keep")); flushPendingWrites() }
         val phrases = File(dir, "phrases.txt")
         assertTrue("precondition: the phrase file could be closed off", phrases.setReadable(false, false))
         try {
