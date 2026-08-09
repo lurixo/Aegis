@@ -19,7 +19,7 @@ CC BY 词库，配以**自研解码器**——运行时不依赖 rime 或 librim
   <img src="docs/screenshots/zh/keyboard-t9.png" alt="9 键 T9 键盘" width="420">
 </p>
 <p align="center">
-  <img src="docs/screenshots/zh/emoji.png" alt="Emoji 选择器" width="280">
+  <img src="docs/screenshots/zh/emoji.png" alt="Emoji 面板" width="280">
   <img src="docs/screenshots/zh/clipboard.png" alt="剪贴板历史与常用语" width="280">
   <img src="docs/screenshots/zh/symbols.png" alt="符号面板" width="280">
 </p>
@@ -42,11 +42,12 @@ Aegis 暂未上架应用商店，目前以可下载的 APK 形式分发。
 ### 系统要求
 
 - **Android 14 及以上**（minSdk 34）。不支持更低版本的安卓。
+- **64 位 ARM** 设备（`arm64-v8a`）；发布的 APK 只携带这一个 ABI。
 
 ### 安装
 
 1. 打开 [**Releases**](https://github.com/lurixo/Aegis/releases) 页面，从最新构建里下载 APK
-   附件（当前发布均标注为 **预发布（debug）**）。
+   附件。发布标注为**预发布**，APK 是 release 构建，以安卓调试密钥签名。
 2. 由于并非从应用商店安装，安卓会提示你为所用的浏览器或文件管理器**允许安装未知应用**——按提示
    授予后，打开下载的 APK 完成安装（即**侧载**）。
 
@@ -63,32 +64,55 @@ Aegis 暂未上架应用商店，目前以可下载的 APK 形式分发。
 ### 首次使用
 
 **英文可以立即输入，中文需要先下载一次。**APK 内不含中文词库，键盘也绝不会自行开始下载词库包。
-在没有词库包时输入中文，候选栏会给出下载入口——下载约 98 MB，安装到应用私有存储后约 272 MB，且
-不限于 Wi-Fi——只有你点按该入口（或设置页词库卡片中的“下载”）才会开始传输。在它完成之前，中文
-输入处于锁定状态，而英文与各面板照常可用。
+在没有词库包时输入中文，候选栏会给出下载入口——下载约 102 MB，安装到应用私有存储后约 272 MB，且
+不限于 Wi-Fi——只有你点按该入口（或设置页词库卡片中的“下载”）才会开始传输。传输中断后可以续传，
+安装前还会核对 SHA-256。在它完成之前，中文输入处于锁定状态，而英文与各面板照常可用。
 
 设置页另外提供**可选**的增强模型（约 420 MB 的八元语法模型），用于更准的下一词与整句排序；这一项
-仅在你点击开始时才下载。除这两项下载与随之进行的更新检测（词库是一个小的元数据文件，模型是一个
-`HEAD` 请求）之外，Aegis 自身的代码不发起任何网络请求；不经你的操作，Aegis 自身不会有任何联网。
+仅在你点击开始时才下载。文件装好后，对应卡片会提供检测更新的按钮，检查到更新的文件会直接接着下载。
+除这两项下载与随之进行的更新检测（词库是一个小的元数据文件，模型是一个 `HEAD` 请求）之外，Aegis
+自身的代码不发起任何网络请求；不经你的操作，Aegis 自身不会有任何联网。
 
 ## 功能
 
-- **两种输入模式** —— **26 键全拼**与 **9 键 T9**，外加**数字**、**符号**布局，基于自绘的
-  View+Canvas 键盘。
-- **格状 Viterbi 解码器** —— 在内存映射词库上解码，以一元对数概率加**字级二元**上下文模型打分。
-- **模糊拼音** —— 覆盖平翘舌与前后鼻音，带用户开关。
+- **键盘形态** —— **26 键全拼**、**9 键 T9** 与**英文 26 键**，外加**数字**、**符号**与
+  **数字小键盘**布局，基于自绘的 View+Canvas 键盘。横屏时键盘保持竖屏宽度并靠一侧停靠，让背后的
+  应用仍可触及。
+- **格状 Viterbi 解码器** —— 在内存映射词库上解码，以一元对数概率加**字级二元**上下文模型打分；
+  装上增强模型后，再叠一层下一词与整句重排。
+- **模糊拼音** —— 共十条规则：`zh/z`、`ch/c`、`sh/s`、`ang/an`、`eng/en`、`ing/in`、`n/l`、
+  `f/h`、`l/r`、`k/g`。总开关默认关闭，打开后每条规则还各有一个独立开关；改动即时生效。
 - **简拼**（声母缩写）—— `zg`→中国，`bjdx`→北京大学。
-- **中英混输** —— 无需切换语言即可上屏英文单词（如 `wifi`），含英文补全与纠错。
-- **本机学习** —— 常用、近用词自动提权，学习下一词预测，用户词库可导入和导出。仅存于
-  `filesDir/userdb.txt`。
-- **Emoji 选择器** —— 最近使用加分类 emoji（黄脸、手势、动物、旗帜等）。
-- **剪贴板历史与常用语** —— 近期剪贴与可复用常用语同在一个面板，支持逐条管理。
-- **符号与编辑面板** —— 分类符号板（中文、英文、货币、数学、希腊、箭头等，带锁定开关）以及
-  光标与文本编辑面板。
+- **音节控制** —— 九键键盘的侧栏列出当前输入对应的读音，点选即锁定；再点一次已锁定的读音，会给出
+  与它同音的字。编码未上屏时，另有分词键让你自己决定在哪里断开字母串。
+- **中英混输** —— 无需切换语言即可上屏英文单词（如 `wifi`）。
+- **本机学习** —— 常用、近用词自动提权，并学习下一词搭配。自动学习有独立开关；候选栏的下一词
+  预测另有一个开关，默认关闭，可自行打开。自动学到的词长期不用会淡出，你自己添加的词永不遗忘。
+  在密码输入框、以及任何声明不参与个性化学习的输入框里，不学习任何词。数据都存在应用私有的
+  `filesDir` 下（`userdb.txt` 与 `userlearn.txt`），用户词库界面可搜索、添加、删除、导入、导出与
+  清空。
+- **Emoji 面板** —— “常用”页加各分类（黄脸、手势、旗帜、动物、植物、食物、旅行、活动、物品、
+  符号），支持肤色与性别变体，并有锁定开关便于连续选取。
+- **剪贴板历史** —— 复制过的内容留下来随时取用，可逐条删除、批量删除、全选与整体清空；历史记录
+  本身也可以整个关掉。
+- **常用语** —— 可复用的短语，支持自定义分类、分类排序、跨类移动、逐条备注，并可导入导出为
+  纯文本文件。
+- **符号与编辑面板** —— 符号板带“常用”页，另有中文、英文、货币、网络、数学、希腊、箭头、角标、
+  序号、音标、拼音各分类，并有锁定开关；文本编辑面板提供光标移动、行首行尾、开始选择、全选、
+  复制、剪切、粘贴与删除。
+- **自定义符号** —— 自选九键侧栏的标点，以及数字小键盘上的运算符。
+- **符号与 emoji 联想** —— 输入拼音时，候选栏可直接给出匹配的符号与 emoji。
+- **算式计算** —— 输入算式后候选栏给出结果，支持 `+ - * / × ÷`、括号、正负号与 `%`。
+- **复制条** —— 刚复制或剪切的文本会出现在键盘上方，可整条上屏，也可拆成词块后挑选上屏。
+- **加密备份** —— 把学习词库、自动学习、常用语、剪贴板历史、符号历史、表情历史和全部设置导出为单个加密文件
+  （AES-256-GCM，密钥由 PBKDF2-HMAC-SHA256 迭代 600,000 次导出），导入时可选覆盖或合并。默认
+  备份密码可保存在本机，保存与回填都需要生物识别或锁屏验证。可下载的词库与模型不进备份——它们
+  可以重新下载。
 - **简体归一** —— Aegis 给出的每一个候选都是简体。上游数据中的繁体与异体字形，在构建词库包时被
   归并到其简体形态（并合并词频），使用 `tools/t2s-data` 下的 OpenCC 映射表。该过程只在构建主机上
   进行，APK 内不含任何转换表。
-- **Material 3** 设置界面。
+- **Material 3** 设置界面 —— 输入设置、词库与下载、用户词库、数据备份、关于与启用，以及开源
+  许可页。
 
 ## 隐私与权限
 
@@ -104,7 +128,8 @@ Aegis 暂未上架应用商店，目前以可下载的 APK 形式分发。
 - **`USE_BIOMETRIC`** 仅用于默认备份密码：保存它、或把它填入备份对话框，都需要先通过生物识别或
   锁屏验证。
 - 你的**击键、候选、已学词、用户词库与剪贴板都不会离开设备**——它们存放在应用私有存储
-  （`filesDir`）。
+  （`filesDir`）。唯一会离开的，是**你自己导出**的文件：备份、学习词库或常用语，去向由你选定。
+- Aegis 被排除在安卓的**云备份与换机传输**之外，数据也不会由这条路被带离设备。
 - **无任何分析、无遥测、无账号。**
 - APK 里有一部分不是 Aegis 自己的代码：`androidx.emoji2` 随 Jetpack Compose 一同引入。在 Aegis
   自己的界面被打开之后，它会在设备上查找系统镜像中提供 emoji 字体的程序包并向其索取字体；设备上
@@ -117,8 +142,9 @@ Aegis 暂未上架应用商店，目前以可下载的 APK 形式分发。
 
 先决条件：
 
-- **JDK 17**
-- **Android SDK**，含 **platform 37**（`compileSdk` 与 `targetSdk` 为 37；`minSdk` 为 34）
+- **JDK 25** —— CI 使用的工具链；Java 与 Kotlin 的字节码目标为 17
+- **Android SDK**，含 **platform 37** 与 **build-tools 36**（`compileSdk` 与 `targetSdk` 为 37；
+  `minSdk` 为 34）
 - **Gradle** 由 wrapper 提供——直接用 `./gradlew` 即可（无需系统级 Gradle）
 
 ```
@@ -127,11 +153,13 @@ Aegis 暂未上架应用商店，目前以可下载的 APK 形式分发。
 ./gradlew :app:lintDebug          # Android lint
 ```
 
-APK 内不再打包任何由词库派生的资源：`app/build.gradle.kts` 把 `aegis_dict.bin`、`aegis_t9.bin`、
-`aegis_jianpin.bin` 以及约 16 MB 的字级二元上下文模型 `aegis_lm.bin` 一并排除在打包资源之外，
-APK 因此保持在 24 MB 左右。这四者都在运行时下载到 `filesDir/downloaded/`；三个词库是中文候选的
-唯一来源，模型只负责重排。模型是可选件——没有它键盘照样解码，只是上下文排序变弱。放进
-`app/src/main/assets/` 的本地构建产物不会进入 APK，但会被解码器测试读取。
+APK 内不打包任何由词库派生的资源：`app/build.gradle.kts` 把 `aegis_dict.bin`、`aegis_t9.bin`、
+`aegis_jianpin.bin` 以及字级二元上下文模型 `aegis_lm.bin` 一并排除在打包资源之外。这四者作为同一个
+词库包的成员，在运行时下载到 `filesDir/downloaded/`；三个词库是中文候选的唯一来源，`aegis_lm.bin`
+负责重排。解码并不强依赖 `aegis_lm.bin`，但缺它的包会被判为不完整，应用会再次给出下载入口。
+
+需要真实词表的解码测试从 `AEGIS_FULLDICT_DIR` 指向的目录读取；`python3 tools/fetch_test_dict.py`
+会下载已发布的词库包并解到 `app/src/main/assets/`，这些文件既不进 APK 也不进 git。
 
 词库包由 `:tools` 模块从全部 14 张万象表（`zi jichu lianxiang cuoyin duoyin shici diming yixue
 huaxue yaopin mingren yiren wuzhong renming`）以 `--min-freq 1`、无每键上限预构建，保留每一条。
@@ -144,12 +172,15 @@ tools/build/install/tools/bin/tools --out <jp>   --min-freq 1 --keytype initials
 tools/build/install/tools/bin/tools lm --out <lm> --t2s-data tools/t2s-data <14 张万象 .dict.yaml ...>
 ```
 
+本文的截图是渲染出来的，不是拍摄的：单元测试会把它们写到 `app/build/render/i18n/{en,zh}/`，
+`docs/screenshots/` 保存上文引用的那份副本。
+
 ## 发布词库包
 
-应用 APK 发布与可下载词库包分开发布。带版本号的应用 release 只携带 APK，不参与词库更新发现。词库包与
-随附的 `aegis-dictionary-update.json` 与 `aegis-build-info.json` 元数据发布在滚动的
+应用 APK 发布与可下载词库包分开发布。带版本号的应用 release 只携带 APK。词库包发布在滚动的
 [`dict-latest`](https://github.com/lurixo/Aegis/releases/tag/dict-latest) GitHub release 上；应用只从
-这个 release tag 读取词库元数据，按已安装包与当前 ZIP 的 SHA-256 和内容元数据判断是否更新。
+这个 release tag 发现词库更新，判据是已安装包与当前词库 ZIP 的 SHA-256 比对，或者本机包缺少某个
+成员文件。
 
 ```
 tools/release/build_dictionary_pack.py --release-tag dict-latest
@@ -160,18 +191,24 @@ release tag，或用 `--source-dir` 指定已有的本地目录），
 用 `tools/DictBuilder` 以 `--min-freq 1`、无每键上限构建 14 张已核验表，并在
 `build/release-dictionary/` 下写出词库包 ZIP、`aegis-build-info.json` 与
 `aegis-dictionary-update.json`。把这些生成文件上传到滚动的 `dict-latest` release，不要上传到带
-版本号的应用 release。已签入的 `aegis-build-info.json` 记录当前滚动词库包溯源链（来源 tag 与
-commit、逐表输入哈希、构建参数、输出 bin 哈希和物理附件 URL）及其尚存的溯源缺口；滚动词库包重新
-发布时需要同步更新它。在 release 同时携带确切
-输入哈希、可确定复现的配方以及签名或证明之前，词库包还不是完全可复现的公共供应链产物。
+版本号的应用 release。已签入的 `aegis-build-info.json` 记录**它生成时**所依据的那一版词库包的
+溯源链（来源 tag 与 commit、逐表输入哈希、构建参数、输出 bin 哈希和物理附件 URL）及其尚存的溯源
+缺口；滚动词库包重新发布时需要重新生成它。在 release 同时携带确切输入哈希、可确定复现的配方以及
+签名或证明之前，词库包还不是完全可复现的公共供应链产物。
 
 ## 架构
 
-- `app/.../ime` —— 输入法服务、自绘键盘与候选视图、各面板（emoji、剪贴板、符号、编辑）、
-  输入状态机。
+- `app/.../ime` —— 输入法服务、自绘键盘与候选视图、各面板（emoji、剪贴板、符号、自定义符号、
+  编辑）、复制条、输入状态机。
 - `app/.../decoder` —— `PinyinDecoder`（词格 Viterbi；精确 > 模糊 > 简拼边）。
-- `app/.../dict` —— 内存映射读取器：`BinaryDict`、`CharBigramLM`、`Fuzzy`。
-- `app/.../user` —— `UserModel`（离线学习，文件持久化）。
+- `app/.../dict` —— 内存映射读取器 `BinaryDict`、`CharBigramLM`、`Fuzzy`、`OctagramReader`，以及
+  `ModelDownload`——全应用唯一发起网络请求的地方。
+- `app/.../engine` —— 候选装配、符号与 emoji 联想、算式计算。
+- `app/.../layout` —— 按键与布局定义、符号与 emoji 目录。
+- `app/.../user` —— 本机数据：`UserModel` 与 `UserLearning`、剪贴板与常用语存储、自定义符号、
+  符号使用记录。
+- `app/.../backup` —— 加密备份归档、加解密与恢复。
+- `app/.../ui` —— Compose 设置界面、词库与模型卡片、用户词库、备份、关于、开源许可。
 - `tools/` —— 主机侧词库与语言模型构建器（`DictBuilder`、`LmBuilder`）、评测校验器与发布打包器。
 
 ## 许可与致谢
@@ -199,10 +236,14 @@ Aegis 自身代码为 **GPL-3.0**（见 [`LICENSE`](LICENSE)）。Aegis 采用**
 （仅测试范围，不随包分发）。算法参考（未内联引入）：AOSP PinyinIME（Apache-2.0）、
 darts-clone（BSD-2-Clause）。
 
+完整清单及各自的改动记录见 [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md)；应用内
+**设置 → 关于与启用 → 开源许可** 展示同一份清单。
+
 ## 状态
 
-Aegis 处于活跃开发中，当前发布均为**预发布（debug）**构建。已知限制：
+Aegis 处于活跃开发中，当前发布均为**预发布**构建。已知限制：
 
-- 发布为 debug 签名的预发布 APK，经由 GitHub Releases 分发，而非应用商店。
+- 发布为 release 构建、以安卓调试密钥签名的预发布 APK，经由 GitHub Releases 分发而非应用商店，
+  且只携带 `arm64-v8a` 一个 ABI。
 - 可下载的词库包记录了其构建输入，但尚不是经签名或可独立复现的供应链产物（见
   [发布词库包](#发布词库包)）。
