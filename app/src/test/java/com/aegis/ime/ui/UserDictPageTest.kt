@@ -61,6 +61,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
@@ -108,6 +109,12 @@ class UserDictPageTest {
             get(UserStoreEdits) as ExecutorService
         }
         lane.submit { }.get(10, TimeUnit.SECONDS)
+    }
+
+    private fun settleEdits() {
+        drainEdits()
+        shadowOf(Looper.getMainLooper()).idle()
+        compose.waitForIdle()
     }
 
     private fun settled(what: String, condition: () -> Boolean) {
@@ -482,7 +489,7 @@ class UserDictPageTest {
 
         ShadowToast.reset()
         compose.onNodeWithTag("user_dict_export").performClick()
-        compose.waitForIdle()
+        settleEdits()
 
         scenario!!.onActivity { activity ->
             assertNotNull(
@@ -596,7 +603,7 @@ class UserDictPageTest {
 
         ShadowToast.reset()
         compose.onNodeWithTag("user_dict_export").performClick()
-        compose.waitForIdle()
+        settleEdits()
 
         assertEquals(s(R.string.user_dict_toast_export_blocked), ShadowToast.getTextOfLatestToast())
         scenario!!.onActivity { activity ->
@@ -608,12 +615,83 @@ class UserDictPageTest {
         }
     }
 
+    private class FlushWatchingHost(private val onMainThread: AtomicReference<Boolean?>) : UserDictHot.Host {
+        override fun addWord(reading: String, word: String, now: Long) = false
+        override fun removeWord(reading: String, word: String) = false
+        override fun importUserDict(importFile: File, merge: Boolean, now: Long) = false
+        override fun reloadDictionary() = false
+        override fun entries(): List<UserModel.Entry> = listOf(UserModel.Entry("nihao", "你好", 1))
+        override fun learnedEntries(): List<UserLearning.Formed> = emptyList()
+        override fun hasLearnedData() = false
+        override fun removeLearned(word: String, reading: String) = false
+        override fun clearLearned() = false
+        override fun flush() = true
+        override fun flushDictionary(): Boolean {
+            onMainThread.set(Looper.myLooper() === Looper.getMainLooper())
+            return true
+        }
+    }
+
+    @Test fun an_export_never_waits_for_the_writer_on_the_thread_that_draws() {
+        val onMainThread = AtomicReference<Boolean?>(null)
+        UserDictHot.host = FlushWatchingHost(onMainThread)
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_export").performClick()
+        settleEdits()
+
+        assertNotNull("precondition: the export really did flush the store", onMainThread.get())
+        assertEquals(
+            "the flush waits up to five seconds for the writer, so it must not be waited for where the keys are drawn",
+            false,
+            onMainThread.get(),
+        )
+        scenario!!.onActivity { activity ->
+            assertNotNull(
+                "and the picker must still open once the flush came back",
+                shadowOf(activity).peekNextStartedActivityForResult(),
+            )
+        }
+    }
+
+    private class GatedFlushHost(private val gate: CountDownLatch) : UserDictHot.Host {
+        override fun addWord(reading: String, word: String, now: Long) = false
+        override fun removeWord(reading: String, word: String) = false
+        override fun importUserDict(importFile: File, merge: Boolean, now: Long) = false
+        override fun reloadDictionary() = false
+        override fun entries(): List<UserModel.Entry> = listOf(UserModel.Entry("nihao", "你好", 1))
+        override fun learnedEntries(): List<UserLearning.Formed> = emptyList()
+        override fun hasLearnedData() = false
+        override fun removeLearned(word: String, reading: String) = false
+        override fun clearLearned() = false
+        override fun flush() = true
+        override fun flushDictionary(): Boolean {
+            gate.await(10, TimeUnit.SECONDS)
+            return true
+        }
+    }
+
+    @Test fun leaving_the_page_before_the_flush_comes_back_does_not_bring_the_app_down() {
+        val gate = CountDownLatch(1)
+        UserDictHot.host = GatedFlushHost(gate)
+        openUserDictPage()
+        compose.onNodeWithTag("user_dict_export").performClick()
+
+        scenario!!.close()
+        scenario = null
+        gate.countDown()
+        drainEdits()
+
+        shadowOf(Looper.getMainLooper()).idle()
+        assertNull("nobody is there to be told anything either", ShadowToast.getTextOfLatestToast())
+    }
+
     @Test fun an_export_opens_the_document_picker_once_the_flush_succeeded() {
         seed(0, "nihao" to "你好")
         openUserDictPage()
 
         compose.onNodeWithTag("user_dict_export").performClick()
-        compose.waitForIdle()
+        settleEdits()
 
         scenario!!.onActivity { activity ->
             assertTrue(

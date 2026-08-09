@@ -160,6 +160,8 @@
     <string name="user_learn_unreadable">学习数据读不出来，所以这里不显示。文件没有被改动，也没有被清空。</string>
     <string name="user_learn_unreadable_kept">学习数据文件读不出来。内存里已有的这些数据仍然保留，改动无法写回；文件没有被改动，也没有被清空。点「清空学习数据」可以重来。</string>
     <string name="user_dict_toast_export_blocked">最近的改动没能存盘，为免导出不完整，已取消导出</string>
+    <string name="user_dict_toast_export_done">词库已导出</string>
+    <string name="user_dict_toast_export_failed">文件没能写入，导出没有完成</string>
     <string name="user_dict_auto_title">自动学习</string>
     <string name="user_dict_auto_description">你逐字拼出、被自动粘成的词。可以删掉某一条让它不再进候选，也可以全部清空。上面「我的词」不受影响。</string>
     <string name="user_dict_auto_count_format">自动学习：%1$d</string>
