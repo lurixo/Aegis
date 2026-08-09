@@ -118,6 +118,12 @@ class ClipboardStore(private val dir: File) {
     private val phraseFile get() = File(dir, "phrases.txt")
     private fun clipsDir() = File(dir, "clips")
 
+    private val tmpTag = TMP_TAGS.incrementAndGet()
+
+    internal fun owns(other: File): Boolean = dir == other
+
+    internal fun tempFileFor(dest: File): File = File(dest.parentFile, "${dest.name}.$tmpTag.tmp")
+
     private val history = ArrayList<ClipEntry>()
 
     private var writer: Thread? = null
@@ -496,13 +502,13 @@ class ClipboardStore(private val dir: File) {
     }
 
     private fun atomicWrite(dest: File, text: String) {
-        val tmp = File(dest.parentFile, dest.name + ".tmp")
+        val tmp = tempFileFor(dest)
         tmp.writeText(text)
         swapInto(tmp, dest)
     }
 
     private fun atomicCopy(source: File, dest: File) {
-        val tmp = File(dest.parentFile, dest.name + ".tmp")
+        val tmp = tempFileFor(dest)
         source.copyTo(tmp, overwrite = true)
         swapInto(tmp, dest)
     }
@@ -609,6 +615,8 @@ class ClipboardStore(private val dir: File) {
     }
 
     companion object {
+        private val TMP_TAGS = AtomicLong(0)
+
         private const val LEGACY_IMG_PREFIX = "img:"
         private const val LEGACY_IMG_DIR = "/clipboard_images/"
         fun isLegacyImageEntry(entry: String): Boolean =
