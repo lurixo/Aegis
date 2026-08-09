@@ -20,6 +20,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Rect
+import android.graphics.drawable.Drawable
 import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
@@ -111,10 +112,11 @@ class SharedPanelBackControlTest {
         return (panel.getChildAt(0) as ViewGroup).getChildAt(0) as TextView
     }
 
-    private fun backControls(root: View): List<PanelBackButton> {
-        val out = ArrayList<PanelBackButton>()
+    private fun backControls(root: View): List<TextView> {
+        val label = ctx.getString(R.string.clip_back)
+        val out = ArrayList<TextView>()
         fun walk(v: View) {
-            if (v is PanelBackButton) out.add(v)
+            if (v is TextView && v.contentDescription?.toString() == label) out.add(v)
             if (v is ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i))
         }
         walk(root)
@@ -190,6 +192,16 @@ class SharedPanelBackControlTest {
             .map { content.getChildAt(it) }
             .single { (it.layoutParams as LinearLayout.LayoutParams).weight > 0f }
 
+    private fun topBarTextViews(bar: View): List<TextView> {
+        val out = ArrayList<TextView>()
+        fun walk(v: View) {
+            if (v is TextView) out.add(v)
+            if (v is ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i))
+        }
+        walk(bar)
+        return out
+    }
+
     private fun topBarTargets(bar: View): List<View> {
         val out = ArrayList<View>()
         fun walk(v: View) {
@@ -259,6 +271,7 @@ class SharedPanelBackControlTest {
         )
     }
 
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test
     @Config(qualifiers = "w360dp-h780dp-xhdpi")
     fun the_clipboard_top_bar_fits_without_scrolling_at_three_hundred_sixty_dp() {
@@ -271,6 +284,51 @@ class SharedPanelBackControlTest {
         assertEquals("360dp top bar content fills the viewport", bar.width, bar.getChildAt(0).width)
     }
 
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test
+    @Config(qualifiers = "w360dp-h780dp-xhdpi", fontScale = 1.3f)
+    fun the_clipboard_top_bar_fits_without_scrolling_when_the_system_font_is_enlarged() {
+        assertEquals(
+            "precondition: the system font must be enlarged",
+            1.3f,
+            ctx.resources.configuration.fontScale,
+            0.001f,
+        )
+        for (phrase in listOf(false, true)) {
+            val clipboard = clipboardView(phrase)
+            layout(clipboard, width = dp(360), height = dp(400))
+            val name = if (phrase) "phrases" else "clipboard"
+            val bar = topBarOf(clipboard)
+            assertEquals("$name back label stays on one line", 1, backControls(clipboard).single().lineCount)
+            assertFalse("$name still fits the whole top bar at a large font", bar.canScrollHorizontally(1))
+            assertEquals("$name top bar content fills the viewport", bar.width, bar.getChildAt(0).width)
+        }
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
+    @Test
+    @Config(qualifiers = "w360dp-h780dp-xhdpi")
+    fun the_clipboard_tabs_keep_their_labels_inside_their_pills() {
+        val labels = listOf(ctx.getString(R.string.clip_clipboard), ctx.getString(R.string.clip_phrases))
+        for (phrase in listOf(false, true)) {
+            val clipboard = clipboardView(phrase)
+            layout(clipboard, width = dp(360), height = dp(400))
+            val name = if (phrase) "phrases" else "clipboard"
+            val content = topBarOf(clipboard).getChildAt(0)
+            for (label in labels) {
+                val pill = topBarTextViews(content).single { it.text.toString() == label }
+                val needed = pill.paint.measureText(label)
+                val available = (pill.width - pill.paddingLeft - pill.paddingRight).toFloat()
+                assertTrue(
+                    "$name tab '$label' must fit its pill: needs $needed in $available",
+                    needed <= available,
+                )
+                assertEquals("$name tab '$label' must stay on one line", 1, pill.lineCount)
+            }
+        }
+    }
+
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun the_clipboard_top_bar_keeps_its_flexible_gap_when_the_window_is_wide() {
         val clipboard = clipboardView(phrase = true)
         layout(clipboard, width = dp(411), height = dp(400))
@@ -285,6 +343,7 @@ class SharedPanelBackControlTest {
         )
     }
 
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test
     @Config(qualifiers = "w320dp-h640dp-mdpi")
     fun the_clipboard_top_bar_keeps_every_target_reachable_at_three_hundred_twenty_dp() {
@@ -296,20 +355,33 @@ class SharedPanelBackControlTest {
         val clipboard = clipboardView(phrase = false)
         val custom = CustomSymbolPanel(ctx).apply { refresh() }
         layout(custom)
+        val editBack = editPanelBack()
 
         for (phrase in listOf(false, true)) {
             if (phrase) clipboard.showPhraseTab("默认") else clipboard.refresh()
             layout(clipboard)
             val name = if (phrase) "phrases" else "clipboard"
             val button = backControls(clipboard).single()
-            assertEquals("$name back hit width", dp(48), button.width)
             assertEquals("$name back hit height", dp(48), button.height)
-            assertNotEquals(
-                "$name keeps the icon button while the custom pages carry their title",
-                custom.backButtonForTest().width,
-                button.width,
+            assertEquals("$name back text scale", editBack.textSize, button.textSize, 0.01f)
+            assertEquals(
+                "$name back icon box",
+                editBack.compoundDrawables[0]!!.intrinsicWidth,
+                button.compoundDrawables[0]!!.intrinsicWidth,
             )
-            assertTrue("$name back stays the shared icon button", button is PanelBackButton)
+            assertEquals("$name back icon gap", editBack.compoundDrawablePadding, button.compoundDrawablePadding)
+            val customBack = custom.backButtonForTest() as TextView
+            assertEquals("$name back text scale matches the custom pages", customBack.textSize, button.textSize, 0.01f)
+            assertEquals(
+                "$name back icon box matches the custom pages",
+                customBack.compoundDrawables[0]!!.intrinsicWidth,
+                button.compoundDrawables[0]!!.intrinsicWidth,
+            )
+            assertEquals(
+                "$name back icon gap matches the custom pages",
+                customBack.compoundDrawablePadding,
+                button.compoundDrawablePadding,
+            )
             assertEquals(
                 "$name back keeps the shared left inset",
                 dp(8),
@@ -318,9 +390,40 @@ class SharedPanelBackControlTest {
         }
     }
 
-    private fun inkBounds(view: View): Rect {
-        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
-        view.draw(Canvas(bitmap))
+    @Test fun the_clipboard_back_control_matches_the_edit_panel_icon_box() {
+        val editBack = editPanelBack()
+        for (phrase in listOf(false, true)) {
+            val clipboard = clipboardView(phrase)
+            layout(clipboard)
+            val name = if (phrase) "phrases" else "clipboard"
+            val glyph = backControls(clipboard).single().compoundDrawables[0]!!
+            assertEquals(
+                "$name back icon box width",
+                editBack.compoundDrawables[0]!!.intrinsicWidth,
+                glyph.intrinsicWidth,
+            )
+            assertEquals(
+                "$name back icon box height",
+                editBack.compoundDrawables[0]!!.intrinsicHeight,
+                glyph.intrinsicHeight,
+            )
+            assertEquals("$name back icon box in dp", dp(PanelBackButton.ICON_DP), glyph.intrinsicWidth)
+        }
+    }
+
+    @Test fun the_clipboard_back_control_carries_the_back_label() {
+        for (phrase in listOf(false, true)) {
+            val clipboard = clipboardView(phrase)
+            layout(clipboard)
+            val name = if (phrase) "phrases" else "clipboard"
+            val button = backControls(clipboard).single()
+            assertEquals("$name back label", ctx.getString(R.string.clip_back), button.text.toString())
+            assertEquals("$name back label stays on one line", 1, button.maxLines)
+            assertTrue("$name back label must be clickable", button.hasOnClickListeners())
+        }
+    }
+
+    private fun inkBounds(bitmap: Bitmap): Rect {
         var left = bitmap.width
         var top = bitmap.height
         var right = -1
@@ -337,30 +440,41 @@ class SharedPanelBackControlTest {
         return Rect(left, top, right + 1, bottom + 1)
     }
 
+    private fun glyphInk(glyph: Drawable): Rect {
+        val bitmap = Bitmap.createBitmap(glyph.intrinsicWidth, glyph.intrinsicHeight, Bitmap.Config.ARGB_8888)
+        glyph.setBounds(0, 0, glyph.intrinsicWidth, glyph.intrinsicHeight)
+        glyph.draw(Canvas(bitmap))
+        return inkBounds(bitmap)
+    }
+
     @GraphicsMode(GraphicsMode.Mode.NATIVE)
-    @Test fun the_shared_back_control_draws_a_twenty_four_dp_icon_box_inside_its_hit_target() {
-        val button = PanelBackButton(ctx).apply { tint = ImePalette.STATIC_LIGHT.keyLabel }
-        button.measure(
-            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
-            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+    @Test fun the_shared_back_control_draws_a_sixteen_dp_icon_box_on_every_panel() {
+        val clipboard = clipboardView(phrase = false)
+        layout(clipboard)
+        val custom = CustomSymbolPanel(ctx).apply { refresh() }
+        layout(custom)
+        val glyphs = listOf(
+            "clipboard" to backControls(clipboard).single().compoundDrawables[0]!!,
+            "custom" to (custom.backButtonForTest() as TextView).compoundDrawables[0]!!,
+            "edit" to editPanelBack().compoundDrawables[0]!!,
         )
-        button.layout(0, 0, button.measuredWidth, button.measuredHeight)
 
-        assertEquals("shared back control hit width", dp(48), button.width)
-        assertEquals("shared back control hit height", dp(48), button.height)
-
-        val ink = inkBounds(button)
-        assertTrue("shared back control must draw its glyph", ink.width() > 0 && ink.height() > 0)
-        val inkWidthDp = ink.width() / density
-        val inkHeightDp = ink.height() / density
-        assertEquals("back glyph ink width in dp", 14.67f, inkWidthDp, 0.75f)
-        assertEquals("back glyph ink height in dp", 18.67f, inkHeightDp, 0.75f)
-        assertTrue(
-            "back glyph must stay inside a 24dp icon box: ${inkWidthDp}dp by ${inkHeightDp}dp",
-            inkWidthDp <= 24f && inkHeightDp <= 24f,
-        )
-        assertEquals("back glyph ink center x", button.width / 2f, ink.exactCenterX(), 1f)
-        assertEquals("back glyph ink center y", button.height / 2f, ink.exactCenterY(), 1f)
-        assertEquals("shared back control icon box in dp", 24, PanelBackButton.ICON_DP)
+        for ((name, glyph) in glyphs) {
+            assertEquals("$name back icon box width", dp(PanelBackButton.ICON_DP), glyph.intrinsicWidth)
+            assertEquals("$name back icon box height", dp(PanelBackButton.ICON_DP), glyph.intrinsicHeight)
+            val ink = glyphInk(glyph)
+            assertTrue("$name must draw its glyph", ink.width() > 0 && ink.height() > 0)
+            val inkWidthDp = ink.width() / density
+            val inkHeightDp = ink.height() / density
+            assertEquals("$name back glyph ink width in dp", 12.75f, inkWidthDp, 0.75f)
+            assertEquals("$name back glyph ink height in dp", 16.69f, inkHeightDp, 0.75f)
+            assertTrue(
+                "$name back glyph must stay inside a 16dp icon box: ${inkWidthDp}dp by ${inkHeightDp}dp",
+                inkWidthDp <= 16f && inkHeightDp <= 16f,
+            )
+            assertEquals("$name back glyph ink center x", glyph.intrinsicWidth / 2f, ink.exactCenterX(), 1f)
+            assertEquals("$name back glyph ink center y", glyph.intrinsicHeight / 2f, ink.exactCenterY(), 1f)
+        }
+        assertEquals("shared back control icon box in dp", 16, PanelBackButton.ICON_DP)
     }
 }

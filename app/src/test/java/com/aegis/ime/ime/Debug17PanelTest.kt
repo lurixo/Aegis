@@ -75,7 +75,11 @@ class Debug17PanelTest {
     private fun descs(root: View): List<String> = allViews(root).mapNotNull { it.contentDescription?.toString() }
     private fun categoryScroll(root: View): HorizontalScrollView =
         allViews(root).filterIsInstance<HorizontalScrollView>()
-            .single { scroll -> allViews(scroll).none { it is PanelBackButton } }
+            .single { scroll ->
+                allViews(scroll).none {
+                    it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_back)
+                }
+            }
     private fun clickDesc(root: View, desc: String): Boolean {
         val v = allViews(root).firstOrNull { it.contentDescription?.toString() == desc && it.hasOnClickListeners() } ?: return false
         v.performClick(); return true
@@ -725,7 +729,7 @@ class Debug17PanelTest {
         val initial = tabs()
         assertEquals(listOf(clipboard, phrases), initial.map { it.first })
         assertEquals(2, initial.size)
-        assertTrue(initial.all { it.second.width() == (84 * ctx.resources.displayMetrics.density).toInt() })
+        assertTrue(initial.all { it.second.width() == (76 * ctx.resources.displayMetrics.density).toInt() })
         assertTrue(initial.all { it.second.height() == (34 * ctx.resources.displayMetrics.density).toInt() })
         assertTrue(click(view, phrases))
         layoutView()
