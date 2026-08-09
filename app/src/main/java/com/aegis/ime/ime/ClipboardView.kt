@@ -1891,6 +1891,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
                     text = batchManagementTitle()
                     gravity = Gravity.CENTER
                     maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
                     setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
                     setTypeface(null, android.graphics.Typeface.BOLD)
                 }, ll(WC, MP))
@@ -1898,6 +1899,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
                     text = context.getString(R.string.clip_selected_count, st.selected.size)
                     gravity = Gravity.CENTER
                     maxLines = 1
+                    ellipsize = android.text.TextUtils.TruncateAt.END
                     setPadding(dp(6), 0, 0, 0)
                     setTextColor(TEXT_SECONDARY); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.caption)
                 }
