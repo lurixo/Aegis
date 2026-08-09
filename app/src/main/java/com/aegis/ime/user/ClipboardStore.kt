@@ -278,16 +278,19 @@ class ClipboardStore(private val dir: File) {
 
     fun delete(text: String) = deleteAll(listOf(text))
 
-    fun deleteAll(texts: Collection<String>) {
+    fun deleteAll(texts: Collection<String>): Boolean {
         flushPendingWrites()
+        if (!historyReadable) return false
         val keys = texts.toSet()
-        if (synchronized(history) { history.removeAll { it.key in keys } }) scheduleSave()
+        if (!synchronized(history) { history.removeAll { it.key in keys } }) return true
+        return saveHistoryNow()
     }
 
-    fun clearHistory() {
+    fun clearHistory(): Boolean {
         flushPendingWrites()
-        val emptied = synchronized(history) { history.isNotEmpty().also { history.clear() } }
-        if (emptied) scheduleSave()
+        if (!historyReadable) return false
+        if (!synchronized(history) { history.isNotEmpty().also { history.clear() } }) return true
+        return saveHistoryNow()
     }
 
     fun history(): List<ClipEntry> {
@@ -452,10 +455,10 @@ class ClipboardStore(private val dir: File) {
     private fun stampPendingWrite(): PendingWrite =
         synchronized(history) { PendingWrite(saveGen.incrementAndGet(), ArrayList(history)) }
 
-    private fun scheduleSave() {
-        if (!historyReadable || LiveUserData.restoreInProgress) return
+    private fun saveHistoryNow(): Boolean {
+        if (!historyReadable || LiveUserData.restoreInProgress) return false
         val pending = stampPendingWrite()
-        runCatching { io.execute { if (pending.gen == saveGen.get()) runCatching { writeHistory(pending.rows) } } }
+        return onWriteLaneReporting { if (pending.gen == saveGen.get()) writeHistory(pending.rows) }
     }
 
     private fun writeHistory(snapshot: List<ClipEntry>) {
@@ -536,6 +539,20 @@ class ClipboardStore(private val dir: File) {
     private fun onWriteLane(work: () -> Unit) {
         val queued = runCatching { io.execute(work) }.isSuccess
         if (!queued) work()
+    }
+
+    private fun onWriteLaneReporting(work: () -> Unit): Boolean {
+        if (Thread.currentThread() === writer) return runCatching(work).isSuccess
+        val pending = runCatching { io.submit(work) }.getOrNull() ?: return false
+        return try {
+            pending.get()
+            true
+        } catch (_: InterruptedException) {
+            Thread.currentThread().interrupt()
+            false
+        } catch (_: ExecutionException) {
+            false
+        }
     }
 
     private fun onWriteLaneNow(work: () -> Unit) {

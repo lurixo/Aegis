@@ -62,10 +62,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     var onSplitSelectionFinished: () -> Unit = {}
     var onBack: () -> Unit = {}
     var historyProvider: () -> List<ClipEntry> = { emptyList() }
+    var historyReadableProvider: () -> Boolean = { true }
     var categoriesProvider: () -> List<String> = { emptyList() }
     var phrasesInProvider: (String) -> List<String> = { emptyList() }
     var phraseNoteProvider: (String, String) -> String = { _, _ -> "" }
-    var onDeleteClips: (List<String>) -> Unit = {}
+    var onDeleteClips: (List<String>) -> Boolean = { true }
     var onDeletePhrasesFrom: (String, List<String>) -> Unit = { _, _ -> }
     var onSaveAsPhrasesTo: (String, List<String>) -> Unit = { _, _ -> }
     var onEditPhrase: (String, String) -> Unit = { _, _ -> }
@@ -84,7 +85,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     var onExportPhrases: () -> Unit = {}
     var onImportPhrases: () -> Unit = {}
     var onImportPhrasesWithMode: (Boolean) -> Unit = { onImportPhrases() }
-    var onClearHistory: () -> Unit = {}
+    var onClearHistory: () -> Boolean = { true }
     var historyEnabledProvider: () -> Boolean = { true }
     var onSetHistoryEnabled: (Boolean) -> Unit = {}
 
@@ -998,7 +999,15 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
                 when {
                     swipeRevealed == text -> hideSwipe(text)
                     st.expanded == text -> toggleExpandInPlace(text)
-                    else -> entryBody(text)?.let(onPick)
+                    else -> {
+                        val body = entryBody(text)
+                        val onDevice = clipTab() && clipIndex[text]?.available == true
+                        when {
+                            body != null -> onPick(body)
+                            onDevice -> showNotice(R.string.clip_entry_unreadable_body)
+                            else -> showNotice(R.string.clip_entry_lost_body)
+                        }
+                    }
                 }
             }
             if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
@@ -1796,7 +1805,12 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun confirmClearHistory() {
         val card = menuCard()
         card.addView(menuTitle(context.getString(R.string.clip_clear_history_confirm), color = TEXT_DARK))
-        card.addView(menuItem(context.getString(R.string.clip_clear)) { hideOverlay(); onClearHistory(); st.collapse(); swipeRevealed = null; refresh() })
+        card.addView(menuItem(context.getString(R.string.clip_clear)) {
+            hideOverlay()
+            val saved = onClearHistory()
+            st.collapse(); swipeRevealed = null; refresh()
+            if (!saved) showNotice(R.string.clip_change_not_saved)
+        })
         card.addView(menuItem(context.getString(R.string.clip_cancel)) { hideOverlay() })
         showOverlay(card)
     }
@@ -2205,11 +2219,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         card.addView(menuTitle(context.getString(title), color = TEXT_DARK))
         card.addView(menuItem(context.getString(R.string.clip_delete)) {
             hideOverlay()
-            if (deleteTab == Tab.CLIPBOARD) onDeleteClips(texts) else onDeletePhrasesFrom(category, texts)
+            val saved =
+                if (deleteTab == Tab.CLIPBOARD) onDeleteClips(texts) else { onDeletePhrasesFrom(category, texts); true }
             texts.forEach(st::collapseIfExpanded)
             swipeRevealed?.let { if (it in texts) swipeRevealed = null }
             after()
             refresh()
+            if (!saved) showNotice(R.string.clip_change_not_saved)
         })
         card.addView(menuItem(context.getString(R.string.clip_cancel)) { hideOverlay() })
         showOverlay(card)
@@ -2243,9 +2259,21 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         cornerRadii = if (left) floatArrayOf(r, r, 0f, 0f, 0f, 0f, r, r) else floatArrayOf(0f, 0f, r, r, r, r, 0f, 0f)
     }
 
+    private fun showNotice(messageRes: Int) {
+        val card = menuCard()
+        card.addView(menuTitle(context.getString(messageRes), color = RED))
+        card.addView(menuItem(context.getString(R.string.clip_done)) { hideOverlay() })
+        showOverlay(card)
+    }
+
     private fun emptyHint(): View = LinearLayout(context).apply {
         orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER_HORIZONTAL; setPadding(dp(16), dp(40), dp(16), dp(16))
         if (st.tab == Tab.CLIPBOARD) {
+            if (!historyReadableProvider()) {
+                addView(hint(context.getString(R.string.clip_clipboard_unreadable), 16f, RED))
+                addView(hint(context.getString(R.string.clip_clipboard_unreadable_hint), 14f, HINT))
+                return@apply
+            }
             addView(hint(context.getString(R.string.clip_clipboard_empty), 16f, TEXT_DARK)); addView(hint(context.getString(R.string.clip_clipboard_empty_hint), 14f, HINT))
         } else {
             addView(hint(context.getString(R.string.clip_phrases_empty), 16f, TEXT_DARK)); addView(hint(context.getString(R.string.clip_phrases_empty_hint), 14f, HINT))

@@ -939,7 +939,7 @@ class ClipboardViewInteractionTest {
 
     @Test fun clear_history_top_icon_requires_confirmation() {
         var clears = 0
-        val v = clipView(listOf("第一条")).apply { onClearHistory = { clears++ } }
+        val v = clipView(listOf("第一条")).apply { onClearHistory = { clears++; true } }
         layout(v)
         assertTrue("tap the clear-history icon", clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_clear_history)))
         assertEquals("top icon does not clear immediately", 0, clears)
@@ -973,7 +973,7 @@ class ClipboardViewInteractionTest {
 
         for (expanded in listOf(false, true)) {
             val history = mutableListOf("x")
-            val clip = clipView(history).apply { onClearHistory = { history.clear() } }
+            val clip = clipView(history).apply { onClearHistory = { history.clear(); true } }
             arm(clip, expanded)
             clip.confirmClearHistoryForTest()
             assertTrue(clickText(overlayOf(clip), clear))

@@ -384,4 +384,9 @@
     <string name="clip_phrases_empty">该分类暂无常用语</string>
     <string name="clip_phrases_empty_hint">点 ＋ 添加常用语,✎ 新建分类</string>
     <string name="clip_new_category">＋ 新建分类…</string>
+    <string name="clip_clipboard_unreadable">剪贴板历史读不出来</string>
+    <string name="clip_clipboard_unreadable_hint">文件没有被改动，也没有被清空。</string>
+    <string name="clip_change_not_saved">这次改动没能写进剪贴板历史，稍后会恢复原样</string>
+    <string name="clip_entry_lost_body">这条剪贴的内容已不在此设备上</string>
+    <string name="clip_entry_unreadable_body">这条剪贴的内容还在此设备上，但读不出来</string>
 </resources>

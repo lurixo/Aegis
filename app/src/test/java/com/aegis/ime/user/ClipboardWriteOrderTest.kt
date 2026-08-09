@@ -24,6 +24,7 @@ import java.nio.file.Files
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 class ClipboardWriteOrderTest {
 
@@ -58,10 +59,26 @@ class ClipboardWriteOrderTest {
         assertTrue("precondition: the clipboard writer is occupied", entered.await(2, TimeUnit.SECONDS))
     }
 
-    private fun scheduleSave(store: ClipboardStore) {
-        val m = ClipboardStore::class.java.getDeclaredMethod("scheduleSave")
-        m.isAccessible = true
-        m.invoke(store)
+    private fun stampCount(store: ClipboardStore): Long {
+        val field = ClipboardStore::class.java.getDeclaredField("saveGen")
+        field.isAccessible = true
+        return (field.get(store) as AtomicLong).get()
+    }
+
+    private fun saveHistoryOnAnotherThread(store: ClipboardStore): Thread {
+        val method = ClipboardStore::class.java.getDeclaredMethod("saveHistoryNow")
+        method.isAccessible = true
+        val stamped = stampCount(store)
+        val saver = Thread { method.invoke(store) }.apply { isDaemon = true; start() }
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (stampCount(store) == stamped && System.nanoTime() < deadline) Thread.onSpinWait()
+        assertTrue("precondition: the save took its turn in line", stampCount(store) > stamped)
+        return saver
+    }
+
+    private fun finish(saver: Thread) {
+        saver.join(TimeUnit.SECONDS.toMillis(10))
+        assertTrue("the save must come back once the writer is free", !saver.isAlive)
     }
 
     @Test fun the_newest_history_always_wins_the_write_race() {
@@ -70,9 +87,10 @@ class ClipboardWriteOrderTest {
         occupy(s)
 
         s.record("最新一条")
-        scheduleSave(s)
+        val saver = saveHistoryOnAnotherThread(s)
 
         release?.countDown()
+        finish(saver)
         s.flushPendingWrites()
 
         assertEquals(listOf("最新一条"), s.historyText())
@@ -90,10 +108,11 @@ class ClipboardWriteOrderTest {
         s.flushPendingWrites()
         occupy(s)
 
-        scheduleSave(s)
+        val saver = saveHistoryOnAnotherThread(s)
         s.record("后来的")
 
         release?.countDown()
+        finish(saver)
         s.flushPendingWrites()
 
         assertEquals(listOf("后来的", "先有的"), s.historyText())
