@@ -15,9 +15,6 @@
 
 package com.aegis.ime.layout
 
-import android.graphics.Paint
-import android.graphics.Typeface
-import android.util.TypedValue
 import android.view.View
 import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.ime.KeyboardView
@@ -28,6 +25,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
@@ -49,29 +47,49 @@ class NineNumpadAlignmentTest {
         layout(0, 0, measuredWidth, measuredHeight)
     }
 
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test
     fun longestSyllableShowsFullyInTheLeftReadoutColumn() {
         val displayed = T9Pinyin.SYLLABLES.filter {
             it in T9Pinyin.leftColumnReadings(T9Pinyin.toT9(it), 24)
         }
         assertEquals(T9Pinyin.SYLLABLES, displayed.toSet())
-        val paint = Paint().apply {
-            textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 17f, dm)
-            typeface = Typeface.DEFAULT_BOLD
-        }
-        val widest = displayed.maxByOrNull(paint::measureText)!!
         assertEquals(6, displayed.maxOf(String::length))
         val readout = displayed.map { Key(it, output = it, action = KeyAction.PICK_READING) }
-        val sc = Layouts.nine(Lang.CN, readout, composing = true).scrollColumn!!
+        val layout = Layouts.nine(Lang.CN, readout, composing = true)
+        val sc = layout.scrollColumn!!
         assertEquals(0.85f / 4.7f, sc.w, 1e-5f)
-        val colWpx = sc.w * wPx - 2 * gapPx
-        val avail = colWpx - 12f * dm.density
+        val view = actual(layout)
+        val floor = view.scrollLabelMinTextSizeForTest()
+        assertEquals(11f * dm.density, floor, 1e-5f)
+        val avail = sc.w * wPx - 2 * gapPx - 12f * dm.density
+        for (syllable in displayed) {
+            val fitted = view.scrollLabelTextSizeForTest(syllable)
+            assertTrue(
+                "$syllable is shrunk to ${fitted}px, at or under the ${floor}px floor where the column starts cutting glyphs",
+                fitted > floor,
+            )
+            assertTrue(
+                "$syllable draws ${view.scrollLabelWidthForTest(syllable)}px at ${fitted}px, past the ${avail}px the column leaves it",
+                view.scrollLabelWidthForTest(syllable) <= avail + 0.5f,
+            )
+        }
+        val unshrunk = view.scrollLabelTextSizeForTest("n")
+        val firstShrunk = requireNotNull(
+            (1..200).map { "n".repeat(it) }.firstOrNull { view.scrollLabelTextSizeForTest(it) < unshrunk },
+        ) { "no label was ever shrunk, so the ${avail}px the column leaves is not what triggers shrinking" }
         assertTrue(
-            "$widest (${paint.measureText(widest)}px @ bold 17sp) must show fully in the ${avail}px left column",
-            displayed.all { paint.measureText(it) <= avail + 0.5f },
+            "the first shrunk label draws ${view.scrollLabelWidthForTest(firstShrunk)}px, so shrinking starts past the ${avail}px the column leaves",
+            view.scrollLabelWidthForTest(firstShrunk) <= avail + 0.5f,
         )
-        val right = cells(Layouts.nine(Lang.CN, readout, composing = true))
-            .first { it.key.action == KeyAction.BACKSPACE }
+        val overlong = displayed.joinToString("").take(64)
+        assertEquals(
+            "a label the column cannot fit at any readable size stops shrinking at the floor",
+            floor,
+            view.scrollLabelTextSizeForTest(overlong),
+            1e-5f,
+        )
+        val right = cells(layout).first { it.key.action == KeyAction.BACKSPACE }
         assertEquals(sc.w, right.w, 1e-5f)
     }
 

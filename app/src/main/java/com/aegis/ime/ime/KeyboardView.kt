@@ -428,6 +428,16 @@ class KeyboardView(context: Context) : View(context) {
         return if (idx in sc.items.indices) idx else -1
     }
 
+    private fun scrollLabelMinTextSize(): Float = SCROLL_LABEL_MIN_DP * density
+
+    private fun fittedScrollLabelTextSize(label: String, baseTextSize: Float): Float {
+        val avail = scrollRegion.width() - SCROLL_LABEL_INSET_DP * density
+        scrollLabelPaint.textSize = baseTextSize
+        val w = scrollLabelPaint.measureText(label)
+        if (w <= avail || avail <= 0f) return baseTextSize
+        return (baseTextSize * avail / w).coerceAtLeast(scrollLabelMinTextSize())
+    }
+
     private fun drawScrollColumn(canvas: Canvas) {
         val sc = scrollColumn ?: return
         if (scrollRegion.isEmpty || scrollCellH <= 0f || sc.items.isEmpty()) return
@@ -437,8 +447,6 @@ class KeyboardView(context: Context) : View(context) {
         val paint = scrollLabelPaint
         val baseTextSize = paint.textSize
         val baseColor = paint.color
-        val avail = scrollRegion.width() - 12f * density
-        val minTextSize = 11f * density
         for ((i, key) in sc.items.withIndex()) {
             val top = scrollRegion.top - scrollY + i * scrollCellH
             val bottom = top + scrollCellH
@@ -450,10 +458,8 @@ class KeyboardView(context: Context) : View(context) {
                 canvas.drawRoundRect(tmpRect, keyRadius * 0.6f, keyRadius * 0.6f, pressHighlight)
             }
             val label = displayLabel(key)
-            paint.textSize = baseTextSize
             paint.color = if (key.accent) palette.accentBottom else baseColor
-            val w = paint.measureText(label)
-            if (w > avail && avail > 0f) paint.textSize = (baseTextSize * avail / w).coerceAtLeast(minTextSize)
+            paint.textSize = fittedScrollLabelTextSize(label, baseTextSize)
             paint.getTextBounds(label, 0, label.length, inkBounds)
             val cellCx = scrollRegion.centerX()
             val cellCy = (top + bottom) / 2f
@@ -707,6 +713,23 @@ class KeyboardView(context: Context) : View(context) {
     internal fun previewActiveForTest(): Boolean = previewKey != null
 
     internal fun displayLabelForTest(key: Key): String = displayLabel(key)
+
+    internal fun scrollLabelMinTextSizeForTest(): Float = scrollLabelMinTextSize()
+
+    internal fun scrollLabelTextSizeForTest(label: String): Float {
+        val base = scrollLabelPaint.textSize
+        val fitted = fittedScrollLabelTextSize(label, base)
+        scrollLabelPaint.textSize = base
+        return fitted
+    }
+
+    internal fun scrollLabelWidthForTest(label: String): Float {
+        val base = scrollLabelPaint.textSize
+        scrollLabelPaint.textSize = fittedScrollLabelTextSize(label, base)
+        val width = scrollLabelPaint.measureText(label)
+        scrollLabelPaint.textSize = base
+        return width
+    }
 
     internal fun keyLabelPaintsUseNormalWeightForTest(): Boolean = listOf(
         labelPaint,
@@ -1203,6 +1226,8 @@ class KeyboardView(context: Context) : View(context) {
         const val LONG_PRESS_MS = 300L
         const val RETARGET_HOLD_MS = 120L
         const val INK_CENTERED_GLYPHS = "，。"
+        const val SCROLL_LABEL_INSET_DP = 12f
+        const val SCROLL_LABEL_MIN_DP = 11f
     }
 }
 
