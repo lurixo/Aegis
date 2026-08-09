@@ -23,6 +23,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.TimeUnit
 
 class UserLearningTest {
 
@@ -417,7 +418,10 @@ class UserLearningTest {
             spin { repeat(200) { m.save(saveOut) } },
         )
         threads.forEach { it.start() }
-        threads.forEach { it.join() }
+        threads.forEach {
+            it.join(TimeUnit.SECONDS.toMillis(60))
+            assertFalse("a worker was still running after sixty seconds", it.isAlive)
+        }
         assertTrue("no concurrency exception expected, got: ${errors.toList()}", errors.isEmpty())
 
         val finalOut = tempFile("userlearn-final")
