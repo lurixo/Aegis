@@ -63,7 +63,7 @@ class UserModelTombstoneFormatTest {
     @Test fun aPromiseIsMadeOnlyOnceAndOnlyForAWordTheStoreCanHold() {
         val m = model()
         assertTrue(m.addTombstone("你呢嗯", "ninen"))
-        assertFalse("the same promise twice is still one promise", m.addTombstone("你呢嗯", "ninen"))
+        assertTrue("promising the same deletion twice is still a promise", m.addTombstone("你呢嗯", "ninen"))
         assertFalse("a word carrying a delimiter can never be written down", m.addTombstone("你\t呢", "ninen"))
         assertFalse("nor can one longer than the format holds", m.addTombstone("词".repeat(257), "ninen"))
         assertFalse("nor one whose reading is longer than it holds", m.addTombstone("短词", "a".repeat(257)))

@@ -45,10 +45,17 @@ object UserLearnEdit {
             val learning = loaded(userLearn)
             if (!learning.readable) return false
             learning.removeFormed(word, reading)
-            if (learning.dirty) learning.save(userLearn)
-            true
+            if (!learning.dirty) return true
+            if (runCatching { learning.save(userLearn) }.isSuccess) return true
+            owe(File(userLearn.absoluteFile.parentFile, "userdb.txt"), word, reading)
+            false
         }.getOrDefault(false)
     }
+
+    private fun owe(userDb: File, word: String, reading: String): Boolean = runCatching {
+        val m = UserModel().apply { if (userDb.exists()) load(userDb, sweepStale = false) }
+        m.addTombstone(word, reading) && runCatching { m.save(userDb) }.isSuccess
+    }.getOrDefault(false)
 
     fun clear(userLearn: File): Boolean {
         UserDictHot.host?.let { return it.clearLearned() }

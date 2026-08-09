@@ -34,14 +34,17 @@ object UserDictEdit {
         if (word.isBlank()) return false
         UserDictHot.host?.let { return it.removeWord(reading, word) }
         return runCatching {
+            val userLearn = File(userDb.absoluteFile.parentFile, "userlearn.txt")
+            val learning = UserLearning().apply { if (userLearn.exists()) load(userLearn) }
+            if (!learning.readable) return false
             val m = UserModel().apply { if (userDb.exists()) load(userDb) }
             m.removeWord(reading, word)
             m.save(userDb)
-            val userLearn = File(userDb.absoluteFile.parentFile, "userlearn.txt")
-            val learning = UserLearning().apply { if (userLearn.exists()) load(userLearn) }
             learning.removeWord(word)
-            if (learning.dirty) learning.save(userLearn)
-        }.isSuccess
+            if (!learning.dirty) return true
+            if (runCatching { learning.save(userLearn) }.isSuccess) return true
+            m.addTombstone(word, "") && runCatching { m.save(userDb) }.isSuccess
+        }.getOrDefault(false)
     }
 
     fun applyImport(userDb: File, importFile: File, merge: Boolean, now: Long): Boolean {
