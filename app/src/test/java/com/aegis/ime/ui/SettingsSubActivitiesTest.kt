@@ -257,6 +257,8 @@ class InputSettingsAutoLearnClearTest {
 
         scenario = ActivityScenario.launch(InputSettingsActivity::class.java)
         compose.onNodeWithTag("auto_learn_unreadable").performScrollTo().assertExists()
+        compose.onNodeWithText(ctxString(R.string.user_learn_unreadable)).performScrollTo().assertExists()
+        compose.onAllNodesWithText(ctxString(R.string.user_learn_unreadable_kept)).assertCountEquals(0)
         compose.onNodeWithTag("auto_learn_count").assertDoesNotExist()
         assertTrue("the unreadable file is left as it was", learn.readText().startsWith("not a learning file"))
 
@@ -270,6 +272,23 @@ class InputSettingsAutoLearnClearTest {
             learn.readText().startsWith("aegis-userlearn"),
         )
         compose.onNodeWithTag("auto_learn_count").performScrollTo().assertExists()
+    }
+
+    @Test fun a_live_keyboard_that_still_holds_the_learned_words_does_not_say_they_are_not_shown() {
+        val learning = UserLearning()
+        learn.writeText("aegis-userlearn 1\nF\tninen\t你呢嗯\t4.0\t1700000000000\n")
+        learning.load(learn)
+        assertTrue("precondition: the word was learned", learning.formedEntries().isNotEmpty())
+        learn.writeText("aegis-userlearn 1\nF\tninen\t你呢嗯\t4.0\t1700000000000\nF\tzh")
+        learning.load(learn)
+        assertFalse("precondition: the store can no longer be read", learning.readable)
+        assertTrue("precondition: the keyboard still holds it", learning.formedEntries().isNotEmpty())
+        UserDictHot.host = liveHost(UserModel(), java.io.File(ctx.filesDir, "userdb.txt"), learning, learn)
+
+        scenario = ActivityScenario.launch(InputSettingsActivity::class.java)
+
+        compose.onNodeWithText(ctxString(R.string.user_learn_unreadable_kept)).performScrollTo().assertExists()
+        compose.onAllNodesWithText(ctxString(R.string.user_learn_unreadable)).assertCountEquals(0)
     }
 
     @Test fun a_live_keyboard_holding_an_unreadable_learning_store_still_says_so_and_offers_the_way_out() {

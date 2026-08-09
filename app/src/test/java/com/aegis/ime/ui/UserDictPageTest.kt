@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ui
 
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -428,6 +429,27 @@ class UserDictPageTest {
         compose.onNodeWithTag("user_dict_count").assertExists()
         compose.onNodeWithTag("user_dict_auto_clear").assertIsEnabled()
         assertTrue("the unreadable learning file is left as it was", learn.readText().startsWith("not a learning file"))
+    }
+
+    @Test fun learned_data_the_keyboard_still_holds_is_not_described_as_not_shown() {
+        seed(0, "nihao" to "你好")
+        seedLearned("你" to "ni", "呢" to "ne", "嗯" to "en")
+        val learning = UserLearning { 1_700_000_000_000L }.apply { load(learn) }
+        assertTrue("precondition: the word was learned", learning.formedEntries().isNotEmpty())
+        learn.writeText("aegis-userlearn 1\nF\tzh")
+        learning.load(learn)
+        assertTrue("precondition: the keyboard still holds it", learning.formedEntries().isNotEmpty())
+        assertTrue("precondition: the store can no longer be read", !learning.readable)
+        UserDictHot.host = liveHost(UserModel(), db, learning, learn)
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_list")
+            .performScrollToNode(hasText(s(R.string.user_learn_unreadable_kept)))
+        compose.onNodeWithTag("user_learn_unreadable").assertExists()
+        compose.onAllNodesWithText(s(R.string.user_learn_unreadable)).assertCountEquals(0)
+        compose.onNodeWithTag("user_dict_list")
+            .performScrollToNode(hasText("你呢嗯", substring = true))
+            .assertExists()
     }
 
     private class RefusingHost(
