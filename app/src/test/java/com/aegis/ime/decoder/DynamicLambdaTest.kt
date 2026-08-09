@@ -103,9 +103,29 @@ class DynamicLambdaTest {
         }
     }
 
+    private fun sentenceOf(decoder: PinyinDecoder, input: String, context: String): String? =
+        BEST_SENTENCE.invoke(decoder, input, emptySet<Int>(), decoder.parseContext(context)) as String?
+
     @Test fun the_free_segmentation_sentence_still_uses_the_word_bigram_at_a_fresh_start() {
-        for (weight in OTHER_WEIGHTS) {
-            assertNotEquals("lambda=$weight must move the sentence path with no committed text", renderSentences(0.0, ""), renderSentences(weight, ""))
+        val shipped = decoder(PinyinDecoder.DEFAULT_LAMBDA)
+        val off = decoder(0.0)
+        for ((input, expected) in FRESH_START_SENTENCES) {
+            val (withWeight, withoutWeight) = expected
+            assertEquals("bestSentence(\"$input\") at the shipped weight", withWeight, sentenceOf(shipped, input, ""))
+            assertEquals("bestSentence(\"$input\") at weight zero", withoutWeight, sentenceOf(off, input, ""))
+        }
+        assertNotEquals(
+            "the table must hold at least one input the weight actually moves",
+            FRESH_START_SENTENCES.values.map { it.first },
+            FRESH_START_SENTENCES.values.map { it.second },
+        )
+    }
+
+    @Test fun the_free_segmentation_sentence_still_reads_the_committed_tail_after_it() {
+        val shipped = decoder(PinyinDecoder.DEFAULT_LAMBDA)
+        for ((key, expected) in COMMITTED_SENTENCES) {
+            val (context, input) = key
+            assertEquals("bestSentence(\"$input\") after \"$context\"", expected, sentenceOf(shipped, input, context))
         }
     }
 
@@ -116,5 +136,22 @@ class DynamicLambdaTest {
         val OTHER_WEIGHTS = listOf(PinyinDecoder.DEFAULT_LAMBDA, 1.0, 4.0)
         val HAN_CONTEXTS = listOf("想", "词", "不", "九", "我们想")
         val NON_HAN_CONTEXTS = listOf("", "abc", "hello, ", "1234", "。")
+        val FRESH_START_SENTENCES = linkedMapOf(
+            "cici" to ("次词" to "次次"),
+            "cixian" to ("次现" to "次西安"),
+            "kuci" to ("库词" to "库次"),
+            "xianci" to ("现词" to "西安次"),
+            "shixian" to ("实现" to "实现"),
+        )
+        val COMMITTED_SENTENCES = linkedMapOf(
+            ("想" to "ci") to "词",
+            ("想" to "ku") to "哭",
+            ("不" to "ci") to "词",
+            ("想" to "cici") to "词次",
+            ("不" to "cici") to "词次",
+        )
+        val BEST_SENTENCE = PinyinDecoder::class.java.getDeclaredMethod(
+            "bestSentence", String::class.java, Set::class.java, PinyinDecoder.Ctx::class.java,
+        ).apply { isAccessible = true }
     }
 }
