@@ -85,4 +85,56 @@ class ClipboardPhraseLockTest {
         assertFalse("the edit must go through once the list is free", editor.isAlive)
         assertEquals(listOf("等着写"), s.phrases())
     }
+
+    @Test fun a_phrase_reload_waits_while_another_thread_holds_the_phrase_list() {
+        val dir = newDir()
+        val s = store(dir)
+        File(dir, "phrases.txt").writeText("C\t甲\nP\t盘上的常用语\n")
+        val started = CountDownLatch(1)
+        val reloader = Thread {
+            started.countDown()
+            s.reloadPhrases()
+        }.apply { isDaemon = true }
+
+        synchronized(phraseList(s)) {
+            reloader.start()
+            assertTrue("precondition: the reloading thread ran", started.await(30, TimeUnit.SECONDS))
+            settle(reloader, setOf(Thread.State.BLOCKED))
+            assertEquals(
+                "a reload must wait for the list rather than swap it out from under an edit",
+                Thread.State.BLOCKED,
+                reloader.state,
+            )
+            assertEquals("and it must not have replaced anything yet", emptyList<String>(), s.phrases())
+        }
+
+        reloader.join(TimeUnit.SECONDS.toMillis(30))
+        assertFalse("the reload must go through once the list is free", reloader.isAlive)
+        assertEquals(listOf("盘上的常用语"), s.phrases())
+    }
+
+    @Test fun a_phrase_import_lets_go_of_the_list_while_it_waits_for_the_writer() {
+        val dir = newDir()
+        val s = store(dir)
+        val entered = CountDownLatch(1)
+        val gate = CountDownLatch(1).also { gates += it }
+        writer(s).execute {
+            entered.countDown()
+            gate.await(30, TimeUnit.SECONDS)
+            s.reloadPhrases()
+        }
+        assertTrue("precondition: the writer is busy", entered.await(30, TimeUnit.SECONDS))
+
+        val importer = Thread { s.importPhrasesText("C\t甲\nP\t导入的常用语\n", merge = false) }
+            .apply { isDaemon = true; start() }
+        settle(importer, setOf(Thread.State.WAITING, Thread.State.TIMED_WAITING))
+        gate.countDown()
+        importer.join(TimeUnit.SECONDS.toMillis(30))
+
+        assertFalse(
+            "an import must not hold the phrase list while it waits for the writer to take its turn",
+            importer.isAlive,
+        )
+        assertEquals(listOf("导入的常用语"), store(dir).phrases())
+    }
 }

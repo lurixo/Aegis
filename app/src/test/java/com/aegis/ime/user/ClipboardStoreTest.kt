@@ -19,6 +19,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -1187,6 +1188,121 @@ class ClipboardStoreTest {
         } finally {
             phrases.setReadable(true, true)
         }
+    }
+
+    private fun phraseCategoryObjects(s: ClipboardStore): List<Any?> {
+        val field = ClipboardStore::class.java.getDeclaredField("phraseCats")
+        field.isAccessible = true
+        val list = field.get(s) as List<*>
+        return synchronized(list) { ArrayList(list) }
+    }
+
+    private fun assertSameObjects(message: String, expected: List<Any?>, actual: List<Any?>) {
+        assertEquals(message, expected.size, actual.size)
+        for (i in expected.indices) assertSame(message, expected[i], actual[i])
+    }
+
+    @Test fun a_phrase_file_nobody_changed_is_not_parsed_again_on_reload() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply {
+            load()
+            addCategory("工作")
+            addPhrasesTo("工作", listOf("一", "二"))
+            setPhraseNote("工作", "一", "注")
+            flushPendingWrites()
+        }
+        val written = phraseCategoryObjects(s)
+
+        s.reloadPhrases()
+
+        assertSameObjects("a reload over the file this store just wrote must keep what it holds", written, phraseCategoryObjects(s))
+
+        val loaded = ClipboardStore(dir).apply { load() }
+        val fromDisk = phraseCategoryObjects(loaded)
+        loaded.reloadPhrases()
+        assertSameObjects("a reload over the file this store just read must keep what it holds", fromDisk, phraseCategoryObjects(loaded))
+        assertEquals(listOf("一", "二"), loaded.phrasesIn("工作"))
+        assertEquals("注", loaded.noteFor("工作", "一"))
+    }
+
+    @Test fun a_phrase_file_changed_outside_is_read_again_on_reload() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("原有")); flushPendingWrites() }
+        val before = phraseCategoryObjects(s)
+
+        File(dir, "phrases.txt").writeText("C\t工作\nP\t外面改的\nN\t外面的注\n")
+        s.reloadPhrases()
+
+        assertFalse("a changed file must be parsed again", before.first() === phraseCategoryObjects(s).first())
+        assertEquals(listOf("工作"), s.categories())
+        assertEquals(listOf("外面改的"), s.phrasesIn("工作"))
+        assertEquals("外面的注", s.noteFor("工作", "外面改的"))
+
+        File(dir, "phrases.txt").delete()
+        s.reloadPhrases()
+        assertEquals("a phrase file that is gone reads as a first run again", listOf(ClipboardStore.DEFAULT_CATEGORY_ID), s.categories())
+    }
+
+    @Test fun a_phrase_edit_that_never_reached_the_file_is_still_taken_back_on_reload() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("原有")); flushPendingWrites() }
+        val blocker = s.tempFileFor(File(dir, "phrases.txt"))
+        assertTrue("precondition: the phrase write is blocked", blocker.mkdirs())
+        assertTrue(File(blocker, "occupied").createNewFile())
+
+        assertEquals(1, s.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("写不进去的")))
+        s.flushPendingWrites()
+        s.reloadPhrases()
+
+        assertEquals("what the list shows must be what the file holds", listOf("原有"), s.phrases())
+        assertTrue(File(blocker, "occupied").delete())
+        assertTrue(blocker.delete())
+    }
+
+    @Test fun a_category_made_only_in_memory_is_still_taken_back_on_reload() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("原有")); flushPendingWrites() }
+
+        assertEquals(0, s.addPhrasesTo("没存过的分类", listOf(" ")))
+        assertTrue("precondition: the category was made without a write", "没存过的分类" in s.categories())
+        s.reloadPhrases()
+
+        assertEquals(listOf(ClipboardStore.DEFAULT_CATEGORY_ID), s.categories())
+    }
+
+    @Test fun a_note_looked_up_before_an_edit_is_never_served_stale_after_it() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply {
+            load(); addCategory("甲"); addCategory("乙")
+            addPhrasesTo("甲", listOf("p", "q"))
+            setPhraseNote("甲", "p", "旧注")
+        }
+        assertEquals("旧注", s.noteFor("甲", "p"))
+
+        s.setPhraseNote("甲", "p", "新注")
+        assertEquals("新注", s.noteFor("甲", "p"))
+
+        assertTrue(s.editPhrase("甲", "p", "p2"))
+        assertEquals("", s.noteFor("甲", "p"))
+        assertEquals("新注", s.noteFor("甲", "p2"))
+
+        assertTrue(s.movePhrase("甲", "p2", "乙"))
+        assertEquals("", s.noteFor("甲", "p2"))
+        assertEquals("新注", s.noteFor("乙", "p2"))
+
+        assertTrue(s.renameCategory("乙", "丙"))
+        assertEquals("新注", s.noteFor("丙", "p2"))
+
+        s.deletePhrase("p2")
+        assertEquals("", s.noteFor("丙", "p2"))
+
+        assertTrue(s.importPhrasesText("C\t甲\nP\tq\nN\t导入的注\n", merge = true))
+        assertEquals("导入的注", s.noteFor("甲", "q"))
+
+        s.flushPendingWrites()
+        File(dir, "phrases.txt").writeText("C\t甲\nP\tq\nN\t外面的注\n")
+        s.reloadPhrases()
+        assertEquals("外面的注", s.noteFor("甲", "q"))
     }
 
     private class RefPhrase(val text: String, var note: String = "")

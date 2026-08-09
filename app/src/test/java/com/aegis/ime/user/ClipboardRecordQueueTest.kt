@@ -242,6 +242,33 @@ class ClipboardRecordQueueTest {
         assertEquals(listOf("交班前的最后一条"), store(dir).historyText())
     }
 
+    @Test(timeout = 30_000) fun a_write_that_never_finishes_does_not_hold_up_reading_the_panel() {
+        val dir = newDir()
+        val s = store(dir)
+        val entered = CountDownLatch(1)
+        val gate = CountDownLatch(1)
+        release = gate
+        writer(s).execute {
+            entered.countDown()
+            gate.await(20, TimeUnit.SECONDS)
+        }
+        assertTrue("precondition: the file writer is occupied", entered.await(2, TimeUnit.SECONDS))
+
+        s.record("刚复制的")
+
+        val startedAt = System.nanoTime()
+        val rows = s.history()
+        s.reloadPhrases()
+        val waitedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+
+        assertEquals("what the panel opens on must already hold the clip", listOf("刚复制的"), rows.map { it.body() })
+        assertTrue(
+            "opening the panel waited ${waitedMillis}ms behind a write that never finishes",
+            waitedMillis < 2_000,
+        )
+        assertFalse("precondition: the write really was still stuck", File(dir, "clipboard.txt").exists())
+    }
+
     @Test(timeout = 30_000) fun a_clip_whose_write_is_stuck_is_never_left_off_the_panel() {
         val dir = newDir()
         val s = store(dir)
@@ -255,6 +282,50 @@ class ClipboardRecordQueueTest {
             s.history().map { it.body() },
         )
         assertFalse("precondition: the write really was still stuck", File(dir, "clipboard.txt").exists())
+    }
+
+    @Test fun a_reload_never_throws_away_a_phrase_edit_the_writer_still_holds() {
+        val dir = newDir()
+        val s = store(dir)
+        File(dir, "phrases.txt").writeText("C\t甲\nP\t盘上的\n")
+        s.load()
+        occupy(s)
+
+        assertEquals(1, s.addPhrasesTo("甲", listOf("刚加的")))
+        s.reloadPhrases()
+
+        assertEquals(
+            "a reload must not put back a file that is older than the edit still on its way to it",
+            listOf("刚加的", "盘上的"),
+            s.phrasesIn("甲"),
+        )
+        release?.countDown()
+        s.flushPendingWrites()
+        assertEquals(listOf("刚加的", "盘上的"), store(dir).phrasesIn("甲"))
+    }
+
+    @Test fun a_reload_after_one_phrase_write_landed_and_the_next_failed_still_takes_back_the_failed_edit() {
+        val dir = newDir()
+        val s = store(dir)
+        occupy(s)
+
+        assertEquals(1, s.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("写进去的")))
+        val blocker = s.tempFileFor(File(dir, "phrases.txt"))
+        writer(s).execute { blocker.mkdirs(); File(blocker, "occupied").createNewFile() }
+        assertEquals(1, s.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("没写进去的")))
+        release?.countDown()
+        s.flushPendingWrites()
+        assertEquals("precondition: only the first edit reached the file", listOf("写进去的"), store(dir).phrases())
+
+        s.reloadPhrases()
+
+        assertEquals(
+            "a file stamp taken for an older edit must not vouch for a newer one that never landed",
+            listOf("写进去的"),
+            s.phrases(),
+        )
+        File(blocker, "occupied").delete()
+        blocker.delete()
     }
 
     @Test fun a_reload_never_sees_half_of_a_clip_that_was_still_being_filed() {
