@@ -18,6 +18,7 @@ package com.aegis.ime.user
 import com.aegis.ime.layout.SymbolCatalog
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
@@ -41,7 +42,7 @@ class SymbolUsageStore(private val dir: File) {
         used.clear()
         val seen = HashSet<String>()
         readable = runCatching {
-            if (file.exists()) file.readLines().forEach { line ->
+            if (file.exists()) Files.readAllLines(file.toPath()).forEach { line ->
                 if (line.isEmpty()) return@forEach
                 val tab = line.indexOf('\t')
                 val symbol = if (tab >= 0) line.substring(0, tab) else line

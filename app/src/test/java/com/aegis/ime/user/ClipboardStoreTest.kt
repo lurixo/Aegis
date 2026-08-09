@@ -129,6 +129,27 @@ class ClipboardStoreTest {
         assertEquals("what could not be read must not be thrown away either", "读不出来的一条\n", index.readText())
     }
 
+    @Test fun a_history_whose_bytes_went_bad_reads_as_a_history_nobody_could_read() {
+        val dir = newDir()
+        val index = File(dir, "clipboard.txt")
+        index.writeBytes("好好保存的\n".toByteArray(Charsets.UTF_8) + byteArrayOf(0xE4.toByte(), 0xB8.toByte(), 0xFF.toByte()))
+        val s = ClipboardStore(dir).apply { load() }
+
+        assertFalse("a file the app cannot decode is not a history it could read", s.historyReadable)
+        assertTrue("and nothing half decoded may stand in for it", s.historyText().isEmpty())
+    }
+
+    @Test fun a_phrase_file_whose_bytes_went_bad_reads_as_a_phrase_list_nobody_could_read() {
+        val dir = newDir()
+        val saved = "C\t工作\nP\t好好保存的\n".toByteArray(Charsets.UTF_8) + "尾".toByteArray(Charsets.UTF_8).dropLast(1).toByteArray()
+        File(dir, "phrases.txt").writeBytes(saved)
+        val s = ClipboardStore(dir).apply { load() }
+
+        assertFalse("a file cut off part way through a character is not one the app could read", s.phrasesReadable)
+        assertTrue("and nothing half decoded may stand in for it", s.phrases().isEmpty())
+        assertFalse("nor may an edit be reported as done over it", s.addCategory("新组"))
+    }
+
     @Test fun a_clip_copied_over_a_history_nobody_could_read_never_stands_in_for_it() {
         val dir = newDir()
         val index = File(dir, "clipboard.txt").apply { writeText("读不出来的一条\n") }
