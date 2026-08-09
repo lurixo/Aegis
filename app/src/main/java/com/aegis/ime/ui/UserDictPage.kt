@@ -16,6 +16,8 @@
 package com.aegis.ime.ui
 
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
@@ -61,6 +63,7 @@ import com.aegis.ime.user.UserDictSearch
 import com.aegis.ime.user.UserLearnEdit
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
+import com.aegis.ime.user.UserStoreEdits
 import java.io.File
 
 @Composable
@@ -96,7 +99,21 @@ internal fun UserDictPage(onBack: () -> Unit) {
     }
     var newWord by remember { mutableStateOf("") }
     var newReading by remember { mutableStateOf("") }
-    fun reload() { summary = UserDictEdit.summary(userDb) }
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+
+    fun edit(success: String, failure: String, done: (Boolean) -> Unit = {}, work: () -> Boolean) {
+        UserStoreEdits.submit {
+            val landed = runCatching(work).getOrDefault(false)
+            val nextSummary = UserDictEdit.summary(userDb)
+            val nextLearned = UserLearnEdit.view(userLearn)
+            mainHandler.post {
+                summary = nextSummary
+                learnedView = nextLearned
+                done(landed)
+                Toast.makeText(context, if (landed) success else failure, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain"),
@@ -114,73 +131,49 @@ internal fun UserDictPage(onBack: () -> Unit) {
     ) { uri -> if (uri != null) pendingImport = uri }
 
     fun applyImport(uri: Uri, merge: Boolean) {
-        val ok = runCatching {
-            val tmp = File(context.cacheDir, "import_userdb.txt")
-            tmp.delete()
-            val staged = context.contentResolver.openInputStream(uri)?.use { UserDictImport.stage(it, tmp) } ?: false
-            (staged && UserDictEdit.applyImport(userDb, tmp, merge, System.currentTimeMillis()))
-                .also { tmp.delete() }
-        }.getOrDefault(false)
-        if (ok) reload()
-        Toast.makeText(
-            context,
-            if (ok) {
-                if (merge) {
-                    importMergedToast
-                } else {
-                    importOverwrittenToast
-                }
-            } else {
-                importFailedToast
-            },
-            Toast.LENGTH_SHORT,
-        ).show()
+        edit(if (merge) importMergedToast else importOverwrittenToast, importFailedToast) {
+            val staging = File(context.cacheDir, "import_userdb.txt")
+            staging.delete()
+            val staged = context.contentResolver.openInputStream(uri)?.use { UserDictImport.stage(it, staging) } ?: false
+            (staged && UserDictEdit.applyImport(userDb, staging, merge, System.currentTimeMillis()))
+                .also { staging.delete() }
+        }
     }
 
     fun readingHasLetter(s: String): Boolean = s.any { it in 'a'..'z' || it in 'A'..'Z' }
 
     fun addWord() {
         val word = newWord.trim()
-        if (word.isEmpty() || !readingHasLetter(newReading)) {
+        val typedReading = newReading
+        if (word.isEmpty() || !readingHasLetter(typedReading)) {
             Toast.makeText(context, addFailedToast, Toast.LENGTH_SHORT).show()
             return
         }
-        if (!UserModel.acceptsManualWord(word, newReading)) {
+        if (!UserModel.acceptsManualWord(word, typedReading)) {
             Toast.makeText(context, addRejectedToast, Toast.LENGTH_SHORT).show()
             return
         }
-        val reading = UserModel.normalizeReading(newReading)
+        val reading = UserModel.normalizeReading(typedReading)
         val known = entries.any { it.reading == reading && it.word == word }
-        val saved = UserDictEdit.add(userDb, word, newReading, System.currentTimeMillis())
-        if (saved) { newWord = ""; newReading = "" }
-        reload()
-        val message = when {
-            !saved -> writeFailedToast
-            known -> keptToast
-            else -> addedToast
+        edit(
+            if (known) keptToast else addedToast,
+            writeFailedToast,
+            { landed -> if (landed) { newWord = ""; newReading = "" } },
+        ) {
+            UserDictEdit.add(userDb, word, typedReading, System.currentTimeMillis())
         }
-        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
     }
 
-    fun reloadLearned() { learnedView = UserLearnEdit.view(userLearn) }
-
     fun deleteWord(reading: String, word: String) {
-        val saved = UserDictEdit.remove(userDb, reading, word)
-        reload()
-        reloadLearned()
-        Toast.makeText(context, if (saved) deletedToast else writeFailedToast, Toast.LENGTH_SHORT).show()
+        edit(deletedToast, writeFailedToast) { UserDictEdit.remove(userDb, reading, word) }
     }
 
     fun deleteLearned(entry: UserLearning.Formed) {
-        val saved = UserLearnEdit.remove(userLearn, entry.word, entry.reading)
-        reloadLearned()
-        Toast.makeText(context, if (saved) deletedToast else writeFailedToast, Toast.LENGTH_SHORT).show()
+        edit(deletedToast, writeFailedToast) { UserLearnEdit.remove(userLearn, entry.word, entry.reading) }
     }
 
     fun clearLearned() {
-        val saved = UserLearnEdit.clear(userLearn)
-        reloadLearned()
-        Toast.makeText(context, if (saved) autoClearedToast else writeFailedToast, Toast.LENGTH_SHORT).show()
+        edit(autoClearedToast, writeFailedToast) { UserLearnEdit.clear(userLearn) }
     }
 
     fun startExport() {
