@@ -147,6 +147,7 @@ object BackupManager {
         var handedOff = false
         try {
             try {
+                RestoreJournal.finishAnyInterrupted(filesDir, prefs)
                 val live = UserDictHot.host
                 if (live != null && !live.flushDictionary() && live.dictionaryReadable()) {
                     throw IOException("user dictionary flush failed")
@@ -172,13 +173,22 @@ object BackupManager {
             val damaged = StoreHealth.unreadableIn(staging, liveStores = false)
             if (damaged.isNotEmpty()) throw BackupException(BackupError.DAMAGED_CONTENT, items = damaged)
 
-            try {
-                commit(filesDir, prefs, staging, visitor.prefsBlob, mode)
-            } catch (e: BackupCorruptException) {
-                throw BackupException(BackupError.WRONG_PASSWORD_OR_CORRUPT, e)
+            val journal = try {
+                RestoreJournal.open(filesDir, prefs)
             } catch (e: Exception) {
                 throw BackupException(BackupError.IO_ERROR, e)
             }
+            try {
+                commit(filesDir, prefs, staging, visitor.prefsBlob, mode)
+                journal.markDone()
+            } catch (e: Exception) {
+                if (runCatching { journal.rollBack(prefs) }.isSuccess) handedOff = reloadLiveStores(filesDir)
+                throw when (e) {
+                    is BackupCorruptException -> BackupException(BackupError.WRONG_PASSWORD_OR_CORRUPT, e)
+                    else -> BackupException(BackupError.IO_ERROR, e)
+                }
+            }
+            journal.discard()
 
             val reload = LiveUserData.onRestored
             if (reload != null) {
@@ -190,6 +200,16 @@ object BackupManager {
             staging.deleteRecursively()
             if (!handedOff) LiveUserData.restoreInProgress = false
         }
+    }
+
+    private fun reloadLiveStores(filesDir: File): Boolean {
+        val host = UserDictHot.host
+        val userDb = File(filesDir, USERDB)
+        if (host != null && userDb.isFile) {
+            runCatching { host.importUserDict(userDb, false, System.currentTimeMillis()) }
+        }
+        val reload = LiveUserData.onRestored ?: return false
+        return runCatching { reload() }.isSuccess
     }
 
     private class StagingVisitor(private val staging: File) : BackupArchive.Visitor {
@@ -230,14 +250,7 @@ object BackupManager {
         val editor = prefs.edit()
         for ((key, value) in decoded) {
             if (merge && prefs.contains(key)) continue
-            when (value) {
-                is PrefsCodec.Value.Bool -> editor.putBoolean(key, value.v)
-                is PrefsCodec.Value.Integer -> editor.putInt(key, value.v)
-                is PrefsCodec.Value.LongVal -> editor.putLong(key, value.v)
-                is PrefsCodec.Value.FloatVal -> editor.putFloat(key, value.v)
-                is PrefsCodec.Value.Str -> editor.putString(key, value.v)
-                is PrefsCodec.Value.StrSet -> editor.putStringSet(key, value.v)
-            }
+            PrefsCodec.put(editor, key, value)
         }
         if (!editor.commit()) throw IOException("preferences restore failed")
     }

@@ -15,6 +15,7 @@
 
 package com.aegis.ime.backup
 
+import android.content.SharedPreferences
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
@@ -36,6 +37,17 @@ internal object PrefsCodec {
         data class FloatVal(val v: Float) : Value
         data class Str(val v: String) : Value
         data class StrSet(val v: Set<String>) : Value
+    }
+
+    fun put(editor: SharedPreferences.Editor, key: String, value: Value) {
+        when (value) {
+            is Value.Bool -> editor.putBoolean(key, value.v)
+            is Value.Integer -> editor.putInt(key, value.v)
+            is Value.LongVal -> editor.putLong(key, value.v)
+            is Value.FloatVal -> editor.putFloat(key, value.v)
+            is Value.Str -> editor.putString(key, value.v)
+            is Value.StrSet -> editor.putStringSet(key, value.v)
+        }
     }
 
     fun encode(entries: Map<String, Any?>): ByteArray {
