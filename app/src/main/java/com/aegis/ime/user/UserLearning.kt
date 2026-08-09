@@ -56,10 +56,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     @Volatile
     private var unreadableSource: String? = null
 
-    @Volatile
-    private var partiallyRead: Boolean = false
-
-    val readable: Boolean get() = sourceReadable && !partiallyRead
+    val readable: Boolean get() = sourceReadable
 
     @Volatile
     var enabled: Boolean = true
@@ -256,7 +253,6 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     @Synchronized
     fun clear() {
         val had = !isEmpty() || !readable
-        partiallyRead = false
         sourceReadable = true
         unreadableSource = null
         formedByWord.clear()
@@ -278,7 +274,6 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
 
     @Synchronized
     fun save(file: File) {
-        if (partiallyRead) throw IOException("learning store was only partly read")
         if (unreadableSource == file.absolutePath) throw IOException("learning store could not be read")
         val now = clock()
         var mutated = closeChain(now)
@@ -324,7 +319,6 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
             read = false
             Parsed()
         }
-        partiallyRead = true
         formedByWord.clear()
         pendingCounts.clear()
         followsByPrev.clear()
@@ -337,7 +331,6 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         pendingCounts.putAll(parsed.pending)
         followsByPrev.putAll(parsed.follows)
         dirty = false
-        partiallyRead = false
         if (read) {
             sourceReadable = true
             unreadableSource = null
