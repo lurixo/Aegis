@@ -130,6 +130,10 @@ class ClipboardStore(private val dir: File) {
     var historyReadable: Boolean = true
         private set
 
+    @Volatile
+    var phrasesReadable: Boolean = true
+        private set
+
     fun load() {
         flushPendingWrites()
         synchronized(history) {
@@ -161,10 +165,13 @@ class ClipboardStore(private val dir: File) {
     private fun loadPhrases() {
         phraseCats.clear()
         if (!phraseFile.exists()) {
+            phrasesReadable = true
             phraseCats.add(Category(DEFAULT_CATEGORY_ID, ArrayList(DEFAULT_PHRASES.map { Phrase(it) })))
             return
         }
-        val lines = runCatching { phraseFile.readLines() }.getOrDefault(emptyList())
+        val read = runCatching { phraseFile.readLines() }
+        phrasesReadable = read.isSuccess
+        val lines = read.getOrDefault(emptyList())
         if (lines.none { it.startsWith("C\t") }) {
             val c = Category(DEFAULT_CATEGORY_ID)
             lines.forEach { decode(it)?.let { p -> if (p.isNotBlank()) c.phrases.add(Phrase(p)) } }

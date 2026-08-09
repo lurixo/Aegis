@@ -26,10 +26,14 @@ class SymbolUsageStore(private val dir: File) {
     private val file get() = File(dir, "symbol_usage.txt")
     private val used = ArrayList<Entry>()
 
+    @Volatile
+    var readable: Boolean = true
+        private set
+
     fun load() {
         used.clear()
         val seen = HashSet<String>()
-        runCatching {
+        readable = runCatching {
             if (file.exists()) file.readLines().forEach { line ->
                 if (line.isEmpty()) return@forEach
                 val tab = line.indexOf('\t')
@@ -37,7 +41,7 @@ class SymbolUsageStore(private val dir: File) {
                 val origin = if (tab >= 0) line.substring(tab + 1).ifEmpty { null } else null
                 if (symbol.isNotEmpty() && seen.add(SymbolCatalog.foldFullWidth(symbol))) used.add(Entry(symbol, origin))
             }
-        }
+        }.isSuccess
         while (used.size > MAX) used.removeAt(used.size - 1)
     }
 

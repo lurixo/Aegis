@@ -17,6 +17,7 @@ package com.aegis.ime.user
 
 import com.aegis.ime.layout.SymbolCatalog
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -185,5 +186,27 @@ class SymbolUsageStoreTest {
             }
         }
         assertEquals("all 22 distinct catalogue pairs exercised", 22, seen.size)
+    }
+
+    @Test fun a_symbol_history_that_reads_fine_is_reported_as_readable() {
+        val dir = newDir()
+        SymbolUsageStore(dir).apply { load(); record("÷", "math") }
+        assertTrue(SymbolUsageStore(dir).apply { load() }.readable)
+    }
+
+    @Test fun a_symbol_history_that_was_never_written_is_reported_as_readable() {
+        assertTrue(SymbolUsageStore(newDir()).apply { load() }.readable)
+    }
+
+    @Test fun a_symbol_history_that_cannot_be_read_is_reported_as_unreadable() {
+        val dir = newDir()
+        SymbolUsageStore(dir).apply { load(); record("÷", "math") }
+        val usage = File(dir, "symbol_usage.txt")
+        assertTrue("precondition: the symbol history could be closed off", usage.setReadable(false, false))
+        try {
+            assertFalse(SymbolUsageStore(dir).apply { load() }.readable)
+        } finally {
+            usage.setReadable(true, true)
+        }
     }
 }
