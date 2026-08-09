@@ -215,13 +215,13 @@ object BackupManager {
         mode: Mode,
     ) {
         val merge = mode == Mode.MERGE
-        applyPrefs(prefs, prefsBlob, merge)
         applyUserDb(filesDir, staging, merge)
         applyUserLearning(filesDir, staging, merge)
         applyPhrases(filesDir, staging, merge)
         applyClipboard(filesDir, staging, merge)
         applySymbolUsage(filesDir, staging, merge)
         applyEmojiUsage(filesDir, staging, merge)
+        applyPrefs(prefs, prefsBlob, merge)
     }
 
     private fun applyPrefs(prefs: SharedPreferences, blob: ByteArray?, merge: Boolean) {
