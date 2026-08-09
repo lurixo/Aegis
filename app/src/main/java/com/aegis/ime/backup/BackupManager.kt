@@ -169,6 +169,9 @@ object BackupManager {
                 throw BackupException(BackupError.WRONG_PASSWORD_OR_CORRUPT, e)
             }
 
+            val damaged = StoreHealth.unreadableIn(staging, liveStores = false)
+            if (damaged.isNotEmpty()) throw BackupException(BackupError.DAMAGED_CONTENT, items = damaged)
+
             try {
                 commit(filesDir, prefs, staging, visitor.prefsBlob, mode)
             } catch (e: BackupCorruptException) {

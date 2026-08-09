@@ -272,35 +272,30 @@ class BackupActivity : ComponentActivity() {
         val chars = password.toCharArray()
         uiState = BackupUiState.Working
         worker.execute {
-            val messageRes = runImport(uri, chars, mode)
+            val result = runImport(uri, chars, mode)
             chars.fill('\u0000')
             pendingImportUri = null
-            runOnUiThread { uiState = BackupUiState.Result(messageRes) }
+            runOnUiThread { uiState = result }
         }
     }
 
-    private fun runImport(uri: Uri, password: CharArray, mode: BackupManager.Mode): Int {
+    private fun runImport(uri: Uri, password: CharArray, mode: BackupManager.Mode): BackupUiState.Result {
         return try {
             val input = contentResolver.openInputStream(uri)
-                ?: return R.string.backup_error_io
+                ?: return BackupUiState.Result(R.string.backup_error_io)
             input.use { BackupManager.restore(filesDir, aegisPrefs(), password, it, mode) }
-            if (mode == BackupManager.Mode.MERGE) R.string.backup_import_ok_merge
-            else R.string.backup_import_ok_overwrite
+            BackupUiState.Result(
+                if (mode == BackupManager.Mode.MERGE) R.string.backup_import_ok_merge
+                else R.string.backup_import_ok_overwrite,
+            )
         } catch (e: BackupException) {
-            messageFor(e.error)
+            importResult(e)
         } catch (e: Exception) {
-            R.string.backup_error_io
+            BackupUiState.Result(R.string.backup_error_io)
         }
     }
 
     private fun aegisPrefs() = getSharedPreferences("aegis", Context.MODE_PRIVATE)
-
-    private fun messageFor(error: BackupError): Int = when (error) {
-        BackupError.NOT_A_BACKUP -> R.string.backup_error_not_a_backup
-        BackupError.UNSUPPORTED_VERSION -> R.string.backup_error_unsupported
-        BackupError.WRONG_PASSWORD_OR_CORRUPT -> R.string.backup_error_wrong_password
-        BackupError.IO_ERROR -> R.string.backup_error_io
-    }
 
     private companion object {
         const val MIME_TYPE = "application/octet-stream"
@@ -778,6 +773,17 @@ internal fun exportResult(report: BackupManager.ExportReport?): BackupUiState.Re
     report == null -> BackupUiState.Result(R.string.backup_export_failed)
     report.omitted.isEmpty() -> BackupUiState.Result(R.string.backup_export_ok)
     else -> BackupUiState.Result(R.string.backup_export_ok_partial, report.omitted.map(::backupItemLabel))
+}
+
+internal fun importResult(failure: BackupException): BackupUiState.Result = when (failure.error) {
+    BackupError.NOT_A_BACKUP -> BackupUiState.Result(R.string.backup_error_not_a_backup)
+    BackupError.UNSUPPORTED_VERSION -> BackupUiState.Result(R.string.backup_error_unsupported)
+    BackupError.WRONG_PASSWORD_OR_CORRUPT -> BackupUiState.Result(R.string.backup_error_wrong_password)
+    BackupError.IO_ERROR -> BackupUiState.Result(R.string.backup_error_io)
+    BackupError.DAMAGED_CONTENT -> BackupUiState.Result(
+        R.string.backup_error_damaged_content,
+        failure.items.map(::backupItemLabel),
+    )
 }
 
 internal fun backupItemLabel(item: BackupItem): Int = when (item) {

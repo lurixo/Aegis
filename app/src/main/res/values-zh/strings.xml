@@ -237,6 +237,7 @@
     <string name="backup_error_wrong_password">密码错误,或文件已损坏</string>
     <string name="backup_error_io">无法读取或写入文件</string>
     <string name="backup_export_ok_partial">已导出备份。以下内容读不出来，没有放进备份：</string>
+    <string name="backup_error_damaged_content">没有恢复任何内容，本机数据一点没动。备份里以下内容读不出来：</string>
     <string name="backup_item_dictionary">学习词库</string>
     <string name="backup_item_learning">学习数据</string>
     <string name="backup_item_phrases">常用语</string>
