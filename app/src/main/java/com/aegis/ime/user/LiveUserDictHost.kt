@@ -79,7 +79,7 @@ class LiveUserDictHost(
     }
 
     override fun reloadDictionary(): Boolean =
-        onWriterThread(false) { runCatching { model.reload(userDb) }.isSuccess }
+        onWriterThread(false) { runCatching { model.replaceWordsFrom(userDb) }.isSuccess }
 
     override fun entries(): List<UserModel.Entry> = model.userWordEntries()
 

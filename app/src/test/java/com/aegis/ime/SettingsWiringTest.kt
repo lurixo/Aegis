@@ -120,8 +120,9 @@ class SettingsWiringTest {
         val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
         val restored = svc.substringAfter("LiveUserData.onRestored = {").substringBefore("LiveUserData.registerClipboardPersistenceHooks")
         assertTrue(
-            "a restore replaces the user dictionary on disk, so the running keyboard must read it back",
-            restored.contains("userModel.reload(userDbFile)"),
+            "a restore replaces the user dictionary on disk, so the running keyboard must read it back, " +
+                "and it must read it back the way that leaves the archive's own deletions behind",
+            restored.contains("userModel.replaceWordsFrom(userDbFile)"),
         )
         assertFalse(
             "the archive wins a restore, so an unwritten word must not veto the reload",
@@ -131,7 +132,7 @@ class SettingsWiringTest {
             "the watermark must follow, or the next focused field reparses the whole dictionary for nothing",
             restored.contains("userDbMtime = userDbFile.lastModified()"),
         )
-        val dictionary = restored.indexOf("userModel.reload(userDbFile)")
+        val dictionary = restored.indexOf("userModel.replaceWordsFrom(userDbFile)")
         val learning = restored.indexOf("userLearning.load(userLearnFile)")
         val guardDown = restored.indexOf("LiveUserData.restoreInProgress = false")
         assertTrue("the guard may only come down once the dictionary is in memory", dictionary in 1 until guardDown)

@@ -560,6 +560,16 @@ class AegisInputMethodServicePersistenceTest {
         assertEquals("precondition: the word list carries the promise", listOf(word to reading), promisesOnDisk())
     }
 
+    private fun blockTheWriteTo(file: File) {
+        val blocker = File(file.absoluteFile.parentFile, file.name + ".tmp")
+        assertTrue(blocker.mkdir())
+        assertTrue(File(blocker, "occupied").createNewFile())
+    }
+
+    private fun unblockTheWriteTo(file: File) {
+        assertTrue(File(file.absoluteFile.parentFile, file.name + ".tmp").deleteRecursively())
+    }
+
     private fun age(stamp: Long) {
         assertTrue(userDb.setLastModified(stamp))
         assertTrue(userLearn.setLastModified(stamp))
@@ -673,7 +683,7 @@ class AegisInputMethodServicePersistenceTest {
         assertEquals(userLearn.lastModified(), watermark(service, "userLearnMtime"))
     }
 
-    @Test fun a_restore_finishes_the_deletions_the_archive_still_owes() {
+    @Test fun a_restore_does_not_take_on_the_deletions_the_archive_asks_for() {
         val service = started()
         aGluedWordOnDisk()
         aWordListOwing("你呢嗯", "")
@@ -685,10 +695,55 @@ class AegisInputMethodServicePersistenceTest {
         drainWriteLane(service)
 
         assertFalse("the capture guard must come down again", LiveUserData.restoreInProgress)
-        assertEquals("a restored word list that owes a deletion must have it carried out", emptyList<String>(), learnedOnDisk())
+        assertEquals(
+            "the words the archive carries do arrive",
+            listOf("张伟明"),
+            model(service).userWordEntries().map { it.word },
+        )
+        assertTrue(
+            "a deletion written down in someone else's archive is not this phone's to take on",
+            model(service).tombstones().isEmpty(),
+        )
+        assertEquals(
+            "so the learned entry the archive asked to delete is still on disk",
+            listOf("你呢嗯"),
+            learnedOnDisk(),
+        )
+        assertEquals(listOf("你呢嗯"), learning(service).formedEntries().map { it.word })
+    }
+
+    @Test fun a_restore_still_owes_the_deletion_this_phone_could_not_finish() {
+        aGluedWordOnDisk()
+        val service = started()
+        assertTrue("precondition: the word is in the list to be deleted", liveHost(service).addWord("ninen", "你呢嗯", 1L))
+        blockTheWriteTo(userLearn)
+        assertTrue(liveHost(service).removeWord("ninen", "你呢嗯"))
+        assertEquals("precondition: the deletion is still owed", listOf("你呢嗯" to ""), model(service).tombstones())
+        unblockTheWriteTo(userLearn)
+        assertEquals("precondition: what it promised to delete is still in the file", listOf("你呢嗯"), learnedOnDisk())
+        archiveUserDbWith("gd", "归档")
+
+        LiveUserData.restoreInProgress = true
+        LiveUserData.onRestored?.invoke()
+        shadowOf(Looper.getMainLooper()).idle()
+        drainWriteLane(service)
+
+        assertFalse("the capture guard must come down again", LiveUserData.restoreInProgress)
+        assertEquals("the words the archive carries do arrive", listOf("归档"), model(service).userWordEntries().map { it.word })
+        assertEquals(
+            "the deletion this phone owed outlived the restore, so the learned data that came back must lose the word",
+            emptyList<String>(),
+            learnedOnDisk(),
+        )
+        assertEquals(emptyList<String>(), learning(service).formedEntries().map { it.word })
+        assertEquals(
+            "and the promise must be struck off once it is kept",
+            emptyList<Pair<String, String>>(),
+            model(service).tombstones(),
+        )
         assertEquals(emptyList<Pair<String, String>>(), promisesOnDisk())
         assertEquals(
-            "the restore rewrote both stores, so the watermarks must be the ones it wrote",
+            "keeping the promise rewrote both stores, so the watermarks must be the ones it wrote",
             userDb.lastModified(),
             watermark(service, "userDbMtime"),
         )
