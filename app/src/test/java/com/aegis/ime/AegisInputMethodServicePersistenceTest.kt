@@ -25,6 +25,7 @@ import com.aegis.ime.user.UserModel
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -247,6 +248,42 @@ class AegisInputMethodServicePersistenceTest {
             userDb.lastModified(),
             watermark.getLong(service),
         )
+    }
+
+    @Test fun an_outside_change_must_not_wipe_out_words_the_keyboard_has_not_written_yet() {
+        val service = started()
+        assertTrue("precondition: the dictionary loaded fine", model(service).readable)
+
+        model(service).record(null, "还没落盘", 1L)
+        assertTrue("precondition: the word is only in memory so far", model(service).dirty)
+
+        UserModel().apply { addManualWord("wb", "外部", 2L) }.save(userDb)
+        userDb.setLastModified(System.currentTimeMillis() + 60_000L)
+        service.onStartInput(editor(), false)
+
+        assertTrue(
+            "picking up a file changed outside must not throw away what has not been written yet",
+            model(service).wordBoost("还没落盘") > 0.0,
+        )
+    }
+
+    @Test fun a_restore_in_flight_is_not_raced_by_a_reload_from_the_input_session() {
+        val service = started()
+        assertTrue("precondition: the dictionary loaded fine", model(service).readable)
+
+        UserModel().apply { addManualWord("wb", "外部", 2L) }.save(userDb)
+        userDb.setLastModified(System.currentTimeMillis() + 60_000L)
+
+        LiveUserData.restoreInProgress = true
+        try {
+            service.onStartInput(editor(), false)
+            assertNull(
+                "a restore owns the stores while it runs, so focusing a field must not read the file underneath it",
+                model(service).readingSnapshot()["wb"],
+            )
+        } finally {
+            LiveUserData.restoreInProgress = false
+        }
     }
 
     @Test fun a_dictionary_repaired_from_outside_is_picked_up_even_after_the_keyboard_gave_up_on_it() {

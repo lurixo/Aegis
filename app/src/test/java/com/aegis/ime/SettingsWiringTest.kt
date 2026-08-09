@@ -84,7 +84,7 @@ class SettingsWiringTest {
         assertTrue(svc.contains("userLearnFile.lastModified() > userLearnMtime"))
         assertTrue(
             "a reload must stand down while the keyboard's own write is still in flight",
-            svc.contains("val quiet = userStoresLoaded && !liveUserDictHost.writing"),
+            svc.contains("val quiet = userStoresLoaded && !liveUserDictHost.writing && !LiveUserData.restoreInProgress"),
         )
         assertTrue(
             "each store's reload must turn on its own state only, never on the other store's",
