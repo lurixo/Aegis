@@ -344,7 +344,10 @@ internal fun UserDictPage(onBack: () -> Unit) {
                                 )
                             } else {
                                 Text(
-                                    stringResource(R.string.user_learn_unreadable),
+                                    stringResource(
+                                        if (learned.isEmpty()) R.string.user_learn_unreadable
+                                        else R.string.user_learn_unreadable_kept,
+                                    ),
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.error,
                                     modifier = Modifier.testTag("user_learn_unreadable"),

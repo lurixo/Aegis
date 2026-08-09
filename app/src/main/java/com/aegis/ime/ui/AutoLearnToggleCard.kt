@@ -97,7 +97,10 @@ internal fun AutoLearnToggleCard() {
                 )
             } else {
                 Text(
-                    stringResource(R.string.user_learn_unreadable),
+                    stringResource(
+                        if (learnedView.entries.isEmpty()) R.string.user_learn_unreadable
+                        else R.string.user_learn_unreadable_kept,
+                    ),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.testTag("auto_learn_unreadable"),

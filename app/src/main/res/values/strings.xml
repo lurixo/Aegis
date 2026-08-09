@@ -158,6 +158,7 @@
     <string name="user_dict_toast_write_failed">Could not save; the change may not have reached storage</string>
     <string name="user_dict_unreadable">The word list could not be read, so it is not shown here. Your file has not been changed or emptied. Importing a copy replaces it; adding a word will not work until it can be read again.</string>
     <string name="user_learn_unreadable">The learned data could not be read, so it is not shown here. The file has not been changed or emptied.</string>
+    <string name="user_learn_unreadable_kept">The learned data file could not be read. What the keyboard already holds in memory is kept, but changes cannot be written back. The file has not been changed or emptied. Use Clear learned data to start over.</string>
     <string name="user_dict_toast_export_blocked">Recent changes could not be saved, so the export was cancelled rather than written incomplete</string>
     <string name="user_dict_auto_title">Auto learning</string>
     <string name="user_dict_auto_description">Words Aegis glued together from characters you typed one by one. Delete one to drop it from suggestions, or clear them all. Your words above are not affected.</string>
