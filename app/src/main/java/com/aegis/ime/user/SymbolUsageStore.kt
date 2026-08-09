@@ -30,7 +30,7 @@ class SymbolUsageStore(private val dir: File) {
     private val used = ArrayList<Entry>()
     private val tmpTag = TMP_TAGS.incrementAndGet()
 
-    internal fun tempFile(): File = File(dir, "symbol_usage.txt.$tmpTag.tmp")
+    internal fun tempFile(): File = AtomicFileSwap.stagingFor(file, tmpTag)
 
     @Volatile
     var readable: Boolean = true
@@ -106,17 +106,7 @@ class SymbolUsageStore(private val dir: File) {
     private fun serialize(): String =
         used.joinToString("\n") { if (it.origin == null) it.symbol else "${it.symbol}\t${it.origin}" }
 
-    private fun writeAtomically(text: String) {
-        val tmp = tempFile()
-        tmp.writeText(text)
-        if (!tmp.renameTo(file)) {
-            file.delete()
-            if (!tmp.renameTo(file)) {
-                tmp.delete()
-                throw IOException("symbol usage swap failed")
-            }
-        }
-    }
+    private fun writeAtomically(text: String) = AtomicFileSwap.write(file, tmpTag, text)
 
     fun recent(n: Int = MAX): List<String> = used.take(n).map { it.symbol }
 
