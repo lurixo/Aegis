@@ -129,6 +129,28 @@ class ClipboardStoreTest {
         assertEquals("what could not be read must not be thrown away either", "读不出来的一条\n", index.readText())
     }
 
+    @Test fun a_clip_copied_over_a_history_nobody_could_read_never_stands_in_for_it() {
+        val dir = newDir()
+        val index = File(dir, "clipboard.txt").apply { writeText("读不出来的一条\n") }
+        assertTrue("precondition: the index cannot be read back", index.setReadable(false, false))
+        val s = ClipboardStore(dir).apply { load() }
+        assertFalse("precondition: the store knows it could not read the history", s.historyReadable)
+
+        s.record("读不出来之后复制的")
+        s.flushPendingWrites()
+
+        assertTrue(
+            "a clip copied afterwards must not show up as the history nobody could read",
+            s.historyText().isEmpty(),
+        )
+        assertFalse("and the store must still say it could not read the history", s.historyReadable)
+        assertFalse(
+            "a delete over a history nobody could read must not be reported as done",
+            s.deleteAll(listOf("读不出来的一条")),
+        )
+        assertTrue(index.setReadable(true, false))
+    }
+
     @Test fun million_char_clip_round_trips_without_truncation_and_externalizes() {
         val dir = newDir()
         val big = "字".repeat(1_000_000)

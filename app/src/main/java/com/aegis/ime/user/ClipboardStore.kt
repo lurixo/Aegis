@@ -235,7 +235,7 @@ class ClipboardStore(private val dir: File) {
     }
 
     private fun recordHere(text: String) {
-        if (LiveUserData.restoreInProgress) return
+        if (LiveUserData.restoreInProgress || !historyReadable) return
         val entry = adopt(text)
         val pending = synchronized(history) {
             history.remove(entry)
