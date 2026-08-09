@@ -471,7 +471,7 @@ class PinyinDecoder(
         val condMemo = HashMap<Long, Double>()
         val cover = LinkedHashMap<String, Int>()
         val completionCap = completionCap(limit)
-        bestSentence(input, emptySet(), ctx)?.let { cover[it] = input.length }
+        bestSentence(input, ctx)?.let { cover[it] = input.length }
         val pool = ArrayList<RankedWord>()
         val offered = HashSet<String>()
         fun offer(wf: BinaryDict.WordFreq, penalty: Double): Boolean {
@@ -988,7 +988,7 @@ class PinyinDecoder(
 
     private class Cell(val score: Double, val prevPos: Int, val prevState: SentenceState?, val word: String)
 
-    private fun bestSentence(input: String, cuts: Set<Int>, ctx: Ctx): String? {
+    private fun bestSentence(input: String, ctx: Ctx): String? {
         val model = lm
         val learn = activeLearning
         val condMemo = HashMap<Long, Double>()
@@ -1004,7 +1004,6 @@ class PinyinDecoder(
             for (p in 0 until q) {
                 val from = dp[p]
                 if (from.isEmpty()) continue
-                if (cuts.any { it > p && it < q }) continue
                 val edges = edgesFor(input.substring(p, q))
                 if (edges.isEmpty()) continue
                 for (e in edges) {
