@@ -204,7 +204,7 @@ class PhrasePanelTest {
 
     @Test fun closing_delete_confirmation_does_not_invoke_onDeletePhrasesFrom() {
         var del: Pair<String, List<String>>? = null
-        val v = phraseView().apply { onDeletePhrasesFrom = { c, l -> del = c to l }; expandForTest("你好") }
+        val v = phraseView().apply { onDeletePhrasesFrom = { c, l -> del = c to l; true }; expandForTest("你好") }
         assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_delete)))
         assertNull(del)
         overlayOf(v).performClick()
@@ -618,7 +618,7 @@ class PhrasePanelTest {
 
     @Test fun batch_delete_requires_confirmation_before_onDeletePhrasesFrom() {
         var del: Pair<String, List<String>>? = null
-        val v = phraseView().apply { onDeletePhrasesFrom = { c, l -> del = c to l }; enterSelectForTest(listOf("你好")) }
+        val v = phraseView().apply { onDeletePhrasesFrom = { c, l -> del = c to l; true }; enterSelectForTest(listOf("你好")) }
         assertTrue(click(v, ctx.getString(com.aegis.ime.R.string.clip_delete)))
         assertNull(del)
         assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete_phrase_confirm) in labels(overlayOf(v)))

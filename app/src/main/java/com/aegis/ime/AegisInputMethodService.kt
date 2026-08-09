@@ -859,7 +859,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onSplitSelectionFinished = { finishSplitSelection() }
             it.onBack = { inputView?.showPanel(null) }
             it.onDeleteClips = { list -> clipboardStore.deleteAll(list) }
-            it.onDeletePhrasesFrom = { cat, list -> list.forEach { clipboardStore.deletePhraseFrom(cat, it) } }
+            it.onDeletePhrasesFrom = { cat, list -> clipboardStore.deletePhrasesFrom(cat, list) }
             it.onSaveAsPhrasesTo = { cat, list ->
                 val added = clipboardStore.addPhrasesTo(cat, list)
                 if (list.size == 1) toast(if (added > 0) getString(R.string.svc_phrase_added) else getString(R.string.svc_phrase_exists))
