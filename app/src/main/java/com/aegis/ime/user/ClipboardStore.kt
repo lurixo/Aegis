@@ -512,6 +512,8 @@ class ClipboardStore(private val dir: File) {
 
     internal fun flushPendingWrites() { runCatching { io.submit { }.get() } }
 
+    fun stopSaving() { runCatching { io.shutdown() } }
+
     private fun savePhrases() { runCatching { savePhrasesOrThrow() } }
 
     private fun savePhrasesOrThrow() { atomicWrite(phraseFile, serializePhrases()) }
