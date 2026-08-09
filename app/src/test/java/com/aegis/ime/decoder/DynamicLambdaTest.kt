@@ -85,8 +85,34 @@ class DynamicLambdaTest {
         }
     }
 
+    private fun renderSentences(lambda: Double, context: String): String {
+        val decoder = decoder(lambda)
+        return SENTENCE_INPUTS.joinToString("\n") { input ->
+            "$input -> " + decoder.decodeCovered(input, 12, context = context).joinToString(",") {
+                "${it.word}/${it.coveredLen}"
+            }
+        }
+    }
+
+    @Test fun the_free_segmentation_sentence_drops_the_word_bigram_once_text_has_been_committed() {
+        for (context in HAN_CONTEXTS) {
+            val off = renderSentences(0.0, context)
+            for (weight in OTHER_WEIGHTS) {
+                assertEquals("lambda=$weight must not move the sentence path after \"$context\"", off, renderSentences(weight, context))
+            }
+        }
+    }
+
+    @Test fun the_free_segmentation_sentence_still_uses_the_word_bigram_at_a_fresh_start() {
+        for (weight in OTHER_WEIGHTS) {
+            assertNotEquals("lambda=$weight must move the sentence path with no committed text", renderSentences(0.0, ""), renderSentences(weight, ""))
+        }
+    }
+
     private companion object {
         val INPUTS = listOf("ku", "shi", "ci", "jian", "zi", "xiang", "xiangku", "bushi", "jiujian")
+        val SYLLABLES = listOf("ci", "ku", "zi", "bu", "shi", "xian", "xi", "an", "xiang", "xia", "jiu", "jian")
+        val SENTENCE_INPUTS = SYLLABLES.flatMap { a -> SYLLABLES.map { b -> a + b } }
         val OTHER_WEIGHTS = listOf(PinyinDecoder.DEFAULT_LAMBDA, 1.0, 4.0)
         val HAN_CONTEXTS = listOf("想", "词", "不", "九", "我们想")
         val NON_HAN_CONTEXTS = listOf("", "abc", "hello, ", "1234", "。")
