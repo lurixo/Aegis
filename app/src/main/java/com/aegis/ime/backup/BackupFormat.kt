@@ -44,9 +44,12 @@ internal enum class BackupError {
     WRONG_PASSWORD_OR_CORRUPT,
 
     IO_ERROR,
+
+    DAMAGED_CONTENT,
 }
 
 internal class BackupException(
     val error: BackupError,
     cause: Throwable? = null,
+    val items: Set<BackupItem> = emptySet(),
 ) : Exception(error.name, cause)
