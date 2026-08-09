@@ -11,15 +11,31 @@ newer one exists.
 
 ## What Aegis stores, and where
 
-All of the following is kept **only** in the app's private storage on your device
-(`filesDir`) and is never transmitted anywhere by Aegis:
+All of the following is kept **only** in the app's own private storage on your device and is never
+transmitted anywhere by Aegis:
 
 - **Keystrokes and candidates** — processed on-device by the built-in decoder; not logged off-device.
 - **Learned words and next-word predictions** — the on-device learning model that ranks your
-  frequently/recently used words.
-- **User dictionary** — words you add; you can import/export it yourself (`filesDir/userdb.txt`).
-- **Clipboard history and saved phrases (常用语)** — kept locally for the clipboard panel; you can
-  delete entries.
+  frequently/recently used words (`filesDir/userlearn.txt`). No word is learned while you are in a
+  password field, or in any field whose app asks for no personalized learning.
+- **User dictionary** — words you add and words Aegis has learned for you; you can import/export it
+  yourself (`filesDir/userdb.txt`).
+- **Clipboard history and saved phrases (常用语)** — kept locally for the clipboard panel
+  (`filesDir/clipboard.txt` and `filesDir/phrases.txt`). You can delete individual entries, and you
+  can switch the clipboard history off altogether.
+- **Which symbols and emoji you reach for** — used to fill the *Common* tab of those two panels
+  (`filesDir/symbol_usage.txt` and `filesDir/emoji/symbol_usage.txt`). Unlike word learning, this
+  count is kept wherever you pick one, a password field included; it records the symbol you picked
+  and nothing about the field you picked it in.
+- **Your settings**, including the symbols you put on the keyboard yourself and, if you chose to
+  save one, the default backup password — that one encrypted with a key held by the Android
+  keystore, as described under [Permissions](#permissions).
+
+None of it leaves that storage on its own. The one way any of it does leave is a file **you**
+export — a backup, your user dictionary, or your phrases. Android asks you where each file should
+go, and Aegis writes it to the place you picked and nowhere else. A backup is encrypted with the
+password you type for it; a dictionary or phrase export is plain text, which is what makes it
+usable elsewhere.
 
 ## Permissions
 
@@ -53,10 +69,11 @@ whether a newer one exists. All of it is over HTTPS.
   file from the same GitHub release to learn which asset to get.
 - **The optional enhancement model.** Fetched from the upstream project's GitHub release, and only
   when *you* tap to start it.
-- **Update checks.** *Check for update* on the dictionary card re-fetches that metadata file; on the
-  enhancement-model card it sends a `HEAD` request to the model's URL to compare version markers.
-  Both happen only when you tap, and if either finds a newer file it goes straight on to download
-  it. Nothing in Aegis's own code makes an automatic request of any kind.
+- **Update checks.** Once a file is installed, its card carries a button to check for updates: on
+  the dictionary card that re-fetches the same metadata file; on the enhancement-model card it
+  sends a `HEAD` request to the model's URL to compare version markers. Both happen only when you
+  tap, and if either finds a newer file it goes straight on to download it. Nothing in Aegis's own
+  code makes an automatic request of any kind.
 - As with any download, the server that hosts the file necessarily sees a normal request (for
   example, your IP address and the file requested). Aegis does not add identifiers, tracking
   parameters, or analytics to these requests, and sends none of your typing data with them.
@@ -82,6 +99,10 @@ we wrote.
 - No analytics or telemetry.
 - No advertising or ad networks.
 - No accounts, sign-in, or cloud sync.
+- No riding along on Android's own copying: Aegis opts out of backup, and its data is excluded from
+  both cloud backup and device-to-device transfer, so none of it is carried to Google's servers or
+  to a new phone by that route. Moving your data to another device is something you do deliberately,
+  by exporting a backup and importing it there.
 - No selling or sharing of data (there is no data collected to sell or share).
 
 ## Data deletion
