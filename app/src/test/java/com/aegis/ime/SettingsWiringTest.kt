@@ -140,6 +140,34 @@ class SettingsWiringTest {
         assertTrue("the final flush must precede stopping the writer", flush in 1 until stop)
     }
 
+    @Test fun the_keyboard_owns_the_live_clipboard_store_from_first_touch_until_teardown() {
+        val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
+        assertTrue(
+            "the store the keyboard writes must be the one backup and restore reach for",
+            svc.contains("ClipboardStore(filesDir).also { it.load(); LiveUserData.clipboardHost = it }"),
+        )
+        assertTrue(
+            "the clipboard panel must be told when the history could not be read, or it claims to be empty",
+            svc.contains("it.historyReadableProvider = { clipboardStore.historyReadable }"),
+        )
+        val onDestroy = memberBody(svc, "override fun onDestroy()")
+        assertTrue(
+            "onDestroy must stop the clipboard writer it started",
+            onDestroy.contains("clipboardStore.stopSaving()"),
+        )
+        val drained = onDestroy.indexOf("LiveUserData.unregisterClipboardPersistenceHooks(clipboardPendingWriteFlush)")
+        val stopped = onDestroy.indexOf("clipboardStore.stopSaving()")
+        assertTrue("what the clipboard still owes must be drained before its writer is stopped", drained in 1 until stopped)
+        assertTrue(
+            "onDestroy must withdraw only its own store, or it unpublishes a successor's",
+            onDestroy.contains("if (LiveUserData.clipboardHost === clipboardStore) LiveUserData.clipboardHost = null"),
+        )
+        assertFalse(
+            "withdrawing without checking ownership leaves backup and restore writing files nobody else knows about",
+            Regex("""(?<!=== clipboardStore\) )LiveUserData\.clipboardHost = null""").containsMatchIn(onDestroy),
+        )
+    }
+
     @Test fun engine_reload_rechecks_after_initial_build_and_after_a_successful_hot_reload() {
         val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
         val calls = Regex("""(?<!fun )maybeReloadEngine\(\)""").findAll(svc).count()

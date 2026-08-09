@@ -119,7 +119,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var pendingPhraseAdds: List<String> = emptyList()
     private var pendingMoveFrom = ""
     private var pendingMoveTexts: List<String> = emptyList()
-    private val clipboardStore by lazy { ClipboardStore(filesDir).also { it.load() } }
+    private val clipboardStore by lazy { ClipboardStore(filesDir).also { it.load(); LiveUserData.clipboardHost = it } }
     private val clipboardPendingWriteFlush: () -> Unit = { clipboardStore.flushPendingWrites() }
     private val symbolUsageStore by lazy { SymbolUsageStore(filesDir).also { it.load() } }
     private val emojiUsageStore by lazy { SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).also { it.load() } }
@@ -876,6 +876,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onImportPhrasesWithMode = { merge -> launchPhraseTransfer(export = false, merge = merge) }
             it.onClearHistory = { clipboardStore.clearHistory() }
             it.historyEnabledProvider = { historyEnabled() }
+            it.historyReadableProvider = { clipboardStore.historyReadable }
             it.onSetHistoryEnabled = { on -> setHistoryEnabled(on) }
             clipboardView = it
         }
@@ -1189,6 +1190,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         runCatching { liveUserDictHost.flush() }
         liveUserDictHost.stopSaving()
         LiveUserData.unregisterClipboardPersistenceHooks(clipboardPendingWriteFlush)
+        clipboardStore.stopSaving()
+        if (LiveUserData.clipboardHost === clipboardStore) LiveUserData.clipboardHost = null
         LiveUserData.onRestored = null
         runCatching {
             getSharedPreferences("aegis", MODE_PRIVATE)
