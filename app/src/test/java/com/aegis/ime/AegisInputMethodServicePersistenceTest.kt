@@ -364,8 +364,7 @@ class AegisInputMethodServicePersistenceTest {
         assertTrue("precondition: the learning store has something worth keeping", learning(service).dirty)
 
         service.onFinishInput()
-        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
-        while (System.nanoTime() < deadline && !userLearn.exists()) Thread.yield()
+        drainWriteLane(service)
 
         assertTrue("the healthy learning store must still be written", userLearn.exists())
         assertFalse("and it must not still be waiting to be written", learning(service).dirty)
