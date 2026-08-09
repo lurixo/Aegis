@@ -21,13 +21,82 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.io.IOException
+import java.io.OutputStream
 import java.nio.file.Files
 
 class UserDictEditTest {
 
     @get:Rule
     val tmp = TemporaryFolder()
+
+    @Test fun an_export_carries_what_the_word_list_holds_right_now() {
+        val db = tmp.newFile("userdb-export.txt")
+        assertTrue(UserDictEdit.add(db, "测试", "ceshi", 1))
+        val out = ByteArrayOutputStream()
+
+        assertTrue(UserDictEdit.exportDictionary(db, out))
+
+        assertEquals(db.readText(), out.toString(Charsets.UTF_8.name()))
+    }
+
+    @Test fun an_export_leaves_behind_the_words_a_deletion_is_still_owed_for() {
+        val db = tmp.newFile("userdb-export-tombstone.txt")
+        UserModel().apply {
+            addManualWord("liuxia", "留下", 1L)
+            addTombstone("刚删掉的", "gangshandiaode")
+        }.save(db)
+        val onDevice = db.readText()
+        assertTrue(
+            "precondition: the word list carries the deletion as plain text",
+            onDevice.contains("D\t刚删掉的\tgangshandiaode\n"),
+        )
+        val out = ByteArrayOutputStream()
+
+        assertTrue(UserDictEdit.exportDictionary(db, out))
+
+        val exported = out.toString(Charsets.UTF_8.name())
+        assertFalse(
+            "a word the user asked to delete must not go out with the file they share",
+            exported.contains("刚删掉的"),
+        )
+        assertEquals(
+            "and nothing else about the file may change",
+            onDevice.split("\n").filterNot { it.startsWith("D\t") }.joinToString("\n"),
+            exported,
+        )
+        assertEquals("the deletion the device still owes stays on the device", onDevice, db.readText())
+    }
+
+    @Test fun an_export_with_no_word_list_behind_it_is_reported_rather_than_passed_off_as_done() {
+        val out = ByteArrayOutputStream()
+
+        assertFalse(
+            "an empty document is not a word list, and it cannot be imported back as one either",
+            UserDictEdit.exportDictionary(File(tmp.root, "never-written.txt"), out),
+        )
+
+        assertEquals("", out.toString(Charsets.UTF_8.name()))
+    }
+
+    @Test fun an_export_that_could_not_be_written_is_reported_rather_than_passed_off_as_done() {
+        val db = tmp.newFile("userdb-export-refused.txt")
+        assertTrue(UserDictEdit.add(db, "测试", "ceshi", 1))
+
+        assertFalse("nowhere to write means nothing was exported", UserDictEdit.exportDictionary(db, null))
+        assertFalse(
+            "a sink that breaks part way through must not be reported as a finished export",
+            UserDictEdit.exportDictionary(
+                db,
+                object : OutputStream() {
+                    override fun write(b: Int) = throw IOException("the document went away")
+                    override fun write(b: ByteArray, off: Int, len: Int) = throw IOException("the document went away")
+                },
+            ),
+        )
+    }
 
     @Test fun add_persists_and_isReadableByTheModel() {
         val db = File.createTempFile("userdb-edit", ".txt").also { it.deleteOnExit() }

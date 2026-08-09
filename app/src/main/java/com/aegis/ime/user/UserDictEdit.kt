@@ -16,6 +16,8 @@
 package com.aegis.ime.user
 
 import java.io.File
+import java.io.InputStream
+import java.io.OutputStream
 
 object UserDictEdit {
 
@@ -58,6 +60,49 @@ object UserDictEdit {
     fun flushBeforeDictionaryExport(): Boolean =
         UserDictHot.host?.let { it.flushDictionary() || !it.dictionaryReadable() } ?: true
 
+    fun exportDictionary(userDb: File, out: OutputStream?): Boolean {
+        if (out == null) return false
+        if (!userDb.isFile) {
+            runCatching { out.close() }
+            return false
+        }
+        return runCatching {
+            out.use { sink -> userDb.inputStream().use { source -> copyWithoutTombstones(source, sink) } }
+        }.isSuccess
+    }
+
+    private fun copyWithoutTombstones(source: InputStream, sink: OutputStream) {
+        val reader = source.buffered()
+        val writer = sink.buffered()
+        val head = ByteArray(TOMBSTONE_ROW.size)
+        while (true) {
+            var seen = 0
+            while (seen < head.size) {
+                val b = reader.read()
+                if (b < 0) break
+                head[seen++] = b.toByte()
+                if (b == NEWLINE) break
+            }
+            if (seen == 0) break
+            val owed = seen == head.size && head.contentEquals(TOMBSTONE_ROW)
+            if (!owed) writer.write(head, 0, seen)
+            if (head[seen - 1].toInt() != NEWLINE) {
+                var ended = true
+                while (true) {
+                    val b = reader.read()
+                    if (b < 0) break
+                    if (!owed) writer.write(b)
+                    if (b == NEWLINE) {
+                        ended = false
+                        break
+                    }
+                }
+                if (ended) break
+            }
+        }
+        writer.flush()
+    }
+
     fun list(userDb: File): List<UserModel.Entry> {
         UserDictHot.host?.let { return it.entries() }
         return UserModel().apply { if (userDb.exists()) load(userDb) }.userWordEntries()
@@ -83,4 +128,7 @@ object UserDictEdit {
         if (!userDb.exists()) return 0
         return runCatching { UserModel().apply { load(userDb) }.forgottenCount }.getOrDefault(0)
     }
+
+    private val TOMBSTONE_ROW = "D\t".toByteArray(Charsets.US_ASCII)
+    private const val NEWLINE = '\n'.code
 }

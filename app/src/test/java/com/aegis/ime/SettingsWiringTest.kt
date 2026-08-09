@@ -311,6 +311,30 @@ class SettingsWiringTest {
         }
     }
 
+    @Test fun the_word_list_page_exports_on_the_store_lane_and_says_how_it_went() {
+        val page = src("src/main/java/com/aegis/ime/ui/UserDictPage.kt")
+        val startExport = memberBody(page, "fun startExport()")
+        assertTrue(
+            "the flush before an export waits on the writer, so it must be handed to the store lane",
+            startExport.indexOf("UserStoreEdits.submit {") in
+                0 until startExport.indexOf("UserDictEdit.flushBeforeDictionaryExport()"),
+        )
+        val exportLauncher = page.substringAfter("val exportLauncher =").substringBefore("val importLauncher =")
+        assertTrue(
+            "and the file the picker chose must be written on that lane too",
+            exportLauncher.indexOf("UserStoreEdits.submit {") in
+                0 until exportLauncher.indexOf("UserDictEdit.exportDictionary("),
+        )
+        assertTrue(
+            "an export that could not be written must say so rather than look like it worked",
+            exportLauncher.contains("exportFailedToast"),
+        )
+        assertFalse(
+            "and the page must not copy the word list out on the thread that draws",
+            exportLauncher.contains("userDb.inputStream()"),
+        )
+    }
+
     @Test fun user_dict_page_does_not_own_the_app_version_label() {
         val page = src("src/main/java/com/aegis/ime/ui/UserDictPage.kt")
         assertFalse("user dict page must not read package versionName", page.contains("getPackageInfo"))
