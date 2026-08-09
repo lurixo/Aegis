@@ -190,7 +190,9 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         Motion.reset(gridScroll)
         showCategory(0, animate = false)
         gridScroll.scrollTo(0, 0)
+        gridScroll.fling(0)
         railScroll.scrollTo(0, 0)
+        railScroll.fling(0)
     }
 
     fun resetLock() { locked = false; updateLockFace() }
