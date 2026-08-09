@@ -337,6 +337,7 @@
     <string name="svc_new_category">New category</string>
     <string name="svc_rename_category">Rename category</string>
     <string name="svc_saved_to_clipboard">Saved to clipboard</string>
+    <string name="svc_recents_not_cleared">The recent list could not be cleared, so it is still there</string>
     <string name="clip_back">Back</string>
     <string name="clip_add_phrase">Add phrase</string>
     <string name="clip_clear_category">Clear category</string>

@@ -335,6 +335,7 @@
     <string name="svc_new_category">新建分类</string>
     <string name="svc_rename_category">重命名分类</string>
     <string name="svc_saved_to_clipboard">已存入剪贴板</string>
+    <string name="svc_recents_not_cleared">最近使用没能清空，它们还在</string>
     <string name="clip_back">返回</string>
     <string name="clip_add_phrase">添加常用语</string>
     <string name="clip_clear_category">清空分类</string>
