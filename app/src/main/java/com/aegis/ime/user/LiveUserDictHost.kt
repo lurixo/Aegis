@@ -102,7 +102,10 @@ class LiveUserDictHost(
 
     override fun clearLearned(): Boolean {
         userLearning?.clear()
-        return saveLearning().learning
+        if (!saveLearning().learning) return false
+        if (!model.hasTombstones()) return true
+        model.dropTombstones(model.tombstones())
+        return save().dictionary
     }
 
     override fun flush(): Boolean {

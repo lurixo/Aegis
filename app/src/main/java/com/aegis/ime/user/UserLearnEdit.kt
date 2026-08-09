@@ -63,7 +63,16 @@ object UserLearnEdit {
             val learning = loaded(userLearn)
             learning.clear()
             if (learning.dirty) learning.save(userLearn)
+            forgetOwed(File(userLearn.absoluteFile.parentFile, "userdb.txt"))
         }.isSuccess
+    }
+
+    private fun forgetOwed(userDb: File) {
+        if (!userDb.exists()) return
+        runCatching {
+            val m = UserModel().apply { load(userDb, sweepStale = false) }
+            if (m.dropTombstones(m.tombstones())) m.save(userDb)
+        }
     }
 
     private fun loaded(userLearn: File): UserLearning =

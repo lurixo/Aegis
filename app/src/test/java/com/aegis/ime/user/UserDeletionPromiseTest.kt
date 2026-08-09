@@ -398,6 +398,74 @@ class UserDeletionPromiseTest {
         assertEquals("and what it promised to delete is still there", listOf("你呢嗯"), learnedIn(it.learn))
     }
 
+    @Test fun clearing_the_learned_data_forgets_what_was_owed_against_it() {
+        val it = owed("clear-file", "你呢嗯", "")
+
+        assertTrue(UserLearnEdit.clear(it.learn))
+
+        assertTrue(
+            "there is nothing left for the promise to delete, so keeping it later could only hit a word typed since",
+            promisesIn(it.db).isEmpty(),
+        )
+        assertEquals(emptyList<String>(), learnedIn(it.learn))
+    }
+
+    @Test fun a_live_clear_forgets_what_was_owed_against_the_learned_data() {
+        val it = owed("clear-live", "你呢嗯", "")
+        val host = liveHost(it.model, it.db, it.learning, it.learn)
+
+        assertTrue(host.clearLearned())
+
+        assertTrue(it.model.tombstones().isEmpty())
+        assertTrue(promisesIn(it.db).isEmpty())
+        assertEquals(emptyList<String>(), learnedIn(it.learn))
+    }
+
+    @Test fun a_live_clear_that_could_not_be_written_keeps_what_was_owed() {
+        val it = owed("clear-live-blocked", "你呢嗯", "")
+        blockTheWriteTo(it.learn)
+        val host = liveHost(it.model, it.db, it.learning, it.learn)
+
+        assertFalse("a clear that never reached the file must not be reported as done", host.clearLearned())
+
+        assertEquals(
+            "the learned data is still there, so the deletion owed against it is still owed",
+            listOf("你呢嗯" to ""),
+            promisesIn(it.db),
+        )
+        assertTrue("and the running word list must not have let go of it either", it.model.hasTombstones())
+        assertEquals("what the promise stands for is still in the file", listOf("你呢嗯"), learnedIn(it.learn))
+    }
+
+    @Test fun a_clear_that_could_not_be_written_keeps_what_was_owed() {
+        val it = owed("clear-blocked", "你呢嗯", "")
+        blockTheWriteTo(it.learn)
+
+        assertFalse(UserLearnEdit.clear(it.learn))
+
+        assertEquals(
+            "the learned data is still there, so the deletion owed against it is still owed",
+            listOf("你呢嗯" to ""),
+            promisesIn(it.db),
+        )
+    }
+
+    @Test fun a_word_relearned_after_a_clear_is_not_deleted_by_the_promise_the_clear_forgot() {
+        val it = owed("clear-then-relearn", "你呢嗯", "")
+        assertTrue(UserLearnEdit.clear(it.learn))
+
+        glued().save(it.learn)
+        val model = UserModel { clock }.apply { load(it.db, sweepStale = false) }
+        val learning = UserLearning { clock }.apply { load(it.learn) }
+        assertFalse(UserDeletionPromises.keep(model, it.db, learning, it.learn))
+
+        assertEquals(
+            "a promise the user already settled by clearing must never come back for a word typed since",
+            listOf("你呢嗯"),
+            learnedIn(it.learn),
+        )
+    }
+
     @Test fun owing_the_same_deletion_twice_still_reports_it_as_owed() {
         val m = UserModel { clock }
         assertTrue(m.addTombstone("你呢嗯", ""))
