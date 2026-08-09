@@ -126,6 +126,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val symbolUsageStore by lazy { SymbolUsageStore(filesDir).also { it.load() } }
     private val emojiUsageStore by lazy { SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).also { it.load() } }
     @Volatile private var secureField = false
+    @Volatile private var personalizationBlocked = false
 
     private data class EditorTarget(
         val packageName: String,
@@ -412,9 +413,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         currentEditorTarget = nextTarget
         inputSessionActive = nextTarget != null
 
-        controller.setLearningBlocked(
-            info != null && com.aegis.ime.user.ClipboardPolicy.blocksLearning(info.inputType, info.imeOptions),
-        )
+        personalizationBlocked =
+            info != null && com.aegis.ime.user.ClipboardPolicy.blocksLearning(info.inputType, info.imeOptions)
+        controller.setLearningBlocked(personalizationBlocked)
         val quiet = userStoresLoaded && !liveUserDictHost.writing && !LiveUserData.restoreInProgress
         if (quiet && (!userModel.dirty || !userModel.readable) && userDbFile.lastModified() > userDbMtime) {
             val readAt = userDbFile.lastModified()
@@ -460,6 +461,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         inputSessionActive = false
         resetControllerOnNextInputView = false
         secureField = false
+        personalizationBlocked = false
         if (LiveUserData.restoreInProgress) return
         liveUserDictHost.scheduleSave()
     }
@@ -620,6 +622,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         super.onStartInputView(info, restarting)
         val viewTarget = editorTarget(info)
         val viewSecure = info != null && com.aegis.ime.user.ClipboardPolicy.isSensitive(info.inputType)
+        val viewBlocksPersonalization =
+            info != null && com.aegis.ime.user.ClipboardPolicy.blocksLearning(info.inputType, info.imeOptions)
         val preserveLayout = viewTarget != null && viewTarget.packageName == layoutSessionPackage
         val targetMatches = inputSessionActive && !secureField && !viewSecure &&
             currentEditorTarget?.let { active -> viewTarget?.let(active::sameEditor) } == true
@@ -630,6 +634,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             currentEditorTarget = null
             inputSessionActive = false
             secureField = viewSecure
+            personalizationBlocked = viewBlocksPersonalization
             resetControllerOnNextInputView = true
         }
         val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
@@ -860,7 +865,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (iv.isPanelShowing(emojiView)) { iv.showPanel(null); return }
         val ev = emojiView ?: EmojiView(this).also {
             it.recentProvider = { emojiUsageStore.recent() }
-            it.onEmoji = { e -> emojiUsageStore.record(e); commitExternalText(e) }
+            it.onEmoji = { e ->
+                if (!personalizationBlocked) emojiUsageStore.record(e)
+                commitExternalText(e)
+            }
             it.onClearRecents = { emojiUsageStore.clear() }
             it.onBackspace = { panelBackspace() }
             it.onBack = { inputView?.showPanel(null) }
@@ -981,7 +989,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.recentProvider = { symbolUsageStore.recent() }
             it.recentOriginOf = { s -> symbolUsageStore.originOf(s) }
             it.onClearRecents = { symbolUsageStore.clear() }
-            it.onSymbol = { s, origin -> symbolUsageStore.record(s, origin); commitExternalSymbol(s) }
+            it.onSymbol = { s, origin ->
+                if (!personalizationBlocked) symbolUsageStore.record(s, origin)
+                commitExternalSymbol(s)
+            }
             it.onBackspace = { panelBackspace() }
             it.onBack = { inputView?.showPanel(null) }
             symbolsView = it
@@ -1185,6 +1196,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             inputSessionActive = false
             resetControllerOnNextInputView = false
             secureField = false
+            personalizationBlocked = false
         }
     }
 
@@ -1210,6 +1222,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         inputSessionActive = false
         resetControllerOnNextInputView = false
         secureField = false
+        personalizationBlocked = false
         super.onUnbindInput()
     }
 
@@ -1220,6 +1233,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         inputSessionActive = false
         resetControllerOnNextInputView = false
         secureField = false
+        personalizationBlocked = false
         unregisterBackCallback()
         runCatching { decodeWorker.shutdownNow() }
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
