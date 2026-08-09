@@ -987,7 +987,7 @@ class PinyinDecoder(
 
     private class Cell(val score: Double, val prevPos: Int, val prevState: SentenceState?, val word: String)
 
-    private fun bestSentence(input: String, cuts: Set<Int> = emptySet(), ctx: Ctx = Ctx.EMPTY): String? {
+    private fun bestSentence(input: String, cuts: Set<Int>, ctx: Ctx): String? {
         val model = lm
         val learn = activeLearning
         val condMemo = HashMap<Long, Double>()
