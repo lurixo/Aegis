@@ -54,6 +54,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.aegis.ime.R
 import com.aegis.ime.backup.BackupError
+import com.aegis.ime.backup.BackupItem
 import com.aegis.ime.backup.BackupException
 import com.aegis.ime.backup.BackupManager
 import java.util.concurrent.Executors
@@ -247,21 +248,16 @@ class BackupActivity : ComponentActivity() {
         }
         uiState = BackupUiState.Working
         worker.execute {
-            val ok = runCatching { writeExport(uri, password) }.getOrDefault(false)
+            val report = runCatching { writeExport(uri, password) }.getOrNull()
             password.fill('\u0000')
-            runOnUiThread {
-                uiState = BackupUiState.Result(
-                    if (ok) R.string.backup_export_ok else R.string.backup_export_failed,
-                )
-            }
+            runOnUiThread { uiState = exportResult(report) }
         }
     }
 
-    private fun writeExport(uri: Uri, password: CharArray): Boolean {
-        val out = contentResolver.openOutputStream(uri) ?: return false
+    private fun writeExport(uri: Uri, password: CharArray): BackupManager.ExportReport? {
+        val out = contentResolver.openOutputStream(uri) ?: return null
         return try {
             BackupManager.export(filesDir, aegisPrefs(), password, out)
-            true
         } finally {
             runCatching { out.close() }
         }
@@ -319,7 +315,7 @@ internal sealed interface BackupUiState {
     data object ExportPassword : BackupUiState
     data object ImportPassword : BackupUiState
     data object Working : BackupUiState
-    data class Result(val messageRes: Int) : BackupUiState
+    data class Result(val messageRes: Int, val omittedRes: List<Int> = emptyList()) : BackupUiState
 }
 
 internal const val BACKUP_MIN_PASSWORD_LENGTH = 6
@@ -424,7 +420,7 @@ internal fun BackupScreen(
             onDismiss = onDismissDialog,
             onConfirm = onImportConfirm,
         )
-        is BackupUiState.Result -> ResultDialog(state.messageRes, onDone)
+        is BackupUiState.Result -> ResultDialog(state.messageRes, state.omittedRes, onDone)
         else -> Unit
     }
 }
@@ -758,13 +754,39 @@ private fun ModeOption(selected: Boolean, titleRes: Int, descRes: Int, onSelect:
 }
 
 @Composable
-private fun ResultDialog(messageRes: Int, onDone: () -> Unit) {
+private fun ResultDialog(messageRes: Int, omittedRes: List<Int>, onDone: () -> Unit) {
     AegisAlertDialog(
         onDismissRequest = onDone,
         title = { Text(stringResource(R.string.settings_backup_title)) },
-        text = { Text(stringResource(messageRes)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(stringResource(messageRes))
+                omittedRes.forEach {
+                    Text(
+                        stringResource(it),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        },
         confirmButton = { TextButton(onClick = onDone) { Text(stringResource(R.string.backup_done)) } },
     )
+}
+
+internal fun exportResult(report: BackupManager.ExportReport?): BackupUiState.Result = when {
+    report == null -> BackupUiState.Result(R.string.backup_export_failed)
+    report.omitted.isEmpty() -> BackupUiState.Result(R.string.backup_export_ok)
+    else -> BackupUiState.Result(R.string.backup_export_ok_partial, report.omitted.map(::backupItemLabel))
+}
+
+internal fun backupItemLabel(item: BackupItem): Int = when (item) {
+    BackupItem.DICTIONARY -> R.string.backup_item_dictionary
+    BackupItem.LEARNING -> R.string.backup_item_learning
+    BackupItem.PHRASES -> R.string.backup_item_phrases
+    BackupItem.CLIPBOARD -> R.string.backup_item_clipboard
+    BackupItem.SYMBOL_USAGE -> R.string.backup_item_symbols
+    BackupItem.EMOJI_USAGE -> R.string.backup_item_emoji
 }
 
 internal fun passwordProblem(password: String, confirm: String): Int? = when {
