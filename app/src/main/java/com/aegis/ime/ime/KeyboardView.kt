@@ -946,6 +946,7 @@ class KeyboardView(context: Context) : View(context) {
     internal fun scrollRegionForTest(): RectF = RectF(scrollRegion)
     internal fun scrollTouchForTest(): RectF = RectF(scrollTouch)
     internal fun scrollCellHeightForTest(): Float = scrollCellH
+    internal fun scrollColumnKeysForTest(): List<Key> = scrollColumn?.items ?: emptyList()
     internal fun maxScrollForTest(): Float = maxScroll()
     internal fun isFlingingForTest(): Boolean = !fling.isFinished
     internal fun flingFinalForTest(): Float = fling.finalOffset()
