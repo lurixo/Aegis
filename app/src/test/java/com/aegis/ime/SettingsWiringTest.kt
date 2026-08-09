@@ -24,6 +24,27 @@ class SettingsWiringTest {
 
     private fun src(path: String) = File(path).readText()
 
+    private fun memberBody(source: String, signature: String): String {
+        val start = source.indexOf(signature)
+        assertTrue("source must declare $signature", start >= 0)
+        var i = source.indexOf('{', start)
+        var depth = 0
+        val out = StringBuilder()
+        while (i < source.length) {
+            val c = source[i]
+            if (c == '{') depth++
+            if (depth > 0) out.append(c)
+            if (c == '}') {
+                depth--
+                if (depth == 0) break
+            }
+            i++
+        }
+        assertTrue("$signature must have a balanced body", depth == 0 && out.endsWith("}"))
+        assertFalse("$signature body must stop where the next member starts", out.contains("\n    private fun "))
+        return out.toString()
+    }
+
     @Test fun service_registers_the_hot_apply_listener_for_its_whole_lifetime() {
         val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
         assertTrue(
@@ -97,7 +118,7 @@ class SettingsWiringTest {
 
     @Test fun service_teardown_drains_clipboard_persistence_without_clearing_the_restore_guard() {
         val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
-        val onDestroy = svc.substringAfter("override fun onDestroy()").substringBefore("// --- ImeHost ---")
+        val onDestroy = memberBody(svc, "override fun onDestroy()")
         assertTrue(
             "onDestroy must drain owned clipboard persistence hooks before withdrawing them",
             onDestroy.contains("LiveUserData.unregisterClipboardPersistenceHooks(clipboardPendingWriteFlush)"),
