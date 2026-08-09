@@ -290,6 +290,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         const val LIST_LOOKAHEAD_VIEWPORTS = 2
         const val SWIPE_ACTION_SIZE_DP = 44
         const val SWIPE_ACTION_GAP_DP = 4
+        const val TAB_PILL_DP = 76
         const val COMPACT_ACTION_HEIGHT_DP = 36
         const val SWIPE_VERTICAL_BIAS = 1.5f
         const val DRAG_HORIZONTAL_INTENT_FRACTION = 0.5f
@@ -907,11 +908,17 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             setPadding(dp(8), dp(4), dp(8), dp(4))
             fun iconLp(spaced: Boolean = false) = ll(dp(36), dp(36)).apply { if (spaced) marginStart = dp(6) }
             addView(
-                PanelBackButton(context).apply {
-                    tint = TEXT_DARK
+                PanelBackButton.control(
+                    context,
+                    context.getString(R.string.clip_back),
+                    PanelBackButton.icon(density),
+                    TEXT_DARK,
+                    edgeDp = 0,
+                ).apply {
+                    Motion.applyTapFeedback(this, TEXT_DARK, radiusDp = ImeShapes.toolbarFeedbackRadiusDp)
                     setOnClickListener { onBack() }
                 },
-                ll(dp(PanelBackButton.HIT_DP), dp(PanelBackButton.HIT_DP)),
+                ll(WC, dp(PanelBackButton.HIT_DP)),
             )
             addView(View(context), ll(0, dp(1), 1f))
             addView(pillTray(), ll(WC, dp(34)))
@@ -2210,8 +2217,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         background = rounded(CARD, ImeShapes.toolbarPillRadiusDp)
-        addView(pill(context.getString(R.string.clip_clipboard), st.tab == Tab.CLIPBOARD, true) { if (st.switchTab(Tab.CLIPBOARD)) { swipeRevealed = null; sortMode = false; categorySortMode = false; refresh() } }, ll(dp(84), MP))
-        addView(pill(context.getString(R.string.clip_phrases), st.tab == Tab.PHRASE, false) { if (st.switchTab(Tab.PHRASE)) { swipeRevealed = null; sortMode = false; categorySortMode = false; refresh() } }, ll(dp(84), MP))
+        addView(pill(context.getString(R.string.clip_clipboard), st.tab == Tab.CLIPBOARD, true) { if (st.switchTab(Tab.CLIPBOARD)) { swipeRevealed = null; sortMode = false; categorySortMode = false; refresh() } }, ll(dp(TAB_PILL_DP), MP))
+        addView(pill(context.getString(R.string.clip_phrases), st.tab == Tab.PHRASE, false) { if (st.switchTab(Tab.PHRASE)) { swipeRevealed = null; sortMode = false; categorySortMode = false; refresh() } }, ll(dp(TAB_PILL_DP), MP))
     }
 
     private fun pill(label: String, on: Boolean, left: Boolean, onClick: () -> Unit): TextView = TextView(context).apply {

@@ -52,23 +52,13 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(EDGE_DP), 0, dp(EDGE_DP), 0)
     }
-    private val backIcon = EditPanelView.GlyphDrawable(
-        dp(TITLE_ICON_DP),
-        TITLE_GLYPH_SCALE,
-        2f * density,
-        0f,
-    ) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }.also { it.applyTint(colors.keyLabel) }
-    private val titleText = TextView(context).apply {
-        text = context.getString(R.string.csp_punctuation_title)
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
-        maxLines = 1
-        gravity = Gravity.CENTER_VERTICAL
-        setTextColor(colors.keyLabel)
-        contentDescription = context.getString(R.string.clip_back)
-        setCompoundDrawablesWithIntrinsicBounds(backIcon, null, null, null)
-        compoundDrawablePadding = dp(TITLE_GAP_DP)
-        setPadding(dp(TITLE_EDGE_DP), 0, dp(TITLE_EDGE_DP), 0)
-    }
+    private val backIcon = PanelBackButton.icon(density)
+    private val titleText = PanelBackButton.control(
+        context,
+        context.getString(R.string.csp_punctuation_title),
+        backIcon,
+        colors.keyLabel,
+    )
     private val sectionLabels = mutableListOf<TextView>()
     private val addedLabel = sectionLabel(context.getString(R.string.csp_section_added))
     private val paletteLabel = sectionLabel(context.getString(R.string.csp_section_all_punctuation))
@@ -309,10 +299,6 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     private companion object {
         const val EDGE_DP = 8
         const val GAP_DP = 8
-        const val TITLE_ICON_DP = 16
-        const val TITLE_GLYPH_SCALE = 0.56f
-        const val TITLE_GAP_DP = 6
-        const val TITLE_EDGE_DP = 12
         const val ROW_GAP_DP = 4
         const val SECTION_GAP_DP = 16
         const val CHIP_DP = 48

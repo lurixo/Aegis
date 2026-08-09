@@ -68,7 +68,11 @@ class PhrasePanelTest {
     }
     private fun categoryScroll(root: View): HorizontalScrollView =
         allViews(root).filterIsInstance<HorizontalScrollView>()
-            .single { scroll -> allViews(scroll).none { it is PanelBackButton } }
+            .single { scroll ->
+                allViews(scroll).none {
+                    it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_back)
+                }
+            }
     private fun clickDesc(root: View, desc: String): Boolean {
         val v = allViews(root).firstOrNull { it.contentDescription?.toString() == desc && it.hasOnClickListeners() } ?: return false
         v.performClick(); return true
@@ -701,10 +705,19 @@ class PhrasePanelTest {
         assertTrue("返回 is no longer a '‹' text glyph", textViews(v).none { it.text?.toString() == "‹" })
         val back = icons.single { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_back) }
         val actions = icons.filterNot { it === back }
-        assertTrue("返回 uses the shared panel back control", back is PanelBackButton)
+        assertTrue("返回 uses the shared panel back control", back is TextView)
+        assertEquals(
+            "返回 carries its own label",
+            ctx.getString(com.aegis.ime.R.string.clip_back),
+            (back as TextView).text.toString(),
+        )
         val backTarget = (48 * ctx.resources.displayMetrics.density).toInt()
-        assertEquals("返回 keeps a 48dp hit target", backTarget, back.layoutParams.width)
         assertEquals("返回 keeps a 48dp hit target", backTarget, back.layoutParams.height)
+        assertEquals(
+            "返回 is sized by its label",
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            back.layoutParams.width,
+        )
         assertEquals("all top action icons share one width (item7)", 1, actions.map { it.layoutParams.width }.toSet().size)
         assertEquals("all top action icons share one height (item7)", 1, actions.map { it.layoutParams.height }.toSet().size)
         val surfaced = icons.filter { it.contentDescription?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_add_phrase), ctx.getString(com.aegis.ime.R.string.clip_edit_phrases), ctx.getString(com.aegis.ime.R.string.clip_clear_category)) }

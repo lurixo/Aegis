@@ -16,50 +16,47 @@
 package com.aegis.ime.ime
 
 import android.content.Context
-import android.graphics.Canvas
-import android.graphics.Paint
-import android.view.View
+import android.util.TypedValue
+import android.view.Gravity
+import android.widget.TextView
 import com.aegis.ime.R
-import com.aegis.ime.ime.theme.ImePalette
-import com.aegis.ime.ime.theme.ImeShapes
+import com.aegis.ime.ime.theme.ImeType
 
-class PanelBackButton(context: Context) : View(context) {
+object PanelBackButton {
 
-    private val density = resources.displayMetrics.density
-    private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeCap = Paint.Cap.ROUND
-        strokeJoin = Paint.Join.ROUND
-        strokeWidth = 2f * density
-    }
-    private val glyphSize = ICON_DP * density * GLYPH_SCALE
+    const val HIT_DP = 48
+    const val ICON_DP = 16
+    const val GLYPH_SCALE = 0.56f
+    const val GAP_DP = 6
+    const val EDGE_DP = 12
 
-    var tint: Int = ImePalette.STATIC_LIGHT.keyLabel
-        set(value) {
-            field = value
-            paint.color = value
-            Motion.applyTapFeedback(this, value, radiusDp = ImeShapes.toolbarFeedbackRadiusDp)
-            invalidate()
+    internal fun icon(density: Float): EditPanelView.GlyphDrawable =
+        EditPanelView.GlyphDrawable(
+            (ICON_DP * density).toInt(),
+            GLYPH_SCALE,
+            2f * density,
+            0f,
+        ) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }
+
+    internal fun control(
+        context: Context,
+        label: String,
+        glyph: EditPanelView.GlyphDrawable,
+        tint: Int,
+        edgeDp: Int = EDGE_DP,
+    ): TextView {
+        val density = context.resources.displayMetrics.density
+        return TextView(context).apply {
+            text = label
+            maxLines = 1
+            gravity = Gravity.CENTER_VERTICAL
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+            setTextColor(tint)
+            contentDescription = context.getString(R.string.clip_back)
+            glyph.applyTint(tint)
+            setCompoundDrawablesWithIntrinsicBounds(glyph, null, null, null)
+            compoundDrawablePadding = (GAP_DP * density).toInt()
+            setPadding((edgeDp * density).toInt(), 0, (edgeDp * density).toInt(), 0)
         }
-
-    init {
-        contentDescription = context.getString(R.string.clip_back)
-        paint.color = tint
-        Motion.applyTapFeedback(this, tint, radiusDp = ImeShapes.toolbarFeedbackRadiusDp)
-    }
-
-    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val target = (HIT_DP * density).toInt()
-        setMeasuredDimension(resolveSize(target, widthMeasureSpec), resolveSize(target, heightMeasureSpec))
-    }
-
-    override fun onDraw(canvas: Canvas) {
-        Glyphs.drawBack(canvas, paint, width / 2f, height / 2f, glyphSize)
-    }
-
-    companion object {
-        const val HIT_DP = 48
-        const val ICON_DP = 24
-        private const val GLYPH_SCALE = 0.42f
     }
 }

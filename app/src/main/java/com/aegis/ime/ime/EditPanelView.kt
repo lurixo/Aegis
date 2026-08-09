@@ -117,14 +117,17 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
             addView(
                 textBtn(context.getString(R.string.edit_title), EditAction.BACK, sp = TITLE_SP).apply {
                     isFocusable = false
-                    gravity = Gravity.CENTER_VERTICAL; setPadding(dp(12), 0, dp(12), 0)
+                    gravity = Gravity.CENTER_VERTICAL
+                    setPadding(dp(PanelBackButton.EDGE_DP), 0, dp(PanelBackButton.EDGE_DP), 0)
                     setCompoundDrawablesWithIntrinsicBounds(
-                        icon(16, 0.56f) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) },
+                        icon(PanelBackButton.ICON_DP, PanelBackButton.GLYPH_SCALE) { c, p, x, y, s ->
+                            Glyphs.drawBack(c, p, x, y, s)
+                        },
                         null,
                         null,
                         null,
                     )
-                    compoundDrawablePadding = dp(6)
+                    compoundDrawablePadding = dp(PanelBackButton.GAP_DP)
                 },
                 LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT),
             )
