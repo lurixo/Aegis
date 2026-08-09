@@ -220,8 +220,10 @@ class LiveUserDictHostSaveQueueTest {
         val flusher = Thread { repeat(40) { h.flush() } }
         writer.start()
         flusher.start()
-        writer.join()
-        flusher.join()
+        writer.join(TimeUnit.SECONDS.toMillis(60))
+        flusher.join(TimeUnit.SECONDS.toMillis(60))
+        assertFalse("the committing thread was still running after sixty seconds", writer.isAlive)
+        assertFalse("the flushing thread was still running after sixty seconds", flusher.isAlive)
         assertTrue(h.flush())
         val reloaded = onDisk()
         for (i in 0 until committed) {

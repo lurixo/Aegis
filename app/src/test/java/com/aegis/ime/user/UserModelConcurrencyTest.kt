@@ -16,10 +16,12 @@
 package com.aegis.ime.user
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.TimeUnit
 
 class UserModelConcurrencyTest {
 
@@ -42,7 +44,10 @@ class UserModelConcurrencyTest {
             spin { repeat(300) { m.save(saveOut) } },
         )
         threads.forEach { it.start() }
-        threads.forEach { it.join() }
+        threads.forEach {
+            it.join(TimeUnit.SECONDS.toMillis(60))
+            assertFalse("a worker was still running after sixty seconds", it.isAlive)
+        }
         assertTrue("no concurrency exception expected, got: ${errors.toList()}", errors.isEmpty())
     }
 
