@@ -17,6 +17,7 @@ package com.aegis.ime.backup
 
 import android.content.SharedPreferences
 import com.aegis.ime.user.AtomicFileSwap
+import com.aegis.ime.user.LiveUserData
 import java.io.File
 import java.io.IOException
 
@@ -94,6 +95,7 @@ internal class RestoreJournal private constructor(
         }
 
         fun finishAnyInterrupted(filesDir: File, prefs: SharedPreferences): Boolean {
+            if (LiveUserData.restoreInProgress) return false
             val dir = File(filesDir, DIR)
             if (!dir.isDirectory) return false
             val journal = RestoreJournal(filesDir, dir)
