@@ -29,6 +29,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import kotlin.math.roundToInt
 
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -104,6 +105,31 @@ class CopyBarReachabilityTest {
         val firstGap = seen.indexOfFirst { !it }
         assertEquals("character $firstGap of the copied text can never be scrolled into view", -1, firstGap)
         assertEquals("the bar still holds the untruncated copy", source, v.contentForTest())
+    }
+
+    @Test fun panning_right_pulls_the_scroll_back_by_the_width_of_what_slid_out() {
+        val source = marked(30_000)
+        val v = bar(source)
+        val scroller = scrollerOf(v)
+        val text = scroller.getChildAt(0) as TextView
+
+        val viewport = scroller.width - scroller.paddingLeft - scroller.paddingRight
+        val edge = text.width - viewport
+        assertTrue("precondition: the rendered strip is wider than the viewport", edge > 0)
+        val before = v.previewStartForTest()
+
+        scroller.scrollTo(edge, 0)
+        lay(v)
+
+        val after = v.previewStartForTest()
+        assertTrue("precondition: the window slid", after > before)
+        val shift = text.paint.measureText(source, before, after).roundToInt()
+        assertTrue("precondition: the pull back is smaller than the strip", shift in 1 until edge)
+        assertEquals(
+            "the scroll must follow the text that slid out, so the finger stays on the same glyph",
+            (edge - shift).toLong(),
+            scroller.scrollX.toLong(),
+        )
     }
 
     @Test fun the_character_after_the_window_is_reachable_and_panning_back_returns_to_the_head() {
