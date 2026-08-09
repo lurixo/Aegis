@@ -16,8 +16,8 @@ an independent project not affiliated with the RIME project.
 - **Copyright:** © amzxyz and the rime-wanxiang contributors
 - **License:** Creative Commons Attribution 4.0 International (CC BY 4.0) —
   <https://creativecommons.org/licenses/by/4.0/>
-- **Source:** <https://github.com/amzxyz/rime-wanxiang> (tag `v16.3.0`, commit
-  `ef047401ef5d2f80cb7f88641722da24e222a017`)
+- **Source:** <https://github.com/amzxyz/rime-wanxiang> (tag `v17.2.4`, commit
+  `73aa35ef26350fc553ffd619ea2e8260f78b4935`)
 - **Used in:** the downloadable dictionary pack — `aegis_{dict,t9,jianpin}.bin`, which is where every
   Chinese candidate comes from, and `aegis_lm.bin`, the character-bigram context model; nothing
   derived from these tables ships inside the APK. All are derived from the 14 tables
