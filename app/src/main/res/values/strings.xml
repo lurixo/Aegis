@@ -236,6 +236,13 @@
     <string name="backup_error_unsupported">This backup was made by a newer version</string>
     <string name="backup_error_wrong_password">Wrong password, or the file is damaged</string>
     <string name="backup_error_io">Could not read or write the file</string>
+    <string name="backup_export_ok_partial">Backup exported. These could not be read, so they were left out:</string>
+    <string name="backup_item_dictionary">Learning dictionary</string>
+    <string name="backup_item_learning">Learned data</string>
+    <string name="backup_item_phrases">Saved phrases</string>
+    <string name="backup_item_clipboard">Clipboard history</string>
+    <string name="backup_item_symbols">Symbol history</string>
+    <string name="backup_item_emoji">Emoji history</string>
 
     <string name="settings_about_licenses_title">Open-source licenses</string>
     <string name="settings_about_licenses_desc">Third-party components and their licenses</string>
