@@ -25,6 +25,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import com.aegis.ime.R
 import com.aegis.ime.user.LiveUserData
+import com.aegis.ime.user.UnreadablePhrasesException
 
 class PhraseTransferActivity : ComponentActivity() {
 
@@ -60,17 +61,10 @@ class PhraseTransferActivity : ComponentActivity() {
     }
 
     private fun applyImport(text: String, merge: Boolean) {
-        val ok = runCatching {
+        val outcome = runCatching {
             LiveUserData.withClipboardStore(filesDir) { it.importPhrasesText(text, merge) }
-        }.getOrDefault(false)
-        toast(
-            if (ok) {
-                if (merge) R.string.phrase_transfer_toast_import_merged
-                else R.string.phrase_transfer_toast_import_overwritten
-            } else {
-                R.string.phrase_transfer_toast_import_invalid
-            },
-        )
+        }
+        toast(phraseImportMessage(outcome, merge))
         finish()
     }
 
@@ -96,4 +90,14 @@ class PhraseTransferActivity : ComponentActivity() {
                 .putExtra(EXTRA_IMPORT_MERGE, merge)
                 .addFlags(LAUNCH_FLAGS)
     }
+}
+
+internal fun phraseImportMessage(outcome: Result<Boolean>, merge: Boolean): Int = when {
+    outcome.exceptionOrNull() is UnreadablePhrasesException ->
+        R.string.phrase_transfer_toast_import_store_unreadable
+    outcome.isFailure -> R.string.phrase_transfer_toast_import_write_failed
+    outcome.getOrDefault(false) ->
+        if (merge) R.string.phrase_transfer_toast_import_merged
+        else R.string.phrase_transfer_toast_import_overwritten
+    else -> R.string.phrase_transfer_toast_import_invalid
 }

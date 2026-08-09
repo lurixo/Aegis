@@ -901,7 +901,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onDeletePhrasesFrom = { cat, list -> clipboardStore.deletePhrasesFrom(cat, list) }
             it.onSaveAsPhrasesTo = { cat, list ->
                 val added = clipboardStore.addPhrasesTo(cat, list)
-                if (list.size == 1) toast(if (added > 0) getString(R.string.svc_phrase_added) else getString(R.string.svc_phrase_exists))
+                if (list.size == 1) toast(phraseAddNotice(added))
             }
             it.onEditPhrase = { cat, text -> beginInlineEdit(cat, text) }
             it.onMovePhrase = { from, text, to -> clipboardStore.movePhrase(from, text, to) }
@@ -1087,7 +1087,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun addSinglePhraseWithToast(category: String, text: String) {
         val added = clipboardStore.addPhrasesTo(category, listOf(text))
-        toast(if (added > 0) getString(R.string.svc_phrase_added) else getString(R.string.svc_phrase_exists))
+        toast(phraseAddNotice(added))
+    }
+
+    private fun phraseAddNotice(added: Int): String = when {
+        added > 0 -> getString(R.string.svc_phrase_added)
+        !clipboardStore.phrasesReadable -> getString(R.string.svc_phrase_not_added)
+        else -> getString(R.string.svc_phrase_exists)
     }
 
     private fun cancelInlineInput() = endInlineInput()
