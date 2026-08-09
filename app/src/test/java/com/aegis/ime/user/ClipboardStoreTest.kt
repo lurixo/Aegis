@@ -17,6 +17,7 @@ package com.aegis.ime.user
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -699,6 +700,25 @@ class ClipboardStoreTest {
     @Test fun shouldCapture_only_gated_by_history_switch() {
         assertTrue("history on → capture (even secure fields)", ClipboardStore.shouldCapture(true))
         assertFalse("history off → never capture", ClipboardStore.shouldCapture(false))
+    }
+
+    @Test fun two_stores_over_one_directory_never_share_a_temp_file() {
+        val dir = newDir()
+        val a = ClipboardStore(dir).apply { load() }
+        val b = ClipboardStore(dir).apply { load() }
+        try {
+            for (name in listOf("clipboard.txt", "phrases.txt")) {
+                val dest = File(dir, name)
+                assertNotEquals(
+                    "a swap that loses the race deletes the target, so two stores must never stage through one path",
+                    a.tempFileFor(dest),
+                    b.tempFileFor(dest),
+                )
+            }
+        } finally {
+            a.stopSaving()
+            b.stopSaving()
+        }
     }
 
     @Test fun a_phrase_file_that_reads_fine_is_reported_as_readable() {

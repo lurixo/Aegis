@@ -19,6 +19,7 @@ import com.aegis.ime.layout.SymbolCatalog
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -243,6 +244,11 @@ class SymbolUsageStoreTest {
 
         assertEquals("", File(dir, "symbol_usage.txt").readText())
         assertTrue(SymbolUsageStore(dir).apply { load() }.recent().isEmpty())
+    }
+
+    @Test fun two_symbol_stores_over_one_directory_never_share_a_temp_file() {
+        val dir = newDir()
+        assertNotEquals(SymbolUsageStore(dir).tempFile(), SymbolUsageStore(dir).tempFile())
     }
 
     @Test fun a_symbol_history_that_reads_fine_is_reported_as_readable() {

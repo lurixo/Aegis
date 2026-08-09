@@ -268,18 +268,26 @@ object BackupManager {
             raw
         } else {
             val migrated = ClipboardStore(staging).also { it.load() }
-            if (migrated.phrases().isEmpty()) return
-            migrated.exportPhrasesText()
+            val carried = try {
+                migrated.exportPhrasesText().takeIf { migrated.phrases().isNotEmpty() }
+            } finally {
+                migrated.stopSaving()
+            }
+            carried ?: return
         }
-        val applied = ClipboardStore(filesDir).also { it.load() }.importPhrasesText(text, merge)
-        if (!applied) return
+        LiveUserData.withClipboardStore(filesDir) { it.importPhrasesText(text, merge) }
     }
 
     private fun applyClipboard(filesDir: File, staging: File, merge: Boolean) {
         val stagedIndex = File(staging, CLIPBOARD)
         if (!stagedIndex.isFile) return
-        val incoming = ClipboardStore(staging).also { it.load() }.history()
-        ClipboardStore(filesDir).also { it.load() }.importHistory(incoming, merge)
+        val staged = ClipboardStore(staging).also { it.load() }
+        val incoming = try {
+            staged.history()
+        } finally {
+            staged.stopSaving()
+        }
+        LiveUserData.withClipboardStore(filesDir) { it.importHistory(incoming, merge) }
     }
 
     private fun applySymbolUsage(filesDir: File, staging: File, merge: Boolean) {

@@ -20,6 +20,7 @@ import java.io.File
 import java.io.IOException
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicLong
 
 class SymbolUsageStore(private val dir: File) {
 
@@ -27,6 +28,9 @@ class SymbolUsageStore(private val dir: File) {
 
     private val file get() = File(dir, "symbol_usage.txt")
     private val used = ArrayList<Entry>()
+    private val tmpTag = TMP_TAGS.incrementAndGet()
+
+    internal fun tempFile(): File = File(dir, "symbol_usage.txt.$tmpTag.tmp")
 
     @Volatile
     var readable: Boolean = true
@@ -103,7 +107,7 @@ class SymbolUsageStore(private val dir: File) {
         used.joinToString("\n") { if (it.origin == null) it.symbol else "${it.symbol}\t${it.origin}" }
 
     private fun writeAtomically(text: String) {
-        val tmp = File(dir, "symbol_usage.txt.tmp")
+        val tmp = tempFile()
         tmp.writeText(text)
         if (!tmp.renameTo(file)) {
             file.delete()
@@ -125,6 +129,8 @@ class SymbolUsageStore(private val dir: File) {
 
     companion object {
         private const val MAX = 30
+
+        private val TMP_TAGS = AtomicLong(0)
 
         @Volatile
         private var writer: Thread? = null

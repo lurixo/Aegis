@@ -16,6 +16,9 @@
 package com.aegis.ime.ui
 
 import com.aegis.ime.user.ClipboardStore
+import com.aegis.ime.user.LiveUserData
+import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -32,6 +35,10 @@ class PhraseTransferIoTest {
     val tmp = TemporaryFolder()
 
     private fun newDir(): File = tmp.newFolder()
+
+    @After fun releaseTheLiveStore() {
+        LiveUserData.clipboardHost = null
+    }
 
     @Test fun exportPhrases_reloads_persisted_store_and_writes_category_phrase_data() {
         val dir = newDir()
@@ -68,6 +75,37 @@ class PhraseTransferIoTest {
         ClipboardStore(dir).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("已收到")); flushPendingWrites() }
 
         assertFalse(PhraseTransferIo.exportPhrases(dir) { FailingOutputStream() })
+    }
+
+    @Test fun a_phrase_export_reads_through_the_store_that_owns_the_file() {
+        val dir = newDir()
+        val live = ClipboardStore(dir).apply {
+            load()
+            addCategory("工作")
+            addPhrasesTo("工作", listOf("内存里的"))
+            flushPendingWrites()
+        }
+        File(dir, "phrases.txt").writeText("C\t工作\nP\t磁盘上的\n")
+        LiveUserData.clipboardHost = live
+        try {
+            val out = ByteArrayOutputStream()
+            assertTrue(PhraseTransferIo.exportPhrases(dir) { out })
+            val text = String(out.toByteArray(), Charsets.UTF_8)
+            assertTrue("the running store is the one that knows what the phrases are", text.contains("P\t内存里的\n"))
+            assertFalse("a second store over the same file reads whatever happens to be there", text.contains("磁盘上的"))
+        } finally {
+            live.stopSaving()
+        }
+    }
+
+    @Test fun a_phrase_import_writes_through_the_store_that_owns_the_file() {
+        val src = File("src/main/java/com/aegis/ime/ui/PhraseTransferActivity.kt").readText()
+        assertTrue(src.contains("LiveUserData.withClipboardStore(filesDir)"))
+        assertEquals(
+            "the import must not build its own store over the same file",
+            src.windowed("withClipboardStore(filesDir)".length) { it == "withClipboardStore(filesDir)" }.count { it },
+            src.windowed("ClipboardStore(filesDir)".length) { it == "ClipboardStore(filesDir)" }.count { it },
+        )
     }
 
     private class FailingOutputStream : OutputStream() {

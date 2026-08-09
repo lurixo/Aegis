@@ -15,6 +15,8 @@
 
 package com.aegis.ime.user
 
+import java.io.File
+
 object LiveUserData {
     @Volatile
     var onRestored: (() -> Unit)? = null
@@ -59,6 +61,16 @@ object LiveUserData {
         synchronized(clipboardPersistenceHookLock) {
             if (beforeExportHook === flush) beforeExportHook = null
             if (beforeRestoreHook === flush) beforeRestoreHook = null
+        }
+    }
+
+    internal fun <T> withClipboardStore(dir: File, work: (ClipboardStore) -> T): T {
+        clipboardHost?.takeIf { it.owns(dir) }?.let { return work(it) }
+        val own = ClipboardStore(dir).also { it.load() }
+        return try {
+            work(own)
+        } finally {
+            own.stopSaving()
         }
     }
 

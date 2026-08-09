@@ -24,7 +24,7 @@ import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import com.aegis.ime.R
-import com.aegis.ime.user.ClipboardStore
+import com.aegis.ime.user.LiveUserData
 
 class PhraseTransferActivity : ComponentActivity() {
 
@@ -61,7 +61,7 @@ class PhraseTransferActivity : ComponentActivity() {
 
     private fun applyImport(text: String, merge: Boolean) {
         val ok = runCatching {
-            ClipboardStore(filesDir).also { it.load() }.importPhrasesText(text, merge)
+            LiveUserData.withClipboardStore(filesDir) { it.importPhrasesText(text, merge) }
         }.getOrDefault(false)
         toast(
             if (ok) {
