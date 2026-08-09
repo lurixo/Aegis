@@ -127,6 +127,24 @@ class UserDictImportPromiseTest {
         assertTrue("the live word list must not be holding one either", model.tombstones().isEmpty())
     }
 
+    @Test fun overwriting_a_live_keyboards_word_list_with_a_file_of_only_deletions_wipes_nothing() {
+        val learning = stage("overwrite-live-wordless")
+        val wordless = File(donor.absoluteFile.parentFile, "wordless.txt")
+        UserModel { clock }.apply { assertTrue(addTombstone("你呢嗯", "")); save(wordless) }
+        val model = UserModel { clock }.apply { load(db) }
+        UserDictHot.host = LiveUserDictHost(model, db, learning, learn).also { hosts += it }
+
+        assertFalse(
+            "a file carrying no words of its own is not a word list to overwrite with",
+            UserDictEdit.applyImport(db, wordless, merge = false, now = clock),
+        )
+
+        assertEquals("the running word list must keep this phone's words", listOf("张伟明"), model.userWordEntries().map { it.word })
+        assertEquals("and so must the file behind it", listOf("张伟明"), UserDictEdit.list(db).map { it.word })
+        nothingCanActOnTheDonorsBehalf(learning)
+        assertTrue("the live word list must not be holding one either", model.tombstones().isEmpty())
+    }
+
     @Test fun an_overwrite_does_not_cancel_a_deletion_this_phone_already_owed() {
         stage("overwrite-keeps-own")
         UserModel { clock }.apply {
