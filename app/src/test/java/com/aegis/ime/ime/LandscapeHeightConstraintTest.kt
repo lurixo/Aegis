@@ -46,6 +46,7 @@ import org.robolectric.Robolectric
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.GraphicsMode
 import java.util.concurrent.TimeUnit
 import kotlin.math.roundToInt
 
@@ -660,6 +661,7 @@ class TinyPanelViewportConstraintTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
 
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun edit_custom_and_clipboard_important_actions_remain_inside_and_root_clickable() {
         val iv = InputView(ctx).apply {
             simulateNavInsetForTest(12)
@@ -747,6 +749,7 @@ class TinyPanelViewportConstraintTest {
             assertPanelRectInside(iv, "clipboard fixed chrome $index", bounds)
             assertTrue("clipboard fixed chrome remains non-zero", bounds.height() > 0)
         }
+        assertClipboardFixedLabelsRenderTheirLines(iv, clipboard)
         val listBounds = iv.panelDescendantBoundsForTest(clipboard.listViewportForTest())
         assertPanelRectInside(iv, "clipboard scroll viewport", listBounds)
         assertTrue(listBounds.height() > 0)
@@ -759,6 +762,7 @@ class TinyPanelViewportConstraintTest {
         activity.pause().stop().destroy()
     }
 
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun clipboard_select_phrase_sort_and_category_sort_keep_readable_root_clickable_actions() {
         val deleted = mutableListOf<List<String>>()
         val clips = (1..20).map { "clip$it" }
@@ -997,22 +1001,26 @@ private fun firstClickableDescendant(view: View): View? {
     return null
 }
 
-private fun assertClipboardModeReadable(iv: InputView, clipboard: ClipboardView, actionText: String): android.widget.TextView {
-    val fixed = clipboard.fixedChromeViewsForTest()
-    assertTrue("mode must retain at least one fixed action rail", fixed.isNotEmpty())
-    for ((index, chrome) in fixed.withIndex()) {
-        assertPanelRectInside(iv, "mode fixed chrome $index", iv.panelDescendantBoundsForTest(chrome))
+private fun assertClipboardFixedLabelsRenderTheirLines(iv: InputView, clipboard: ClipboardView) {
+    for ((index, chrome) in clipboard.fixedChromeViewsForTest().withIndex()) {
+        assertPanelRectInside(iv, "fixed chrome $index", iv.panelDescendantBoundsForTest(chrome))
         for (label in visibleTextViews(chrome)) {
             if (label.text.isNullOrEmpty()) continue
-            val bounds = iv.panelDescendantBoundsForTest(label)
-            assertPanelRectInside(iv, "visible fixed label '${label.text}'", bounds)
+            assertPanelRectInside(iv, "visible fixed label '${label.text}'", iv.panelDescendantBoundsForTest(label))
+            val lines = maxOf(1, label.lineCount)
             assertTrue(
-                "visible fixed label '${label.text}' must retain the declared 20dp compact rail: " +
-                    "height=${label.height}, textSize=${label.textSize}",
-                label.height >= (20 * label.resources.displayMetrics.density).roundToInt(),
+                "visible fixed label '${label.text}' in chrome $index must stay as tall as the $lines line(s) it renders: " +
+                    "height=${label.height}, lineHeight=${label.lineHeight}, textSize=${label.textSize}",
+                label.height >= lines * label.lineHeight,
             )
         }
     }
+}
+
+private fun assertClipboardModeReadable(iv: InputView, clipboard: ClipboardView, actionText: String): android.widget.TextView {
+    val fixed = clipboard.fixedChromeViewsForTest()
+    assertTrue("mode must retain at least one fixed action rail", fixed.isNotEmpty())
+    assertClipboardFixedLabelsRenderTheirLines(iv, clipboard)
     val viewport = iv.panelDescendantBoundsForTest(clipboard.listViewportForTest())
     assertPanelRectInside(iv, "mode list viewport", viewport)
     assertTrue("mode list must retain a scroll/touch viewport", viewport.height() > 0)
