@@ -431,7 +431,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         if (quiet && !userLearning.dirty && userLearnFile.lastModified() > userLearnMtime) {
             val readAt = userLearnFile.lastModified()
-            if (liveUserDictHost.handOff { runCatching { userLearning.loadIfUnchanged(userLearnFile) } }) userLearnMtime = readAt
+            val previous = userLearnMtime
+            userLearnMtime = readAt
+            val handedOff = liveUserDictHost.handOff {
+                runCatching { userLearning.loadIfUnchanged(userLearnFile) }
+                if (UserDeletionPromises.keep(userModel, userDbFile, userLearning, userLearnFile)) {
+                    userDbMtime = userDbFile.lastModified()
+                    userLearnMtime = userLearnFile.lastModified()
+                }
+            }
+            if (!handedOff) userLearnMtime = previous
         }
         maybeReloadEngine()
     }

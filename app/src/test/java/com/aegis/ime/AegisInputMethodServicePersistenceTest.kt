@@ -633,6 +633,46 @@ class AegisInputMethodServicePersistenceTest {
         assertEquals(userLearn.lastModified(), watermark(service, "userLearnMtime"))
     }
 
+    @Test fun a_learning_store_picked_up_after_a_focus_change_has_the_promises_kept_too() {
+        aGluedWordOnDisk()
+        val service = started()
+        assertEquals(listOf("你呢嗯"), learning(service).formedEntries().map { it.word })
+
+        assertTrue("precondition: the word list owes the deletion", model(service).addTombstone("你呢嗯", ""))
+        assertTrue(liveHost(service).flush())
+        assertEquals(listOf("你呢嗯" to ""), promisesOnDisk())
+        assertEquals(
+            "precondition: the word list itself has nothing new for the other gate to read",
+            userDb.lastModified(),
+            watermark(service, "userDbMtime"),
+        )
+
+        UserLearning().apply {
+            load(userLearn)
+            observeCommit(null, "别", "bie", System.currentTimeMillis())
+            save(userLearn)
+        }
+        assertTrue(userLearn.setLastModified(System.currentTimeMillis() + 60_000L))
+
+        service.onStartInput(editor(), false)
+        drainWriteLane(service)
+
+        assertEquals(
+            "the learning store that just arrived carries a word the list promised to delete, so it must go now",
+            emptyList<String>(),
+            learning(service).formedEntries().map { it.word },
+        )
+        assertEquals("and the promise must be struck off once it is kept", emptyList<Pair<String, String>>(), model(service).tombstones())
+        assertEquals(emptyList<Pair<String, String>>(), promisesOnDisk())
+        assertEquals(emptyList<String>(), learnedOnDisk())
+        assertEquals(
+            "keeping the promise rewrote both files, so both watermarks must be the ones it wrote",
+            userDb.lastModified(),
+            watermark(service, "userDbMtime"),
+        )
+        assertEquals(userLearn.lastModified(), watermark(service, "userLearnMtime"))
+    }
+
     @Test fun a_restore_finishes_the_deletions_the_archive_still_owes() {
         val service = started()
         aGluedWordOnDisk()

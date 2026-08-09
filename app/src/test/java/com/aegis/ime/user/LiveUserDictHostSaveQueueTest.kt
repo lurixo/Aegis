@@ -314,6 +314,154 @@ class LiveUserDictHostSaveQueueTest {
         assertEquals(listOf("你好"), onDisk().readingSnapshot()["nihao"])
     }
 
+    private fun waitFor(done: () -> Boolean): Boolean {
+        val until = System.currentTimeMillis() + 30_000L
+        while (System.currentTimeMillis() < until) {
+            if (done()) return true
+            Thread.sleep(10)
+        }
+        return done()
+    }
+
+    private fun drained(h: LiveUserDictHost): Boolean {
+        val done = CountDownLatch(1)
+        assertTrue("the writer must take the barrier", h.handOff { done.countDown() })
+        return done.await(30, TimeUnit.SECONDS)
+    }
+
+    private fun learnedOnce(): UserLearning = UserLearning { 1_000L }
+
+    private fun seedOneLearnedEntry(learning: UserLearning) {
+        learnFile.writeText("aegis-userlearn 1\nF\tninen\t你呢嗯\t8.0\t1000\n")
+        learning.load(learnFile)
+        assertEquals(
+            "precondition: the keyboard has learned the word",
+            listOf("你呢嗯"),
+            learning.formedEntries().map { it.word },
+        )
+    }
+
+    @Test(timeout = 60_000) fun a_promise_made_when_a_write_timed_out_is_struck_off_once_that_write_lands() {
+        val learning = learnedOnce()
+        db = File(tmp.root, "userdb.txt")
+        learnFile = File(tmp.root, "userlearn.txt")
+        val h = liveHost(model, db, learning, learnFile) { userDbMtime, userLearnMtime ->
+            watermark(userDbMtime, userLearnMtime)
+            if (userLearnMtime != null) learning.observeCommit("前", "你好", "", 1_000L)
+        }
+        seedOneLearnedEntry(learning)
+        model.addManualWord("zwm", "张伟明", 1_000L)
+        val release = wedged(h)
+        val removing = helper().submit<Boolean> { h.removeLearned("你呢嗯", "ninen") }
+        assertTrue(
+            "precondition: the write the caller gave up on left a promise behind",
+            waitFor { model.hasTombstones() },
+        )
+
+        release.countDown()
+
+        assertTrue("the deletion must still be reported as done", removing.get(30, TimeUnit.SECONDS))
+        assertTrue(drained(h))
+        assertFalse(
+            "precondition: the write the caller gave up on landed after all",
+            learnFile.readText().contains("你呢嗯"),
+        )
+        assertEquals(
+            "a promise the write made good on must not be left to take the next word that matches",
+            emptyList<Pair<String, String>>(),
+            model.tombstones(),
+        )
+        assertFalse("and it must be gone from the file too", db.readText().contains("D\t"))
+        assertEquals("the words the user added by hand stay", listOf("张伟明"), onDisk().userWordEntries().map { it.word })
+    }
+
+    @Test(timeout = 60_000) fun a_promise_is_struck_off_when_a_later_write_carried_what_the_first_could_not() {
+        val learning = learnedOnce()
+        val h = host(learning)
+        seedOneLearnedEntry(learning)
+        model.addManualWord("zwm", "张伟明", 1_000L)
+        assertTrue(File(learnFile.parentFile, learnFile.name + ".tmp").mkdir())
+        val release = wedged(h)
+        val removing = helper().submit<Boolean> { h.removeLearned("你呢嗯", "ninen") }
+        assertTrue(
+            "precondition: the write the caller gave up on left a promise behind",
+            waitFor { model.hasTombstones() },
+        )
+
+        release.countDown()
+
+        assertTrue(removing.get(30, TimeUnit.SECONDS))
+        assertTrue(drained(h))
+        assertFalse(
+            "precondition: the write that followed carried what the first one could not",
+            learnFile.readText().contains("你呢嗯"),
+        )
+        assertEquals(
+            "a promise is stale once any write has carried the removal it was made for",
+            emptyList<Pair<String, String>>(),
+            model.tombstones(),
+        )
+    }
+
+    @Test(timeout = 60_000) fun a_promise_stands_when_the_write_the_caller_gave_up_on_never_landed() {
+        val learning = learnedOnce()
+        val h = host(learning)
+        seedOneLearnedEntry(learning)
+        model.addManualWord("zwm", "张伟明", 1_000L)
+        val blocker = File(learnFile.parentFile, learnFile.name + ".tmp")
+        assertTrue(blocker.mkdir())
+        File(blocker, "blocker").writeText("x")
+        val release = wedged(h)
+        val removing = helper().submit<Boolean> { h.removeLearned("你呢嗯", "ninen") }
+        assertTrue(
+            "precondition: the write the caller gave up on left a promise behind",
+            waitFor { model.hasTombstones() },
+        )
+
+        release.countDown()
+
+        assertTrue(removing.get(30, TimeUnit.SECONDS))
+        assertTrue(drained(h))
+        assertTrue(
+            "precondition: the write never landed",
+            learnFile.readText().contains("你呢嗯"),
+        )
+        assertEquals(
+            "a promise for a write that never landed must stand",
+            listOf("你呢嗯" to "ninen"),
+            model.tombstones(),
+        )
+        assertTrue("and it must be on disk", db.readText().contains("D\t你呢嗯\tninen"))
+    }
+
+    @Test(timeout = 60_000) fun the_promises_a_clear_made_good_on_are_struck_off_once_that_write_lands() {
+        val learning = learnedOnce()
+        val h = host(learning)
+        seedOneLearnedEntry(learning)
+        assertTrue(model.addTombstone("你呢嗯", ""))
+        model.addManualWord("zwm", "张伟明", 1_000L)
+        val release = wedged(h)
+        val clearing = helper().submit<Boolean> { h.clearLearned() }
+        assertFalse(
+            "precondition: a clear the writer never answered is reported as one that did not happen",
+            clearing.get(30, TimeUnit.SECONDS),
+        )
+
+        release.countDown()
+
+        assertTrue(drained(h))
+        assertFalse(
+            "precondition: the write the caller gave up on landed after all",
+            learnFile.readText().contains("你呢嗯"),
+        )
+        assertEquals(
+            "the promises that clear made good on must not be left to take the next words that match",
+            emptyList<Pair<String, String>>(),
+            model.tombstones(),
+        )
+        assertFalse("and they must be gone from the file too", db.readText().contains("D\t"))
+    }
+
     @Test fun stopping_the_writer_still_lets_a_last_edit_be_written_and_reported() {
         val h = host()
         h.stopSaving()

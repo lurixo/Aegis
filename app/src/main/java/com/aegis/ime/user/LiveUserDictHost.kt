@@ -20,6 +20,7 @@ import java.io.IOException
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
@@ -96,8 +97,11 @@ class LiveUserDictHost(
         val learning = userLearning
         if (learning != null && !learning.readable) return false
         learning?.removeFormed(word, reading)
-        if (saveLearning().learning) return true
-        return owe(word, reading)
+        val written = saveLearning()
+        if (written.result.learning) return true
+        val owed = owe(word, reading)
+        strikeOffOnceTheWriteLands(written.stillToRun, listOf(word to reading))
+        return owed
     }
 
     private fun owe(word: String, reading: String): Boolean =
@@ -105,11 +109,27 @@ class LiveUserDictHost(
 
     override fun clearLearned(): Boolean {
         userLearning?.clear()
-        if (!saveLearning().learning) return false
+        val written = saveLearning()
+        if (!written.result.learning) {
+            strikeOffOnceTheWriteLands(written.stillToRun, model.tombstones())
+            return false
+        }
         if (!model.hasTombstones()) return true
         model.dropTombstones(model.tombstones())
         return save().dictionary
     }
+
+    private fun strikeOffOnceTheWriteLands(pending: Future<PersistResult>?, owed: List<Pair<String, String>>) {
+        val learning = userLearning
+        if (pending == null || learning == null || owed.isEmpty()) return
+        handOff {
+            if (learning.dirty && !landed(pending)) return@handOff
+            if (model.dropTombstones(owed)) persistHere(writeUserDb = true)
+        }
+    }
+
+    private fun landed(pending: Future<PersistResult>): Boolean =
+        pending.isDone && runCatching { pending.get() }.getOrNull()?.learning == true
 
     override fun flush(): Boolean {
         if (!anythingUnsaved()) return true
@@ -140,24 +160,28 @@ class LiveUserDictHost(
     private fun save(): PersistResult =
         onWriterThread(PersistResult.FAILED) { persistHere(writeUserDb = true) }
 
-    private fun saveLearning(): PersistResult =
-        onWriterThread(PersistResult.FAILED) { persistHere(writeUserDb = false) }
+    private fun saveLearning(): Awaited<PersistResult> =
+        awaitOnWriterThread(PersistResult.FAILED) { persistHere(writeUserDb = false) }
 
-    private fun <T> onWriterThread(failed: T, work: () -> T): T {
+    private fun <T> onWriterThread(failed: T, work: () -> T): T = awaitOnWriterThread(failed, work).result
+
+    private fun <T> awaitOnWriterThread(failed: T, work: () -> T): Awaited<T> {
         val queued = Callable(work)
-        if (Thread.currentThread() === writer) return queued.call()
-        val pending = runCatching { io.submit(queued) }.getOrNull() ?: return queued.call()
+        if (Thread.currentThread() === writer) return Awaited(queued.call(), null)
+        val pending = runCatching { io.submit(queued) }.getOrNull() ?: return Awaited(queued.call(), null)
         return try {
-            pending.get(WRITE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
+            Awaited(pending.get(WRITE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS), null)
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
-            failed
+            Awaited(failed, pending)
         } catch (_: ExecutionException) {
-            failed
+            Awaited(failed, null)
         } catch (_: TimeoutException) {
-            failed
+            Awaited(failed, pending)
         }
     }
+
+    private class Awaited<T>(val result: T, val stillToRun: Future<T>?)
 
     private fun persistHere(writeUserDb: Boolean): PersistResult {
         val outer = writing
