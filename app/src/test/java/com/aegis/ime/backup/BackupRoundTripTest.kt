@@ -515,18 +515,40 @@ class BackupRoundTripTest {
         val backup = export()
         wipeUserData()
 
+        var heldBeforeAnythingMoved = false
+        var heldWhileReplacingTheDictionary = false
         var heldWhileReloading = false
+        val real = LiveUserDictHost(UserModel(), userdbFile(), UserLearning(), File(filesDir, "userlearn.txt"))
+        LiveUserData.onBeforeRestore = { heldBeforeAnythingMoved = LiveUserData.restoreInProgress }
         LiveUserData.onRestored = { heldWhileReloading = LiveUserData.restoreInProgress }
+        UserDictHot.host = object : UserDictHot.Host {
+            override fun addWord(reading: String, word: String, now: Long) = real.addWord(reading, word, now)
+            override fun removeWord(reading: String, word: String) = real.removeWord(reading, word)
+            override fun importUserDict(importFile: File, merge: Boolean, now: Long): Boolean {
+                heldWhileReplacingTheDictionary = LiveUserData.restoreInProgress
+                return real.importUserDict(importFile, merge, now)
+            }
+            override fun entries(): List<UserModel.Entry> = real.entries()
+            override fun learnedEntries(): List<UserLearning.Formed> = real.learnedEntries()
+            override fun hasLearnedData() = real.hasLearnedData()
+            override fun removeLearned(word: String, reading: String) = real.removeLearned(word, reading)
+            override fun clearLearned() = real.clearLearned()
+            override fun flush() = real.flush()
+        }
         try {
             restore(backup, BackupManager.Mode.OVERWRITE)
         } finally {
+            LiveUserData.onBeforeRestore = null
             LiveUserData.onRestored = null
+            UserDictHot.host = null
         }
 
+        assertTrue("the guard must be up before the first byte moves", heldBeforeAnythingMoved)
         assertTrue(
-            "everything that stands down for a restore reads this flag, so a restore must hold it up while it works",
-            heldWhileReloading,
+            "the writes that stand down for a restore read this flag while the stores are being replaced, not after",
+            heldWhileReplacingTheDictionary,
         )
+        assertTrue("and it must still be up when the reload is handed the result", heldWhileReloading)
     }
 
     @Test fun a_reload_hook_that_throws_does_not_leave_the_guard_standing_forever() {

@@ -222,6 +222,24 @@ class CharBigramLMTest {
         assertEquals(2, opens)
     }
 
+    @Test fun a_row_that_promises_less_than_its_own_bigrams_hold_is_rejected() {
+        val full = roundTripFile(sampleLines).readBytes()
+        val offsets = offsets(full)
+        val firstRow = (0 until offsets.numChars).first {
+            getLeInt(full, offsets.rowStart + it * 4) < getLeInt(full, offsets.rowStart + (it + 1) * 4)
+        }
+        val firstBigram = getLeInt(full, offsets.rowStart + firstRow * 4)
+
+        val shortDenominator = full.copyOf()
+        putLeLong(shortDenominator, offsets.biCount + firstBigram * 8, 100L)
+        putLeLong(shortDenominator, offsets.rowTotal + firstRow * 8, 50L)
+
+        assertThrows(
+            "a row totalling less than the bigrams under it reads back as a probability above one",
+            IllegalArgumentException::class.java,
+        ) { CharBigramLM.fromFile(writeTemp(shortDenominator)) }
+    }
+
     @Test fun a_stored_unigram_count_of_zero_never_reaches_a_loaded_model() {
         val full = roundTripFile(sampleLines).readBytes()
         val numChars = getLeInt(full, 8)

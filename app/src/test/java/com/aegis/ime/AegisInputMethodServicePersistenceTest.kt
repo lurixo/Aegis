@@ -128,6 +128,15 @@ class AegisInputMethodServicePersistenceTest {
         }
     }
 
+    private fun drainWriteLane(service: AegisInputMethodService) {
+        val host = liveHost(service)
+        val io = host.javaClass.getDeclaredField("io").run {
+            isAccessible = true
+            get(host) as ExecutorService
+        }
+        io.submit { }.get(10, TimeUnit.SECONDS)
+    }
+
     private fun editor() = EditorInfo().apply { packageName = "com.example.app" }
 
     @Test fun the_cold_start_leaves_the_live_host_serving() {
@@ -275,8 +284,7 @@ class AegisInputMethodServicePersistenceTest {
         LiveUserData.restoreInProgress = true
         try {
             service.onFinishInput()
-            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
-            while (System.nanoTime() < deadline && !userLearn.exists()) Thread.yield()
+            drainWriteLane(service)
             assertFalse(
                 "a restore is replacing these files; writing the pre-restore state over them undoes it silently",
                 userLearn.exists(),
