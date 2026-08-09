@@ -234,6 +234,7 @@
     <string name="backup_cancel">取消</string>
     <string name="backup_export_ok">已导出备份</string>
     <string name="backup_export_failed">导出失败</string>
+    <string name="backup_export_interrupted">导出中断了，没有写出任何备份。请重新导出。</string>
     <string name="backup_import_ok_overwrite">已恢复备份</string>
     <string name="backup_import_ok_merge">已合并备份</string>
     <string name="backup_error_not_a_backup">这不是 Aegis 备份文件</string>
