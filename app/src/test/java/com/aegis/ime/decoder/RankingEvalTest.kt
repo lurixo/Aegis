@@ -39,7 +39,7 @@ class RankingEvalTest {
                 val t = line.indexOf('\t')
                 if (t <= 0) null else line.substring(0, t) to line.substring(t + 1)
             }
-        assumeTrue("eval set non-empty", pairs.isNotEmpty())
+        assertTrue("the checked-in evaluation set must hold sentences to rank", pairs.isNotEmpty())
 
         val configs = listOf(
             "unigram" to null,
