@@ -88,7 +88,7 @@ class SettingsWiringTest {
         )
         assertTrue(
             "each store's reload must turn on its own state only, never on the other store's",
-            svc.contains("if (quiet && !userModel.dirty && userDbFile.lastModified() > userDbMtime)") &&
+            svc.contains("if (quiet && (!userModel.dirty || !userModel.readable) && userDbFile.lastModified() > userDbMtime)") &&
                 svc.contains("if (quiet && !userLearning.dirty && userLearnFile.lastModified() > userLearnMtime)"),
         )
         val restored = svc.substringAfter("LiveUserData.onRestored = {").substringBefore("LiveUserData.registerClipboardPersistenceHooks")
