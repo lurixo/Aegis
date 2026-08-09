@@ -41,13 +41,13 @@ class LiveUserDictHost(
     }
 
     override fun addWord(reading: String, word: String, now: Long): Boolean {
-        if (word.isBlank()) return false
+        if (word.isBlank() || !model.readable) return false
         model.addManualWord(reading, word, now)
         return save().dictionary
     }
 
     override fun removeWord(reading: String, word: String): Boolean {
-        if (word.isBlank()) return false
+        if (word.isBlank() || !model.readable) return false
         model.removeWord(reading, word)
         userLearning?.removeWord(word)
         return save().both
@@ -55,6 +55,7 @@ class LiveUserDictHost(
 
     override fun importUserDict(importFile: File, merge: Boolean, now: Long): Boolean {
         if (!importFile.exists() || importFile.length() == 0L) return false
+        if (merge && !model.readable) return false
         try {
             if (merge) {
                 if (!model.importFrom(importFile, now)) return false
