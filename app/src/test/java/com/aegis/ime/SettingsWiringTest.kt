@@ -171,9 +171,16 @@ class SettingsWiringTest {
         val onStartInput = memberBody(svc, "override fun onStartInput(")
         assertTrue(
             "a field that gains focus must not reparse the whole user dictionary on the main thread",
-            onStartInput.contains(
-                "if (liveUserDictHost.handOff { runCatching { userModel.reloadIfUnchanged(userDbFile) } }) userDbMtime = readAt",
-            ),
+            onStartInput.contains("val handedOff = liveUserDictHost.handOff {") &&
+                onStartInput.contains("runCatching { userModel.reloadIfUnchanged(userDbFile) }"),
+        )
+        assertTrue(
+            "a lane that has already been shut down must leave the watermark where a later focus will retry",
+            onStartInput.contains("if (!handedOff) userDbMtime = previous"),
+        )
+        assertTrue(
+            "the watermark must be taken before the lane can move it, or a promise kept on the lane is undone here",
+            onStartInput.indexOf("userDbMtime = readAt") in 1 until onStartInput.indexOf("liveUserDictHost.handOff {"),
         )
         assertTrue(
             "a field that gains focus must not reparse the whole learning store on the main thread",
@@ -188,6 +195,40 @@ class SettingsWiringTest {
         assertFalse(
             "the reload must decline rather than overwrite what the user typed while the file was being read",
             onStartInput.contains("userModel.reload(userDbFile)") || onStartInput.contains("userLearning.load(userLearnFile)"),
+        )
+    }
+
+    @Test fun every_place_that_reads_the_stores_back_keeps_the_deletions_they_still_owe() {
+        val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
+        val keeper = "UserDeletionPromises.keep(userModel, userDbFile, userLearning, userLearnFile)"
+
+        val coldStart = svc.substringAfter("runCatching { com.aegis.ime.engine.InputAssociations.lookup(\"nihao\") }")
+            .substringBefore("userStoresLoaded = true")
+        assertTrue("a cold start must finish the deletions the last session could not", coldStart.contains(keeper))
+        assertTrue(
+            "keeping a promise rewrites both files, so both watermarks must be taken again after it",
+            coldStart.lastIndexOf("userDbMtime = userDbFile.lastModified()") > coldStart.indexOf(keeper) &&
+                coldStart.lastIndexOf("userLearnMtime = userLearnFile.lastModified()") > coldStart.indexOf(keeper),
+        )
+
+        val restored = svc.substringAfter("LiveUserData.onRestored = {").substringBefore("LiveUserData.registerClipboardPersistenceHooks")
+        val kept = restored.indexOf(keeper)
+        assertTrue(
+            "the guard may only come down once the restored stores owe nothing",
+            kept in 1 until restored.indexOf("LiveUserData.restoreInProgress = false"),
+        )
+        assertTrue(
+            "keeping a promise rewrites both files, so both watermarks must be taken again after it",
+            restored.lastIndexOf("userDbMtime = userDbFile.lastModified()") > kept &&
+                restored.lastIndexOf("userLearnMtime = userLearnFile.lastModified()") > kept,
+        )
+
+        val onStartInput = memberBody(svc, "override fun onStartInput(")
+        assertTrue("a word list picked up after a focus change must have its promises kept", onStartInput.contains(keeper))
+        assertTrue(
+            "keeping a promise rewrites both files, so both watermarks must be taken again after it",
+            onStartInput.indexOf("userDbMtime = userDbFile.lastModified()") > onStartInput.indexOf(keeper) &&
+                onStartInput.indexOf("userLearnMtime = userLearnFile.lastModified()") > onStartInput.indexOf(keeper),
         )
     }
 
