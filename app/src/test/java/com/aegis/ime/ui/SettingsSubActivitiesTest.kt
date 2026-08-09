@@ -215,6 +215,16 @@ class InputSettingsAutoLearnClearTest {
     private val ctx = RuntimeEnvironment.getApplication()
     private val learn = java.io.File(ctx.filesDir, "userlearn.txt")
     private var scenario: ActivityScenario<InputSettingsActivity>? = null
+    private val hosts = ArrayList<LiveUserDictHost>()
+
+    private fun liveHost(
+        model: UserModel,
+        userDb: java.io.File,
+        userLearning: UserLearning? = null,
+        userLearnFile: java.io.File? = null,
+        onSaved: (Long?, Long?) -> Unit = { _, _ -> },
+    ): LiveUserDictHost =
+        LiveUserDictHost(model, userDb, userLearning, userLearnFile, onSaved).also { hosts += it }
 
     @Before fun reset() {
         UserDictHot.host = null
@@ -224,6 +234,7 @@ class InputSettingsAutoLearnClearTest {
     @After fun cleanup() {
         scenario?.close()
         UserDictHot.host = null
+        hosts.forEach { runCatching { it.stopSaving() } }
         learn.delete()
     }
 
@@ -266,7 +277,7 @@ class InputSettingsAutoLearnClearTest {
         learn.writeText("not a learning file at all\n")
         learning.load(learn)
         assertFalse("precondition: the live store knows it could not be read", learning.readable)
-        UserDictHot.host = LiveUserDictHost(UserModel(), java.io.File(ctx.filesDir, "userdb.txt"), learning, learn)
+        UserDictHot.host = liveHost(UserModel(), java.io.File(ctx.filesDir, "userdb.txt"), learning, learn)
 
         scenario = ActivityScenario.launch(InputSettingsActivity::class.java)
 

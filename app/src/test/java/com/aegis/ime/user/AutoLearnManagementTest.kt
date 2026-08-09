@@ -33,9 +33,20 @@ class AutoLearnManagementTest {
     val tmp = TemporaryFolder()
 
     private val clock = 1_700_000_000_000L
+    private val hosts = ArrayList<LiveUserDictHost>()
+
+    private fun liveHost(
+        model: UserModel,
+        userDb: File,
+        userLearning: UserLearning? = null,
+        userLearnFile: File? = null,
+        onSaved: (Long?, Long?) -> Unit = { _, _ -> },
+    ): LiveUserDictHost =
+        LiveUserDictHost(model, userDb, userLearning, userLearnFile, onSaved).also { hosts += it }
 
     @After fun clearHost() {
         UserDictHot.host = null
+        hosts.forEach { runCatching { it.stopSaving() } }
     }
 
     private fun chain(vararg steps: Pair<String, String>): UserLearning {
@@ -186,7 +197,7 @@ class AutoLearnManagementTest {
     @Test fun the_switch_never_blocks_a_word_the_user_adds_by_hand() {
         val db = File(tmp.root, "userdb.txt")
         val model = UserModel { clock }.apply { autoLearnEnabled = false }
-        UserDictHot.host = LiveUserDictHost(model, db, UserLearning { clock }, File(tmp.root, "userlearn.txt"))
+        UserDictHot.host = liveHost(model, db, UserLearning { clock }, File(tmp.root, "userlearn.txt"))
 
         assertTrue(UserDictEdit.add(db, "张伟明", "zwm", clock))
 

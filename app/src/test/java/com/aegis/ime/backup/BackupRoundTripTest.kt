@@ -32,6 +32,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Test
@@ -82,6 +83,20 @@ class BackupRoundTripTest {
         prefs.edit().clear().commit()
     }
 
+    private val hosts = ArrayList<LiveUserDictHost>()
+
+    @After fun stopHosts() {
+        hosts.forEach { runCatching { it.stopSaving() } }
+    }
+
+    private fun liveHost(
+        model: UserModel,
+        userDb: File,
+        userLearning: UserLearning? = null,
+        userLearnFile: File? = null,
+        onSaved: (Long?, Long?) -> Unit = { _, _ -> },
+    ): LiveUserDictHost =
+        LiveUserDictHost(model, userDb, userLearning, userLearnFile, onSaved).also { hosts += it }
 
     private fun userdbFile() = File(filesDir, "userdb.txt")
     private fun freshClip() = ClipboardStore(filesDir).apply { load() }
@@ -276,7 +291,7 @@ class BackupRoundTripTest {
         val learning = UserLearning { 1_000L }.apply {
             observeCommit("实时", "学习", "", 1_000L)
         }
-        UserDictHot.host = LiveUserDictHost(UserModel(), userdbFile(), learning, userLearn)
+        UserDictHot.host = liveHost(UserModel(), userdbFile(), learning, userLearn)
         try {
             val backup = export()
             assertFalse("export must flush the secondary store", learning.dirty)
@@ -303,7 +318,7 @@ class BackupRoundTripTest {
         val learning = UserLearning { 2_000L }.apply {
             observeCommit("本机", "保留", "", 2_000L)
         }
-        UserDictHot.host = LiveUserDictHost(UserModel(), userdbFile(), learning, userLearn)
+        UserDictHot.host = liveHost(UserModel(), userdbFile(), learning, userLearn)
         try {
             restore(backup, BackupManager.Mode.MERGE)
             val reloaded = UserLearning { 2_000L }.apply { load(userLearn) }
@@ -518,7 +533,7 @@ class BackupRoundTripTest {
         var heldBeforeAnythingMoved = false
         var heldWhileReplacingTheDictionary = false
         var heldWhileReloading = false
-        val real = LiveUserDictHost(UserModel(), userdbFile(), UserLearning(), File(filesDir, "userlearn.txt"))
+        val real = liveHost(UserModel(), userdbFile(), UserLearning(), File(filesDir, "userlearn.txt"))
         LiveUserData.onBeforeRestore = { heldBeforeAnythingMoved = LiveUserData.restoreInProgress }
         LiveUserData.onRestored = { heldWhileReloading = LiveUserData.restoreInProgress }
         UserDictHot.host = object : UserDictHot.Host by real {
@@ -569,7 +584,7 @@ class BackupRoundTripTest {
             runCatching { load(db) }
             record(null, "打过字", 1L)
         }
-        UserDictHot.host = LiveUserDictHost(model, db, UserLearning(), File(filesDir, "userlearn.txt"))
+        UserDictHot.host = liveHost(model, db, UserLearning(), File(filesDir, "userlearn.txt"))
         try {
             val backup = export()
             assertTrue(
@@ -589,7 +604,7 @@ class BackupRoundTripTest {
             observeCommit(null, "你", "ni", 1L)
             observeCommit("你", "呢", "ne", 1L)
         }
-        UserDictHot.host = LiveUserDictHost(UserModel(), userdbFile(), learning, learn)
+        UserDictHot.host = liveHost(UserModel(), userdbFile(), learning, learn)
         try {
             val backup = export()
             assertTrue(
@@ -611,7 +626,7 @@ class BackupRoundTripTest {
             runCatching { load(db) }
             record(null, "打过字", 1L)
         }
-        UserDictHot.host = LiveUserDictHost(model, db, UserLearning(), File(filesDir, "userlearn.txt"))
+        UserDictHot.host = liveHost(model, db, UserLearning(), File(filesDir, "userlearn.txt"))
         try {
             restore(backup, BackupManager.Mode.OVERWRITE)
             assertTrue(
@@ -645,7 +660,7 @@ class BackupRoundTripTest {
             observeCommit(null, "你", "ni", 1L)
             observeCommit("你", "呢", "ne", 1L)
         }
-        UserDictHot.host = LiveUserDictHost(UserModel(), userdbFile(), learning, learn)
+        UserDictHot.host = liveHost(UserModel(), userdbFile(), learning, learn)
         try {
             restore(backup, BackupManager.Mode.OVERWRITE)
             assertTrue(
@@ -839,7 +854,7 @@ class BackupRoundTripTest {
             record("你好", "世界", 2001)
         }
         assertTrue("precondition: the live model has unsaved learning", live.dirty)
-        UserDictHot.host = LiveUserDictHost(live, userDb)
+        UserDictHot.host = liveHost(live, userDb)
         try {
             val decoded = decodeUserdbFromBackup(export())
             val entries = decoded.userWordEntries().associate { (it.reading to it.word) to it.count }
