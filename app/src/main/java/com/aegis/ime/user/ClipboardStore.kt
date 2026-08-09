@@ -261,11 +261,11 @@ class ClipboardStore(private val dir: File) {
                 history.clear()
                 val seen = HashSet<ClipEntry>()
                 for (e in incoming) if (seen.add(e)) history.add(e)
-                historyReadable = true
             }
             ArrayList(history)
         }
         onWriteLaneNow { writeHistory(snapshot) }
+        if (!merge) historyReadable = true
     }
 
     private fun adopt(text: String): ClipEntry =
