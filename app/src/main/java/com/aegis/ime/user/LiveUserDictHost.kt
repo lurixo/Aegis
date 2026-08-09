@@ -85,7 +85,9 @@ class LiveUserDictHost(
     override fun learnedReadable(): Boolean = userLearning?.readable != false
 
     override fun removeLearned(word: String, reading: String): Boolean {
-        userLearning?.removeFormed(word, reading)
+        val learning = userLearning
+        if (learning != null && !learning.readable) return false
+        learning?.removeFormed(word, reading)
         return saveLearning().learning
     }
 

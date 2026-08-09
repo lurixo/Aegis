@@ -43,9 +43,11 @@ object UserLearnEdit {
         UserDictHot.host?.let { return it.removeLearned(word, reading) }
         return runCatching {
             val learning = loaded(userLearn)
+            if (!learning.readable) return false
             learning.removeFormed(word, reading)
             if (learning.dirty) learning.save(userLearn)
-        }.isSuccess
+            true
+        }.getOrDefault(false)
     }
 
     fun clear(userLearn: File): Boolean {
