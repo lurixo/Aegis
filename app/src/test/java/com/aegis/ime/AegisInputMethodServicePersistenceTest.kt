@@ -477,4 +477,136 @@ class AegisInputMethodServicePersistenceTest {
         assertTrue(liveHost(service).flush())
         assertTrue(UserModel { 10L }.apply { load(userDb) }.wordBoost("跨会话") > 0.0)
     }
+
+    private fun watermark(service: AegisInputMethodService, name: String): Long =
+        service.javaClass.getDeclaredField(name).run {
+            isAccessible = true
+            getLong(service)
+        }
+
+    private fun learnedOnDisk(): List<String> =
+        UserLearning().apply { load(userLearn) }.formedEntries().map { it.word }
+
+    private fun promisesOnDisk(): List<Pair<String, String>> =
+        UserModel().apply { load(userDb, sweepStale = false) }.tombstones()
+
+    private fun aGluedWordOnDisk() {
+        val now = System.currentTimeMillis()
+        UserLearning().apply {
+            repeat(8) {
+                var prev: String? = null
+                for ((word, reading) in listOf("你" to "ni", "呢" to "ne", "嗯" to "n")) {
+                    observeCommit(prev, word, reading, now)
+                    prev = word
+                }
+                observeBreak()
+            }
+            save(userLearn)
+        }
+        assertEquals("precondition: the learned word is on disk", listOf("你呢嗯"), learnedOnDisk())
+    }
+
+    private fun aWordListOwing(word: String, reading: String) {
+        UserModel().apply {
+            addManualWord("zwm", "张伟明", 1L)
+            assertTrue(addTombstone(word, reading))
+            save(userDb)
+        }
+        assertEquals("precondition: the word list carries the promise", listOf(word to reading), promisesOnDisk())
+    }
+
+    private fun age(stamp: Long) {
+        assertTrue(userDb.setLastModified(stamp))
+        assertTrue(userLearn.setLastModified(stamp))
+    }
+
+    @Test fun a_cold_start_finishes_a_deletion_the_last_session_could_not() {
+        aGluedWordOnDisk()
+        aWordListOwing("你呢嗯", "")
+        val aged = System.currentTimeMillis() - 600_000L
+        age(aged)
+
+        val service = started()
+
+        assertEquals("the promised deletion must be kept", emptyList<String>(), learnedOnDisk())
+        assertEquals("and struck off once it is kept", emptyList<Pair<String, String>>(), promisesOnDisk())
+        assertEquals(
+            "the running keyboard must not still be offering the deleted word",
+            emptyList<String>(),
+            learning(service).formedEntries().map { it.word },
+        )
+        assertEquals(
+            "keeping the promise rewrote the word list, so its watermark must be the one it wrote",
+            userDb.lastModified(),
+            watermark(service, "userDbMtime"),
+        )
+        assertEquals(
+            "and the learned store's watermark must be the one it wrote too",
+            userLearn.lastModified(),
+            watermark(service, "userLearnMtime"),
+        )
+        assertTrue("precondition: the rewrite really moved the files on", userDb.lastModified() != aged)
+    }
+
+    @Test fun a_promise_naming_one_reading_takes_only_that_learned_entry() {
+        aGluedWordOnDisk()
+        UserLearning().apply {
+            load(userLearn)
+            observeCommit(null, "别", "bie", System.currentTimeMillis())
+            save(userLearn)
+        }
+        aWordListOwing("你呢嗯", "ninen")
+
+        started()
+
+        assertEquals("the named entry goes", emptyList<String>(), learnedOnDisk())
+        assertEquals(emptyList<Pair<String, String>>(), promisesOnDisk())
+    }
+
+    @Test fun a_word_list_picked_up_after_a_focus_change_has_its_promises_kept() {
+        aGluedWordOnDisk()
+        val service = started()
+        assertEquals(listOf("你呢嗯"), learning(service).formedEntries().map { it.word })
+
+        aWordListOwing("你呢嗯", "")
+        assertTrue(userDb.setLastModified(System.currentTimeMillis() + 60_000L))
+
+        service.onStartInput(editor(), false)
+        drainWriteLane(service)
+
+        assertEquals(
+            "the word list that just arrived owed a deletion, so the keyboard must carry it out",
+            emptyList<String>(),
+            learning(service).formedEntries().map { it.word },
+        )
+        assertEquals(emptyList<Pair<String, String>>(), promisesOnDisk())
+        assertEquals(
+            "a promise kept on the lane rewrites the word list, so the watermark must follow it there",
+            userDb.lastModified(),
+            watermark(service, "userDbMtime"),
+        )
+        assertEquals(userLearn.lastModified(), watermark(service, "userLearnMtime"))
+    }
+
+    @Test fun a_restore_finishes_the_deletions_the_archive_still_owes() {
+        val service = started()
+        aGluedWordOnDisk()
+        aWordListOwing("你呢嗯", "")
+        age(System.currentTimeMillis() - 600_000L)
+
+        LiveUserData.restoreInProgress = true
+        LiveUserData.onRestored?.invoke()
+        shadowOf(Looper.getMainLooper()).idle()
+        drainWriteLane(service)
+
+        assertFalse("the capture guard must come down again", LiveUserData.restoreInProgress)
+        assertEquals("a restored word list that owes a deletion must have it carried out", emptyList<String>(), learnedOnDisk())
+        assertEquals(emptyList<Pair<String, String>>(), promisesOnDisk())
+        assertEquals(
+            "the restore rewrote both stores, so the watermarks must be the ones it wrote",
+            userDb.lastModified(),
+            watermark(service, "userDbMtime"),
+        )
+        assertEquals(userLearn.lastModified(), watermark(service, "userLearnMtime"))
+    }
 }

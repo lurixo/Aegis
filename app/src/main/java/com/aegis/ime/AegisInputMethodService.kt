@@ -60,6 +60,7 @@ import com.aegis.ime.user.CustomSymbolStore
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.SymbolUsageStore
+import com.aegis.ime.user.UserDeletionPromises
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
@@ -275,6 +276,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                         userLearning.load(userLearnFile)
                         userLearnMtime = userLearnFile.lastModified()
                     }
+                    if (UserDeletionPromises.keep(userModel, userDbFile, userLearning, userLearnFile)) {
+                        userDbMtime = userDbFile.lastModified()
+                        userLearnMtime = userLearnFile.lastModified()
+                    }
                     LiveUserData.restoreInProgress = false
                 }
                 if (!liveUserDictHost.handOff(adoptRestoredStores)) adoptRestoredStores()
@@ -306,6 +311,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                     userLearning.load(userLearnFile)
                     userLearnMtime = userLearnFile.lastModified()
                 }.onFailure { Log.e("Aegis", "userlearn load failed", it) }
+                if (UserDeletionPromises.keep(userModel, userDbFile, userLearning, userLearnFile)) {
+                    userDbMtime = userDbFile.lastModified()
+                    userLearnMtime = userLearnFile.lastModified()
+                }
                 userStoresLoaded = true
                 UserDictHot.host = liveUserDictHost
             }, {
@@ -405,7 +414,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val quiet = userStoresLoaded && !liveUserDictHost.writing && !LiveUserData.restoreInProgress
         if (quiet && (!userModel.dirty || !userModel.readable) && userDbFile.lastModified() > userDbMtime) {
             val readAt = userDbFile.lastModified()
-            if (liveUserDictHost.handOff { runCatching { userModel.reloadIfUnchanged(userDbFile) } }) userDbMtime = readAt
+            val previous = userDbMtime
+            userDbMtime = readAt
+            val handedOff = liveUserDictHost.handOff {
+                runCatching { userModel.reloadIfUnchanged(userDbFile) }
+                if (UserDeletionPromises.keep(userModel, userDbFile, userLearning, userLearnFile)) {
+                    userDbMtime = userDbFile.lastModified()
+                    userLearnMtime = userLearnFile.lastModified()
+                }
+            }
+            if (!handedOff) userDbMtime = previous
         }
         if (quiet && !userLearning.dirty && userLearnFile.lastModified() > userLearnMtime) {
             val readAt = userLearnFile.lastModified()
