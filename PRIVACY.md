@@ -24,9 +24,10 @@ transmitted anywhere by Aegis:
   (`filesDir/clipboard.txt` and `filesDir/phrases.txt`). You can delete individual entries, and you
   can switch the clipboard history off altogether.
 - **Which symbols and emoji you reach for** — used to fill the *Common* tab of those two panels
-  (`filesDir/symbol_usage.txt` and `filesDir/emoji/symbol_usage.txt`). Unlike word learning, this
-  count is kept wherever you pick one, a password field included; it records the symbol you picked
-  and nothing about the field you picked it in.
+  (`filesDir/symbol_usage.txt` and `filesDir/emoji/symbol_usage.txt`). Nothing at all is counted in
+  a password field — what you pick there may be part of the password — or in any field whose app
+  asks for no personalized learning; elsewhere it records the symbol you picked and nothing about
+  the field you picked it in.
 - **Your settings**, including the symbols you put on the keyboard yourself and, if you chose to
   save one, the default backup password — that one encrypted with a key held by the Android
   keystore, as described under [Permissions](#permissions).

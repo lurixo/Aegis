@@ -105,7 +105,8 @@ ask it to.
   learned. Automatic learning has its own switch, and next-word suggestions in the candidate strip
   have another one that is off until you turn it on. Automatically learned entries fade out after
   months of disuse; words you add yourself are never forgotten. No word is learned in a password
-  field, or in any field that asks for no personalized learning. Everything lives in the
+  field, or in any field that asks for no personalized learning; in those fields the symbol and
+  emoji panels do not count what you pick either. Everything lives in the
   app's private `filesDir` (`userdb.txt` and `userlearn.txt`), and the user-dictionary screen lets
   you search, add, delete, import, export and clear it.
 - **Emoji panel:** a *Common* tab plus categories (smileys, gestures, flags, animals, plants, food,
