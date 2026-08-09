@@ -724,6 +724,86 @@ class ClipboardStoreTest {
         assertEquals("library intact after failed overwrite", listOf("keep"), s.phrasesIn("甲"))
     }
 
+    @Test fun a_phrase_list_nobody_could_read_is_never_written_over() {
+        val dir = newDir()
+        val saved = "C\t工作\nP\t读不出来的常用语\nN\t注\n"
+        val file = File(dir, "phrases.txt").apply { writeText(saved) }
+        assertTrue("precondition: the phrase file cannot be read back", file.setReadable(false, false))
+        val s = ClipboardStore(dir).apply { load() }
+        assertFalse("precondition: the store knows it could not read the phrases", s.phrasesReadable)
+
+        val d = ClipboardStore.DEFAULT_CATEGORY_ID
+        assertFalse("a new category over phrases nobody could read", s.addCategory("新组"))
+        assertEquals("phrases added to a named category", 0, s.addPhrasesTo("工作", listOf("新的")))
+        assertEquals("phrases added to whatever category is first", 0, s.addPhrases(listOf("新的")))
+        assertFalse("a rename", s.renameCategory(d, "改名"))
+        assertFalse("a note", s.setPhraseNote("工作", "读不出来的常用语", "新注"))
+        assertFalse("a delete", s.deletePhrasesFrom("工作", listOf("读不出来的常用语")))
+        assertFalse("an edit", s.editPhrase("工作", "读不出来的常用语", "改了"))
+        assertFalse("a move", s.movePhrase(d, "读不出来的常用语", d))
+        assertEquals("a bulk move", 0, s.movePhrasesTo("工作", listOf("读不出来的常用语"), d))
+        assertEquals("emptying a category", 0, s.clearPhrasesIn("工作"))
+        assertFalse("reordering a phrase", s.reorderPhrase("工作", 0, 1))
+        assertFalse("reordering a category", s.reorderCategory(0, 1))
+        s.deleteCategory(d)
+        s.deletePhrase("读不出来的常用语")
+        s.flushPendingWrites()
+
+        assertEquals("the categories a store shows must not change either", listOf(d), s.categories())
+        assertTrue(file.setReadable(true, false))
+        assertEquals("what could not be read must not be thrown away either", saved, file.readText())
+    }
+
+    @Test fun a_phrase_list_nobody_could_read_is_never_handed_out_as_an_export() {
+        val dir = newDir()
+        val file = File(dir, "phrases.txt").apply { writeText("C\t工作\nP\t读不出来的常用语\n") }
+        assertTrue("precondition: the phrase file cannot be read back", file.setReadable(false, false))
+        val s = ClipboardStore(dir).apply { load() }
+        assertFalse("precondition: the store knows it could not read the phrases", s.phrasesReadable)
+
+        val exported = runCatching { s.exportPhrasesText() }
+
+        assertTrue("an export of phrases nobody could read must not be handed out", exported.isFailure)
+        assertTrue(file.setReadable(true, false))
+    }
+
+    @Test fun merging_into_a_phrase_list_nobody_could_read_is_never_reported_as_merged() {
+        val dir = newDir()
+        val saved = "C\t工作\nP\t读不出来的常用语\n"
+        val file = File(dir, "phrases.txt").apply { writeText(saved) }
+        assertTrue("precondition: the phrase file cannot be read back", file.setReadable(false, false))
+        val s = ClipboardStore(dir).apply { load() }
+        assertFalse("precondition: the store knows it could not read the phrases", s.phrasesReadable)
+
+        val merged = runCatching { s.importPhrasesText("C\t甲\nP\t合并进来的\n", merge = true) }
+        s.flushPendingWrites()
+
+        assertTrue("a merge over phrases nobody could read must not be reported as merged", merged.isFailure)
+        assertTrue(file.setReadable(true, false))
+        assertEquals("and it must not have destroyed them", saved, file.readText())
+    }
+
+    @Test fun an_overwriting_import_takes_back_a_phrase_list_nobody_could_read() {
+        val dir = newDir()
+        val file = File(dir, "phrases.txt").apply { writeText("C\t工作\nP\t读不出来的常用语\n") }
+        assertTrue("precondition: the phrase file cannot be read back", file.setReadable(false, false))
+        val s = ClipboardStore(dir).apply { load() }
+        assertFalse("precondition: the store knows it could not read the phrases", s.phrasesReadable)
+
+        assertTrue(
+            "an import that replaces them outright is what takes them back",
+            s.importPhrasesText("C\t甲\nP\t覆盖进来的\n", merge = false),
+        )
+        s.flushPendingWrites()
+
+        assertTrue("and the store is readable again", s.phrasesReadable)
+        assertEquals(listOf("覆盖进来的"), s.phrasesIn("甲"))
+        assertTrue("an edit works again", s.addCategory("再来一个"))
+        s.flushPendingWrites()
+        assertTrue(file.setReadable(true, false))
+        assertTrue("which reaches the file", file.readText().contains("C\t再来一个\n"))
+    }
+
     @Test fun import_blank_named_category_never_clears() {
         val s = ClipboardStore(newDir()).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("keep")) }
 

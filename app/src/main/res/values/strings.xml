@@ -185,6 +185,8 @@
     <string name="phrase_transfer_toast_import_merged">Phrases imported and merged</string>
     <string name="phrase_transfer_toast_import_overwritten">Phrases imported and overwritten</string>
     <string name="phrase_transfer_toast_import_invalid">Import failed: no valid content; phrases were not changed</string>
+    <string name="phrase_transfer_toast_import_store_unreadable">Import failed: the saved phrases on this device cannot be read; they were not changed. Import with overwrite to replace them.</string>
+    <string name="phrase_transfer_toast_import_write_failed">Import failed: the phrases could not be saved to this device; the saved phrases were not changed.</string>
 
     <string name="settings_backup_title">Data backup</string>
     <string name="settings_backup_desc">Export or import all your data as an encrypted file</string>
@@ -331,6 +333,7 @@
     <string name="edit_paste">Paste</string>
     <string name="svc_phrase_added">Phrase added</string>
     <string name="svc_phrase_exists">Phrase already exists</string>
+    <string name="svc_phrase_not_added">Saved phrases could not be read, so the phrase was not added</string>
     <string name="svc_edit_phrase">Edit phrase</string>
     <string name="svc_add_phrase">Add phrase</string>
     <string name="svc_note">Note</string>

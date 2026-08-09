@@ -112,6 +112,8 @@ class ClipEntry private constructor(
     }
 }
 
+internal class UnreadablePhrasesException : IOException("saved phrases could not be read")
+
 class ClipboardStore(private val dir: File) {
 
     private val histFile get() = File(dir, "clipboard.txt")
@@ -330,6 +332,7 @@ class ClipboardStore(private val dir: File) {
         synchronized(phraseCats) { findPhrase(find(category), text)?.note.orEmpty() }
 
     fun setPhraseNote(category: String, text: String, note: String): Boolean = synchronized(phraseCats) {
+        if (!phrasesReadable) return false
         val p = findPhrase(find(category), text) ?: return false
         p.note = note.filterNot { Character.isISOControl(it) }.trim()
         savePhrases()
@@ -337,16 +340,21 @@ class ClipboardStore(private val dir: File) {
     }
 
     fun addCategory(name: String): Boolean = synchronized(phraseCats) {
+        if (!phrasesReadable) return false
         val n = name.trim()
         if (n.isEmpty() || phraseCats.any { it.name == n }) return false
         phraseCats.add(Category(n)); savePhrases(); return true
     }
 
     fun deleteCategory(name: String) {
-        synchronized(phraseCats) { if (phraseCats.removeAll { it.name == name }) savePhrases() }
+        synchronized(phraseCats) {
+            if (!phrasesReadable) return
+            if (phraseCats.removeAll { it.name == name }) savePhrases()
+        }
     }
 
     fun renameCategory(old: String, new: String): Boolean = synchronized(phraseCats) {
+        if (!phrasesReadable) return false
         val n = new.trim()
         val c = find(old) ?: return false
         if (n.isEmpty() || (n != old && phraseCats.any { it.name == n })) return false
@@ -354,7 +362,7 @@ class ClipboardStore(private val dir: File) {
     }
 
     fun addPhrasesTo(category: String, texts: Collection<String>): Int = synchronized(phraseCats) {
-        if (category.isBlank()) return 0
+        if (category.isBlank() || !phrasesReadable) return 0
         val c = find(category) ?: Category(category).also { phraseCats.add(it) }
         val seen = c.phrases.mapTo(HashSet()) { it.text }
         val added = ArrayList<Phrase>()
@@ -379,6 +387,7 @@ class ClipboardStore(private val dir: File) {
     fun deletePhrasesFrom(category: String, texts: Collection<String>): Boolean {
         val victims = texts.toSet()
         val after = synchronized(phraseCats) {
+            if (!phrasesReadable) return false
             val c = find(category) ?: return true
             if (!c.phrases.removeAll { it.text in victims }) return true
             serialize(phraseCats)
@@ -388,6 +397,7 @@ class ClipboardStore(private val dir: File) {
 
     fun deletePhrase(text: String) {
         synchronized(phraseCats) {
+            if (!phrasesReadable) return
             var changed = false
             for (c in phraseCats) if (c.phrases.removeAll { it.text == text }) changed = true
             if (changed) savePhrases()
@@ -395,6 +405,7 @@ class ClipboardStore(private val dir: File) {
     }
 
     fun clearPhrasesIn(category: String): Int = synchronized(phraseCats) {
+        if (!phrasesReadable) return 0
         val c = find(category) ?: return 0
         val n = c.phrases.size
         if (n > 0) { c.phrases.clear(); savePhrases() }
@@ -402,6 +413,7 @@ class ClipboardStore(private val dir: File) {
     }
 
     fun editPhrase(category: String, oldText: String, newText: String): Boolean = synchronized(phraseCats) {
+        if (!phrasesReadable) return false
         val c = find(category) ?: return false
         val idx = c.phrases.indexOfFirst { it.text == oldText }
         if (idx < 0) return false
@@ -414,6 +426,7 @@ class ClipboardStore(private val dir: File) {
     }
 
     fun movePhrase(fromCategory: String, text: String, toCategory: String): Boolean = synchronized(phraseCats) {
+        if (!phrasesReadable) return false
         val to = find(toCategory) ?: return false
         val from = find(fromCategory) ?: return false
         if (from === to) return true
@@ -435,6 +448,7 @@ class ClipboardStore(private val dir: File) {
 
     fun movePhrasesTo(fromCategory: String, texts: Collection<String>, toCategory: String): Int =
         synchronized(phraseCats) {
+            if (!phrasesReadable) return 0
             val to = find(toCategory) ?: return 0
             val from = find(fromCategory) ?: return 0
             if (from === to) return 0
@@ -450,6 +464,7 @@ class ClipboardStore(private val dir: File) {
         }
 
     fun reorderPhrase(category: String, fromIndex: Int, toIndex: Int): Boolean = synchronized(phraseCats) {
+        if (!phrasesReadable) return false
         val c = find(category) ?: return false
         val n = c.phrases.size
         if (fromIndex !in 0 until n || toIndex !in 0 until n || fromIndex == toIndex) return false
@@ -459,6 +474,7 @@ class ClipboardStore(private val dir: File) {
     }
 
     fun reorderCategory(fromIndex: Int, toIndex: Int): Boolean = synchronized(phraseCats) {
+        if (!phrasesReadable) return false
         val n = phraseCats.size
         if (fromIndex !in 0 until n || toIndex !in 0 until n || fromIndex == toIndex) return false
         phraseCats.add(toIndex, phraseCats.removeAt(fromIndex))
@@ -570,13 +586,13 @@ class ClipboardStore(private val dir: File) {
     }
 
     private fun savePhrases() {
-        if (LiveUserData.restoreInProgress) return
+        if (LiveUserData.restoreInProgress || !phrasesReadable) return
         val text = serializePhrases()
         onWriteLane { runCatching { atomicWrite(phraseFile, text) } }
     }
 
     private fun savePhraseText(text: String): Boolean {
-        if (LiveUserData.restoreInProgress) return false
+        if (LiveUserData.restoreInProgress || !phrasesReadable) return false
         return onWriteLaneReporting { atomicWrite(phraseFile, text) }
     }
 
@@ -599,13 +615,17 @@ class ClipboardStore(private val dir: File) {
     }
 
 
-    fun exportPhrasesText(): String = serializePhrases()
+    fun exportPhrasesText(): String {
+        if (!phrasesReadable) throw UnreadablePhrasesException()
+        return serializePhrases()
+    }
 
     fun importPhrasesText(text: String, merge: Boolean): Boolean {
         val parsed = canonicalCategories(parseCategories(text.lineSequence().toList()))
         if (parsed.isEmpty()) return false
         val next = synchronized(phraseCats) {
             if (merge) {
+                if (!phrasesReadable) throw UnreadablePhrasesException()
                 val out = canonicalCategories(phraseCats)
                 for (pc in parsed) {
                     val c = out.firstOrNull { it.name == pc.name } ?: Category(pc.name).also { out.add(it) }
@@ -622,6 +642,7 @@ class ClipboardStore(private val dir: File) {
         synchronized(phraseCats) {
             phraseCats.clear()
             phraseCats.addAll(next)
+            if (!merge) phrasesReadable = true
         }
         return true
     }

@@ -15,8 +15,10 @@
 
 package com.aegis.ime.ui
 
+import com.aegis.ime.R
 import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.LiveUserData
+import com.aegis.ime.user.UnreadablePhrasesException
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -75,6 +77,85 @@ class PhraseTransferIoTest {
         ClipboardStore(dir).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("已收到")); flushPendingWrites() }
 
         assertFalse(PhraseTransferIo.exportPhrases(dir) { FailingOutputStream() })
+    }
+
+    @Test fun exportPhrases_treats_a_phrase_list_nobody_could_read_as_failure() {
+        val dir = newDir()
+        val file = File(dir, "phrases.txt").apply { writeText("C\t工作\nP\t读不出来的常用语\n") }
+        assertTrue("precondition: the phrase file cannot be read back", file.setReadable(false, false))
+        try {
+            val out = ByteArrayOutputStream()
+            assertFalse(PhraseTransferIo.exportPhrases(dir) { out })
+            assertEquals("nothing may be handed to the picked document", 0, out.size())
+        } finally {
+            file.setReadable(true, false)
+        }
+    }
+
+    @Test fun an_import_over_a_phrase_list_nobody_could_read_says_which_failure_it_was() {
+        assertEquals(
+            R.string.phrase_transfer_toast_import_store_unreadable,
+            phraseImportMessage(Result.failure(UnreadablePhrasesException()), merge = true),
+        )
+        assertEquals(
+            R.string.phrase_transfer_toast_import_write_failed,
+            phraseImportMessage(Result.failure(IOException("phrases.txt could not be replaced")), merge = true),
+        )
+        assertEquals(
+            R.string.phrase_transfer_toast_import_invalid,
+            phraseImportMessage(Result.success(false), merge = true),
+        )
+        assertEquals(
+            R.string.phrase_transfer_toast_import_merged,
+            phraseImportMessage(Result.success(true), merge = true),
+        )
+        assertEquals(
+            R.string.phrase_transfer_toast_import_overwritten,
+            phraseImportMessage(Result.success(true), merge = false),
+        )
+    }
+
+    @Test fun an_import_that_could_not_be_saved_is_not_reported_as_one_that_could_not_be_read() {
+        val dir = newDir()
+        val store = ClipboardStore(dir).apply { load() }
+        try {
+            assertTrue("precondition: the saved phrases can be read", store.phrasesReadable)
+            assertTrue(
+                "precondition: the write cannot reach the disk",
+                store.tempFileFor(File(dir, "phrases.txt")).mkdir(),
+            )
+
+            val outcome = runCatching { store.importPhrasesText("C\t工作\nP\t已收到\n", merge = false) }
+
+            assertTrue("precondition: the import really did fail", outcome.isFailure)
+            assertEquals(
+                R.string.phrase_transfer_toast_import_write_failed,
+                phraseImportMessage(outcome, merge = false),
+            )
+        } finally {
+            store.stopSaving()
+        }
+    }
+
+    @Test fun an_import_over_phrases_that_could_not_be_read_still_names_the_read() {
+        val dir = newDir()
+        val file = File(dir, "phrases.txt").apply { writeText("C\t工作\nP\t读不出来的常用语\n") }
+        assertTrue("precondition: the phrase file cannot be read back", file.setReadable(false, false))
+        val store = ClipboardStore(dir).apply { load() }
+        try {
+            assertFalse("precondition: the store knows it could not read the phrases", store.phrasesReadable)
+
+            val outcome = runCatching { store.importPhrasesText("C\t工作\nP\t新的\n", merge = true) }
+
+            assertTrue("precondition: the import really did fail", outcome.isFailure)
+            assertEquals(
+                R.string.phrase_transfer_toast_import_store_unreadable,
+                phraseImportMessage(outcome, merge = true),
+            )
+        } finally {
+            store.stopSaving()
+            file.setReadable(true, false)
+        }
     }
 
     @Test fun a_phrase_export_reads_through_the_store_that_owns_the_file() {
