@@ -20,6 +20,7 @@ import com.sun.net.httpserver.HttpServer
 import java.io.File
 import java.io.IOException
 import java.net.InetSocketAddress
+import java.net.SocketException
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import java.security.MessageDigest
@@ -410,11 +411,9 @@ class ModelDownloadTest {
 
             assertFalse(result.ok)
             assertEquals(ModelDownload.TransferFailure.INCOMPLETE, result.failure)
-            assertTrue("never report more than the server sent", result.bytesRead in 0L..1_500L)
-            assertTrue(
-                "the declared length is either seen or unknown",
-                result.contentLength == declared || result.contentLength == -1L,
-            )
+            assertEquals("a body that never arrived hands the caller no bytes", 0L, result.bytesRead)
+            assertEquals("and no length either", -1L, result.contentLength)
+            assertTrue("the cause is the connection ending early", result.error is SocketException)
             assertFalse(target.exists())
             assertFalse(ModelDownload.partFile(base).exists())
         } finally {

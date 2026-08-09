@@ -122,7 +122,7 @@ class UserDictImportTest {
     fun stagingAnEmptyInputStillFails() {
         val staged = File.createTempFile("imp-empty", ".txt")
         assertFalse(UserDictImport.stage(ByteArrayInputStream(ByteArray(0)), staged))
-        assertEquals("nothing is staged", 0L, staged.length())
+        assertFalse("nothing is staged", staged.exists())
         staged.delete()
     }
 }
