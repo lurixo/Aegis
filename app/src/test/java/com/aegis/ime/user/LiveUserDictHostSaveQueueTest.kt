@@ -79,6 +79,17 @@ class LiveUserDictHostSaveQueueTest {
         return release
     }
 
+    private fun wedged(h: LiveUserDictHost): CountDownLatch {
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        saveQueue(h).execute {
+            entered.countDown()
+            release.await(45, TimeUnit.SECONDS)
+        }
+        assertTrue("precondition: the user dictionary writer is occupied", entered.await(1, TimeUnit.SECONDS))
+        return release
+    }
+
     private fun helper(): ExecutorService = Executors.newSingleThreadExecutor().also { helpers += it }
 
     private fun onDisk() = UserModel { 10L }.apply { if (db.exists()) load(db) }
@@ -281,6 +292,26 @@ class LiveUserDictHostSaveQueueTest {
             listOf("再次"),
             written.readingSnapshot()["zaici"],
         )
+    }
+
+    @Test(timeout = 60_000) fun an_edit_the_writer_never_answers_is_reported_as_a_failure_instead_of_wedging_the_caller() {
+        val h = host()
+        val release = wedged(h)
+        try {
+            val started = System.nanoTime()
+            assertFalse(
+                "a caller that never got an answer must be told the write failed",
+                h.addWord("nihao", "你好", now = 1L),
+            )
+            val waited = (System.nanoTime() - started) / 1_000_000L
+            assertTrue("the caller waited ${waited}ms on a writer that never came back", waited < 30_000L)
+            assertTrue("and the word stays queued rather than being dropped", model.dirty)
+        } finally {
+            release.countDown()
+        }
+
+        assertTrue("the write the caller gave up on is still carried by the next flush", h.flush())
+        assertEquals(listOf("你好"), onDisk().readingSnapshot()["nihao"])
     }
 
     @Test fun stopping_the_writer_still_lets_a_last_edit_be_written_and_reported() {
