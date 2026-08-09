@@ -55,7 +55,7 @@ data class ImePalette(
             keyHint = 0xFF90A4AE.toInt(),
             accentBottom = 0xFF57A35B.toInt(),
             accentLabel = 0xFFFFFFFF.toInt(),
-            candidateFirst = 0xFF2E7D32.toInt(),
+            candidateFirst = 0xFF29702D.toInt(),
             candidateText = 0xFF202124.toInt(),
             preeditText = 0xFF33639C.toInt(),
             separator = 0xFFD2D7DE.toInt(),

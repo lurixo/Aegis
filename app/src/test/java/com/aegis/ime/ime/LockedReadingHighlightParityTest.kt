@@ -17,6 +17,7 @@ package com.aegis.ime.ime
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.RectF
 import android.view.View
 import android.view.ViewGroup
@@ -29,7 +30,11 @@ import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.pow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -97,8 +102,11 @@ class LockedReadingHighlightParityTest {
     private fun out(s: String) = Key(s, output = s)
     private fun act(a: KeyAction) = Key("", action = a)
 
-    private fun session(engine: CandidateEngine): Pair<KeyboardController, InputView> {
-        val iv = InputView(ctx).apply { applyPalette(palette) }
+    private fun session(
+        engine: CandidateEngine,
+        theme: ImePalette = palette,
+    ): Pair<KeyboardController, InputView> {
+        val iv = InputView(ctx).apply { applyPalette(theme) }
         val c = KeyboardController(RecordingHost(), engine)
         iv.onPickReading = { i -> c.onPickReadingIndex(i) }
         iv.onPickCandidate = { i -> c.onPickCandidate(i) }
@@ -107,8 +115,12 @@ class LockedReadingHighlightParityTest {
         return c to iv
     }
 
-    private fun nineSession(engine: CandidateEngine, digits: String): Triple<KeyboardController, InputView, KeyboardView> {
-        val (c, iv) = session(engine)
+    private fun nineSession(
+        engine: CandidateEngine,
+        digits: String,
+        theme: ImePalette = palette,
+    ): Triple<KeyboardController, InputView, KeyboardView> {
+        val (c, iv) = session(engine, theme)
         c.onKey(act(KeyAction.SWITCH_NINE))
         digits.forEach { c.onKey(out(it.toString())) }
         val kb = keyboardOf(iv)
@@ -171,7 +183,7 @@ class LockedReadingHighlightParityTest {
         return top >= region.top - 0.5f && top + cell <= region.bottom + 0.5f
     }
 
-    @Test fun nine_key_left_column_paints_the_locked_reading_with_the_accent_color() {
+    @Test fun nine_key_left_column_paints_the_locked_reading_with_the_mark_color() {
         val (c, _, kb) = nineSession(syllabic, "64")
         assertTrue(
             "precondition: ni is offered before locking, was ${kb.scrollColumnKeysForTest().map { it.label }}",
@@ -191,8 +203,8 @@ class LockedReadingHighlightParityTest {
         assertEquals("the locked reading heads the column while typing continues", listOf(0), markedCells(kb))
         assertEquals("and that head cell is the locked reading, was ${keys.map { it.label }}", "ni", keys[0].label)
         assertTrue(
-            "the unexpanded left column paints the locked cell with the theme accent color",
-            pixels(frame(kb), cellRect(kb, 0), palette.accentBottom) > 0,
+            "the unexpanded left column paints the locked cell with the first-candidate color",
+            pixels(frame(kb), cellRect(kb, 0), palette.candidateFirst) > 0,
         )
     }
 
@@ -211,8 +223,8 @@ class LockedReadingHighlightParityTest {
         repeat(2) { pass ->
             val bitmap = frame(kb)
             assertTrue(
-                "pass $pass: the marked reading keeps the accent color",
-                pixels(bitmap, cellRect(kb, readings.lastIndex), palette.accentBottom) > 0,
+                "pass $pass: the marked reading keeps the mark color",
+                pixels(bitmap, cellRect(kb, readings.lastIndex), palette.candidateFirst) > 0,
             )
             for (i in 0 until readings.lastIndex) {
                 assertTrue(
@@ -220,9 +232,9 @@ class LockedReadingHighlightParityTest {
                     pixels(bitmap, cellRect(kb, i), palette.keyLabel) > 0,
                 )
                 assertEquals(
-                    "pass $pass: plain reading ${readings[i]} must not borrow the accent color",
+                    "pass $pass: plain reading ${readings[i]} must not borrow the mark color",
                     0,
-                    pixels(bitmap, cellRect(kb, i), palette.accentBottom),
+                    pixels(bitmap, cellRect(kb, i), palette.candidateFirst),
                 )
             }
         }
@@ -242,7 +254,7 @@ class LockedReadingHighlightParityTest {
         assertTrue("precondition: the locked reading survives into the expanded grid, was $readings", expanded >= 0)
         assertEquals(
             "the expanded grid marks the very same reading with the very same color",
-            palette.accentBottom,
+            palette.candidateFirst,
             iv.expandedReadingTextColorForTest(expanded),
         )
 
@@ -273,7 +285,7 @@ class LockedReadingHighlightParityTest {
         iv.showExpandedCandidates()
         assertEquals(
             "precondition: the plain lock marks the reading in the expanded grid",
-            palette.accentBottom,
+            palette.candidateFirst,
             iv.expandedReadingTextColorForTest(c.expandedReadings().indexOf("ni")),
         )
         assertEquals("precondition: and in the unexpanded column too", 1, markedCells(kb).size)
@@ -303,7 +315,7 @@ class LockedReadingHighlightParityTest {
         val readings = c.expandedReadings()
         assertEquals(
             "the expanded grid marks the drilled reading, was $readings",
-            palette.accentBottom,
+            palette.candidateFirst,
             iv.expandedReadingTextColorForTest(readings.indexOf("ni")),
         )
 
@@ -326,8 +338,8 @@ class LockedReadingHighlightParityTest {
                 cellIsOnScreen(kb, marked.single()),
             )
             assertTrue(
-                "$reading is painted with the accent color where the user can see it",
-                pixels(frame(kb), cellRect(kb, marked.single()), palette.accentBottom) > 0,
+                "$reading is painted with the mark color where the user can see it",
+                pixels(frame(kb), cellRect(kb, marked.single()), palette.candidateFirst) > 0,
             )
         }
     }
@@ -343,7 +355,7 @@ class LockedReadingHighlightParityTest {
         first.second.showExpandedCandidates()
         assertEquals(
             "which the expanded grid marks",
-            palette.accentBottom,
+            palette.candidateFirst,
             first.second.expandedReadingTextColorForTest(first.first.expandedReadings().indexOf("ni")),
         )
 
@@ -358,7 +370,7 @@ class LockedReadingHighlightParityTest {
         middle.second.showExpandedCandidates()
         assertEquals(
             "which the expanded grid marks",
-            palette.accentBottom,
+            palette.candidateFirst,
             middle.second.expandedReadingTextColorForTest(middle.first.expandedReadings().indexOf("hao")),
         )
 
@@ -370,7 +382,7 @@ class LockedReadingHighlightParityTest {
         lastView.showExpandedCandidates()
         assertEquals(
             "which the expanded grid marks",
-            palette.accentBottom,
+            palette.candidateFirst,
             lastView.expandedReadingTextColorForTest(last.expandedReadings().indexOf("ni")),
         )
     }
@@ -413,10 +425,80 @@ class LockedReadingHighlightParityTest {
         val after = c.expandedReadings().indexOf("ni")
         assertTrue("the locked reading stays visible, was ${c.expandedReadings()}", after >= 0)
         assertEquals(
-            "the 26-key expanded grid still marks the locked reading with the theme accent color",
-            palette.accentBottom,
+            "the 26-key expanded grid still marks the locked reading with the first-candidate color",
+            palette.candidateFirst,
             iv.expandedReadingTextColorForTest(after),
         )
+    }
+
+    private fun relativeLuminance(color: Int): Double {
+        fun channel(value: Int): Double {
+            val c = value / 255.0
+            return if (c <= 0.03928) c / 12.92 else ((c + 0.055) / 1.055).pow(2.4)
+        }
+        return 0.2126 * channel(Color.red(color)) +
+            0.7152 * channel(Color.green(color)) +
+            0.0722 * channel(Color.blue(color))
+    }
+
+    private fun contrast(foreground: Int, background: Int): Double {
+        val a = relativeLuminance(foreground)
+        val b = relativeLuminance(background)
+        return (max(a, b) + 0.05) / (min(a, b) + 0.05)
+    }
+
+    @Test fun the_marked_reading_stays_readable_on_the_rail_in_both_static_themes() {
+        for ((name, theme) in listOf("light" to ImePalette.STATIC_LIGHT, "dark" to ImePalette.STATIC_DARK)) {
+            val marked = contrast(theme.candidateFirst, theme.railBg)
+            val plain = contrast(theme.candidateText, theme.railBg)
+            assertTrue(
+                "$name marks the locked reading at ${"%.2f".format(marked)}:1, under the 4.5:1 a reader needs",
+                marked >= 4.5,
+            )
+            assertTrue(
+                "$name draws the plain readings at ${"%.2f".format(plain)}:1, under the 4.5:1 a reader needs",
+                plain >= 4.5,
+            )
+            assertNotEquals("$name must still tell the marked reading apart", theme.candidateText, theme.candidateFirst)
+        }
+    }
+
+    @Test fun both_static_themes_paint_the_locked_reading_with_the_same_readable_color() {
+        for ((name, theme) in listOf("light" to ImePalette.STATIC_LIGHT, "dark" to ImePalette.STATIC_DARK)) {
+            val (c, iv, kb) = nineSession(syllabic, "64", theme)
+            c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
+
+            val marked = markedCells(kb)
+            assertEquals("$name marks exactly one reading", 1, marked.size)
+            assertTrue(
+                "$name must paint the marked cell with the first-candidate color",
+                pixels(frame(kb), cellRect(kb, marked.single()), theme.candidateFirst) > 0,
+            )
+
+            iv.showExpandedCandidates()
+            assertEquals(
+                "$name must mark the same reading in the expanded grid with the very same color",
+                theme.candidateFirst,
+                iv.expandedReadingTextColorForTest(c.expandedReadings().indexOf("ni")),
+            )
+
+            val (twoSyllables, view) = session(syllabic, theme)
+            twoSyllables.onKey(act(KeyAction.SWITCH_ALPHA))
+            "nihao".forEach { twoSyllables.onKey(out(it.toString())) }
+            twoSyllables.onPickReadingIndex(twoSyllables.expandedReadings().indexOf("ni"))
+            view.showExpandedCandidates()
+            val readings = twoSyllables.expandedReadings()
+            assertEquals(
+                "$name must mark the locked reading of a two-syllable composition, was $readings",
+                theme.candidateFirst,
+                view.expandedReadingTextColorForTest(readings.indexOf("ni")),
+            )
+            assertEquals(
+                "$name must leave the unmarked reading in the plain candidate color, was $readings",
+                theme.candidateText,
+                view.expandedReadingTextColorForTest(readings.indexOf("hao")),
+            )
+        }
     }
 
     @Test fun alpha_layout_exposes_no_left_reading_column() {

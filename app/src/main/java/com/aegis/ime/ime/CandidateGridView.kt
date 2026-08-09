@@ -197,7 +197,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         renderedReadings = null
     }
 
-    private fun readingColor(on: Boolean): Int = if (on) palette.accentBottom else palette.candidateText
+    private fun readingColor(on: Boolean): Int = if (on) palette.candidateFirst else palette.candidateText
 
     private fun retintRipple(v: View, color: Int) {
         val fg = v.foreground
