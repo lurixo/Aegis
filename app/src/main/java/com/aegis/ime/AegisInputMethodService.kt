@@ -274,7 +274,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 runCatching { emojiUsageStore.load() }
                 val adoptRestoredStores = {
                     runCatching {
-                        userModel.reload(userDbFile)
+                        userModel.replaceWordsFrom(userDbFile)
                         userDbMtime = userDbFile.lastModified()
                     }
                     runCatching {

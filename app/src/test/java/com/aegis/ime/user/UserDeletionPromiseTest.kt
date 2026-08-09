@@ -57,6 +57,10 @@ class UserDeletionPromiseTest {
         assertTrue("a write that keeps failing is what a promise is for", File(blocker, "occupied").createNewFile())
     }
 
+    private fun unblockTheWriteTo(file: File) {
+        assertTrue(File(file.absoluteFile.parentFile, file.name + ".tmp").deleteRecursively())
+    }
+
     private fun promisesIn(userDb: File) =
         UserModel { clock }.apply { load(userDb, sweepStale = false) }.tombstones()
 
@@ -162,6 +166,59 @@ class UserDeletionPromiseTest {
 
         assertTrue(promisesIn(it.db).isEmpty())
         assertEquals(emptyList<String>(), learnedIn(it.learn))
+    }
+
+    @Test fun a_word_list_restored_over_the_live_one_does_not_bring_its_own_promises() {
+        val it = live("restore-foreign")
+        UserModel { clock }.apply {
+            addManualWord("gd", "归档", clock)
+            assertTrue(addTombstone("你呢嗯", ""))
+            save(it.db)
+        }
+        assertEquals("precondition: the archive really asks for a deletion", listOf("你呢嗯" to ""), promisesIn(it.db))
+
+        assertTrue(it.host.reloadDictionary())
+
+        assertEquals("the words the archive carries do arrive", listOf("归档"), it.model.userWordEntries().map { e -> e.word })
+        assertTrue(
+            "a deletion written down in someone else's archive is not this phone's to take on",
+            it.model.tombstones().isEmpty(),
+        )
+        assertFalse(
+            "and with nothing owed there is nothing for the keeper to carry out",
+            UserDeletionPromises.keep(it.model, it.db, it.learning, it.learn),
+        )
+        assertEquals("so this phone's learned data is left where it was", listOf("你呢嗯"), learnedIn(it.learn))
+        assertEquals(listOf("你呢嗯"), it.learning.formedEntries().map { e -> e.word })
+    }
+
+    @Test fun a_word_list_restored_over_the_live_one_does_not_cancel_a_deletion_this_phone_still_owes() {
+        val it = live("restore-keeps-own")
+        blockTheWriteTo(it.learn)
+        assertTrue(it.host.removeWord("ninen", "你呢嗯"))
+        assertEquals("precondition: the deletion is still owed", listOf("你呢嗯" to ""), it.model.tombstones())
+        unblockTheWriteTo(it.learn)
+        assertEquals("precondition: what it promised to delete is still in the file", listOf("你呢嗯"), learnedIn(it.learn))
+        UserModel { clock }.apply { addManualWord("gd", "归档", clock); save(it.db) }
+
+        assertTrue(it.host.reloadDictionary())
+
+        assertEquals("the words the archive carries do arrive", listOf("归档"), it.model.userWordEntries().map { e -> e.word })
+        assertEquals(
+            "an archive arriving is not a reason to forget a deletion this phone owes",
+            listOf("你呢嗯" to ""),
+            it.model.tombstones(),
+        )
+
+        val readBack = UserLearning { clock }.apply { load(it.learn) }
+        assertTrue(UserDeletionPromises.keep(it.model, it.db, readBack, it.learn))
+
+        assertEquals(
+            "so the deletion still happens the next time the learned data is read back",
+            emptyList<String>(),
+            learnedIn(it.learn),
+        )
+        assertTrue(promisesIn(it.db).isEmpty())
     }
 
     private class Cold(val db: File, val learn: File)
