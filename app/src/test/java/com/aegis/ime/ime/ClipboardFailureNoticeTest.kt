@@ -43,6 +43,13 @@ class ClipboardFailureNoticeTest {
 
     private fun text(id: Int) = ctx.getString(id)
 
+    private fun zhString(name: String): String {
+        val found = Regex("<string name=\"$name\">(.*?)</string>")
+            .find(File("src/main/res/values-zh/strings.xml").readText())
+        assertTrue("values-zh must define $name", found != null)
+        return found!!.groupValues[1]
+    }
+
     private fun layout(v: View, w: Int = 480, h: Int = 700) {
         v.measure(
             View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
@@ -114,6 +121,16 @@ class ClipboardFailureNoticeTest {
         layout(this)
     }
 
+    private fun emptyPhraseView(readable: Boolean): ClipboardView = ClipboardView(ctx).apply {
+        categoriesProvider = { listOf("默认") }
+        phrasesInProvider = { emptyList() }
+        phrasesReadableProvider = { readable }
+        applyPalette(pal)
+        forcePhrasesStateForTest("默认")
+        refresh()
+        layout(this)
+    }
+
     private fun deleteFirstPhrase(v: ClipboardView, row: String) {
         v.expandForTest(row)
         layout(v)
@@ -143,6 +160,38 @@ class ClipboardFailureNoticeTest {
 
         assertFalse(text(R.string.clip_phrase_change_not_saved) in labels(v))
         assertFalse(text(R.string.clip_change_not_saved) in labels(v))
+    }
+
+    @Test fun a_phrase_list_that_could_not_be_read_is_not_shown_as_an_empty_one() {
+        val v = emptyPhraseView(readable = false)
+
+        assertTrue(text(R.string.clip_phrases_unreadable) in labels(v))
+        assertFalse(
+            "an unreadable phrase list shown as an empty one tells the user their phrases are gone",
+            text(R.string.clip_phrases_empty) in labels(v),
+        )
+    }
+
+    @Test fun the_unreadable_phrase_notice_only_promises_what_the_panel_really_does() {
+        val v = emptyPhraseView(readable = false)
+        val en = text(R.string.clip_phrases_unreadable_hint)
+        assertTrue("precondition: the notice is the one on screen", en in labels(v))
+
+        assertTrue("the file really is left alone, so that half stays", en.contains("has not been changed or emptied"))
+        assertFalse("nothing turns the controls off, so the notice must not promise it does", en.contains("Editing stays off"))
+        assertTrue("it must say what becomes of an edit instead", en.contains("cannot be saved"))
+
+        val zh = zhString("clip_phrases_unreadable_hint")
+        assertTrue(zh.contains("文件没有被改动"))
+        assertFalse("ZH must not promise editing is blocked either", zh.contains("不能编辑"))
+        assertTrue("ZH must say the same thing EN does", zh.contains("存不进去"))
+    }
+
+    @Test fun an_empty_phrase_list_is_still_shown_as_an_empty_one() {
+        val v = emptyPhraseView(readable = true)
+
+        assertTrue(text(R.string.clip_phrases_empty) in labels(v))
+        assertFalse(text(R.string.clip_phrases_unreadable) in labels(v))
     }
 
     @Test fun a_clipboard_that_could_not_be_read_is_not_shown_as_an_empty_one() {
