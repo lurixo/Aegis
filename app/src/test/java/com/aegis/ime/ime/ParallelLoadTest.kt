@@ -20,6 +20,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.Collections
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.TimeUnit
 
@@ -80,12 +81,19 @@ class ParallelLoadTest {
     }
 
     @Test fun a_task_that_throws_is_reported_after_the_others_have_finished() {
+        val thrown = CountDownLatch(1)
         var sibling = false
         val failure = runCatching {
             ParallelLoad.results(
                 listOf<() -> Unit>(
-                    { sibling = true },
-                    { throw IllegalStateException("dict is broken") },
+                    {
+                        thrown.countDown()
+                        throw IllegalStateException("dict is broken")
+                    },
+                    {
+                        thrown.await(5, TimeUnit.SECONDS)
+                        sibling = true
+                    },
                 ),
             )
         }.exceptionOrNull()
@@ -93,15 +101,22 @@ class ParallelLoadTest {
         assertTrue("the other task must still have run to completion", sibling)
     }
 
-    @Test fun a_failing_user_data_side_still_lets_the_asset_side_finish() {
-        var assetsRan = false
+    @Test fun a_failing_asset_side_still_lets_the_user_data_side_finish() {
+        val thrown = CountDownLatch(1)
+        var userDataRan = false
         val failure = runCatching {
             ParallelLoad.both<Unit, Unit>(
-                { throw IllegalStateException("userdb is broken") },
-                { assetsRan = true },
+                {
+                    thrown.await(5, TimeUnit.SECONDS)
+                    userDataRan = true
+                },
+                {
+                    thrown.countDown()
+                    throw IllegalStateException("the asset pack is broken")
+                },
             )
         }.exceptionOrNull()
         assertTrue("the failing side must reach the caller", failure is IllegalStateException)
-        assertTrue("the other side must still have run to completion", assetsRan)
+        assertTrue("the other side must still have run to completion", userDataRan)
     }
 }

@@ -18,7 +18,6 @@ package com.aegis.ime.user
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -99,7 +98,7 @@ class LiveUserDictHostSaveQueueTest {
             "a queued save must land on the writer thread, never on the caller",
             savedOn.any { it === Thread.currentThread() },
         )
-        assertNotNull("the word must reach the file", onDisk().wordBoost("你好"))
+        assertTrue("the word must reach the file", onDisk().wordBoost("你好") > 0.0)
     }
 
     @Test fun an_explicit_edit_is_written_off_the_caller_thread_but_still_answered_to_it() {
