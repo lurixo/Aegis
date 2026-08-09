@@ -84,6 +84,23 @@ class UserDictImportTest {
     }
 
     @Test
+    fun overwriteWithATombstoneOnlyImportNeverWipes() {
+        val live = userdbWith("重要")
+        val donor = File.createTempFile("imp-tomb", ".txt")
+        UserModel().apply { assertTrue(addTombstone("受害词", "")) }.save(donor)
+        assertTrue(
+            "precondition: the donor file reads back, it just carries no words",
+            donor.readLines().any { it.startsWith("D\t受害词") },
+        )
+        assertTrue("precondition: the donor file parses into nothing", UserModel().apply { load(donor) }.isEmpty())
+
+        assertFalse(UserDictImport.apply(donor, live, merge = false, now = 1))
+
+        assertTrue("a donor file with no words of its own must not empty this phone", boost(live, "重要") > 0.0)
+        live.delete(); donor.delete()
+    }
+
+    @Test
     fun invalidCountersAreRejectedWithoutChangingTheLiveDictionary() {
         val live = userdbWith("重要")
         val malformed = File.createTempFile("imp", ".txt").apply {
