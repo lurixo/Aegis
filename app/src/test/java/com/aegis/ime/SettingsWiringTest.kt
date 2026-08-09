@@ -140,6 +140,31 @@ class SettingsWiringTest {
         assertTrue("the final flush must precede stopping the writer", flush in 1 until stop)
     }
 
+    @Test fun focusing_a_field_hands_the_store_reparse_to_the_writer_lane() {
+        val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
+        val onStartInput = memberBody(svc, "override fun onStartInput(")
+        assertTrue(
+            "a field that gains focus must not reparse the whole user dictionary on the main thread",
+            onStartInput.contains(
+                "if (liveUserDictHost.handOff { runCatching { userModel.reloadIfUnchanged(userDbFile) } }) userDbMtime = readAt",
+            ),
+        )
+        assertTrue(
+            "a field that gains focus must not reparse the whole learning store on the main thread",
+            onStartInput.contains(
+                "if (liveUserDictHost.handOff { runCatching { userLearning.loadIfUnchanged(userLearnFile) } }) userLearnMtime = readAt",
+            ),
+        )
+        assertFalse(
+            "waiting on the lane deadlocks behind the writes this very session queued onto it",
+            onStartInput.contains(".get("),
+        )
+        assertFalse(
+            "the reload must decline rather than overwrite what the user typed while the file was being read",
+            onStartInput.contains("userModel.reload(userDbFile)") || onStartInput.contains("userLearning.load(userLearnFile)"),
+        )
+    }
+
     @Test fun the_keyboard_owns_the_live_clipboard_store_from_first_touch_until_teardown() {
         val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
         assertTrue(

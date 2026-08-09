@@ -310,13 +310,34 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
 
     @Synchronized
     fun load(file: File) {
-        sourceReadable = false
-        unreadableSource = file.absolutePath
         val parsed = try {
             parse(file)
         } catch (_: Exception) {
+            giveUpOn(file)
             return
         }
+        adoptLoaded(parsed)
+    }
+
+    fun loadIfUnchanged(file: File): Boolean {
+        val mark = version
+        val parsed = try {
+            parse(file)
+        } catch (_: Exception) {
+            giveUpOn(file)
+            return false
+        }
+        return adoptIfUnchanged(mark, parsed)
+    }
+
+    @Synchronized
+    private fun giveUpOn(file: File) {
+        sourceReadable = false
+        unreadableSource = file.absolutePath
+    }
+
+    @Synchronized
+    private fun adoptLoaded(parsed: Parsed) {
         formedByWord.clear()
         pendingCounts.clear()
         followsByPrev.clear()
@@ -332,6 +353,13 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         sourceReadable = true
         unreadableSource = null
         version++
+    }
+
+    @Synchronized
+    private fun adoptIfUnchanged(mark: Long, parsed: Parsed): Boolean {
+        if (version != mark) return false
+        adoptLoaded(parsed)
+        return true
     }
 
     private fun extendChain(ch: String, reading: String, now: Long): Boolean {

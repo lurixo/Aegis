@@ -113,6 +113,8 @@ class LiveUserDictHost(
         if (!queued) persistUnsaved()
     }
 
+    fun handOff(work: () -> Unit): Boolean = runCatching { io.execute(work) }.isSuccess
+
     fun stopSaving() {
         runCatching { io.shutdown() }
     }

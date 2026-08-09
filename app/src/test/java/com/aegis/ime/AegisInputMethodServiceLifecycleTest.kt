@@ -212,6 +212,7 @@ class AegisInputMethodServiceLifecycleTest {
 
         assertTrue(liveUserDictHost(service).clearLearned())
         service.onStartInput(editor(), false)
+        drainWriteLane(service)
 
         assertEquals(
             "a word restored into userdb.txt from outside must still reach the running keyboard",
@@ -226,6 +227,15 @@ class AegisInputMethodServiceLifecycleTest {
             get(service) as Lazy<*>
         }
         return delegate.value as com.aegis.ime.user.UserDictHot.Host
+    }
+
+    private fun drainWriteLane(service: AegisInputMethodService) {
+        val host = liveUserDictHost(service)
+        val io = host.javaClass.getDeclaredField("io").run {
+            isAccessible = true
+            get(host) as java.util.concurrent.ExecutorService
+        }
+        io.submit { }.get(10, TimeUnit.SECONDS)
     }
 
     private fun fixture(info: EditorInfo = editor(), decodeLane: DecodeLane? = null): Fixture {
