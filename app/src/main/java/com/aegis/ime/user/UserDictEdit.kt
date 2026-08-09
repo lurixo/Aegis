@@ -48,7 +48,8 @@ object UserDictEdit {
         return UserDictImport.apply(importFile, userDb, merge, now)
     }
 
-    fun flushBeforeExport(): Boolean = UserDictHot.host?.flush() ?: true
+    fun flushBeforeExport(): Boolean =
+        UserDictHot.host?.let { it.flush() || !it.dictionaryReadable() || !it.learnedReadable() } ?: true
 
     fun flushBeforeDictionaryExport(): Boolean =
         UserDictHot.host?.let { it.flushDictionary() || !it.dictionaryReadable() } ?: true
