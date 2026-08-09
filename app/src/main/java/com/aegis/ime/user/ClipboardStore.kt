@@ -223,20 +223,18 @@ class ClipboardStore(private val dir: File) {
     fun record(text: String?) {
         val t = text?.trim().orEmpty()
         if (t.isEmpty()) return
-        val gen = saveGen.incrementAndGet()
-        val queued = runCatching { io.execute { recordHere(t, gen) } }.isSuccess
-        if (!queued) recordHere(t, gen)
+        onWriteLane { recordHere(t) }
     }
 
-    private fun recordHere(text: String, gen: Long) {
+    private fun recordHere(text: String) {
         val entry = adopt(text)
-        val snapshot = synchronized(history) {
+        val pending = synchronized(history) {
             history.remove(entry)
             history.add(0, entry)
-            ArrayList(history)
+            PendingWrite(saveGen.incrementAndGet(), ArrayList(history))
         }
-        if (gen != saveGen.get() || !historyReadable) return
-        runCatching { writeHistory(snapshot) }
+        if (pending.gen != saveGen.get() || !historyReadable) return
+        runCatching { writeHistory(pending.rows) }
     }
 
     fun importHistory(entries: List<ClipEntry>, merge: Boolean) {
@@ -442,11 +440,15 @@ class ClipboardStore(private val dir: File) {
     private fun find(name: String): Category? = phraseCats.firstOrNull { it.name == name }
     private fun findPhrase(c: Category?, text: String): Phrase? = c?.phrases?.firstOrNull { it.text == text }
 
+    private class PendingWrite(val gen: Long, val rows: List<ClipEntry>)
+
+    private fun stampPendingWrite(): PendingWrite =
+        synchronized(history) { PendingWrite(saveGen.incrementAndGet(), ArrayList(history)) }
+
     private fun scheduleSave() {
         if (!historyReadable) return
-        val snapshot = snapshot()
-        val gen = saveGen.incrementAndGet()
-        runCatching { io.execute { if (gen == saveGen.get()) runCatching { writeHistory(snapshot) } } }
+        val pending = stampPendingWrite()
+        runCatching { io.execute { if (pending.gen == saveGen.get()) runCatching { writeHistory(pending.rows) } } }
     }
 
     private fun writeHistory(snapshot: List<ClipEntry>) {
