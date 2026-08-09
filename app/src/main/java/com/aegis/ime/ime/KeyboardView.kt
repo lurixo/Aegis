@@ -458,7 +458,7 @@ class KeyboardView(context: Context) : View(context) {
                 canvas.drawRoundRect(tmpRect, keyRadius * 0.6f, keyRadius * 0.6f, pressHighlight)
             }
             val label = displayLabel(key)
-            paint.color = if (key.accent) palette.accentBottom else baseColor
+            paint.color = if (key.accent) palette.candidateFirst else baseColor
             paint.textSize = fittedScrollLabelTextSize(label, baseTextSize)
             paint.getTextBounds(label, 0, label.length, inkBounds)
             val cellCx = scrollRegion.centerX()
