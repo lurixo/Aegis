@@ -16,6 +16,7 @@
 package com.aegis.ime.user
 
 import com.aegis.ime.layout.SymbolCatalog
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -24,13 +25,37 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.TimeUnit
 
 class SymbolUsageStoreTest {
 
     @get:Rule
     val tmp = TemporaryFolder()
 
+    private var release: CountDownLatch? = null
+
+    @After fun letGo() {
+        release?.countDown()
+        SymbolUsageStore.flushPendingWrites()
+    }
+
     private fun newDir(): File = tmp.newFolder()
+
+    private fun occupyTheWriteLane() {
+        val field = SymbolUsageStore::class.java.getDeclaredField("io")
+        field.isAccessible = true
+        val io = field.get(null) as ExecutorService
+        val entered = CountDownLatch(1)
+        val gate = CountDownLatch(1)
+        release = gate
+        io.execute {
+            entered.countDown()
+            gate.await(10, TimeUnit.SECONDS)
+        }
+        assertTrue("precondition: the symbol writer is occupied", entered.await(2, TimeUnit.SECONDS))
+    }
 
     @Test fun records_newest_first_and_dedupes() {
         val s = SymbolUsageStore(newDir()).apply { load() }
@@ -47,6 +72,7 @@ class SymbolUsageStoreTest {
     @Test fun persists_across_reload() {
         val dir = newDir()
         SymbolUsageStore(dir).apply { load(); record("÷"); record("≈") }
+        SymbolUsageStore.flushPendingWrites()
         assertEquals(listOf("≈", "÷"), SymbolUsageStore(dir).apply { load() }.recent())
     }
 
@@ -91,6 +117,7 @@ class SymbolUsageStoreTest {
     @Test fun origin_persists_across_reload() {
         val dir = newDir()
         SymbolUsageStore(dir).apply { load(); record("\$", "货币"); record("π", "希腊") }
+        SymbolUsageStore.flushPendingWrites()
         val reloaded = SymbolUsageStore(dir).apply { load() }
         assertEquals(listOf("π", "\$"), reloaded.recent())
         assertEquals("希腊", reloaded.originOf("π"))
@@ -188,9 +215,40 @@ class SymbolUsageStoreTest {
         assertEquals("all 22 distinct catalogue pairs exercised", 22, seen.size)
     }
 
+    @Test fun recording_a_symbol_does_not_write_on_the_thread_that_typed_it() {
+        val dir = newDir()
+        val s = SymbolUsageStore(dir).apply { load() }
+        occupyTheWriteLane()
+
+        s.record("★", "符号")
+
+        assertFalse(
+            "a symbol tap must be handed to the writer, not written where it was typed",
+            File(dir, "symbol_usage.txt").exists(),
+        )
+        release?.countDown()
+        SymbolUsageStore.flushPendingWrites()
+        assertEquals(listOf("★"), SymbolUsageStore(dir).apply { load() }.recent())
+    }
+
+    @Test fun a_clear_never_loses_to_a_record_still_queued_behind_it() {
+        val dir = newDir()
+        val s = SymbolUsageStore(dir).apply { load() }
+        occupyTheWriteLane()
+
+        s.record("★", "符号")
+        s.record("→", "符号")
+        release?.countDown()
+        s.clear()
+
+        assertEquals("", File(dir, "symbol_usage.txt").readText())
+        assertTrue(SymbolUsageStore(dir).apply { load() }.recent().isEmpty())
+    }
+
     @Test fun a_symbol_history_that_reads_fine_is_reported_as_readable() {
         val dir = newDir()
         SymbolUsageStore(dir).apply { load(); record("÷", "math") }
+        SymbolUsageStore.flushPendingWrites()
         assertTrue(SymbolUsageStore(dir).apply { load() }.readable)
     }
 
@@ -201,6 +259,7 @@ class SymbolUsageStoreTest {
     @Test fun a_symbol_history_that_cannot_be_read_is_reported_as_unreadable() {
         val dir = newDir()
         SymbolUsageStore(dir).apply { load(); record("÷", "math") }
+        SymbolUsageStore.flushPendingWrites()
         val usage = File(dir, "symbol_usage.txt")
         assertTrue("precondition: the symbol history could be closed off", usage.setReadable(false, false))
         try {

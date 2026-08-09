@@ -517,7 +517,10 @@ class ClipboardStore(private val dir: File) {
     private fun sha256(s: String): String =
         MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it.toInt() and 0xFF) }
 
-    internal fun flushPendingWrites() { runCatching { io.submit { }.get() } }
+    internal fun flushPendingWrites() {
+        if (Thread.currentThread() === writer) return
+        runCatching { io.submit { }.get() }
+    }
 
     fun stopSaving() { runCatching { io.shutdown() } }
 
