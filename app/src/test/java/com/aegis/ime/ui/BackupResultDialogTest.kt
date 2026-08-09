@@ -158,9 +158,18 @@ class BackupResultDialogTest {
             importResult(BackupException(BackupError.UNSUPPORTED_VERSION)).messageRes,
         )
         assertEquals(
+            R.string.backup_error_already_restoring,
+            importResult(BackupException(BackupError.ALREADY_RESTORING)).messageRes,
+        )
+        assertEquals(
             "a plain failure carries no list of parts",
             emptyList<Int>(),
             importResult(BackupException(BackupError.IO_ERROR)).omittedRes,
+        )
+        assertEquals(
+            "every way a restore can fail must be reported as something of its own",
+            BackupError.entries.size,
+            BackupError.entries.map { importResult(BackupException(it)).messageRes }.toSet().size,
         )
     }
 

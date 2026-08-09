@@ -784,6 +784,7 @@ internal fun importResult(failure: BackupException): BackupUiState.Result = when
         R.string.backup_error_damaged_content,
         failure.items.map(::backupItemLabel),
     )
+    BackupError.ALREADY_RESTORING -> BackupUiState.Result(R.string.backup_error_already_restoring)
 }
 
 internal fun backupItemLabel(item: BackupItem): Int = when (item) {
