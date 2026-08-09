@@ -69,8 +69,8 @@ tasks.withType<Test>().configureEach {
     val scratchDir = layout.buildDirectory.dir("tmp/test-jvm/$name").get().asFile
     systemProperty("java.io.tmpdir", scratchDir.absolutePath)
     doFirst {
-        scratchDir.deleteRecursively()
-        scratchDir.mkdirs()
+        check(scratchDir.deleteRecursively()) { "could not clear $scratchDir" }
+        check(scratchDir.mkdirs()) { "could not create $scratchDir" }
     }
     inputs.files(
         layout.projectDirectory.file("src/main/assets/aegis_dict.bin"),
