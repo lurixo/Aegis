@@ -18,6 +18,8 @@ package com.aegis.ime.ui
 import android.content.Context
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts.CreateDocument
@@ -75,9 +77,7 @@ class BackupActivity : ComponentActivity() {
 
     private var pendingImportUri: Uri? = null
 
-    private val worker = Executors.newSingleThreadExecutor { r ->
-        Thread(r, "aegis-backup").apply { isDaemon = true }
-    }
+    private val onJobResult: (BackupUiState.Result) -> Unit = { uiState = it }
 
     private val createDocument = registerForActivityResult(CreateDocument(MIME_TYPE)) { uri ->
         onExportTarget(uri)
@@ -97,6 +97,9 @@ class BackupActivity : ComponentActivity() {
         defaultPasswordStore = backupDefaultPasswordStore(this)
         defaultPasswordAuthenticator = PlatformBackupDefaultPasswordAuthenticator(this)
         refreshDefaultPasswordState()
+        if (BackupJob.inProgress || savedInstanceState?.getBoolean(STATE_WORKING) == true) {
+            uiState = BackupUiState.Working
+        }
         bootstrapSettingsEdgeToEdge()
         setContent {
             SettingsActivityChrome {
@@ -129,10 +132,25 @@ class BackupActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        BackupJob.reportTo(onJobResult)
+    }
+
     override fun onResume() {
         super.onResume()
         bootstrapSettingsEdgeToEdge()
         if (::defaultPasswordAuthenticator.isInitialized) refreshDefaultPasswordState()
+    }
+
+    override fun onStop() {
+        BackupJob.stopReportingTo(onJobResult)
+        super.onStop()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(STATE_WORKING, uiState == BackupUiState.Working)
     }
 
     override fun onDestroy() {
@@ -140,7 +158,6 @@ class BackupActivity : ComponentActivity() {
         pendingExportPassword = null
         pendingDefaultPasswordToSave = null
         if (::defaultPasswordAuthenticator.isInitialized) defaultPasswordAuthenticator.cancel()
-        worker.shutdown()
         super.onDestroy()
     }
 
@@ -247,10 +264,10 @@ class BackupActivity : ComponentActivity() {
             return
         }
         uiState = BackupUiState.Working
-        worker.execute {
+        BackupJob.start {
             val report = runCatching { writeExport(uri, password) }.getOrNull()
             password.fill('\u0000')
-            runOnUiThread { uiState = exportResult(report) }
+            exportResult(report)
         }
     }
 
@@ -270,12 +287,12 @@ class BackupActivity : ComponentActivity() {
             return
         }
         val chars = password.toCharArray()
+        pendingImportUri = null
         uiState = BackupUiState.Working
-        worker.execute {
+        BackupJob.start {
             val result = runImport(uri, chars, mode)
             chars.fill('\u0000')
-            pendingImportUri = null
-            runOnUiThread { uiState = result }
+            result
         }
     }
 
@@ -300,6 +317,45 @@ class BackupActivity : ComponentActivity() {
     private companion object {
         const val MIME_TYPE = "application/octet-stream"
         const val DEFAULT_FILE_NAME = "aegis-backup.aegisbak"
+        const val STATE_WORKING = "backup_working"
+    }
+}
+
+internal object BackupJob {
+
+    private val worker = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "aegis-backup").apply { isDaemon = true }
+    }
+    private val main = Handler(Looper.getMainLooper())
+
+    @Volatile
+    var inProgress: Boolean = false
+        private set
+
+    private var finished: BackupUiState.Result? = null
+    private var listener: ((BackupUiState.Result) -> Unit)? = null
+
+    fun start(work: () -> BackupUiState.Result) {
+        inProgress = true
+        worker.execute {
+            val result = runCatching(work).getOrElse { BackupUiState.Result(R.string.backup_error_io) }
+            main.post { deliver(result) }
+        }
+    }
+
+    fun reportTo(page: (BackupUiState.Result) -> Unit) {
+        listener = page
+        finished?.let { finished = null; page(it) }
+    }
+
+    fun stopReportingTo(page: (BackupUiState.Result) -> Unit) {
+        if (listener === page) listener = null
+    }
+
+    private fun deliver(result: BackupUiState.Result) {
+        inProgress = false
+        val page = listener
+        if (page == null) finished = result else page(result)
     }
 }
 
