@@ -312,12 +312,10 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     fun load(file: File) {
         sourceReadable = false
         unreadableSource = file.absolutePath
-        var read = true
         val parsed = try {
             parse(file)
         } catch (_: Exception) {
-            read = false
-            Parsed()
+            return
         }
         formedByWord.clear()
         pendingCounts.clear()
@@ -331,10 +329,8 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         pendingCounts.putAll(parsed.pending)
         followsByPrev.putAll(parsed.follows)
         dirty = false
-        if (read) {
-            sourceReadable = true
-            unreadableSource = null
-        }
+        sourceReadable = true
+        unreadableSource = null
         version++
     }
 
