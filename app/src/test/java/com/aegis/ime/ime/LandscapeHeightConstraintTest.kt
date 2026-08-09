@@ -760,6 +760,63 @@ class TinyPanelViewportConstraintTest {
         activity.pause().stop().destroy()
     }
 
+    @Test fun clipboard_compressed_fixed_chrome_splits_the_budget_above_its_readable_floors_and_scales_rail_text() {
+        val clipboard = ClipboardView(ctx).apply {
+            categoriesProvider = { listOf("A", "B", "C") }
+            phrasesInProvider = { (1..20).map { "phrase$it" } }
+            switchTabForTest(toClipboard = false)
+        }
+        val authoredTextSizes = clipboardFixedTextSizes(clipboard)
+        val authoredLineHeights = clipboardFixedLineHeights(clipboard)
+        val authoredLabelHeights = clipboardFixedLabelHeights(clipboard)
+        val iv = InputView(ctx).apply {
+            simulateNavInsetForTest(12)
+            showEditBar(true)
+            showPanel(clipboard)
+        }
+        val activity = attachToActivity(iv)
+        layoutAtMost(iv, 320, 200)
+        settleUiAnimations()
+
+        assertEquals("real emergency panel target", 118, iv.panelHeightPx())
+        val fixed = clipboard.fixedChromeViewsForTest()
+        assertEquals("phrase mode has a top toolbar and bottom category bar", 2, fixed.size)
+        assertEquals("the list keeps the 30px the panel reserves for it", 30, clipboard.listViewportForTest().height)
+        assertEquals("the fixed chrome takes the whole 88px budget the reserve leaves behind", 88, fixed.sumOf { it.height })
+        assertTrue("the 56px toolbar must really be compressed", fixed[0].height < 56)
+        assertTrue("the 44px category bar must really be compressed", fixed[1].height < 44)
+        assertEquals(
+            "the toolbar keeps its 20px readable floor plus the 36/61 slack share of the 49px above both floors",
+            49,
+            fixed[0].height,
+        )
+        assertEquals(
+            "the category bar keeps its 19px readable floor plus the 25/61 slack share of the 49px above both floors",
+            39,
+            fixed[1].height,
+        )
+        for ((index, chrome) in fixed.withIndex()) {
+            val labels = visibleTextViews(chrome).filter { !it.text.isNullOrEmpty() }
+            val floor = labels.maxOf { requireNotNull(authoredLineHeights[it]) }
+            assertTrue(
+                "compressed chrome $index must stay at least one authored text line tall: height=${chrome.height}, floor=$floor",
+                chrome.height >= floor,
+            )
+            for (label in labels) {
+                val authoredHeight = requireNotNull(authoredLabelHeights[label])
+                if (authoredHeight <= 0) continue
+                assertTrue(
+                    "compressed chrome $index must not stretch '${label.text}' past its authored ${authoredHeight}px, was ${label.height}",
+                    label.height <= authoredHeight,
+                )
+            }
+        }
+        assertClipboardFixedLabelsRenderTheirLines(iv, clipboard)
+        assertClipboardFixedTextScales(clipboard, authoredTextSizes)
+        assertClipboardFixedTextTracksItsRail(clipboard, authoredTextSizes)
+        activity.pause().stop().destroy()
+    }
+
     @Test fun clipboard_select_phrase_sort_and_category_sort_keep_readable_root_clickable_actions() {
         val deleted = mutableListOf<List<String>>()
         val clips = (1..20).map { "clip$it" }
@@ -1039,6 +1096,52 @@ private fun clipboardFixedTextSizes(clipboard: ClipboardView): Map<android.widge
         .filter { !it.text.isNullOrEmpty() }
         .associateWith { it.textSize }
 
+private fun clipboardFixedLineHeights(clipboard: ClipboardView): Map<android.widget.TextView, Int> =
+    clipboard.fixedChromeViewsForTest()
+        .flatMap(::visibleTextViews)
+        .filter { !it.text.isNullOrEmpty() }
+        .associateWith { it.lineHeight }
+
+private fun clipboardFixedLabelHeights(clipboard: ClipboardView): Map<android.widget.TextView, Int> =
+    clipboard.fixedChromeViewsForTest()
+        .flatMap(::visibleTextViews)
+        .filter { !it.text.isNullOrEmpty() }
+        .associateWith { it.layoutParams?.height ?: -1 }
+
+private fun assertClipboardFixedTextTracksItsRail(
+    clipboard: ClipboardView,
+    authoredTextSizes: Map<android.widget.TextView, Float>,
+) {
+    var belowRail = 0
+    for (chrome in clipboard.fixedChromeViewsForTest()) {
+        for (label in visibleTextViews(chrome).filter { !it.text.isNullOrEmpty() }) {
+            val authoredTextSize = requireNotNull(authoredTextSizes[label])
+            val railHeight = (40 * label.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+            if (label.height >= railHeight) {
+                assertEquals(
+                    "visible fixed label '${label.text}' owns a full ${railHeight}px rail and must keep its authored text size",
+                    authoredTextSize,
+                    label.textSize,
+                    0.01f,
+                )
+                continue
+            }
+            belowRail++
+            assertTrue(
+                "visible fixed label '${label.text}' sits in a ${label.height}px rail and must drop below its authored ${authoredTextSize}px text, was ${label.textSize}",
+                label.textSize < authoredTextSize,
+            )
+            assertEquals(
+                "visible fixed label '${label.text}' must shrink to exactly its share of the ${railHeight}px rail",
+                authoredTextSize * label.height / railHeight,
+                label.textSize,
+                0.01f,
+            )
+        }
+    }
+    assertTrue("the compressed chrome must push at least one label under its readability rail", belowRail > 0)
+}
+
 private fun assertClipboardFixedTextScales(
     clipboard: ClipboardView,
     authoredTextSizes: Map<android.widget.TextView, Float>,
@@ -1098,4 +1201,56 @@ private fun dispatchRootTap(root: View, rect: Rect, expectedTarget: View? = null
 private fun flushPostedClicks() {
 
     shadowOf(Looper.getMainLooper()).idle()
+}
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], qualifiers = "w320dp-h200dp-land-xxhdpi")
+class TinyPanelReadableFloorConstraintTest {
+
+    private val ctx = RuntimeEnvironment.getApplication()
+
+    @Test fun clipboard_compressed_fixed_chrome_is_shared_out_from_its_readable_floors_upwards() {
+        val clipboard = ClipboardView(ctx).apply {
+            categoriesProvider = { listOf("A", "B", "C") }
+            phrasesInProvider = { (1..20).map { "phrase$it" } }
+            switchTabForTest(toClipboard = false)
+        }
+        val authoredLineHeights = clipboardFixedLineHeights(clipboard)
+        val iv = InputView(ctx).apply {
+            simulateNavInsetForTest(36)
+            showEditBar(true)
+            showPanel(clipboard)
+        }
+        val activity = attachToActivity(iv)
+        layoutAtMost(iv, 960, 600)
+        settleUiAnimations()
+
+        assertEquals("real emergency panel target at three pixels to the point", 354, iv.panelHeightPx())
+        val fixed = clipboard.fixedChromeViewsForTest()
+        assertEquals("phrase mode has a top toolbar and bottom category bar", 2, fixed.size)
+        assertEquals("the list keeps the 89px the panel reserves for it", 89, clipboard.listViewportForTest().height)
+        assertEquals("the fixed chrome takes the whole 265px budget the reserve leaves behind", 265, fixed.sumOf { it.height })
+        assertTrue("the 168px toolbar must really be compressed", fixed[0].height < 168)
+        assertTrue("the 132px category bar must really be compressed", fixed[1].height < 132)
+        assertEquals(
+            "the toolbar keeps its 60px readable floor plus the 108/183 slack share of the 148px above both floors",
+            147,
+            fixed[0].height,
+        )
+        assertEquals(
+            "the category bar keeps its 57px readable floor plus the 75/183 slack share of the 148px above both floors",
+            118,
+            fixed[1].height,
+        )
+        for ((index, chrome) in fixed.withIndex()) {
+            val labels = visibleTextViews(chrome).filter { !it.text.isNullOrEmpty() }
+            val floor = labels.maxOf { requireNotNull(authoredLineHeights[it]) }
+            assertTrue(
+                "compressed chrome $index must stay at least one authored text line tall: height=${chrome.height}, floor=$floor",
+                chrome.height >= floor,
+            )
+        }
+        assertClipboardFixedLabelsRenderTheirLines(iv, clipboard)
+        activity.pause().stop().destroy()
+    }
 }
