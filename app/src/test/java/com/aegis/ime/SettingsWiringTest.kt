@@ -184,9 +184,15 @@ class SettingsWiringTest {
         )
         assertTrue(
             "a field that gains focus must not reparse the whole learning store on the main thread",
-            onStartInput.contains(
-                "if (liveUserDictHost.handOff { runCatching { userLearning.loadIfUnchanged(userLearnFile) } }) userLearnMtime = readAt",
-            ),
+            onStartInput.contains("runCatching { userLearning.loadIfUnchanged(userLearnFile) }"),
+        )
+        assertTrue(
+            "the learning store's reload must be handed to the same lane",
+            onStartInput.contains("if (!handedOff) userLearnMtime = previous"),
+        )
+        assertTrue(
+            "the learning watermark must be taken before the lane can move it too",
+            onStartInput.indexOf("userLearnMtime = readAt") in 1 until onStartInput.lastIndexOf("liveUserDictHost.handOff {"),
         )
         assertFalse(
             "waiting on the lane deadlocks behind the writes this very session queued onto it",
@@ -225,6 +231,10 @@ class SettingsWiringTest {
 
         val onStartInput = memberBody(svc, "override fun onStartInput(")
         assertTrue("a word list picked up after a focus change must have its promises kept", onStartInput.contains(keeper))
+        assertTrue(
+            "both stores are read back on a focus change, so both must cash what the word list owes",
+            onStartInput.indexOf(keeper) in 1 until onStartInput.lastIndexOf(keeper),
+        )
         assertTrue(
             "keeping a promise rewrites both files, so both watermarks must be taken again after it",
             onStartInput.indexOf("userDbMtime = userDbFile.lastModified()") > onStartInput.indexOf(keeper) &&
