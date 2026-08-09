@@ -16,6 +16,7 @@
 package com.aegis.ime.ui
 
 import android.content.Context
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
@@ -42,11 +43,13 @@ import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserLearnEdit
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
+import com.aegis.ime.user.UserStoreEdits
 import org.junit.After
 import org.junit.Before
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -55,6 +58,8 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowToast
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.TimeUnit
 
 private fun ctxString(id: Int) = RuntimeEnvironment.getApplication().getString(id)
 
@@ -229,10 +234,38 @@ class InputSettingsAutoLearnClearTest {
     }
 
     @After fun cleanup() {
+        drainEdits()
         scenario?.close()
         UserDictHot.host = null
         hosts.forEach { runCatching { it.stopSaving() } }
         learn.delete()
+    }
+
+    private fun drainEdits() {
+        val lane = UserStoreEdits::class.java.getDeclaredField("lane").run {
+            isAccessible = true
+            get(UserStoreEdits) as ExecutorService
+        }
+        lane.submit { }.get(10, TimeUnit.SECONDS)
+    }
+
+    private fun reported(): String? {
+        settled("the page reported what became of the edit") { ShadowToast.getTextOfLatestToast() != null }
+        return ShadowToast.getTextOfLatestToast()
+    }
+
+    private fun settled(what: String, condition: () -> Boolean) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (System.nanoTime() < deadline) {
+            compose.waitForIdle()
+            shadowOf(Looper.getMainLooper()).idle()
+            if (condition()) {
+                compose.waitForIdle()
+                return
+            }
+            Thread.yield()
+        }
+        fail("timed out waiting until $what")
     }
 
     @Test fun the_clear_button_lives_while_only_the_next_word_data_is_left() {
@@ -243,7 +276,7 @@ class InputSettingsAutoLearnClearTest {
         compose.onNodeWithTag("auto_learn_clear").performScrollTo().assertIsEnabled().performClick()
         compose.waitForIdle()
         compose.onNodeWithText(ctxString(R.string.user_dict_auto_clear_confirm)).performClick()
-        compose.waitForIdle()
+        assertEquals(ctxString(R.string.user_dict_toast_auto_cleared), reported())
 
         assertTrue("the next word data is gone", learn.readLines().none { it.startsWith("C\t") })
         compose.onNodeWithTag("auto_learn_clear").performScrollTo().assertIsNotEnabled()
@@ -262,7 +295,7 @@ class InputSettingsAutoLearnClearTest {
         compose.onNodeWithTag("auto_learn_clear").performScrollTo().assertIsEnabled().performClick()
         compose.waitForIdle()
         compose.onNodeWithText(ctxString(R.string.user_dict_auto_clear_confirm)).performClick()
-        compose.waitForIdle()
+        assertEquals(ctxString(R.string.user_dict_toast_auto_cleared), reported())
 
         assertTrue(
             "discarding it on purpose is the way back to a store that saves again",
@@ -302,12 +335,53 @@ class InputSettingsAutoLearnClearTest {
         compose.onNodeWithTag("auto_learn_clear").performScrollTo().assertIsEnabled().performClick()
         compose.waitForIdle()
         compose.onNodeWithText(ctxString(R.string.user_dict_auto_clear_confirm)).performClick()
-        compose.waitForIdle()
+        assertEquals(ctxString(R.string.user_dict_toast_auto_cleared), reported())
 
         assertTrue(
             "clearing on purpose is the way back to a store that saves again",
             learn.readText().startsWith("aegis-userlearn"),
         )
+    }
+
+    private class HoldingHost(
+        private val gate: java.util.concurrent.CountDownLatch,
+        private val reached: java.util.concurrent.atomic.AtomicBoolean,
+    ) : UserDictHot.Host {
+        override fun addWord(reading: String, word: String, now: Long) = false
+        override fun removeWord(reading: String, word: String) = false
+        override fun importUserDict(importFile: java.io.File, merge: Boolean, now: Long) = false
+        override fun entries(): List<UserModel.Entry> = emptyList()
+        override fun learnedEntries(): List<UserLearning.Formed> =
+            if (reached.get()) emptyList() else listOf(UserLearning.Formed("你呢嗯", "ninen"))
+        override fun hasLearnedData() = !reached.get()
+        override fun removeLearned(word: String, reading: String) = false
+        override fun clearLearned(): Boolean {
+            gate.await(10, TimeUnit.SECONDS)
+            reached.set(true)
+            return true
+        }
+        override fun flush() = false
+    }
+
+    @Test fun a_clear_hands_the_store_over_instead_of_making_the_card_wait_for_it() {
+        val gate = java.util.concurrent.CountDownLatch(1)
+        val reached = java.util.concurrent.atomic.AtomicBoolean(false)
+        UserDictHot.host = HoldingHost(gate, reached)
+
+        scenario = ActivityScenario.launch(InputSettingsActivity::class.java)
+        ShadowToast.reset()
+        compose.onNodeWithTag("auto_learn_clear").performScrollTo().performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(ctxString(R.string.user_dict_auto_clear_confirm)).performClick()
+
+        assertFalse("the tap must come back before the store has been touched", reached.get())
+        assertEquals("and nothing may be reported before there is anything to report", null, ShadowToast.getTextOfLatestToast())
+
+        gate.countDown()
+
+        assertEquals(ctxString(R.string.user_dict_toast_auto_cleared), reported())
+        assertTrue("the store really was cleared once the lane got to it", reached.get())
+        compose.onNodeWithTag("auto_learn_clear").performScrollTo().assertIsNotEnabled()
     }
 
     @Test fun a_clear_that_never_reached_storage_says_so_instead_of_claiming_success() {
@@ -329,7 +403,7 @@ class InputSettingsAutoLearnClearTest {
         compose.onNodeWithTag("auto_learn_clear").performScrollTo().assertIsEnabled().performClick()
         compose.waitForIdle()
         compose.onNodeWithText(ctxString(R.string.user_dict_auto_clear_confirm)).performClick()
-        compose.waitForIdle()
+        settled("the refused clear is reported") { ShadowToast.getTextOfLatestToast() != null }
 
         assertEquals(
             ctxString(R.string.user_dict_toast_write_failed),

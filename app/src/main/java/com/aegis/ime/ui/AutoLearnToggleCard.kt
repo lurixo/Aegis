@@ -16,6 +16,8 @@
 package com.aegis.ime.ui
 
 import android.content.Context
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -42,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import com.aegis.ime.R
 import com.aegis.ime.user.UserLearnEdit
+import com.aegis.ime.user.UserStoreEdits
 import java.io.File
 
 internal const val PREF_AUTO_LEARN_ON = "pref_auto_learn_on"
@@ -59,6 +62,22 @@ internal fun AutoLearnToggleCard() {
     var learnedView by remember { mutableStateOf(UserLearnEdit.view(userLearn)) }
     val learnedHasData = learnedView.hasData
     var pendingClear by remember { mutableStateOf(false) }
+    val mainHandler = remember { Handler(Looper.getMainLooper()) }
+
+    fun clearLearned() {
+        UserStoreEdits.submit {
+            val landed = UserLearnEdit.clear(userLearn)
+            val next = UserLearnEdit.view(userLearn)
+            mainHandler.post {
+                learnedView = next
+                Toast.makeText(
+                    context,
+                    if (landed) clearedToast else writeFailedToast,
+                    Toast.LENGTH_SHORT,
+                ).show()
+            }
+        }
+    }
 
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(
@@ -124,14 +143,8 @@ internal fun AutoLearnToggleCard() {
             confirmButton = {
                 TextButton(
                     onClick = {
-                        val saved = UserLearnEdit.clear(userLearn)
-                        learnedView = UserLearnEdit.view(userLearn)
+                        clearLearned()
                         pendingClear = false
-                        Toast.makeText(
-                            context,
-                            if (saved) clearedToast else writeFailedToast,
-                            Toast.LENGTH_SHORT,
-                        ).show()
                     },
                 ) {
                     Text(stringResource(R.string.user_dict_auto_clear_confirm))

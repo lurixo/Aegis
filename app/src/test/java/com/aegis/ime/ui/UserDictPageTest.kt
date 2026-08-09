@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ui
 
+import android.os.Looper
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.hasTestTag
@@ -37,11 +38,15 @@ import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserLearnEdit
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
+import com.aegis.ime.user.UserStoreEdits
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
@@ -52,6 +57,10 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowToast
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
@@ -85,11 +94,39 @@ class UserDictPageTest {
     }
 
     @After fun cleanup() {
+        drainEdits()
         scenario?.close()
         UserDictHot.host = null
         hosts.forEach { runCatching { it.stopSaving() } }
         db.delete()
         learn.delete()
+    }
+
+    private fun drainEdits() {
+        val lane = UserStoreEdits::class.java.getDeclaredField("lane").run {
+            isAccessible = true
+            get(UserStoreEdits) as ExecutorService
+        }
+        lane.submit { }.get(10, TimeUnit.SECONDS)
+    }
+
+    private fun settled(what: String, condition: () -> Boolean) {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (System.nanoTime() < deadline) {
+            compose.waitForIdle()
+            shadowOf(Looper.getMainLooper()).idle()
+            if (condition()) {
+                compose.waitForIdle()
+                return
+            }
+            Thread.yield()
+        }
+        fail("timed out waiting until $what")
+    }
+
+    private fun reported(): String? {
+        settled("the page reported what became of the edit") { ShadowToast.getTextOfLatestToast() != null }
+        return ShadowToast.getTextOfLatestToast()
     }
 
     private fun seedLearned(vararg steps: Pair<String, String>) {
@@ -174,7 +211,7 @@ class UserDictPageTest {
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("测试词")
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("ceshici")
         compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
-        compose.waitForIdle()
+        assertEquals(s(R.string.user_dict_toast_added), reported())
         assertEquals(listOf("测试词"), UserDictEdit.list(db).filter { it.reading == "ceshici" }.map { it.word })
         compose.onNodeWithText(ctx.getString(R.string.user_dict_count_format, 1)).assertExists()
         compose.onNodeWithTag("user_dict_search").performTextInput("ceshici")
@@ -187,7 +224,7 @@ class UserDictPageTest {
         compose.onNodeWithTag("user_dict_search").performTextInput("shanchu")
         compose.onNodeWithText(row("删除词", "shanchu")).assertExists()
         compose.onNodeWithText(s(R.string.user_dict_delete_button)).performClick()
-        compose.waitForIdle()
+        assertEquals(s(R.string.user_dict_toast_deleted), reported())
         compose.onNodeWithText(s(R.string.user_dict_search_no_match)).assertExists()
         compose.onNodeWithText(ctx.getString(R.string.user_dict_count_format, 30)).assertExists()
         assertTrue(UserDictEdit.list(db).none { it.word == "删除词" })
@@ -204,7 +241,7 @@ class UserDictPageTest {
         compose.onNodeWithText(row("你呢嗯", "ninen")).assertExists()
 
         compose.onNodeWithText(s(R.string.user_dict_delete_button)).performClick()
-        compose.waitForIdle()
+        assertEquals(s(R.string.user_dict_toast_deleted), reported())
 
         assertTrue("the learned word is gone from the store", UserLearnEdit.list(learn).isEmpty())
         compose.onNodeWithText(ctx.getString(R.string.user_dict_auto_count_format, 0)).assertExists()
@@ -230,7 +267,7 @@ class UserDictPageTest {
         compose.onNodeWithTag("user_dict_auto_clear").performClick()
         compose.waitForIdle()
         compose.onNodeWithText(s(R.string.user_dict_auto_clear_confirm)).performClick()
-        compose.waitForIdle()
+        assertEquals(s(R.string.user_dict_toast_auto_cleared), reported())
 
         assertTrue("confirming clears the learned data", UserLearnEdit.list(learn).isEmpty())
         compose.onNodeWithText(s(R.string.user_dict_auto_empty)).assertExists()
@@ -246,8 +283,7 @@ class UserDictPageTest {
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("自动词")
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("zidongci")
         compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
-        compose.waitForIdle()
-        assertEquals(s(R.string.user_dict_toast_kept), ShadowToast.getTextOfLatestToast())
+        assertEquals(s(R.string.user_dict_toast_kept), reported())
         assertEquals(
             "the word is marked as the user's own, which is what exempts it from fading out",
             mapOf("zidongci" to setOf("自动词")),
@@ -259,11 +295,10 @@ class UserDictPageTest {
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("全新词")
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("quanxinci")
         compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
-        compose.waitForIdle()
         assertEquals(
             "a word that was not there yet keeps the plain confirmation",
             s(R.string.user_dict_toast_added),
-            ShadowToast.getTextOfLatestToast(),
+            reported(),
         )
     }
 
@@ -330,7 +365,7 @@ class UserDictPageTest {
         compose.onNodeWithTag("user_dict_auto_clear").assertIsEnabled().performClick()
         compose.waitForIdle()
         compose.onNodeWithText(s(R.string.user_dict_auto_clear_confirm)).performClick()
-        compose.waitForIdle()
+        assertEquals(s(R.string.user_dict_toast_auto_cleared), reported())
 
         assertTrue("the next word data is gone", learn.readLines().none { it.startsWith("C\t") })
     }
@@ -381,10 +416,8 @@ class UserDictPageTest {
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("幽灵词")
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("youlingci")
         compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
-        compose.waitForIdle()
-        compose.waitUntil(5_000) { ShadowToast.getTextOfLatestToast() != null }
 
-        assertEquals(s(R.string.user_dict_toast_write_failed), ShadowToast.getTextOfLatestToast())
+        assertEquals(s(R.string.user_dict_toast_write_failed), reported())
         compose.onNodeWithTag("user_dict_unreadable").assertExists()
         compose.onNodeWithTag("user_dict_list").assertExists()
         assertThrows(
@@ -397,6 +430,49 @@ class UserDictPageTest {
             "the file the page could not read must still be on disk untouched",
             db.readText().startsWith("this is not an aegis user dictionary"),
         )
+    }
+
+    private class HoldingHost(
+        private val gate: CountDownLatch,
+        private val reached: AtomicBoolean,
+    ) : UserDictHot.Host {
+        override fun addWord(reading: String, word: String, now: Long) = false
+        override fun removeWord(reading: String, word: String): Boolean {
+            gate.await(10, TimeUnit.SECONDS)
+            reached.set(true)
+            return true
+        }
+        override fun importUserDict(importFile: File, merge: Boolean, now: Long) = false
+        override fun entries(): List<UserModel.Entry> =
+            if (reached.get()) emptyList() else listOf(UserModel.Entry("shanchu", "删除词", 1))
+        override fun learnedEntries(): List<UserLearning.Formed> = emptyList()
+        override fun hasLearnedData() = false
+        override fun removeLearned(word: String, reading: String) = false
+        override fun clearLearned() = false
+        override fun flush() = false
+    }
+
+    @Test fun a_deletion_hands_the_store_over_instead_of_making_the_page_wait_for_it() {
+        val gate = CountDownLatch(1)
+        val reached = AtomicBoolean(false)
+        UserDictHot.host = HoldingHost(gate, reached)
+        openUserDictPage()
+        compose.onNodeWithTag("user_dict_search").performTextInput("shanchu")
+        compose.onNodeWithText(row("删除词", "shanchu")).assertExists()
+        ShadowToast.reset()
+
+        compose.onNodeWithText(s(R.string.user_dict_delete_button)).performClick()
+
+        assertFalse("the tap must come back before the store has been touched", reached.get())
+        assertNull("and nothing may be reported before there is anything to report", ShadowToast.getTextOfLatestToast())
+        compose.onNodeWithTag("user_dict_search").performTextClearance()
+        compose.onNodeWithTag("user_dict_search").performTextInput("shan")
+
+        gate.countDown()
+
+        assertEquals(s(R.string.user_dict_toast_deleted), reported())
+        assertTrue("the store really was written once the lane got to it", reached.get())
+        compose.onNodeWithText(row("删除词", "shanchu")).assertDoesNotExist()
     }
 
     @Test fun an_export_is_not_blocked_by_a_word_list_that_could_not_be_read() {
@@ -473,9 +549,8 @@ class UserDictPageTest {
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("测试词")
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("ceshici")
         compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
-        compose.waitForIdle()
 
-        assertEquals(s(R.string.user_dict_toast_write_failed), ShadowToast.getTextOfLatestToast())
+        assertEquals(s(R.string.user_dict_toast_write_failed), reported())
         compose.onNodeWithText("测试词").assertExists()
         compose.onNodeWithText("ceshici").assertExists()
     }
@@ -490,16 +565,14 @@ class UserDictPageTest {
         ShadowToast.reset()
         compose.onNodeWithTag("user_dict_search").performTextInput("shanchu")
         compose.onNodeWithText(s(R.string.user_dict_delete_button)).performClick()
-        compose.waitForIdle()
-        assertEquals(s(R.string.user_dict_toast_write_failed), ShadowToast.getTextOfLatestToast())
+        assertEquals(s(R.string.user_dict_toast_write_failed), reported())
 
         ShadowToast.reset()
         compose.onNodeWithTag("user_dict_search").performTextClearance()
         compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(row("你呢嗯", "ninen")))
         compose.onNodeWithText(row("你呢嗯", "ninen")).assertExists()
         compose.onAllNodesWithText(s(R.string.user_dict_delete_button)).onLast().performClick()
-        compose.waitForIdle()
-        assertEquals(s(R.string.user_dict_toast_write_failed), ShadowToast.getTextOfLatestToast())
+        assertEquals(s(R.string.user_dict_toast_write_failed), reported())
     }
 
     @Test fun clearing_the_learned_words_says_so_when_the_write_is_refused() {
@@ -511,9 +584,8 @@ class UserDictPageTest {
         compose.onNodeWithTag("user_dict_auto_clear").performClick()
         compose.waitForIdle()
         compose.onNodeWithText(s(R.string.user_dict_auto_clear_confirm)).performClick()
-        compose.waitForIdle()
 
-        assertEquals(s(R.string.user_dict_toast_write_failed), ShadowToast.getTextOfLatestToast())
+        assertEquals(s(R.string.user_dict_toast_write_failed), reported())
     }
 
     @Test fun an_export_is_cancelled_rather_than_shipped_stale_when_the_flush_is_refused() {
