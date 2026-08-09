@@ -62,6 +62,11 @@ class LiveUserDictHostTest {
 
     private fun unwritable(name: String): File = File(tmp.newFile("blocker-$name"), name)
 
+    private fun brokenDictionary(file: File): UserModel {
+        file.writeText("this is not an aegis user dictionary\nW\t词\t1\t1\n")
+        return UserModel { CLOCK }.apply { runCatching { load(file) } }
+    }
+
     private fun brokenLearning(file: File): UserLearning {
         file.writeText("not a learning file at all\n")
         return UserLearning { CLOCK }.apply {
@@ -488,7 +493,7 @@ class LiveUserDictHostTest {
         val h = LiveUserDictHost(model, db, learning, learnFile, ::watermark)
         model.addManualWord("nihao", "你好", 1L)
 
-        assertFalse("a backup must not ship without the learned data it claims to carry", h.flush())
+        assertFalse("a flush that could not write both stores must say so; whether that blocks anything is the caller's call", h.flush())
     }
 
     @Test fun a_dictionary_flush_goes_through_although_the_learning_store_cannot_be_written() {
@@ -524,6 +529,66 @@ class LiveUserDictHostTest {
         assertTrue(learning.readable)
         assertFalse(learning.dirty)
         assertTrue("and now a word reports success too", h.addWord("nihao", "你好", now = 3L))
+    }
+
+    @Test fun a_word_is_refused_outright_when_the_dictionary_could_not_be_read() {
+        db = File(tmp.root, "userdb.txt")
+        val broken = brokenDictionary(db)
+        val before = db.readText()
+        val h = LiveUserDictHost(broken, db, onSaved = ::watermark)
+
+        assertFalse("a word that cannot possibly be saved must be refused before anything moves", h.addWord("nihao", "你好", now = 1L))
+
+        assertTrue("no ghost may be left in the keyboard's own model", broken.userWordEntries().isEmpty())
+        assertFalse("and nothing may be left queued, or the store can never heal itself", broken.dirty)
+        assertEquals("the file is left byte for byte as it was", before, db.readText())
+        assertEquals(0, saves.size)
+    }
+
+    @Test fun a_remove_touches_neither_store_when_the_dictionary_could_not_be_read() {
+        db = File(tmp.root, "userdb.txt")
+        val broken = brokenDictionary(db)
+        val learnFile = File(tmp.root, "userlearn.txt")
+        val learning = glued().apply { save(learnFile) }
+        val learnedBefore = learnFile.readText()
+        val h = LiveUserDictHost(broken, db, learning, learnFile, ::watermark)
+
+        assertFalse(h.removeWord("ninen", "你呢嗯"))
+
+        assertEquals(
+            "reporting failure while the learning half was really deleted is the worst of both",
+            listOf("你呢嗯"),
+            learning.formedWordsFor("ninen"),
+        )
+        assertEquals("and its file is untouched", learnedBefore, learnFile.readText())
+    }
+
+    @Test fun a_merge_import_is_refused_when_the_dictionary_could_not_be_read() {
+        db = File(tmp.root, "userdb.txt")
+        val broken = brokenDictionary(db)
+        val h = LiveUserDictHost(broken, db, onSaved = ::watermark)
+        val imported = tmp.newFile("merge.txt").apply {
+            writeText("aegis-userdb 1\nW\t测试\t3\t7\nR\tceshi\t测试\n")
+        }
+
+        assertFalse("merging into something we could not read cannot be done safely", h.importUserDict(imported, merge = true, now = 8L))
+
+        assertTrue(broken.userWordEntries().isEmpty())
+        assertFalse(broken.dirty)
+    }
+
+    @Test fun an_overwrite_import_still_repairs_a_dictionary_that_could_not_be_read() {
+        db = File(tmp.root, "userdb.txt")
+        val broken = brokenDictionary(db)
+        val h = LiveUserDictHost(broken, db, onSaved = ::watermark)
+        val imported = tmp.newFile("overwrite.txt").apply {
+            writeText("aegis-userdb 1\nW\t测试\t3\t7\nR\tceshi\t测试\n")
+        }
+
+        assertTrue("replacing the store wholesale is the only way out, so it must stay open", h.importUserDict(imported, merge = false, now = 8L))
+
+        assertTrue(broken.readable)
+        assertEquals(listOf("测试"), reloadFromDisk().readingSnapshot()["ceshi"])
     }
 
     @Test fun a_failed_write_is_carried_by_the_next_flush() {
