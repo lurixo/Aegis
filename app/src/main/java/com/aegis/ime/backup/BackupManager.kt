@@ -170,6 +170,8 @@ object BackupManager {
 
             try {
                 commit(filesDir, prefs, staging, visitor.prefsBlob, mode)
+            } catch (e: BackupCorruptException) {
+                throw BackupException(BackupError.WRONG_PASSWORD_OR_CORRUPT, e)
             } catch (e: Exception) {
                 throw BackupException(BackupError.IO_ERROR, e)
             }
