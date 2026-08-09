@@ -521,19 +521,11 @@ class BackupRoundTripTest {
         val real = LiveUserDictHost(UserModel(), userdbFile(), UserLearning(), File(filesDir, "userlearn.txt"))
         LiveUserData.onBeforeRestore = { heldBeforeAnythingMoved = LiveUserData.restoreInProgress }
         LiveUserData.onRestored = { heldWhileReloading = LiveUserData.restoreInProgress }
-        UserDictHot.host = object : UserDictHot.Host {
-            override fun addWord(reading: String, word: String, now: Long) = real.addWord(reading, word, now)
-            override fun removeWord(reading: String, word: String) = real.removeWord(reading, word)
+        UserDictHot.host = object : UserDictHot.Host by real {
             override fun importUserDict(importFile: File, merge: Boolean, now: Long): Boolean {
                 heldWhileReplacingTheDictionary = LiveUserData.restoreInProgress
                 return real.importUserDict(importFile, merge, now)
             }
-            override fun entries(): List<UserModel.Entry> = real.entries()
-            override fun learnedEntries(): List<UserLearning.Formed> = real.learnedEntries()
-            override fun hasLearnedData() = real.hasLearnedData()
-            override fun removeLearned(word: String, reading: String) = real.removeLearned(word, reading)
-            override fun clearLearned() = real.clearLearned()
-            override fun flush() = real.flush()
         }
         try {
             restore(backup, BackupManager.Mode.OVERWRITE)
@@ -541,6 +533,7 @@ class BackupRoundTripTest {
             LiveUserData.onBeforeRestore = null
             LiveUserData.onRestored = null
             UserDictHot.host = null
+            real.stopSaving()
         }
 
         assertTrue("the guard must be up before the first byte moves", heldBeforeAnythingMoved)
