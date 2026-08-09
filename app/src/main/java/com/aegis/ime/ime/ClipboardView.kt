@@ -571,8 +571,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         phraseCat = ""
         categoryScrollX = 0
         listScrollY = 0
+        listScrollRestoreTarget = 0
         listScrollRestoreActive = false
         listScroll.scrollTo(0, 0)
+        listScroll.fling(0)
     }
 
     internal fun isClipboardTabForTest(): Boolean = st.tab == ClipboardPanelState.Tab.CLIPBOARD
