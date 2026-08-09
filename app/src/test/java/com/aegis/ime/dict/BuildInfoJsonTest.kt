@@ -98,8 +98,8 @@ class BuildInfoJsonTest {
         val attestation = dictionary.getJSONObject("attestation")
         val missing = attestation.getJSONArray("missing").join(" ")
 
-        assertEquals(ModelDownload.DICT_BIN_FILES.toSet(), names)
-        assertEquals(3, bins.length())
+        assertEquals(ModelDownload.DICT_PACK_FILES.toSet(), names)
+        assertEquals(ModelDownload.DICT_PACK_FILES.size, bins.length())
         for (i in 0 until bins.length()) {
             val bin = bins.getJSONObject(i)
             assertTrue(bin.getString("sha256").matches(Regex("[0-9a-f]{64}")))
@@ -127,6 +127,41 @@ class BuildInfoJsonTest {
         assertEquals(ModelDownload.GRAM_NAME, asset.getString("name"))
         assertEquals(ModelDownload.GRAM_URL, asset.getString("url"))
         assertFalse(asset.getString("url").endsWith(".apk"))
+    }
+
+    @Test
+    fun buildInfoAndTheAttributionFileNameTheSameUpstreamRelease() {
+        val source = dictionaryResource().getJSONObject("source")
+        val attribution = File("../THIRD_PARTY_LICENSES.md").readText()
+
+        assertTrue(
+            "THIRD_PARTY_LICENSES.md attributes a release build-info does not record: ${source.getString("tag")}",
+            attribution.contains("tag `${source.getString("tag")}`"),
+        )
+        assertTrue(
+            "THIRD_PARTY_LICENSES.md attributes a commit build-info does not record: ${source.getString("commit")}",
+            attribution.contains(source.getString("commit")),
+        )
+    }
+
+    @Test
+    fun buildInfoAndBothReadmesAdvertiseTheSameDownloadSize() {
+        val bytes = dictionaryResource().getJSONObject("physical_asset").getLong("size_bytes")
+        val megabytes = Math.round(bytes / 1_000_000.0)
+        val advertised = mapOf(
+            "README.md" to Regex("~(\\d+) MB transfer"),
+            "README.zh-CN.md" to Regex("下载约 (\\d+) MB"),
+        )
+
+        for ((name, pattern) in advertised) {
+            val match = pattern.find(File("../$name").readText())
+            assertTrue("$name must advertise the dictionary download size", match != null)
+            assertEquals(
+                "$name advertises a download size the recorded asset does not have",
+                megabytes,
+                match!!.groupValues[1].toLong(),
+            )
+        }
     }
 
     private fun dictionaryResource(): JSONObject {
