@@ -54,6 +54,7 @@ class SymbolUsageStore(private val dir: File) {
         used.removeAll { SymbolCatalog.foldFullWidth(it.symbol) == key }
         used.add(0, Entry(symbol, origin))
         while (used.size > MAX) used.removeAt(used.size - 1)
+        if (LiveUserData.restoreInProgress) return
         val text = serialize()
         onWriteLane { runCatching { writeAtomically(text) } }
     }
