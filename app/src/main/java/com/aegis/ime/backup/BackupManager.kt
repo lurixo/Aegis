@@ -20,8 +20,10 @@ import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.SymbolUsageStore
 import com.aegis.ime.user.UserDictEdit
+import com.aegis.ime.user.UserDictExport
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserDictImport
+import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.File
@@ -74,7 +76,14 @@ object BackupManager {
             if (legacyPrefs) BackupArchive.writePrefs(out, prefsBlob) else BackupArchive.writePrefsChunked(out, prefsBlob)
             for (rel in backupRelPaths(filesDir)) {
                 val file = File(filesDir, rel)
-                if (file.isFile) BackupArchive.writeFile(out, rel, file)
+                if (!file.isFile) continue
+                if (rel == USERDB) {
+                    val shared = ByteArrayOutputStream()
+                    file.inputStream().use { UserDictExport.copyWithoutTombstones(it, shared) }
+                    BackupArchive.writeBytes(out, rel, shared.toByteArray())
+                } else {
+                    BackupArchive.writeFile(out, rel, file)
+                }
             }
             BackupArchive.writeEnd(out)
             out.flush()
