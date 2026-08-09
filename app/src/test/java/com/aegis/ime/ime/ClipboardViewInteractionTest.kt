@@ -802,6 +802,7 @@ class ClipboardViewInteractionTest {
         }
     }
 
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test
     @Config(qualifiers = "zh-rCN-mdpi")
     fun batch_management_entry_header_and_count_are_exact_single_line_text_at_supported_widths() {

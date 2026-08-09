@@ -111,6 +111,7 @@ class PanelIconAlignmentTest {
         )
     }
 
+    @GraphicsMode(GraphicsMode.Mode.NATIVE)
     @Test fun edit_panel_back_action_is_limited_to_the_back_button() {
         val v = EditPanelView(ctx)
         val actions = mutableListOf<EditAction>()
