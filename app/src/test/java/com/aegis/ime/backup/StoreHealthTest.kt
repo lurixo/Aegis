@@ -67,6 +67,7 @@ class StoreHealthTest {
         }
         SymbolUsageStore(root).apply { load(); record("★", "符号") }
         SymbolUsageStore(File(root, "emoji").apply { mkdirs() }).apply { load(); record("😀", "smileys") }
+        SymbolUsageStore.flushPendingWrites()
     }
 
     @Test fun a_store_that_was_never_written_has_nothing_to_report() {
