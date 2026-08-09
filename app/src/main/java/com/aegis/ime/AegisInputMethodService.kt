@@ -396,7 +396,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             info != null && com.aegis.ime.user.ClipboardPolicy.blocksLearning(info.inputType, info.imeOptions),
         )
         val quiet = userStoresLoaded && !liveUserDictHost.writing
-        if (quiet && !userModel.dirty && userDbFile.lastModified() > userDbMtime) {
+        if (quiet && (!userModel.dirty || !userModel.readable) && userDbFile.lastModified() > userDbMtime) {
             val readAt = userDbFile.lastModified()
             runCatching { userModel.reload(userDbFile) }
             userDbMtime = readAt

@@ -249,6 +249,23 @@ class AegisInputMethodServicePersistenceTest {
         )
     }
 
+    @Test fun a_dictionary_repaired_from_outside_is_picked_up_even_after_the_keyboard_gave_up_on_it() {
+        userDb.writeText("aegis-userdb 99\nW\t坏\t1\t1\n")
+        val service = started()
+        assertFalse("precondition: the dictionary could not be read", model(service).readable)
+
+        model(service).record(null, "打过字", 1L)
+        assertTrue("precondition: one keystroke pins dirty, and a refused save can never clear it", model(service).dirty)
+        service.onStartInput(editor(), false)
+
+        UserModel().apply { addManualWord("xiu", "修好", 1L) }.save(userDb)
+        userDb.setLastModified(System.currentTimeMillis() + 60_000L)
+        service.onStartInput(editor(), false)
+
+        assertTrue("a store nobody can write to must not also refuse to read a repaired file", model(service).readable)
+        assertEquals(listOf("修好"), model(service).readingSnapshot()["xiu"])
+    }
+
     @Test fun clearing_the_learned_words_while_the_dictionary_is_unreadable_is_not_undone_by_the_keyboard() {
         userDb.writeText("aegis-userdb 99\nW\t坏\t1\t1\n")
         val service = started()
