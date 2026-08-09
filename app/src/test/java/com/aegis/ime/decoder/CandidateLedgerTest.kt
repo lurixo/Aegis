@@ -33,6 +33,7 @@ class CandidateLedgerTest {
 
     private val clock = 1_700_000_000_000L
     private val limit = 30
+    private val committedTail = "的"
 
     private fun assets() = assumeTrue(
         "production dictionary, T9 table, language model and jianpin table present",
@@ -135,7 +136,7 @@ class CandidateLedgerTest {
 
     private fun pinnedCharacters(arm: Arm, key: String, path: String, cuts: Set<Int>): Set<String> {
         val out = LinkedHashSet<String>()
-        if (path == "free") {
+        if (path == "free" || path == "freeCtx") {
             for (q in leadingLens(arm, key)) {
                 if (q in 1..key.length) out += arm.decoder.homophoneFreqs(key.substring(0, q)).map { it.first }
             }
@@ -172,8 +173,9 @@ class CandidateLedgerTest {
             for (raw in letterKeys()) {
                 val key = if (arm.t9) T9Pinyin.toT9(raw) else raw
                 val cuts = cutsOf(arm, key)
-                val runs = ArrayList<Pair<String, List<Cand>>>(4)
+                val runs = ArrayList<Pair<String, List<Cand>>>(5)
                 runs += "free" to arm.decoder.decodeCovered(key, limit)
+                runs += "freeCtx" to arm.decoder.decodeCovered(key, limit, emptySet(), committedTail)
                 runs += "cut" to arm.decoder.decodeCovered(key, limit, cuts)
                 runs += "locked" to arm.decoder.decodeCoveredAtomic(key, limit, cuts)
                 if (cuts.isNotEmpty()) runs += "lockedFree" to arm.decoder.decodeCoveredAtomic(key, limit)
