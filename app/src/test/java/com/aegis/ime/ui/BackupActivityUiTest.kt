@@ -17,6 +17,7 @@ package com.aegis.ime.ui
 
 import android.content.Context
 import android.net.Uri
+import android.os.Looper
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
@@ -24,6 +25,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import com.aegis.ime.R
 import com.aegis.ime.backup.BackupManager
+import org.junit.After
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -36,6 +38,7 @@ import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.util.concurrent.TimeUnit
 
 private fun str(id: Int) = RuntimeEnvironment.getApplication().getString(id)
 
@@ -116,6 +119,72 @@ class BackupActivityUiTest {
         assertNotNull("a finished export must come back with a report", written.getOrNull())
         assertTrue(written.getOrNull() is BackupManager.ExportReport)
         assertTrue("and the document must carry the backup", sink.size() > 0)
+    }
+
+    private fun drainTheJob() {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(30)
+        while (BackupJob.inProgress && System.nanoTime() < deadline) {
+            shadowOf(Looper.getMainLooper()).idle()
+            Thread.yield()
+        }
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+
+    @After fun letEverythingGo() {
+        drainTheJob()
+        assertFalse("a job left running would leak into the next test", BackupJob.inProgress)
+    }
+
+    private fun beginExport(password: String) {
+        BackupActivity::class.java
+            .getDeclaredMethod("beginExport", String::class.java)
+            .apply { isAccessible = true }
+            .invoke(compose.activity, password)
+    }
+
+    private fun pickExportTarget(uri: Uri?) {
+        BackupActivity::class.java
+            .getDeclaredMethod("onExportTarget", Uri::class.java)
+            .apply { isAccessible = true }
+            .invoke(compose.activity, uri)
+    }
+
+    @Test fun an_export_that_lost_its_password_when_the_page_was_rebuilt_says_so() {
+        beginExport("backup-pass-01")
+        compose.waitForIdle()
+
+        compose.activityRule.scenario.recreate()
+        compose.waitForIdle()
+        pickExportTarget(Uri.parse("content://com.aegis.ime.test/chosen-after-rebuild"))
+        compose.waitForIdle()
+
+        compose.onNodeWithText(str(R.string.backup_export_interrupted)).assertExists()
+    }
+
+    @Test fun an_export_that_still_had_its_password_is_not_reported_as_interrupted() {
+        val uri = Uri.parse("content://com.aegis.ime.test/kept-its-password")
+        registerDocument(uri, ByteArrayOutputStream())
+
+        beginExport("backup-pass-01")
+        compose.waitForIdle()
+        pickExportTarget(uri)
+        drainTheJob()
+        compose.waitForIdle()
+
+        compose.onNodeWithText(str(R.string.backup_export_interrupted)).assertDoesNotExist()
+        compose.onNodeWithText(str(R.string.backup_export_ok)).assertExists()
+    }
+
+    @Test fun cancelling_the_file_picker_still_says_nothing() {
+        beginExport("backup-pass-01")
+        compose.waitForIdle()
+
+        pickExportTarget(null)
+        compose.waitForIdle()
+
+        compose.onNodeWithText(str(R.string.backup_export_interrupted)).assertDoesNotExist()
+        compose.onNodeWithText(str(R.string.backup_working)).assertDoesNotExist()
+        compose.onNodeWithText(str(R.string.backup_export_button)).performScrollTo().assertExists()
     }
 
     @Test fun back_arrow_finishes_the_activity() {

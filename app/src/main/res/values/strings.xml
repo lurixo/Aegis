@@ -235,6 +235,7 @@
     <string name="backup_cancel">Cancel</string>
     <string name="backup_export_ok">Backup exported</string>
     <string name="backup_export_failed">Export failed</string>
+    <string name="backup_export_interrupted">The export was interrupted, so no backup was written. Start it again.</string>
     <string name="backup_import_ok_overwrite">Backup restored</string>
     <string name="backup_import_ok_merge">Backup merged</string>
     <string name="backup_error_not_a_backup">This is not an Aegis backup file</string>

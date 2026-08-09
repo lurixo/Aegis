@@ -258,9 +258,13 @@ class BackupActivity : ComponentActivity() {
     private fun onExportTarget(uri: Uri?) {
         val password = pendingExportPassword
         pendingExportPassword = null
-        if (uri == null || password == null) {
+        if (uri == null) {
             password?.fill('\u0000')
             uiState = BackupUiState.Menu
+            return
+        }
+        if (password == null) {
+            uiState = BackupUiState.Result(R.string.backup_export_interrupted)
             return
         }
         uiState = BackupUiState.Working
