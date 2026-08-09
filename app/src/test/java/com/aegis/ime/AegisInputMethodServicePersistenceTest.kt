@@ -267,6 +267,26 @@ class AegisInputMethodServicePersistenceTest {
         )
     }
 
+    @Test fun a_restore_in_flight_is_not_written_over_by_the_end_of_an_input_session() {
+        val service = started()
+        glue(learning(service))
+        assertTrue("precondition: the keyboard holds learned words it has not written", learning(service).dirty)
+
+        LiveUserData.restoreInProgress = true
+        try {
+            service.onFinishInput()
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+            while (System.nanoTime() < deadline && !userLearn.exists()) Thread.yield()
+            assertFalse(
+                "a restore is replacing these files; writing the pre-restore state over them undoes it silently",
+                userLearn.exists(),
+            )
+        } finally {
+            LiveUserData.restoreInProgress = false
+        }
+        assertTrue("the words are still queued for after the restore", learning(service).dirty)
+    }
+
     @Test fun a_restore_in_flight_is_not_raced_by_a_reload_from_the_input_session() {
         val service = started()
         assertTrue("precondition: the dictionary loaded fine", model(service).readable)

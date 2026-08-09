@@ -424,6 +424,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         inputSessionActive = false
         resetControllerOnNextInputView = false
         secureField = false
+        if (LiveUserData.restoreInProgress) return
         liveUserDictHost.scheduleSave()
     }
 

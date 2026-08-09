@@ -510,6 +510,43 @@ class BackupRoundTripTest {
         }
     }
 
+    @Test fun a_restore_holds_the_guard_up_the_whole_time_it_is_replacing_the_stores() {
+        seedTypicalData()
+        val backup = export()
+        wipeUserData()
+
+        var heldWhileReloading = false
+        LiveUserData.onRestored = { heldWhileReloading = LiveUserData.restoreInProgress }
+        try {
+            restore(backup, BackupManager.Mode.OVERWRITE)
+        } finally {
+            LiveUserData.onRestored = null
+        }
+
+        assertTrue(
+            "everything that stands down for a restore reads this flag, so a restore must hold it up while it works",
+            heldWhileReloading,
+        )
+    }
+
+    @Test fun a_reload_hook_that_throws_does_not_leave_the_guard_standing_forever() {
+        seedTypicalData()
+        val backup = export()
+        wipeUserData()
+
+        LiveUserData.onRestored = { throw IllegalStateException("the reload hook blew up") }
+        try {
+            runCatching { restore(backup, BackupManager.Mode.OVERWRITE) }
+        } finally {
+            LiveUserData.onRestored = null
+        }
+
+        assertFalse(
+            "a guard nobody lowers again stops the keyboard from ever seeing the stores change",
+            LiveUserData.restoreInProgress,
+        )
+    }
+
     @Test fun an_export_is_not_blocked_by_a_dictionary_that_could_not_be_read() {
         seedTypicalData()
         val db = userdbFile().apply { writeText("this is not an aegis user dictionary\nW\t词\t1\t1\n") }

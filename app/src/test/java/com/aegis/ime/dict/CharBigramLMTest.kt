@@ -222,6 +222,22 @@ class CharBigramLMTest {
         assertEquals(2, opens)
     }
 
+    @Test fun a_stored_unigram_count_of_zero_never_reaches_a_loaded_model() {
+        val full = roundTripFile(sampleLines).readBytes()
+        val numChars = getLeInt(full, 8)
+        val firstUnigramAt = 20 + numChars * 4
+        val zeroedUnigram = full.copyOf()
+        val dropped = getLeLong(zeroedUnigram, firstUnigramAt)
+        assertTrue("precondition: the model really carries a positive count here", dropped > 0L)
+        putLeLong(zeroedUnigram, firstUnigramAt, 0L)
+        putLeLong(zeroedUnigram, 12, getLeLong(zeroedUnigram, 12) - dropped)
+
+        assertThrows(
+            "the decoder multiplies a zero weight into this model's scores and relies on them being finite",
+            IllegalArgumentException::class.java,
+        ) { CharBigramLM.fromFile(writeTemp(zeroedUnigram)) }
+    }
+
     @Test fun builder_clamps_non_positive_source_freq_so_uni_prob_stays_finite() {
         val lm = CharBigramLM.fromFile(roundTripFile(listOf("世界\tshi jie\t0", "你\tni\t5")))
         val world = "世".codePointAt(0)
@@ -252,6 +268,12 @@ class CharBigramLMTest {
 
     private fun putLeLong(bytes: ByteArray, off: Int, value: Long) {
         for (i in 0 until 8) bytes[off + i] = ((value ushr (i * 8)) and 0xFF).toByte()
+    }
+
+    private fun getLeLong(bytes: ByteArray, off: Int): Long {
+        var value = 0L
+        for (i in 0 until 8) value = value or ((bytes[off + i].toLong() and 0xFF) shl (i * 8))
+        return value
     }
 
     private data class Offsets(
