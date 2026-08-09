@@ -50,9 +50,12 @@ class LiveUserDictHost(
 
     override fun removeWord(reading: String, word: String): Boolean {
         if (word.isBlank() || !model.readable) return false
+        if (!learnedReadable()) return false
         model.removeWord(reading, word)
         userLearning?.removeWord(word)
-        return save().both
+        val written = save()
+        if (written.learning) return written.dictionary
+        return written.dictionary && owe(word, "")
     }
 
     override fun importUserDict(importFile: File, merge: Boolean, now: Long): Boolean {
@@ -90,8 +93,12 @@ class LiveUserDictHost(
         val learning = userLearning
         if (learning != null && !learning.readable) return false
         learning?.removeFormed(word, reading)
-        return saveLearning().learning
+        if (saveLearning().learning) return true
+        return owe(word, reading)
     }
+
+    private fun owe(word: String, reading: String): Boolean =
+        model.addTombstone(word, reading) && save().dictionary
 
     override fun clearLearned(): Boolean {
         userLearning?.clear()

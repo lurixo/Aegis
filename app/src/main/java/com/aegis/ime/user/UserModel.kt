@@ -143,9 +143,10 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         val w = word.trim()
         val r = sanitizeReading(reading)
         if (!isValidWord(w) || r.length > MAX_READING_LENGTH) return false
-        if (!tombstones.add(w to r)) return false
-        dirty = true
-        version++
+        if (tombstones.add(w to r)) {
+            dirty = true
+            version++
+        }
         return true
     }
 

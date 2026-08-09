@@ -503,7 +503,7 @@ class LiveUserDictHostTest {
         assertTrue("the broken learning store still has unsaved work", learning.dirty)
     }
 
-    @Test fun a_remove_still_reports_failure_when_the_learning_scrub_cannot_land() {
+    @Test fun a_remove_the_learning_store_can_never_take_leaves_the_word_where_the_page_shows_it() {
         db = File(tmp.root, "userdb.txt")
         val learnFile = File(tmp.root, "userlearn.txt")
         val learning = brokenLearning(learnFile)
@@ -512,8 +512,14 @@ class LiveUserDictHostTest {
 
         assertFalse("a remove touches both stores, so half of it failing must be reported", h.removeWord("nihao", "你呢"))
 
-        assertFalse("the dictionary half still landed", model.dirty)
-        assertTrue("the learning half did not", learning.dirty)
+        assertTrue(
+            "a removal reported as a failure must not have taken the word off the page all the same",
+            model.userWordEntries().any { it.word == "你呢" },
+        )
+        assertTrue(
+            "and the store it could never reach is left as it was",
+            learnFile.readText().startsWith("not a learning file"),
+        )
     }
 
     @Test fun a_backup_flush_still_refuses_while_the_learning_store_cannot_be_written() {
