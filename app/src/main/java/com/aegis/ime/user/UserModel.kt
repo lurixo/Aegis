@@ -254,9 +254,18 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         dirty = false
     }
 
-    @Synchronized
     fun reload(file: File) {
+        adoptReloaded(parse(file))
+    }
+
+    fun reloadIfUnchanged(file: File): Boolean {
+        val mark = version
         val parsed = parse(file)
+        return adoptIfUnchanged(mark, parsed)
+    }
+
+    @Synchronized
+    private fun adoptReloaded(parsed: Parsed) {
         count.clear()
         lastUsed.clear()
         bigram.clear()
@@ -270,6 +279,13 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         sourceReadable = true
         unreadableSource = null
         version++
+    }
+
+    @Synchronized
+    private fun adoptIfUnchanged(mark: Long, parsed: Parsed): Boolean {
+        if (version != mark) return false
+        adoptReloaded(parsed)
+        return true
     }
 
     @Synchronized

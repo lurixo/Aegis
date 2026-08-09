@@ -234,6 +234,7 @@ class AegisInputMethodServicePersistenceTest {
         userLearn.setLastModified(recently + 60_000L)
 
         service.onStartInput(editor(), false)
+        drainWriteLane(service)
 
         assertEquals(
             "one store that could not be read must not stop the other from being picked up",
@@ -326,6 +327,7 @@ class AegisInputMethodServicePersistenceTest {
         UserModel().apply { addManualWord("xiu", "修好", 1L) }.save(userDb)
         userDb.setLastModified(System.currentTimeMillis() + 60_000L)
         service.onStartInput(editor(), false)
+        drainWriteLane(service)
 
         assertTrue("a store nobody can write to must not also refuse to read a repaired file", model(service).readable)
         assertEquals(listOf("修好"), model(service).readingSnapshot()["xiu"])
