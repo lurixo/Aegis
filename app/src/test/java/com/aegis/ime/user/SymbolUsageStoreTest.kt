@@ -91,6 +91,21 @@ class SymbolUsageStoreTest {
         assertEquals("", File(dir, "symbol_usage.txt").readText())
     }
 
+    @Test fun a_symbol_history_whose_bytes_went_bad_reads_as_one_nobody_could_read() {
+        val dir = newDir()
+        val file = File(dir, "symbol_usage.txt")
+        val onDisk = "★\t符号\n".toByteArray(Charsets.UTF_8) + byteArrayOf(0xE4.toByte(), 0xB8.toByte(), 0xFF.toByte())
+        file.writeBytes(onDisk)
+        val s = SymbolUsageStore(dir).apply { load() }
+
+        assertFalse("a file the app cannot decode is not a history it could read", s.readable)
+        assertTrue("and nothing half decoded may stand in for it", s.recent().isEmpty())
+
+        s.record("☆", "符号")
+        SymbolUsageStore.flushPendingWrites()
+        assertEquals("nor may it be written over", onDisk.toList(), file.readBytes().toList())
+    }
+
     @Test fun a_symbol_history_nobody_could_read_is_never_written_over() {
         val dir = newDir()
         val file = File(dir, "symbol_usage.txt").apply { writeText("★\t符号\n") }

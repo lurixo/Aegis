@@ -121,6 +121,55 @@ class StoreHealthTest {
         assertEquals(setOf(BackupItem.EMOJI_USAGE), StoreHealth.unreadableIn(root, liveStores = false))
     }
 
+    private fun garble(name: String) {
+        val f = File(root, name)
+        f.writeBytes(f.readBytes().dropLast(1).toByteArray() + byteArrayOf(0xE4.toByte(), 0xB8.toByte(), 0xFF.toByte()))
+    }
+
+    private fun truncateMidCharacter(name: String) {
+        val f = File(root, name)
+        f.writeBytes(f.readBytes() + "尾".toByteArray(Charsets.UTF_8).dropLast(1).toByteArray())
+    }
+
+    @Test fun a_phrase_file_whose_bytes_went_bad_is_not_readable() {
+        seedEverything()
+        garble("phrases.txt")
+        assertFalse(StoreHealth.readable(root, BackupItem.PHRASES, liveStores = false))
+        assertEquals(setOf(BackupItem.PHRASES), StoreHealth.unreadableIn(root, liveStores = false))
+    }
+
+    @Test fun a_clipboard_index_whose_bytes_went_bad_is_not_readable() {
+        seedEverything()
+        garble("clipboard.txt")
+        assertFalse(StoreHealth.readable(root, BackupItem.CLIPBOARD, liveStores = false))
+        assertEquals(setOf(BackupItem.CLIPBOARD), StoreHealth.unreadableIn(root, liveStores = false))
+    }
+
+    @Test fun a_symbol_history_whose_bytes_went_bad_is_not_readable() {
+        seedEverything()
+        garble("symbol_usage.txt")
+        assertFalse(StoreHealth.readable(root, BackupItem.SYMBOL_USAGE, liveStores = false))
+        assertEquals(setOf(BackupItem.SYMBOL_USAGE), StoreHealth.unreadableIn(root, liveStores = false))
+    }
+
+    @Test fun an_emoji_history_whose_bytes_went_bad_is_not_readable() {
+        seedEverything()
+        garble("emoji/symbol_usage.txt")
+        assertFalse(StoreHealth.readable(root, BackupItem.EMOJI_USAGE, liveStores = false))
+        assertEquals(setOf(BackupItem.EMOJI_USAGE), StoreHealth.unreadableIn(root, liveStores = false))
+    }
+
+    @Test fun a_store_cut_off_part_way_through_a_character_is_not_readable() {
+        seedEverything()
+        listOf("phrases.txt", "clipboard.txt", "symbol_usage.txt", "emoji/symbol_usage.txt").forEach {
+            truncateMidCharacter(it)
+        }
+        assertEquals(
+            setOf(BackupItem.PHRASES, BackupItem.CLIPBOARD, BackupItem.SYMBOL_USAGE, BackupItem.EMOJI_USAGE),
+            StoreHealth.unreadableIn(root, liveStores = false),
+        )
+    }
+
     @Test fun the_clipboard_store_that_owns_the_files_answers_for_them() {
         seedEverything()
         closeOff("phrases.txt")

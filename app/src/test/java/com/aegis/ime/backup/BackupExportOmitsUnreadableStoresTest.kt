@@ -144,6 +144,22 @@ class BackupExportOmitsUnreadableStoresTest {
         assertTrue("userdb.txt" in namesIn(backup))
     }
 
+    @Test fun a_store_whose_bytes_went_bad_is_left_out_of_the_archive_too() {
+        val phrases = File(filesDir, "phrases.txt")
+        val kept = phrases.readBytes()
+        phrases.writeBytes(kept + byteArrayOf(0xE4.toByte(), 0xB8.toByte(), 0xFF.toByte()))
+
+        val (report, backup) = export()
+
+        assertEquals(
+            "a file the app cannot decode is damaged, not healthy",
+            setOf(BackupItem.PHRASES),
+            report.omitted,
+        )
+        assertFalse("phrases.txt" in namesIn(backup))
+        assertTrue("clipboard.txt" in namesIn(backup))
+    }
+
     @Test fun an_unreadable_phrase_file_is_left_out_of_the_archive() {
         closeOff("phrases.txt")
         val (report, backup) = export()

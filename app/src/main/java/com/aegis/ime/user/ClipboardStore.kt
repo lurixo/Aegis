@@ -17,6 +17,7 @@ package com.aegis.ime.user
 
 import java.io.File
 import java.io.IOException
+import java.nio.file.Files
 import java.security.MessageDigest
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
@@ -153,7 +154,7 @@ class ClipboardStore(private val dir: File) {
             purgeLegacyImageDir()
             val seen = HashSet<String>()
             historyReadable = runCatching {
-                if (histFile.exists()) histFile.readLines().forEach { line ->
+                if (histFile.exists()) Files.readAllLines(histFile.toPath()).forEach { line ->
                     readEntry(line)?.let { e ->
                         if (e.key.isNotBlank() && !isLegacyImageEntry(e.key) && seen.add(e.key)) history.add(e)
                     }
@@ -182,7 +183,7 @@ class ClipboardStore(private val dir: File) {
                 phraseCats.add(Category(DEFAULT_CATEGORY_ID, ArrayList(DEFAULT_PHRASES.map { Phrase(it) })))
                 return
             }
-            val read = runCatching { phraseFile.readLines() }
+            val read = runCatching { Files.readAllLines(phraseFile.toPath()) }
             phrasesReadable = read.isSuccess
             val lines = read.getOrDefault(emptyList())
             if (lines.none { it.startsWith("C\t") }) {
