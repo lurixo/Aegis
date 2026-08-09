@@ -50,7 +50,12 @@ object UserDictImport {
                     output.write(buffer, 0, read)
                 }
             }
-            total > 0L
+            if (total > 0L) {
+                true
+            } else {
+                file.delete()
+                false
+            }
         }.getOrElse {
             file.delete()
             false
