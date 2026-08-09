@@ -688,4 +688,26 @@ class ClipboardStoreTest {
         assertTrue("history on → capture (even secure fields)", ClipboardStore.shouldCapture(true))
         assertFalse("history off → never capture", ClipboardStore.shouldCapture(false))
     }
+
+    @Test fun a_phrase_file_that_reads_fine_is_reported_as_readable() {
+        val dir = newDir()
+        ClipboardStore(dir).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("keep")) }
+        assertTrue(ClipboardStore(dir).apply { load() }.phrasesReadable)
+    }
+
+    @Test fun a_phrase_file_first_run_is_reported_as_readable() {
+        assertTrue(ClipboardStore(newDir()).apply { load() }.phrasesReadable)
+    }
+
+    @Test fun a_phrase_file_that_cannot_be_read_is_reported_as_unreadable() {
+        val dir = newDir()
+        ClipboardStore(dir).apply { load(); addCategory("甲"); addPhrasesTo("甲", listOf("keep")) }
+        val phrases = File(dir, "phrases.txt")
+        assertTrue("precondition: the phrase file could be closed off", phrases.setReadable(false, false))
+        try {
+            assertFalse(ClipboardStore(dir).apply { load() }.phrasesReadable)
+        } finally {
+            phrases.setReadable(true, true)
+        }
+    }
 }
