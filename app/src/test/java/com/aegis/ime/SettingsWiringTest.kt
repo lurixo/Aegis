@@ -116,6 +116,32 @@ class SettingsWiringTest {
         assertTrue(restored.contains("userLearning.load(userLearnFile)"))
     }
 
+    @Test fun a_restore_reaches_both_user_stores_before_the_capture_guard_comes_down() {
+        val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
+        val restored = svc.substringAfter("LiveUserData.onRestored = {").substringBefore("LiveUserData.registerClipboardPersistenceHooks")
+        assertTrue(
+            "a restore replaces the user dictionary on disk, so the running keyboard must read it back",
+            restored.contains("userModel.reload(userDbFile)"),
+        )
+        assertFalse(
+            "the archive wins a restore, so an unwritten word must not veto the reload",
+            restored.contains("userModel.dirty") || restored.contains("reloadIfUnchanged"),
+        )
+        assertTrue(
+            "the watermark must follow, or the next focused field reparses the whole dictionary for nothing",
+            restored.contains("userDbMtime = userDbFile.lastModified()"),
+        )
+        val dictionary = restored.indexOf("userModel.reload(userDbFile)")
+        val learning = restored.indexOf("userLearning.load(userLearnFile)")
+        val guardDown = restored.indexOf("LiveUserData.restoreInProgress = false")
+        assertTrue("the guard may only come down once the dictionary is in memory", dictionary in 1 until guardDown)
+        assertTrue("the guard may only come down once the learning store is in memory", learning in 1 until guardDown)
+        assertTrue(
+            "a lane that has already been shut down must not swallow the restored stores",
+            restored.contains("if (!liveUserDictHost.handOff(adoptRestoredStores)) adoptRestoredStores()"),
+        )
+    }
+
     @Test fun service_teardown_drains_clipboard_persistence_without_clearing_the_restore_guard() {
         val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
         val onDestroy = memberBody(svc, "override fun onDestroy()")
