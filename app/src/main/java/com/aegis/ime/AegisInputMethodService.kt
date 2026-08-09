@@ -266,11 +266,18 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 runCatching { clipboardStore.load() }
                 runCatching { symbolUsageStore.load() }
                 runCatching { emojiUsageStore.load() }
-                runCatching {
-                    userLearning.load(userLearnFile)
-                    userLearnMtime = userLearnFile.lastModified()
+                val adoptRestoredStores = {
+                    runCatching {
+                        userModel.reload(userDbFile)
+                        userDbMtime = userDbFile.lastModified()
+                    }
+                    runCatching {
+                        userLearning.load(userLearnFile)
+                        userLearnMtime = userLearnFile.lastModified()
+                    }
+                    LiveUserData.restoreInProgress = false
                 }
-                LiveUserData.restoreInProgress = false
+                if (!liveUserDictHost.handOff(adoptRestoredStores)) adoptRestoredStores()
             }
         }
         LiveUserData.registerClipboardPersistenceHooks(clipboardPendingWriteFlush)

@@ -15,6 +15,7 @@
 
 package com.aegis.ime
 
+import android.os.Looper
 import android.view.inputmethod.EditorInfo
 import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.LiveUserData
@@ -33,6 +34,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import java.io.File
 import java.util.concurrent.CountDownLatch
@@ -404,6 +406,64 @@ class AegisInputMethodServicePersistenceTest {
             .apply { isAccessible = true }.getLong(service)
         assertTrue("the learning file is the one that was written", userLearn.exists())
         assertEquals("only the learning file was written, so the dictionary watermark must stay", marker, userDbMtime)
+    }
+
+    private fun handRestoredFilesToTheKeyboard() {
+        LiveUserData.restoreInProgress = true
+        requireNotNull(LiveUserData.onRestored).invoke()
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+
+    private fun archiveUserDbWith(reading: String, word: String) {
+        UserModel().apply { addManualWord(reading, word, 2L) }.save(userDb)
+        userDb.setLastModified(System.currentTimeMillis() + 60_000L)
+    }
+
+    @Test fun a_restore_replaces_the_dictionary_the_keyboard_is_still_holding() {
+        val service = started()
+        model(service).record(null, "恢复前打的", 1L)
+        assertTrue("precondition: the keyboard holds a word it has not written", model(service).dirty)
+        archiveUserDbWith("gd", "归档")
+
+        handRestoredFilesToTheKeyboard()
+        drainWriteLane(service)
+
+        assertEquals(
+            "a restore that never reaches the running dictionary is undone the moment the user types",
+            listOf("归档"),
+            model(service).readingSnapshot()["gd"],
+        )
+        assertEquals("the archive wins a restore, memory does not", 0.0, model(service).wordBoost("恢复前打的"), 0.0)
+        assertFalse("the capture guard must come down once the restored stores are in memory", LiveUserData.restoreInProgress)
+    }
+
+    @Test fun a_restore_leaves_the_next_focused_field_nothing_to_reparse() {
+        val service = started()
+        archiveUserDbWith("gd", "归档")
+
+        handRestoredFilesToTheKeyboard()
+        drainWriteLane(service)
+
+        assertEquals(
+            "the restore already read the file, so focusing a field must not read it a second time",
+            userDb.lastModified(),
+            service.javaClass.getDeclaredField("userDbMtime").apply { isAccessible = true }.getLong(service),
+        )
+    }
+
+    @Test fun a_restore_still_lands_when_the_write_lane_is_already_gone() {
+        val service = started()
+        archiveUserDbWith("gd", "归档")
+        liveHost(service).stopSaving()
+
+        handRestoredFilesToTheKeyboard()
+
+        assertEquals(
+            "a lane nobody can queue on must not swallow the restored dictionary",
+            listOf("归档"),
+            model(service).readingSnapshot()["gd"],
+        )
+        assertFalse("nor leave the capture guard standing forever", LiveUserData.restoreInProgress)
     }
 
     @Test fun a_restart_of_the_input_session_does_not_lose_the_handed_over_write() {
