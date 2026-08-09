@@ -510,6 +510,45 @@ class BackupRoundTripTest {
         }
     }
 
+    @Test fun an_export_is_not_blocked_by_a_dictionary_that_could_not_be_read() {
+        seedTypicalData()
+        val db = userdbFile().apply { writeText("this is not an aegis user dictionary\nW\t词\t1\t1\n") }
+        val model = UserModel().apply {
+            runCatching { load(db) }
+            record(null, "打过字", 1L)
+        }
+        UserDictHot.host = LiveUserDictHost(model, db, UserLearning(), File(filesDir, "userlearn.txt"))
+        try {
+            val backup = export()
+            assertTrue(
+                "one store going bad must not take away the user's ability to back up everything else",
+                backup.isNotEmpty(),
+            )
+        } finally {
+            UserDictHot.host = null
+        }
+    }
+
+    @Test fun an_export_is_not_blocked_by_a_learning_store_that_could_not_be_read() {
+        seedTypicalData()
+        val learn = File(filesDir, "userlearn.txt").apply { writeText("not a learning file at all\n") }
+        val learning = UserLearning().apply {
+            load(learn)
+            observeCommit(null, "你", "ni", 1L)
+            observeCommit("你", "呢", "ne", 1L)
+        }
+        UserDictHot.host = LiveUserDictHost(UserModel(), userdbFile(), learning, learn)
+        try {
+            val backup = export()
+            assertTrue(
+                "the archive copies the files on disk, so a store that cannot be flushed changes nothing in it",
+                backup.isNotEmpty(),
+            )
+        } finally {
+            UserDictHot.host = null
+        }
+    }
+
     @Test fun a_restore_is_not_blocked_by_a_dictionary_that_could_not_be_read() {
         seedTypicalData()
         val backup = export()
