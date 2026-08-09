@@ -15,8 +15,10 @@
 
 package com.aegis.ime
 
+import android.content.Context
 import android.os.Looper
 import android.view.inputmethod.EditorInfo
+import com.aegis.ime.backup.RestoreJournal
 import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.UserDictHot
@@ -58,6 +60,7 @@ class AegisInputMethodServicePersistenceTest {
         LiveUserData.restoreInProgress = false
         userDb.delete()
         userLearn.delete()
+        File(filesDir, "restore_journal").deleteRecursively()
     }
 
     @After fun letGo() {
@@ -145,6 +148,48 @@ class AegisInputMethodServicePersistenceTest {
         val service = started()
         assertTrue("the cold start finished, so the reload gate must be open", userStoresLoaded(service))
         assertTrue("the live host must be serving once the cold start finished", UserDictHot.host === liveHost(service))
+    }
+
+    private fun prefs() =
+        RuntimeEnvironment.getApplication().getSharedPreferences("aegis", Context.MODE_PRIVATE)
+
+    private fun wordsOnDisk(): List<String> =
+        UserModel().apply { load(userDb, sweepStale = false) }.userWordEntries().map { it.word }
+
+    private fun aRestoreCaughtHalfWay(): RestoreJournal {
+        UserModel().apply { addManualWord("bd", "本地词", 1L) }.save(userDb)
+        val journal = RestoreJournal.open(filesDir, prefs())
+        UserModel().apply { addManualWord("gd", "归档词", 2L) }.save(userDb)
+        assertEquals("precondition: the archive already reached the file", listOf("归档词"), wordsOnDisk())
+        return journal
+    }
+
+    @Test fun a_restore_the_process_never_finished_is_taken_back_before_the_keyboard_reads_a_thing() {
+        aRestoreCaughtHalfWay()
+
+        val service = started()
+
+        assertEquals(
+            "a restore nobody finished must be undone when the keyboard comes up, not when the user next opens backup",
+            listOf("本地词"),
+            wordsOnDisk(),
+        )
+        assertEquals("and the keyboard must be holding what was put back", listOf("本地词"), model(service).userWordEntries().map { it.word })
+        assertFalse("the spent journal must be gone", File(filesDir, "restore_journal").exists())
+    }
+
+    @Test fun a_restore_that_did_finish_is_left_alone_when_the_keyboard_comes_up() {
+        aRestoreCaughtHalfWay().markDone()
+
+        val service = started()
+
+        assertEquals(
+            "a restore that got through must keep what it wrote",
+            listOf("归档词"),
+            wordsOnDisk(),
+        )
+        assertEquals(listOf("归档词"), model(service).userWordEntries().map { it.word })
+        assertFalse("the spent journal must be gone", File(filesDir, "restore_journal").exists())
     }
 
     @Test fun the_end_of_an_input_session_hands_the_write_over_instead_of_doing_it() {

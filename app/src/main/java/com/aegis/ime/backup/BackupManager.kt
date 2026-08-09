@@ -143,11 +143,16 @@ object BackupManager {
         val staging = File(filesDir, STAGING_DIR)
         staging.deleteRecursively()
         if (!staging.mkdirs()) throw BackupException(BackupError.IO_ERROR)
+        try {
+            RestoreJournal.finishAnyInterrupted(filesDir, prefs)
+        } catch (e: Exception) {
+            staging.deleteRecursively()
+            throw BackupException(BackupError.IO_ERROR, e)
+        }
         LiveUserData.restoreInProgress = true
         var handedOff = false
         try {
             try {
-                RestoreJournal.finishAnyInterrupted(filesDir, prefs)
                 val live = UserDictHot.host
                 if (live != null && !live.flushDictionary() && live.dictionaryReadable()) {
                     throw IOException("user dictionary flush failed")

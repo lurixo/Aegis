@@ -32,6 +32,7 @@ import android.widget.Toast
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import com.aegis.ime.R
+import com.aegis.ime.backup.RestoreJournal
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.EngineAssets
@@ -257,6 +258,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onCreate() {
         super.onCreate()
+        runCatching {
+            RestoreJournal.finishAnyInterrupted(filesDir, getSharedPreferences("aegis", MODE_PRIVATE))
+        }.onFailure { Log.e("Aegis", "interrupted restore rollback failed", it) }
         runCatching { clipboardManager.addPrimaryClipChangedListener(clipChangedListener) }
         runCatching {
             getSharedPreferences("aegis", MODE_PRIVATE)

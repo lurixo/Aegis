@@ -23,6 +23,7 @@ import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.SymbolUsageStore
 import com.aegis.ime.user.UserDictHot
+import com.aegis.ime.user.UserDictImport
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
 import org.junit.After
@@ -227,6 +228,69 @@ class RestoreRollbackTest {
             listOf("本地常用语"),
             live.phrases(),
         )
+    }
+
+    @Test fun a_restore_that_never_finished_is_taken_back_before_the_next_one_starts() {
+        seedBackupData()
+        val backup = export()
+        wipe()
+        seedLocalData()
+        RestoreJournal.open(filesDir, prefs)
+        File(filesDir, "phrases.txt").writeText("C\tdefault\nP\t半途写进来的\n")
+
+        restore(backup, BackupManager.Mode.MERGE)
+
+        assertEquals(
+            "what an unfinished restore left behind must be taken back before the next restore builds on it",
+            listOf("备份常用语", "本地常用语"),
+            store().phrases().sorted(),
+        )
+        assertFalse("the journal must be spent", File(filesDir, "restore_journal").exists())
+    }
+
+    private class KeyboardStartingMidRestore(
+        private val filesDir: File,
+        private val prefs: SharedPreferences,
+    ) : UserDictHot.Host {
+        var started = false
+            private set
+
+        override fun addWord(reading: String, word: String, now: Long) = false
+        override fun removeWord(reading: String, word: String) = false
+        override fun importUserDict(importFile: File, merge: Boolean, now: Long): Boolean {
+            started = true
+            RestoreJournal.finishAnyInterrupted(filesDir, prefs)
+            return UserDictImport.apply(importFile, File(filesDir, "userdb.txt"), merge, now)
+        }
+        override fun reloadDictionary() = true
+        override fun entries(): List<UserModel.Entry> = emptyList()
+        override fun learnedEntries(): List<UserLearning.Formed> = emptyList()
+        override fun hasLearnedData() = false
+        override fun removeLearned(word: String, reading: String) = false
+        override fun clearLearned() = false
+        override fun flush() = true
+    }
+
+    @Test fun the_keyboard_starting_part_way_through_a_restore_does_not_undo_it() {
+        seedBackupData()
+        val backup = export()
+        wipe()
+        seedLocalData()
+        val keyboard = KeyboardStartingMidRestore(filesDir, prefs)
+        UserDictHot.host = keyboard
+
+        restore(backup)
+
+        assertTrue("precondition: the keyboard really did start while the restore was running", keyboard.started)
+        assertEquals(
+            "the journal of a restore still running belongs to that restore, not to whatever else starts up",
+            listOf("备份"),
+            UserModel().apply { load(File(filesDir, "userdb.txt")) }.userWordEntries().map { it.word },
+        )
+        assertEquals(listOf("备份常用语"), store().phrases())
+        assertEquals("备份布局", prefs.getString("cn_layout", null))
+        assertFalse("the journal must be spent", File(filesDir, "restore_journal").exists())
+        assertFalse("the guard must not stay latched", LiveUserData.restoreInProgress)
     }
 
     @Test fun a_restore_that_gets_through_keeps_what_it_wrote() {
