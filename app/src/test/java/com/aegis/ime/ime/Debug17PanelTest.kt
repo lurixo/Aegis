@@ -640,7 +640,7 @@ class Debug17PanelTest {
 
     @Test fun clipboard_tab_top_right_icon_confirms_before_clearing_history() {
         var clears = 0
-        val v = clipView().apply { onClearHistory = { clears++ } }
+        val v = clipView().apply { onClearHistory = { clears++; true } }
         assertTrue("clipboard tab top bar carries clear-history", ctx.getString(com.aegis.ime.R.string.clip_clear_history) in descs(mainOf(v)))
         assertFalse("old settings gear is not present", "设置" in descs(mainOf(v)))
         assertTrue(clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_clear_history)))

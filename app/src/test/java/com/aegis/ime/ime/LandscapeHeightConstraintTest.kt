@@ -766,7 +766,7 @@ class TinyPanelViewportConstraintTest {
             historyProvider = { clips.asClipEntries() }
             categoriesProvider = { listOf("A", "B", "C") }
             phrasesInProvider = { category -> (1..20).map { "$category phrase$it" } }
-            onDeleteClips = { deleted += it }
+            onDeleteClips = { deleted += it; true }
         }
         val iv = InputView(ctx).apply {
             simulateNavInsetForTest(12)

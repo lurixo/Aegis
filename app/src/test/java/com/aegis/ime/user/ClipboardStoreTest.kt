@@ -702,6 +702,55 @@ class ClipboardStoreTest {
         assertFalse("history off → never capture", ClipboardStore.shouldCapture(false))
     }
 
+    @Test fun a_delete_that_could_not_be_written_says_it_was_not_written() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); record("要删的"); record("留下的"); flushPendingWrites() }
+        val blocker = s.tempFileFor(File(dir, "clipboard.txt"))
+        assertTrue("precondition: the history write is blocked", blocker.mkdirs())
+        assertTrue(File(blocker, "occupied").createNewFile())
+
+        assertFalse(
+            "a delete that never reached the file must not come back as one that did",
+            s.deleteAll(listOf("要删的")),
+        )
+
+        assertEquals(
+            "the clip is still on the disk, which is what the user has to be told",
+            listOf("留下的", "要删的"),
+            ClipboardStore(dir).apply { load() }.historyText(),
+        )
+    }
+
+    @Test fun a_clear_that_could_not_be_written_says_it_was_not_written() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); record("要清的"); flushPendingWrites() }
+        val blocker = s.tempFileFor(File(dir, "clipboard.txt"))
+        assertTrue("precondition: the history write is blocked", blocker.mkdirs())
+        assertTrue(File(blocker, "occupied").createNewFile())
+
+        assertFalse("a clear that never reached the file must not come back as one that did", s.clearHistory())
+
+        assertEquals(listOf("要清的"), ClipboardStore(dir).apply { load() }.historyText())
+    }
+
+    @Test fun a_delete_that_was_written_says_so() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); record("要删的"); record("留下的"); flushPendingWrites() }
+
+        assertTrue("a delete the file took must be reported as taken", s.deleteAll(listOf("要删的")))
+
+        assertEquals(listOf("留下的"), ClipboardStore(dir).apply { load() }.historyText())
+    }
+
+    @Test fun a_delete_after_the_writer_was_handed_back_says_it_was_not_written() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); record("a"); record("b"); flushPendingWrites() }
+        s.stopSaving()
+
+        assertFalse("a store with no writer left cannot promise the change lands", s.deleteAll(s.historyKeys().take(1)))
+        assertFalse(s.clearHistory())
+    }
+
     @Test fun two_stores_over_one_directory_never_share_a_temp_file() {
         val dir = newDir()
         val a = ClipboardStore(dir).apply { load() }
