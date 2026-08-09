@@ -205,6 +205,50 @@ class AegisInputMethodServicePersistenceTest {
         )
     }
 
+    @Test fun a_learning_file_changed_outside_is_picked_up_although_the_dictionary_could_not_be_read() {
+        userDb.writeText("aegis-userdb 99\nW\t坏\t1\t1\n")
+        val service = started()
+        assertFalse("precondition: the dictionary really could not be read", model(service).readable)
+
+        val recently = System.currentTimeMillis()
+        UserLearning().apply {
+            repeat(8) {
+                var prev: String? = null
+                for ((word, reading) in listOf("你" to "ni", "呢" to "ne", "嗯" to "n")) {
+                    observeCommit(prev, word, reading, recently)
+                    prev = word
+                }
+                observeBreak()
+            }
+        }.save(userLearn)
+        userLearn.setLastModified(recently + 60_000L)
+
+        service.onStartInput(editor(), false)
+
+        assertEquals(
+            "one store that could not be read must not stop the other from being picked up",
+            listOf("你呢嗯"),
+            learning(service).formedWordsFor("ninen"),
+        )
+    }
+
+    @Test fun a_dictionary_that_could_not_be_read_is_reparsed_once_not_on_every_input_session() {
+        userDb.writeText("aegis-userdb 99\nW\t坏\t1\t1\n")
+        val service = started()
+        assertFalse("precondition: the dictionary really could not be read", model(service).readable)
+
+        val watermark = service.javaClass.getDeclaredField("userDbMtime").apply { isAccessible = true }
+        assertEquals("precondition: the failed cold-start load left the watermark behind", 0L, watermark.getLong(service))
+
+        service.onStartInput(editor(), false)
+
+        assertEquals(
+            "the watermark must move even when the file would not parse, or every focused field reparses it whole on the main thread",
+            userDb.lastModified(),
+            watermark.getLong(service),
+        )
+    }
+
     @Test fun clearing_the_learned_words_while_the_dictionary_is_unreadable_is_not_undone_by_the_keyboard() {
         userDb.writeText("aegis-userdb 99\nW\t坏\t1\t1\n")
         val service = started()
