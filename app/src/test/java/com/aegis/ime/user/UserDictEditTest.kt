@@ -53,6 +53,10 @@ class UserDictEditTest {
             "precondition: the word list carries the deletion as plain text",
             onDevice.contains("D\t刚删掉的\tgangshandiaode\n"),
         )
+        assertTrue(
+            "precondition: and heads itself as one that carries deletions",
+            onDevice.startsWith("aegis-userdb 4\n"),
+        )
         val out = ByteArrayOutputStream()
 
         assertEquals(UserDictEdit.ExportResult.WRITTEN, UserDictEdit.exportDictionary(db, out))
@@ -62,9 +66,14 @@ class UserDictEditTest {
             "a word the user asked to delete must not go out with the file they share",
             exported.contains("刚删掉的"),
         )
+        assertTrue(
+            "and the file they share must head itself as one a reader of older builds can take",
+            exported.startsWith("aegis-userdb 3\n"),
+        )
         assertEquals(
             "and nothing else about the file may change",
-            onDevice.split("\n").filterNot { it.startsWith("D\t") }.joinToString("\n"),
+            onDevice.split("\n").filterNot { it.startsWith("D\t") }.joinToString("\n")
+                .replaceFirst("aegis-userdb 4", "aegis-userdb 3"),
             exported,
         )
         assertEquals("the deletion the device still owes stays on the device", onDevice, db.readText())
