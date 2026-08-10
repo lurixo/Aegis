@@ -72,6 +72,19 @@ class UserDictExportTest {
         assertEquals("aegis-userdb 3\nW\t词\t1\t1000", shared("aegis-userdb 4\nD\t早没了\t\nW\t词\t1\t1000"))
     }
 
+    @Test fun a_dictionary_that_breaks_off_part_way_through_a_row_shares_what_is_left_of_it() {
+        assertEquals(
+            "a row too short to say anything must be handed over, not read past its end",
+            "aegis-userdb 3\nW\t词\t1\t1000\nD",
+            shared("aegis-userdb 4\nW\t词\t1\t1000\nD"),
+        )
+        assertEquals(
+            "a row that says only that it is a deletion is still one",
+            "aegis-userdb 3\nW\t词\t1\t1000\n",
+            shared("aegis-userdb 4\nW\t词\t1\t1000\nD\t"),
+        )
+    }
+
     @Test fun a_header_with_nothing_after_it_is_stepped_down_all_the_same() {
         assertEquals("aegis-userdb 3", shared("aegis-userdb 4"))
         assertEquals("aegis-userdb 3\n", shared("aegis-userdb 4\n"))
