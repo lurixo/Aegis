@@ -41,6 +41,7 @@ import com.aegis.ime.layout.Layouts
 import com.aegis.ime.ui.SettingsHomePage
 import com.aegis.ime.ui.theme.AegisTheme
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -59,7 +60,7 @@ class BilingualScreenshotTest {
     private val ctx = RuntimeEnvironment.getApplication()
     private val wPx = ctx.resources.displayMetrics.widthPixels
     private val density = ctx.resources.displayMetrics.density
-    private val pal = ImePalette.STATIC_LIGHT
+    private val pal = ImePalette.from(ctx, dark = false)
 
     private val baseDir = File("build/render/i18n").apply { mkdirs() }
 
@@ -195,6 +196,11 @@ class BilingualScreenshotTest {
     }
 
     @Test fun bilingual_readme_screenshots() {
+        assertNotEquals(
+            "precondition: dynamic colour fell back to the static palette",
+            ImePalette.STATIC_LIGHT,
+            pal,
+        )
         assertEquals("precondition: default locale must resolve English chrome", "Space", ctx.getString(R.string.kbd_space))
         renderSet(
             lang = Lang.EN,
