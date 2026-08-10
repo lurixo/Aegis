@@ -177,6 +177,7 @@ class BilingualScreenshotTest {
         history: List<String>,
         phraseCats: List<String>,
         phrasesOf: (String) -> List<String>,
+        notesOf: (String, String) -> String,
         symbols: List<String>,
     ) {
         dir.mkdirs()
@@ -221,6 +222,7 @@ class BilingualScreenshotTest {
                 historyProvider = { history.asClipEntries() }
                 categoriesProvider = { phraseCats }
                 phrasesInProvider = { c -> phrasesOf(c) }
+                phraseNoteProvider = { c, t -> notesOf(c, t) }
                 applyPalette(pal)
                 forcePhrasesStateForTest(com.aegis.ime.user.ClipboardStore.DEFAULT_CATEGORY_ID)
                 refresh()
@@ -250,9 +252,25 @@ class BilingualScreenshotTest {
         renderSet(
             lang = Lang.EN,
             dir = File(baseDir, "en"),
-            history = listOf("Meeting at 3pm", "https://example.com"),
-            phraseCats = listOf(com.aegis.ime.user.ClipboardStore.DEFAULT_CATEGORY_ID, "Work"),
-            phrasesOf = { c -> if (c == "Work") listOf("On my way", "Thanks!") else listOf("On my way", "Thanks!") },
+            history = listOf(
+                "Moved the review to 3pm tomorrow",
+                "https://example.com/handbook",
+                "Meeting room is on the 12th floor",
+            ),
+            phraseCats = listOf(com.aegis.ime.user.ClipboardStore.DEFAULT_CATEGORY_ID, "Work", "Travel"),
+            phrasesOf = { c ->
+                when (c) {
+                    "Work" -> listOf("Reviewed, looks good to me", "Let's sync after standup")
+                    "Travel" -> listOf("A window seat, please")
+                    else -> listOf(
+                        "On my way, about ten minutes out",
+                        "Thanks, got it!",
+                        "ssh root@10.0.0.1 -p 2222",
+                        "Let me check with the team and come back to you today",
+                    )
+                }
+            },
+            notesOf = { _, t -> if (t.startsWith("ssh")) "Log in to the build server" else "" },
             symbols = listOf(",", ".", "?"),
         )
 
@@ -267,9 +285,25 @@ class BilingualScreenshotTest {
         renderSet(
             lang = Lang.CN,
             dir = File(baseDir, "zh"),
-            history = listOf("第一条复制内容", "第二条内容"),
-            phraseCats = listOf(com.aegis.ime.user.ClipboardStore.DEFAULT_CATEGORY_ID, "工作"),
-            phrasesOf = { _ -> listOf("你好", "在吗") },
+            history = listOf(
+                "评审改到明天下午三点",
+                "https://example.com/handbook",
+                "会议室在 12 楼",
+            ),
+            phraseCats = listOf(com.aegis.ime.user.ClipboardStore.DEFAULT_CATEGORY_ID, "工作", "出行"),
+            phrasesOf = { c ->
+                when (c) {
+                    "工作" -> listOf("已审核，没有问题", "站会后我们对一下")
+                    "出行" -> listOf("麻烦帮我留一个靠窗的座位")
+                    else -> listOf(
+                        "在路上了，大概十分钟到",
+                        "收到，我马上处理",
+                        "ssh root@10.0.0.1 -p 2222",
+                        "不好意思，我这边临时有事，今天下午的会议能不能往后推半小时？",
+                    )
+                }
+            },
+            notesOf = { _, t -> if (t.startsWith("ssh")) "登录构建服务器" else "" },
             symbols = listOf("，", "。", "？"),
         )
 
