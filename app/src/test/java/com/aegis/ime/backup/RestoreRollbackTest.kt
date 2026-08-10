@@ -376,6 +376,50 @@ class RestoreRollbackTest {
         assertFalse("the journal must be spent", File(filesDir, "restore_journal").exists())
     }
 
+    private class RefusingToCommit(
+        private val delegate: SharedPreferences.Editor,
+    ) : SharedPreferences.Editor by delegate {
+        override fun commit(): Boolean = false
+    }
+
+    @Test fun a_restore_that_could_not_be_taken_back_is_not_reported_as_one_that_was() {
+        seedBackupData()
+        val backup = export()
+        wipe()
+        seedLocalData()
+        val losingTheJournal = object : SharedPreferences by prefs {
+            override fun edit(): SharedPreferences.Editor {
+                File(filesDir, "restore_journal/before").deleteRecursively()
+                return RefusingToCommit(prefs.edit())
+            }
+        }
+
+        try {
+            BackupManager.restore(
+                filesDir,
+                losingTheJournal,
+                password.toCharArray(),
+                ByteArrayInputStream(backup),
+                BackupManager.Mode.OVERWRITE,
+            )
+            fail("expected a restore that could not be taken back to be reported")
+        } catch (e: BackupException) {
+            assertEquals(
+                "a restore nothing could be taken back from must not read as a plain file failure",
+                BackupError.ROLLBACK_FAILED,
+                e.error,
+            )
+        }
+
+        assertEquals(
+            "the device is left holding what the restore wrote, which is why it has to be said",
+            listOf("备份"),
+            UserModel().apply { load(File(filesDir, "userdb.txt")) }.userWordEntries().map { it.word },
+        )
+        assertEquals("本机布局", prefs.getString("cn_layout", null))
+        assertFalse("the guard must not stay latched", LiveUserData.restoreInProgress)
+    }
+
     @Test fun a_restore_that_could_not_be_marked_finished_is_taken_back_off_the_device() {
         seedBackupData()
         val backup = export()

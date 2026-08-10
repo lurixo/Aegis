@@ -246,6 +246,7 @@
     <string name="backup_error_wrong_password">Wrong password, or the file is damaged</string>
     <string name="backup_error_io">Could not read or write the file</string>
     <string name="backup_error_already_restoring">A restore started earlier is still running. Nothing on this device was changed. Wait for it to finish and try again.</string>
+    <string name="backup_error_rollback_failed">The import could not be finished, and what this device held before it could not be put back, so some data may now be a mix of the two. Import the backup again.</string>
     <string name="backup_export_ok_partial">Backup exported. These could not be read, so they were left out:</string>
     <string name="backup_error_damaged_content">Nothing was restored and nothing on this device was changed. These parts of the backup could not be read:</string>
     <string name="backup_item_dictionary">Learning dictionary</string>

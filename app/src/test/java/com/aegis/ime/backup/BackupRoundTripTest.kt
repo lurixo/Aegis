@@ -775,7 +775,11 @@ class BackupRoundTripTest {
             )
             fail("expected restore to report a preference persistence failure")
         } catch (e: BackupException) {
-            assertEquals(BackupError.IO_ERROR, e.error)
+            assertEquals(
+                "the settings that could not be committed could not be put back either",
+                BackupError.ROLLBACK_FAILED,
+                e.error,
+            )
         }
 
         assertTrue(

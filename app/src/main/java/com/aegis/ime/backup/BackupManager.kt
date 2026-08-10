@@ -207,9 +207,11 @@ object BackupManager {
                 commit(filesDir, prefs, staging, visitor.prefsBlob, mode)
                 journal.markDone()
             } catch (e: Exception) {
-                if (runCatching { journal.rollBack(prefs) }.isSuccess) handedOff = reloadLiveStores()
-                throw when (e) {
-                    is BackupCorruptException -> BackupException(BackupError.WRONG_PASSWORD_OR_CORRUPT, e)
+                val takenBack = runCatching { journal.rollBack(prefs) }.isSuccess
+                if (takenBack) handedOff = reloadLiveStores()
+                throw when {
+                    !takenBack -> BackupException(BackupError.ROLLBACK_FAILED, e)
+                    e is BackupCorruptException -> BackupException(BackupError.WRONG_PASSWORD_OR_CORRUPT, e)
                     else -> BackupException(BackupError.IO_ERROR, e)
                 }
             }

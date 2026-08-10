@@ -48,6 +48,8 @@ internal enum class BackupError {
     DAMAGED_CONTENT,
 
     ALREADY_RESTORING,
+
+    ROLLBACK_FAILED,
 }
 
 internal class BackupException(
