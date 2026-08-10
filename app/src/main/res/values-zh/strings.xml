@@ -337,9 +337,6 @@
     <string name="edit_select_all">全选</string>
     <string name="edit_paragraph_end">段尾</string>
     <string name="edit_paste">粘贴</string>
-    <string name="svc_phrase_added">常用语已添加成功</string>
-    <string name="svc_phrase_exists">常用语已存在</string>
-    <string name="svc_phrase_not_added">常用语读不出来，这条没能添加</string>
     <string name="svc_edit_phrase">编辑常用语</string>
     <string name="svc_add_phrase">添加常用语</string>
     <string name="svc_note">备注</string>
@@ -408,4 +405,12 @@
     <string name="clip_phrase_change_not_saved">这次改动没能写进常用语，稍后会恢复原样</string>
     <string name="clip_entry_lost_body">这条剪贴的内容已不在此设备上</string>
     <string name="clip_entry_unreadable_body">这条剪贴的内容还在此设备上，但读不出来</string>
+    <string name="clip_phrases_saved">已存 %1$d 条到常用语</string>
+    <string name="clip_phrases_saved_existing">已存 %1$d 条，%2$d 条已在该分类中</string>
+    <string name="clip_phrases_exist">这 %1$d 条都已在该分类中</string>
+    <string name="clip_phrases_not_saved">%1$d 条没能写进常用语</string>
+    <string name="clip_phrases_moved_partial">已移动 %1$d 条，%2$d 条未移动</string>
+    <string name="clip_phrases_not_moved">%1$d 条移动了，但没能写进常用语，稍后会恢复原样</string>
+    <string name="clip_category_not_saved">这个分类没能写进常用语，稍后会恢复原样</string>
+    <string name="clip_phrase_edit_not_saved">这次改动没有存进常用语</string>
 </resources>

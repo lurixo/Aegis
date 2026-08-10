@@ -21,6 +21,8 @@ import android.widget.TextView
 import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.user.ClipEntry
+import com.aegis.ime.user.PhraseChange
+import com.aegis.ime.user.PhraseEdit
 import com.aegis.ime.user.asClipEntries
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -47,6 +49,13 @@ class ClipboardFailureNoticeTest {
         val found = Regex("<string name=\"$name\">(.*?)</string>")
             .find(File("src/main/res/values-zh/strings.xml").readText())
         assertTrue("values-zh must define $name", found != null)
+        return found!!.groupValues[1]
+    }
+
+    private fun enString(name: String): String {
+        val found = Regex("<string name=\"$name\">(.*?)</string>")
+            .find(File("src/main/res/values/strings.xml").readText())
+        assertTrue("values must define $name", found != null)
         return found!!.groupValues[1]
     }
 
@@ -340,6 +349,97 @@ class ClipboardFailureNoticeTest {
             sidecar.setReadable(true)
             dir.deleteRecursively()
         }
+    }
+
+    private fun blankPanel(): ClipboardView = ClipboardView(ctx).apply {
+        categoriesProvider = { listOf("默认") }
+        phrasesInProvider = { emptyList() }
+        applyPalette(pal)
+        forcePhrasesStateForTest("默认")
+        refresh()
+        layout(this)
+    }
+
+    private fun notice(edit: PhraseEdit, count: Int, requested: Int, saved: Boolean): String =
+        phraseWriteNotice(ctx, PhraseChange(edit, count, requested, saved))
+
+    @Test fun an_add_that_reached_the_list_but_not_the_file_is_never_read_as_one_that_landed() {
+        assertEquals(
+            "a count above zero must not be read before the write it belongs to",
+            ctx.getString(R.string.clip_phrases_not_saved, 2),
+            notice(PhraseEdit.ADD, 2, 3, saved = false),
+        )
+    }
+
+    @Test fun an_add_names_what_landed_and_what_was_already_there() {
+        assertEquals(ctx.getString(R.string.clip_phrases_saved, 2), notice(PhraseEdit.ADD, 2, 2, saved = true))
+        assertEquals(
+            "a write that landed leaves nothing unsaved, so its shortfall is what was already there",
+            ctx.getString(R.string.clip_phrases_saved_existing, 1, 1),
+            notice(PhraseEdit.ADD, 1, 2, saved = true),
+        )
+        assertEquals(ctx.getString(R.string.clip_phrases_exist, 3), notice(PhraseEdit.ADD, 0, 3, saved = true))
+        assertEquals(ctx.getString(R.string.clip_phrases_not_saved, 3), notice(PhraseEdit.ADD, 0, 3, saved = false))
+    }
+
+    @Test fun a_landed_add_names_its_shortfall_as_entries_that_were_already_there() {
+        assertEquals(
+            "a write that landed left nothing unsaved, so its shortfall must read as entries found in place",
+            "Saved %1\$d, %2\$d were already in this category",
+            enString("clip_phrases_saved_existing"),
+        )
+        assertEquals(
+            "已存 %1\$d 条，%2\$d 条已在该分类中",
+            zhString("clip_phrases_saved_existing"),
+        )
+        assertFalse(
+            "the wording a landed add uses for its shortfall must not be the wording for a write that failed",
+            notice(PhraseEdit.ADD, 1, 2, saved = true) == notice(PhraseEdit.ADD, 1, 2, saved = false),
+        )
+    }
+
+    @Test fun a_move_counts_only_the_entries_it_really_carried_across() {
+        assertEquals(
+            "the entries that stayed put were never moved, so they cannot come back",
+            ctx.getString(R.string.clip_phrases_not_moved, 1),
+            notice(PhraseEdit.MOVE, 1, 3, saved = false),
+        )
+        assertEquals(
+            ctx.getString(R.string.clip_phrases_moved_partial, 1, 2),
+            notice(PhraseEdit.MOVE, 1, 3, saved = true),
+        )
+        assertEquals("", notice(PhraseEdit.MOVE, 3, 3, saved = true))
+        assertEquals(text(R.string.clip_phrase_change_not_saved), notice(PhraseEdit.MOVE, 0, 2, saved = false))
+    }
+
+    @Test fun each_kind_of_phrase_write_that_did_not_land_says_what_it_was() {
+        assertEquals(text(R.string.clip_phrase_edit_not_saved), notice(PhraseEdit.TEXT, 1, 1, saved = false))
+        assertEquals(text(R.string.clip_category_not_saved), notice(PhraseEdit.CATEGORY, 1, 1, saved = false))
+        assertEquals(text(R.string.clip_phrase_change_not_saved), notice(PhraseEdit.LIST, 1, 1, saved = false))
+        assertTrue(
+            "a write that landed owes the user nothing to dismiss",
+            listOf(PhraseEdit.TEXT, PhraseEdit.CATEGORY, PhraseEdit.LIST)
+                .all { notice(it, 1, 1, saved = true).isEmpty() },
+        )
+    }
+
+    @Test fun a_phrase_write_the_panel_is_told_about_puts_the_failure_on_screen() {
+        val v = blankPanel()
+
+        v.reportPhraseWrite(PhraseChange(PhraseEdit.LIST, 1, 1, saved = false))
+        layout(v)
+
+        assertTrue(text(R.string.clip_phrase_change_not_saved) in labels(v))
+    }
+
+    @Test fun a_phrase_write_that_landed_leaves_the_panel_alone() {
+        val v = blankPanel()
+
+        v.reportPhraseWrite(PhraseChange(PhraseEdit.LIST, 1, 1, saved = true))
+        layout(v)
+
+        assertFalse(text(R.string.clip_phrase_change_not_saved) in labels(v))
+        assertFalse(text(R.string.clip_done) in labels(v))
     }
 
     @Test fun tapping_a_clip_that_is_still_there_still_commits_it() {

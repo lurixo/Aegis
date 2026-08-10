@@ -17,6 +17,8 @@ package com.aegis.ime.ime
 
 import com.aegis.ime.R
 import com.aegis.ime.user.ClipEntry
+import com.aegis.ime.user.PhraseChange
+import com.aegis.ime.user.PhraseEdit
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
@@ -2315,11 +2317,18 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         cornerRadii = if (left) floatArrayOf(r, r, 0f, 0f, 0f, 0f, r, r) else floatArrayOf(0f, 0f, r, r, r, r, 0f, 0f)
     }
 
-    private fun showNotice(messageRes: Int) {
+    private fun showNotice(messageRes: Int) = showNotice(context.getString(messageRes), RED)
+
+    private fun showNotice(message: String, color: Int) {
         val card = menuCard()
-        card.addView(menuTitle(context.getString(messageRes), color = RED))
+        card.addView(menuTitle(message, color = color))
         card.addView(menuItem(context.getString(R.string.clip_done)) { hideOverlay() })
         showOverlay(card)
+    }
+
+    fun reportPhraseWrite(change: PhraseChange) {
+        val message = phraseWriteNotice(context, change)
+        if (message.isNotEmpty()) showNotice(message, if (change.saved) TEXT_DARK else RED)
     }
 
     private fun emptyHint(): View = LinearLayout(context).apply {
@@ -2491,4 +2500,25 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun rounded(color: Int, radiusDp: Float) = GradientDrawable().apply {
         setColor(color); cornerRadius = radiusDp * density
     }
+}
+
+internal fun phraseWriteNotice(context: Context, change: PhraseChange): String = when (change.edit) {
+    PhraseEdit.ADD -> when {
+        !change.saved ->
+            context.getString(R.string.clip_phrases_not_saved, change.count.takeIf { it > 0 } ?: change.requested)
+        change.count == 0 -> context.getString(R.string.clip_phrases_exist, change.requested)
+        change.count == change.requested -> context.getString(R.string.clip_phrases_saved, change.count)
+        else ->
+            context.getString(R.string.clip_phrases_saved_existing, change.count, change.requested - change.count)
+    }
+    PhraseEdit.MOVE -> when {
+        change.saved && change.count < change.requested ->
+            context.getString(R.string.clip_phrases_moved_partial, change.count, change.requested - change.count)
+        change.saved -> ""
+        change.count > 0 -> context.getString(R.string.clip_phrases_not_moved, change.count)
+        else -> context.getString(R.string.clip_phrase_change_not_saved)
+    }
+    PhraseEdit.TEXT -> if (change.saved) "" else context.getString(R.string.clip_phrase_edit_not_saved)
+    PhraseEdit.CATEGORY -> if (change.saved) "" else context.getString(R.string.clip_category_not_saved)
+    PhraseEdit.LIST -> if (change.saved) "" else context.getString(R.string.clip_phrase_change_not_saved)
 }

@@ -50,6 +50,7 @@ import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.ime.LayoutPanelView
 import com.aegis.ime.ime.ParallelLoad
+import com.aegis.ime.ime.phraseWriteNotice
 import com.aegis.ime.ime.SelectionMath
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.SymbolsView
@@ -60,6 +61,7 @@ import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.CustomSymbolStore
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.LiveUserDictHost
+import com.aegis.ime.user.PhraseChange
 import com.aegis.ime.user.SymbolUsageStore
 import com.aegis.ime.user.UserDeletionPromises
 import com.aegis.ime.user.UserDictHot
@@ -71,13 +73,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private lateinit var controller: KeyboardController
     private val mainHandler = Handler(Looper.getMainLooper())
+    private val mainLane = java.util.concurrent.Executor { r -> mainHandler.post(r) }
     private val decodeWorker: java.util.concurrent.ExecutorService =
         java.util.concurrent.Executors.newSingleThreadExecutor { r ->
             Thread(r, "aegis-decode").apply { isDaemon = true }
         }
     private val decodeLane = DecodeLane(
         worker = decodeWorker,
-        main = java.util.concurrent.Executor { r -> mainHandler.post(r) },
+        main = mainLane,
         logError = { Log.e("Aegis", "decode failed", it) },
     )
     @Volatile private var panelTextSnapshot: String? = null
@@ -121,7 +124,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var pendingPhraseAdds: List<String> = emptyList()
     private var pendingMoveFrom = ""
     private var pendingMoveTexts: List<String> = emptyList()
-    private val clipboardStore by lazy { ClipboardStore(filesDir).also { it.load(); LiveUserData.clipboardHost = it } }
+    private val clipboardStore by lazy {
+        ClipboardStore(filesDir).also {
+            it.load()
+            it.reportPhraseWritesTo(mainLane, ::reportPhraseWrite)
+            LiveUserData.clipboardHost = it
+        }
+    }
     private val clipboardPendingWriteFlush: () -> Unit = { clipboardStore.flushPendingWrites() }
     private val symbolUsageStore by lazy { SymbolUsageStore(filesDir).also { it.load() } }
     private val emojiUsageStore by lazy { SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).also { it.load() } }
@@ -882,6 +891,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun showClipboardPanel() {
         val iv = inputView ?: return
+        iv.showPhraseNotice(null)
         val captureCurrentClip = !restoreClipboardWithoutCapture
         if (!restoreClipboardWithoutCapture) {
         if (iv.isPanelShowing(clipboardView)) { iv.showPanel(null); return }
@@ -900,10 +910,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onBack = { inputView?.showPanel(null) }
             it.onDeleteClips = { list -> clipboardStore.deleteAll(list) }
             it.onDeletePhrasesFrom = { cat, list -> clipboardStore.deletePhrasesFrom(cat, list) }
-            it.onSaveAsPhrasesTo = { cat, list ->
-                val added = clipboardStore.addPhrasesTo(cat, list)
-                if (list.size == 1) toast(phraseAddNotice(added))
-            }
+            it.onSaveAsPhrasesTo = { cat, list -> clipboardStore.addPhrasesTo(cat, list) }
             it.onEditPhrase = { cat, text -> beginInlineEdit(cat, text) }
             it.onMovePhrase = { from, text, to -> clipboardStore.movePhrase(from, text, to) }
             it.onMovePhrasesTo = { from, list, to -> clipboardStore.movePhrasesTo(from, list, to) }
@@ -943,6 +950,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun showPhrasePanel() {
         val iv = inputView ?: return
+        iv.showPhraseNotice(null)
         val open = clipboardView
         if (open != null && iv.isPanelShowing(open)) {
             open.resetToDefault()
@@ -1080,7 +1088,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val text = panelInput.text()
         when (inputPurpose) {
             InputPurpose.EDIT_PHRASE -> clipboardStore.editPhrase(inputCat, inputOld, text)
-            InputPurpose.ADD_PHRASE -> { val t = text.trim(); if (t.isNotEmpty()) addSinglePhraseWithToast(inputCat, t) }
+            InputPurpose.ADD_PHRASE -> { val t = text.trim(); if (t.isNotEmpty()) clipboardStore.addPhrasesTo(inputCat, listOf(t)) }
             InputPurpose.EDIT_NOTE -> clipboardStore.setPhraseNote(inputCat, inputOld, text)
             InputPurpose.ADD_CATEGORY -> {
                 val name = text.trim()
@@ -1097,15 +1105,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         endInlineInput()
     }
 
-    private fun addSinglePhraseWithToast(category: String, text: String) {
-        val added = clipboardStore.addPhrasesTo(category, listOf(text))
-        toast(phraseAddNotice(added))
-    }
-
-    private fun phraseAddNotice(added: Int): String = when {
-        added > 0 -> getString(R.string.svc_phrase_added)
-        !clipboardStore.phrasesReadable -> getString(R.string.svc_phrase_not_added)
-        else -> getString(R.string.svc_phrase_exists)
+    private fun reportPhraseWrite(change: PhraseChange) {
+        val message = phraseWriteNotice(this, change)
+        val panel = clipboardView
+        if (change.saved) {
+            inputView?.showPhraseNotice(null)
+            if (message.isNotEmpty()) toast(message)
+            return
+        }
+        if (panel != null && inputView?.isPanelShowing(panel) == true) panel.reportPhraseWrite(change)
+        else inputView?.showPhraseNotice(message)
     }
 
     private fun cancelInlineInput() = endInlineInput()
@@ -1259,6 +1268,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         runCatching { liveUserDictHost.flush() }
         liveUserDictHost.stopSaving()
         LiveUserData.unregisterClipboardPersistenceHooks(clipboardPendingWriteFlush)
+        clipboardStore.stopReportingPhraseWrites()
         clipboardStore.stopSaving()
         if (LiveUserData.clipboardHost === clipboardStore) LiveUserData.clipboardHost = null
         LiveUserData.onRestored = null

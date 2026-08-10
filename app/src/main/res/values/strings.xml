@@ -339,9 +339,6 @@
     <string name="edit_select_all">Select all</string>
     <string name="edit_paragraph_end">To end</string>
     <string name="edit_paste">Paste</string>
-    <string name="svc_phrase_added">Phrase added</string>
-    <string name="svc_phrase_exists">Phrase already exists</string>
-    <string name="svc_phrase_not_added">Saved phrases could not be read, so the phrase was not added</string>
     <string name="svc_edit_phrase">Edit phrase</string>
     <string name="svc_add_phrase">Add phrase</string>
     <string name="svc_note">Note</string>
@@ -410,4 +407,12 @@
     <string name="clip_phrase_change_not_saved">This change could not be written to your saved phrases, so it will come back</string>
     <string name="clip_entry_lost_body">This clip is no longer stored on this device</string>
     <string name="clip_entry_unreadable_body">This clip is still on this device but could not be read</string>
+    <string name="clip_phrases_saved">Saved %1$d to your phrases</string>
+    <string name="clip_phrases_saved_existing">Saved %1$d, %2$d were already in this category</string>
+    <string name="clip_phrases_exist">All %1$d are already in this category</string>
+    <string name="clip_phrases_not_saved">%1$d could not be written to your saved phrases</string>
+    <string name="clip_phrases_moved_partial">Moved %1$d, %2$d not moved</string>
+    <string name="clip_phrases_not_moved">%1$d were moved but could not be written to your saved phrases, so they will come back</string>
+    <string name="clip_category_not_saved">This category could not be written to your saved phrases, so it will come back</string>
+    <string name="clip_phrase_edit_not_saved">This change was not saved to your phrases</string>
 </resources>

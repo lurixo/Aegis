@@ -252,9 +252,16 @@ class SettingsWiringTest {
 
     @Test fun the_keyboard_owns_the_live_clipboard_store_from_first_touch_until_teardown() {
         val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
+        val liveStore = svc.substringAfter("private val clipboardStore by lazy {").substringBefore("\n    }")
         assertTrue(
             "the store the keyboard writes must be the one backup and restore reach for",
-            svc.contains("ClipboardStore(filesDir).also { it.load(); LiveUserData.clipboardHost = it }"),
+            liveStore.contains("ClipboardStore(filesDir)") &&
+                liveStore.contains("it.load()") &&
+                liveStore.contains("LiveUserData.clipboardHost = it"),
+        )
+        assertTrue(
+            "the keyboard that owns the store must be the one told what its phrase writes did",
+            liveStore.contains("it.reportPhraseWritesTo(mainLane, ::reportPhraseWrite)"),
         )
         assertTrue(
             "the clipboard panel must be told when the history could not be read, or it claims to be empty",
@@ -268,6 +275,10 @@ class SettingsWiringTest {
         assertTrue(
             "onDestroy must stop the clipboard writer it started",
             onDestroy.contains("clipboardStore.stopSaving()"),
+        )
+        assertTrue(
+            "onDestroy must take back the phrase write listener it left on the store",
+            onDestroy.contains("clipboardStore.stopReportingPhraseWrites()"),
         )
         val drained = onDestroy.indexOf("LiveUserData.unregisterClipboardPersistenceHooks(clipboardPendingWriteFlush)")
         val stopped = onDestroy.indexOf("clipboardStore.stopSaving()")
