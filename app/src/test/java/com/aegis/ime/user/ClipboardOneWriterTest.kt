@@ -67,6 +67,29 @@ class ClipboardOneWriterTest {
         }
     }
 
+    @Test(timeout = 120_000) fun a_deletion_the_writer_never_answers_is_reported_instead_of_holding_the_caller() {
+        val dir = newDir()
+        val s = store(dir)
+        assertEquals(
+            "precondition: the phrase is there to delete",
+            1,
+            s.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("要删的一条")),
+        )
+        val gate = occupy(s)
+
+        val startedAt = System.nanoTime()
+        val reported = s.deletePhrasesFrom(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("要删的一条"))
+        val waitedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+
+        assertFalse("a write the lane never answered must not be reported as done", reported)
+        assertTrue(
+            "the caller waited ${waitedMillis}ms: a deletion the user made from the panel runs on the" +
+                " drawing thread, so it must be let go on a bound rather than held for the whole write",
+            waitedMillis < 20_000,
+        )
+        gate.countDown()
+    }
+
     @Test fun an_imported_history_is_written_by_the_store_writer_alone() {
         val dir = newDir()
         val s = store(dir)
