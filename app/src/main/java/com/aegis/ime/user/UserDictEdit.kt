@@ -60,15 +60,20 @@ object UserDictEdit {
     fun flushBeforeDictionaryExport(): Boolean =
         UserDictHot.host?.let { it.flushDictionary() || !it.dictionaryReadable() } ?: true
 
-    fun exportDictionary(userDb: File, out: OutputStream?): Boolean {
-        if (out == null) return false
-        if (!userDb.isFile) {
+    enum class ExportResult { WRITTEN, NOTHING_TO_EXPORT, NOT_WRITTEN }
+
+    fun hasDictionaryToExport(userDb: File): Boolean = userDb.isFile
+
+    fun exportDictionary(userDb: File, out: OutputStream?): ExportResult {
+        if (out == null) return ExportResult.NOT_WRITTEN
+        if (!hasDictionaryToExport(userDb)) {
             runCatching { out.close() }
-            return false
+            return ExportResult.NOTHING_TO_EXPORT
         }
-        return runCatching {
+        val copied = runCatching {
             out.use { sink -> userDb.inputStream().use { source -> copyWithoutTombstones(source, sink) } }
         }.isSuccess
+        return if (copied) ExportResult.WRITTEN else ExportResult.NOT_WRITTEN
     }
 
     private fun copyWithoutTombstones(source: InputStream, sink: OutputStream) {

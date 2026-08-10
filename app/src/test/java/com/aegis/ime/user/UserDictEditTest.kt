@@ -37,7 +37,7 @@ class UserDictEditTest {
         assertTrue(UserDictEdit.add(db, "测试", "ceshi", 1))
         val out = ByteArrayOutputStream()
 
-        assertTrue(UserDictEdit.exportDictionary(db, out))
+        assertEquals(UserDictEdit.ExportResult.WRITTEN, UserDictEdit.exportDictionary(db, out))
 
         assertEquals(db.readText(), out.toString(Charsets.UTF_8.name()))
     }
@@ -55,7 +55,7 @@ class UserDictEditTest {
         )
         val out = ByteArrayOutputStream()
 
-        assertTrue(UserDictEdit.exportDictionary(db, out))
+        assertEquals(UserDictEdit.ExportResult.WRITTEN, UserDictEdit.exportDictionary(db, out))
 
         val exported = out.toString(Charsets.UTF_8.name())
         assertFalse(
@@ -72,10 +72,13 @@ class UserDictEditTest {
 
     @Test fun an_export_with_no_word_list_behind_it_is_reported_rather_than_passed_off_as_done() {
         val out = ByteArrayOutputStream()
+        val missing = File(tmp.root, "never-written.txt")
 
-        assertFalse(
-            "an empty document is not a word list, and it cannot be imported back as one either",
-            UserDictEdit.exportDictionary(File(tmp.root, "never-written.txt"), out),
+        assertFalse("precondition: there is no word list to export", UserDictEdit.hasDictionaryToExport(missing))
+        assertEquals(
+            "an empty document is not a word list, and the reason for it is not the picked file",
+            UserDictEdit.ExportResult.NOTHING_TO_EXPORT,
+            UserDictEdit.exportDictionary(missing, out),
         )
 
         assertEquals("", out.toString(Charsets.UTF_8.name()))
@@ -85,9 +88,15 @@ class UserDictEditTest {
         val db = tmp.newFile("userdb-export-refused.txt")
         assertTrue(UserDictEdit.add(db, "测试", "ceshi", 1))
 
-        assertFalse("nowhere to write means nothing was exported", UserDictEdit.exportDictionary(db, null))
-        assertFalse(
+        assertTrue("precondition: there is a word list to export", UserDictEdit.hasDictionaryToExport(db))
+        assertEquals(
+            "nowhere to write means nothing was exported",
+            UserDictEdit.ExportResult.NOT_WRITTEN,
+            UserDictEdit.exportDictionary(db, null),
+        )
+        assertEquals(
             "a sink that breaks part way through must not be reported as a finished export",
+            UserDictEdit.ExportResult.NOT_WRITTEN,
             UserDictEdit.exportDictionary(
                 db,
                 object : OutputStream() {

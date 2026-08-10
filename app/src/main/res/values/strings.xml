@@ -162,6 +162,7 @@
     <string name="user_dict_toast_export_blocked">Recent changes could not be saved, so the export was cancelled rather than written incomplete</string>
     <string name="user_dict_toast_export_done">Word list exported</string>
     <string name="user_dict_toast_export_failed">The file could not be written, so the export did not finish</string>
+    <string name="user_dict_toast_export_empty">There is no learning dictionary on this device yet, so there was nothing to export</string>
     <string name="user_dict_auto_title">Auto learning</string>
     <string name="user_dict_auto_description">Words Aegis glued together from characters you typed one by one. Delete one to drop it from suggestions, or clear them all. Your words above are not affected.</string>
     <string name="user_dict_auto_count_format">Auto learned: %1$d</string>
