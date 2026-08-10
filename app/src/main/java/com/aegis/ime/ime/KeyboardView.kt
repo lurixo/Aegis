@@ -625,8 +625,10 @@ class KeyboardView(context: Context) : View(context) {
             if (fw > face && face > 0f) paint.textSize = paint.textSize * face / fw
         }
         val labelDrop = if (p.key.sub != null) 7f * density * scale else 0f
+        val onAlpha = layout.id == LayoutId.ALPHA
+        val inkCentred = if (onAlpha) INK_CENTERED_GLYPHS else KEYPAD_INK_CENTERED_GLYPHS
         val horizontalInkQwertyPunctuation =
-            layout.id == LayoutId.ALPHA && lang == Lang.CN && p.key.direct &&
+            onAlpha && lang == Lang.CN && p.key.direct &&
                 display.length == 1 && display[0] in INK_CENTERED_GLYPHS
         if (horizontalInkQwertyPunctuation) {
             val baseAlign = paint.textAlign
@@ -639,7 +641,7 @@ class KeyboardView(context: Context) : View(context) {
                 paint,
             )
             paint.textAlign = baseAlign
-        } else if (display.length == 1 && display[0] in INK_CENTERED_GLYPHS) {
+        } else if (display.length == 1 && display[0] in inkCentred) {
             val baseAlign = paint.textAlign
             paint.textAlign = Paint.Align.LEFT
             paint.getTextBounds(display, 0, display.length, inkBounds)
@@ -653,11 +655,16 @@ class KeyboardView(context: Context) : View(context) {
             val subBaseTextSize = subPaint.textSize
             subPaint.textSize = subBaseTextSize * scale
             val sub = p.key.sub
-            if (layout.id == LayoutId.ALPHA && lang == Lang.CN && sub.codePointCount(0, sub.length) == 1) {
+            if (sub.codePointCount(0, sub.length) == 1) {
                 val baseAlign = subPaint.textAlign
                 subPaint.textAlign = Paint.Align.LEFT
                 subPaint.getTextBounds(sub, 0, sub.length, inkBounds)
-                canvas.drawText(sub, cx - inkBounds.exactCenterX(), p.rect.top + 15 * density * scale, subPaint)
+                canvas.drawText(
+                    sub,
+                    cx - inkBounds.exactCenterX(),
+                    p.rect.top + 11f * density * scale - inkBounds.exactCenterY(),
+                    subPaint,
+                )
                 subPaint.textAlign = baseAlign
             } else {
                 canvas.drawText(sub, cx, p.rect.top + 15 * density * scale, subPaint)
@@ -1226,6 +1233,7 @@ class KeyboardView(context: Context) : View(context) {
         const val LONG_PRESS_MS = 300L
         const val RETARGET_HOLD_MS = 120L
         const val INK_CENTERED_GLYPHS = "，。"
+        const val KEYPAD_INK_CENTERED_GLYPHS = "，。,."
         const val SCROLL_LABEL_INSET_DP = 12f
         const val SCROLL_LABEL_MIN_DP = 11f
     }

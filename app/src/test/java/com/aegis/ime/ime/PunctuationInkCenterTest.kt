@@ -34,7 +34,7 @@ import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
-class QwertyPunctuationInkCenterTest {
+class PunctuationInkCenterTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
     private val density = ctx.resources.displayMetrics.density
@@ -91,8 +91,8 @@ class QwertyPunctuationInkCenterTest {
                     fails.add("${widthDp}dp ${key.label}/$sub ink X off by ${a.ink.centerX() - rect.centerX()}")
                 }
                 val scale = kotlin.math.min(1f, rect.height() / (52f * density))
-                if (kotlin.math.abs(a.y - (rect.top + 15f * density * scale)) > 0.5f) {
-                    fails.add("${widthDp}dp ${key.label}/$sub top baseline changed")
+                if (kotlin.math.abs(a.ink.centerY() - (rect.top + 11f * density * scale)) > 1f) {
+                    fails.add("${widthDp}dp ${key.label}/$sub ink Y off the band")
                 }
             }
         }
@@ -146,6 +146,41 @@ class QwertyPunctuationInkCenterTest {
 
     private fun sp(v: Float) = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, v, ctx.resources.displayMetrics)
 
+    @Test fun sub_hints_hang_on_one_line_per_row_and_at_the_same_height_in_both_languages() {
+        val perLang = LinkedHashMap<Lang, Map<Float, List<Float>>>()
+        for (lang in listOf(Lang.CN, Lang.EN)) {
+            val v = layOut(qwerty(lang))
+            val canvas = AnchorRecordingCanvas(
+                Bitmap.createBitmap(v.measuredWidth, v.measuredHeight, Bitmap.Config.ARGB_8888),
+            )
+            v.draw(canvas)
+            val rows = LinkedHashMap<Float, MutableList<Float>>()
+            for ((key, rect) in v.keyBoundsForTest().filter { it.first.sub != null }) {
+                val sub = requireNotNull(key.sub)
+                val drawn = canvas.texts.filter { it.first == sub }.map { it.second }
+                assertTrue("$lang ${key.label}/$sub drawn ${drawn.size} times", drawn.size == 1)
+                rows.getOrPut(rect.top) { ArrayList() }.add(drawn[0].ink.centerY() - rect.top)
+            }
+            perLang[lang] = rows
+        }
+
+        val fails = ArrayList<String>()
+        for ((lang, rows) in perLang) {
+            for ((top, values) in rows) {
+                val spread = values.max() - values.min()
+                if (spread > 1f) fails.add("$lang row at $top hangs over $spread")
+            }
+        }
+        val cn = perLang.getValue(Lang.CN)
+        val en = perLang.getValue(Lang.EN)
+        if (cn.keys != en.keys) fails.add("the two languages do not share the same rows")
+        for (top in cn.keys.intersect(en.keys)) {
+            val gap = cn.getValue(top).average() - en.getValue(top).average()
+            if (kotlin.math.abs(gap) > 1f) fails.add("row at $top sits $gap apart between the languages")
+        }
+        assertTrue("sub hints do not hang on one line: $fails", fails.isEmpty())
+    }
+
     @Test fun en_qwerty_comma_and_period_keep_font_metric_centring() {
         val v = layOut(qwerty(Lang.CN))
         render(v)
@@ -165,6 +200,37 @@ class QwertyPunctuationInkCenterTest {
             if (kotlin.math.abs(a.y - (rect.centerY() - a.metricCenter)) > 0.5f) fails.add("$label anchor Y off by ${a.y - (rect.centerY() - a.metricCenter)}")
         }
         assertTrue("EN qwerty punctuation left the font-metric centring path: $fails", fails.isEmpty())
+    }
+
+    @Test fun the_number_layouts_centre_their_punctuation_by_ink_as_well() {
+        val fails = ArrayList<String>()
+        val pages = listOf(
+            Triple("number/cn", Layouts.forId(LayoutId.NUMBER, Lang.CN) to Lang.CN, listOf(",", ".")),
+            Triple("number/en", Layouts.forId(LayoutId.NUMBER, Lang.EN) to Lang.EN, listOf(",", ".")),
+            Triple("numpad", Layouts.numpad() to Lang.EN, listOf(".")),
+        )
+        for ((name, page, labels) in pages) {
+            val v = KeyboardView(ctx).apply { applyPalette(pal) }
+            v.setLayout(page.first, false, false, page.second)
+            layOut(v)
+            val canvas = AnchorRecordingCanvas(Bitmap.createBitmap(v.measuredWidth, v.measuredHeight, Bitmap.Config.ARGB_8888))
+            v.draw(canvas)
+            val rects = v.keyBoundsForTest().associate { it.first.label to it.second }
+            for (label in labels) {
+                val rect = requireNotNull(rects[label]) { "$name is missing its $label key" }
+                val drawn = canvas.texts.filter { it.first == label }.map { it.second }
+                if (drawn.size != 1) { fails.add("$name $label drawn ${drawn.size} times"); continue }
+                val a = drawn[0]
+                if (a.align != Paint.Align.LEFT) fails.add("$name $label align ${a.align}")
+                if (kotlin.math.abs(a.ink.centerX() - rect.centerX()) > 1f) {
+                    fails.add("$name $label ink X off by ${a.ink.centerX() - rect.centerX()}")
+                }
+                if (kotlin.math.abs(a.ink.centerY() - rect.centerY()) > 1f) {
+                    fails.add("$name $label ink Y off by ${a.ink.centerY() - rect.centerY()}")
+                }
+            }
+        }
+        assertTrue("punctuation off the alphabetic pages is not ink centred: $fails", fails.isEmpty())
     }
 
     @Test fun qwerty_letters_drop_below_center_and_sub_hint_sits_top_center() {
@@ -193,16 +259,13 @@ class QwertyPunctuationInkCenterTest {
                 if (kotlin.math.abs(l.y - (rect.centerY() + drop - l.metricCenter)) > 0.5f) {
                     fails.add("$lang $label letter not dropped below centre by $drop")
                 }
-                val expectedHintAlign = if (lang == Lang.CN) Paint.Align.LEFT else Paint.Align.CENTER
-                if (h.align != expectedHintAlign) fails.add("$lang $label hint align ${h.align}")
-                if (lang == Lang.CN) {
-                    if (kotlin.math.abs(h.ink.centerX() - rect.centerX()) > 1f) {
-                        fails.add("$lang $label hint ink X off centre by ${h.ink.centerX() - rect.centerX()}")
-                    }
-                } else if (kotlin.math.abs(h.x - rect.centerX()) > 0.5f) {
-                    fails.add("$lang $label hint X off centre by ${h.x - rect.centerX()}")
+                if (h.align != Paint.Align.LEFT) fails.add("$lang $label hint align ${h.align}")
+                if (kotlin.math.abs(h.ink.centerX() - rect.centerX()) > 1f) {
+                    fails.add("$lang $label hint ink X off centre by ${h.ink.centerX() - rect.centerX()}")
                 }
-                if (kotlin.math.abs(h.y - (rect.top + 15f * density * scale)) > 0.5f) fails.add("$lang $label hint Y not at top band")
+                if (kotlin.math.abs(h.ink.centerY() - (rect.top + 11f * density * scale)) > 1f) {
+                    fails.add("$lang $label hint ink Y off the band by ${h.ink.centerY() - (rect.top + 11f * density * scale)}")
+                }
                 if (h.y >= rect.centerY()) fails.add("$lang $label hint sits below centre")
                 if (h.y >= l.y) fails.add("$lang $label hint not above the letter")
             }
