@@ -15,6 +15,7 @@
 
 package com.aegis.ime
 
+import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -23,6 +24,12 @@ import java.io.File
 class SettingsWiringTest {
 
     private fun src(path: String) = File(path).readText()
+
+    private fun noticeLine(path: String, name: String): String {
+        val line = src(path).lineSequence().firstOrNull { it.contains("name=\"$name\"") }
+        assertTrue("$path must define $name", line != null)
+        return line!!
+    }
 
     private fun memberBody(source: String, signature: String): String {
         val start = source.indexOf(signature)
@@ -338,6 +345,23 @@ class SettingsWiringTest {
             "and the page must not copy the word list out on the thread that draws",
             exportLauncher.contains("userDb.inputStream()"),
         )
+    }
+
+    @Test fun the_rejected_word_notice_names_the_ceilings_the_dictionary_really_enforces() {
+        val limit = 256
+        assertTrue("a word of $limit characters is accepted", UserModel.acceptsManualWord("词".repeat(limit), "ceshi"))
+        assertFalse("a word of ${limit + 1} is not", UserModel.acceptsManualWord("词".repeat(limit + 1), "ceshi"))
+        assertTrue("a pinyin of $limit letters is accepted", UserModel.acceptsManualWord("词", "a".repeat(limit)))
+        assertFalse("a pinyin of ${limit + 1} is not", UserModel.acceptsManualWord("词", "a".repeat(limit + 1)))
+
+        val en = noticeLine("src/main/res/values/strings.xml", "user_dict_toast_add_rejected")
+        assertFalse("EN must not name a tighter ceiling than the one enforced", en.contains("under $limit"))
+        assertTrue("EN must name the ceiling that is enforced", en.contains("$limit characters or fewer"))
+        assertTrue("EN must cover the pinyin ceiling too", en.contains("pinyin"))
+
+        val zh = noticeLine("src/main/res/values-zh/strings.xml", "user_dict_toast_add_rejected")
+        assertTrue("ZH must name the ceiling that is enforced", zh.contains("$limit 字符以内"))
+        assertTrue("ZH must cover the pinyin ceiling too", zh.contains("拼音"))
     }
 
     @Test fun user_dict_page_does_not_own_the_app_version_label() {
