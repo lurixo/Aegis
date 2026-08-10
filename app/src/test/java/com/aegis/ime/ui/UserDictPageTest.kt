@@ -597,6 +597,26 @@ class UserDictPageTest {
         assertEquals(s(R.string.user_dict_toast_write_failed), reported())
     }
 
+    @Test fun an_export_with_nothing_behind_it_says_so_instead_of_blaming_the_picked_file() {
+        openUserDictPage()
+
+        ShadowToast.reset()
+        compose.onNodeWithTag("user_dict_export").performClick()
+        settleEdits()
+
+        assertEquals(s(R.string.user_dict_toast_export_empty), ShadowToast.getTextOfLatestToast())
+        assertFalse(
+            "a device with no word list must not be told its file could not be written",
+            s(R.string.user_dict_toast_export_failed) == ShadowToast.getTextOfLatestToast(),
+        )
+        scenario!!.onActivity { activity ->
+            assertNull(
+                "and no empty document may be created for an export that has nothing to carry",
+                shadowOf(activity).peekNextStartedActivityForResult(),
+            )
+        }
+    }
+
     @Test fun an_export_is_cancelled_rather_than_shipped_stale_when_the_flush_is_refused() {
         UserDictHot.host = RefusingHost(listOf(UserModel.Entry("nihao", "你好", 1)), emptyList())
         openUserDictPage()
@@ -634,6 +654,7 @@ class UserDictPageTest {
 
     @Test fun an_export_never_waits_for_the_writer_on_the_thread_that_draws() {
         val onMainThread = AtomicReference<Boolean?>(null)
+        seed(0, "nihao" to "你好")
         UserDictHot.host = FlushWatchingHost(onMainThread)
         openUserDictPage()
 
@@ -673,6 +694,7 @@ class UserDictPageTest {
 
     @Test fun leaving_the_page_before_the_flush_comes_back_does_not_bring_the_app_down() {
         val gate = CountDownLatch(1)
+        seed(0, "nihao" to "你好")
         UserDictHot.host = GatedFlushHost(gate)
         openUserDictPage()
         compose.onNodeWithTag("user_dict_export").performClick()

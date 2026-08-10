@@ -84,6 +84,7 @@ internal fun UserDictPage(onBack: () -> Unit) {
     val exportBlockedToast = stringResource(R.string.user_dict_toast_export_blocked)
     val exportDoneToast = stringResource(R.string.user_dict_toast_export_done)
     val exportFailedToast = stringResource(R.string.user_dict_toast_export_failed)
+    val exportEmptyToast = stringResource(R.string.user_dict_toast_export_empty)
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
     var pendingAutoClear by remember { mutableStateOf(false) }
 
@@ -122,14 +123,18 @@ internal fun UserDictPage(onBack: () -> Unit) {
     ) { uri ->
         if (uri != null) {
             UserStoreEdits.submit {
-                val written = UserDictEdit.exportDictionary(
+                val outcome = UserDictEdit.exportDictionary(
                     userDb,
                     runCatching { context.contentResolver.openOutputStream(uri) }.getOrNull(),
                 )
                 mainHandler.post {
                     Toast.makeText(
                         context,
-                        if (written) exportDoneToast else exportFailedToast,
+                        when (outcome) {
+                            UserDictEdit.ExportResult.WRITTEN -> exportDoneToast
+                            UserDictEdit.ExportResult.NOTHING_TO_EXPORT -> exportEmptyToast
+                            UserDictEdit.ExportResult.NOT_WRITTEN -> exportFailedToast
+                        },
                         Toast.LENGTH_SHORT,
                     ).show()
                 }
@@ -189,11 +194,12 @@ internal fun UserDictPage(onBack: () -> Unit) {
     fun startExport() {
         UserStoreEdits.submit {
             val ready = UserDictEdit.flushBeforeDictionaryExport()
+            val anythingToExport = UserDictEdit.hasDictionaryToExport(userDb)
             mainHandler.post {
-                if (ready) {
-                    runCatching { exportLauncher.launch("aegis-userdb.txt") }
-                } else {
-                    Toast.makeText(context, exportBlockedToast, Toast.LENGTH_SHORT).show()
+                when {
+                    !ready -> Toast.makeText(context, exportBlockedToast, Toast.LENGTH_SHORT).show()
+                    !anythingToExport -> Toast.makeText(context, exportEmptyToast, Toast.LENGTH_SHORT).show()
+                    else -> runCatching { exportLauncher.launch("aegis-userdb.txt") }
                 }
             }
         }
