@@ -31,7 +31,7 @@ class PhraseTransferActivity : ComponentActivity() {
 
     private val exportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) {
-            val ok = PhraseTransferIo.exportPhrases(filesDir) { contentResolver.openOutputStream(uri) }
+            val ok = PhraseTransferIo.exportPhrases(filesDir) { contentResolver.openOutputStream(uri, "wt") }
             toast(if (ok) R.string.phrase_transfer_toast_export_ok else R.string.phrase_transfer_toast_export_failed)
         }
         finish()
