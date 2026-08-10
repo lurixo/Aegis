@@ -167,6 +167,7 @@
     <string name="user_dict_auto_description">Words Aegis glued together from characters you typed one by one. Delete one to drop it from suggestions, or clear them all. Your words above are not affected.</string>
     <string name="user_dict_auto_count_format">Auto-learned words: %1$d</string>
     <string name="user_dict_auto_empty">Nothing learned automatically yet.</string>
+    <string name="user_dict_auto_pairs_only">No word has been glued together yet, but next-word pairs have been recorded. Clearing learned data deletes those too.</string>
     <string name="user_dict_auto_clear_button">Clear learned data</string>
     <string name="user_dict_auto_clear_dialog_title">Clear learned data</string>
     <string name="user_dict_auto_clear_dialog_body">This deletes every automatically learned word and next-word pair on this device. Your words and the downloaded main dictionary are not affected. This cannot be undone.</string>

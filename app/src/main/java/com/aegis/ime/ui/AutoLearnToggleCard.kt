@@ -122,6 +122,13 @@ internal fun AutoLearnToggleCard(resumeSignal: Int = 0) {
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.testTag("auto_learn_count"),
                 )
+                if (learnedView.entries.isEmpty() && learnedHasData) {
+                    Text(
+                        stringResource(R.string.user_dict_auto_pairs_only),
+                        style = MaterialTheme.typography.bodySmall,
+                        modifier = Modifier.testTag("auto_learn_pairs_only"),
+                    )
+                }
             } else {
                 Text(
                     stringResource(

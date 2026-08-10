@@ -368,6 +368,13 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
                                     style = MaterialTheme.typography.bodySmall,
                                     modifier = Modifier.testTag("user_dict_auto_count"),
                                 )
+                                if (learned.isEmpty() && learnedHasData) {
+                                    Text(
+                                        stringResource(R.string.user_dict_auto_pairs_only),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        modifier = Modifier.testTag("user_dict_auto_pairs_only"),
+                                    )
+                                }
                             } else {
                                 Text(
                                     stringResource(

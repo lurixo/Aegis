@@ -167,6 +167,7 @@
     <string name="user_dict_auto_description">你逐字拼出、被自动粘成的词。可以删掉某一条让它不再进候选，也可以全部清空。上面「我的词」不受影响。</string>
     <string name="user_dict_auto_count_format">自动学习：%1$d 个词</string>
     <string name="user_dict_auto_empty">还没有自动学习的词。</string>
+    <string name="user_dict_auto_pairs_only">还没有粘成的词，但已经记下了下一词搭配。清空学习数据会把它们一并删除。</string>
     <string name="user_dict_auto_clear_button">清空学习数据</string>
     <string name="user_dict_auto_clear_dialog_title">清空学习数据</string>
     <string name="user_dict_auto_clear_dialog_body">将删除本机全部自动学习的词与下一词搭配。「我的词」和下载的主词库不受影响。此操作不可撤销。</string>

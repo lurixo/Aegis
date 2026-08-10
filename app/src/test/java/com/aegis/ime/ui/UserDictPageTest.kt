@@ -259,6 +259,28 @@ class UserDictPageTest {
         compose.onNodeWithText(row("你呢嗯", "ninen")).assertDoesNotExist()
     }
 
+    @Test fun a_count_of_zero_over_a_live_clear_button_says_what_the_button_would_clear() {
+        seed(0)
+        learn.writeText("aegis-userlearn 1\nC\t你\t好\t3.0\t1700000000000\n")
+        assertTrue("there is no glued word to count", UserLearnEdit.list(learn).isEmpty())
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasTestTag("user_dict_auto_pairs_only"))
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_auto_count_format, 0)).assertExists()
+        compose.onNodeWithTag("user_dict_auto_clear").assertIsEnabled()
+        compose.onNodeWithText(s(R.string.user_dict_auto_pairs_only)).assertExists()
+    }
+
+    @Test fun a_count_that_stands_on_its_own_says_nothing_about_next_word_pairs() {
+        seed(0)
+        seedLearned("你" to "ni", "呢" to "ne", "嗯" to "n")
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasTestTag("user_dict_auto_clear"))
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_auto_count_format, 1)).assertExists()
+        compose.onNodeWithTag("user_dict_auto_pairs_only").assertDoesNotExist()
+    }
+
     @Test fun clearing_the_learned_data_asks_first_and_then_empties_the_section() {
         seed(0, "nihao" to "你好")
         seedLearned("你" to "ni", "呢" to "ne", "嗯" to "n")

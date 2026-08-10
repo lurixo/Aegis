@@ -283,6 +283,30 @@ class InputSettingsAutoLearnClearTest {
         compose.onNodeWithTag("auto_learn_clear").performScrollTo().assertIsNotEnabled()
     }
 
+    @Test fun a_count_of_zero_over_a_live_clear_button_says_what_the_button_would_clear() {
+        learn.writeText("aegis-userlearn 1\nC\t你\t好\t3.0\t1700000000000\n")
+        assertTrue("there is no glued word to count", UserLearnEdit.list(learn).isEmpty())
+
+        scenario = ActivityScenario.launch(InputSettingsActivity::class.java)
+
+        compose.onNodeWithText(ctxString(R.string.user_dict_auto_count_format).format(0))
+            .performScrollTo()
+            .assertExists()
+        compose.onNodeWithTag("auto_learn_clear").performScrollTo().assertIsEnabled()
+        compose.onNodeWithTag("auto_learn_pairs_only").performScrollTo().assertExists()
+        compose.onNodeWithText(ctxString(R.string.user_dict_auto_pairs_only)).performScrollTo().assertExists()
+    }
+
+    @Test fun a_dead_clear_button_is_left_to_speak_for_itself() {
+        scenario = ActivityScenario.launch(InputSettingsActivity::class.java)
+
+        compose.onNodeWithText(ctxString(R.string.user_dict_auto_count_format).format(0))
+            .performScrollTo()
+            .assertExists()
+        compose.onNodeWithTag("auto_learn_clear").performScrollTo().assertIsNotEnabled()
+        compose.onNodeWithTag("auto_learn_pairs_only").assertDoesNotExist()
+    }
+
     @Test fun learned_data_that_cannot_be_read_says_so_instead_of_bringing_the_page_down() {
         learn.writeText("not a learning file at all\n")
 
