@@ -21,6 +21,7 @@ import com.aegis.ime.user.ClipEntry
 import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.LiveUserDictHost
+import com.aegis.ime.user.RestoreTrouble
 import com.aegis.ime.user.SymbolUsageStore
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserDictImport
@@ -29,6 +30,7 @@ import com.aegis.ime.user.UserModel
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Before
@@ -61,6 +63,7 @@ class RestoreRollbackTest {
         LiveUserData.onBeforeRestore = null
         LiveUserData.clipboardHost = null
         LiveUserData.restoreInProgress = false
+        LiveUserData.restoreTrouble = null
         wipe()
         File(filesDir, "backup_staging").deleteRecursively()
         File(filesDir, "restore_journal").deleteRecursively()
@@ -73,6 +76,7 @@ class RestoreRollbackTest {
         UserDictHot.host = null
         LiveUserData.onRestored = null
         LiveUserData.clipboardHost = null
+        LiveUserData.restoreTrouble = null
     }
 
     private fun wipe() {
@@ -374,6 +378,36 @@ class RestoreRollbackTest {
         assertEquals(listOf("备份常用语"), store().phrases())
         assertEquals("备份布局", prefs.getString("cn_layout", null))
         assertFalse("the journal must be spent", File(filesDir, "restore_journal").exists())
+    }
+
+    @Test fun a_restore_that_gets_through_takes_down_the_notice_about_the_one_before_it() {
+        seedBackupData()
+        val backup = export()
+        wipe()
+        seedLocalData()
+        RestoreJournal.open(filesDir, prefs)
+        assertTrue(
+            "precondition: the copies taken before the last restore are gone",
+            File(filesDir, "restore_journal/before").deleteRecursively(),
+        )
+        assertFalse(RestoreJournal.finishAnyInterrupted(filesDir, prefs))
+        assertEquals(
+            "precondition: the device is on the books as left part restored",
+            RestoreTrouble.ROLLBACK_IMPOSSIBLE,
+            LiveUserData.restoreTrouble,
+        )
+
+        restore(backup)
+
+        assertEquals(
+            "the restore the user was sent to make really did land",
+            listOf("备份"),
+            UserModel().apply { load(File(filesDir, "userdb.txt")) }.userWordEntries().map { it.word },
+        )
+        assertNull(
+            "a device the user put right must not be told it is still part restored",
+            LiveUserData.restoreTrouble,
+        )
     }
 
     private class RefusingToCommit(

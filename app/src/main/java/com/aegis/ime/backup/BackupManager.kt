@@ -216,6 +216,7 @@ object BackupManager {
                 }
             }
             journal.discard()
+            LiveUserData.restoreTrouble = null
 
             val reload = LiveUserData.onRestored
             if (reload != null) {
