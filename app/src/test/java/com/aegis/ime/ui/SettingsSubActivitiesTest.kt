@@ -35,6 +35,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import com.aegis.ime.R
@@ -341,6 +342,42 @@ class InputSettingsAutoLearnClearTest {
             "clearing on purpose is the way back to a store that saves again",
             learn.readText().startsWith("aegis-userlearn"),
         )
+    }
+
+    private fun learnedRows(vararg pairs: Pair<String, String>): String =
+        pairs.joinToString(separator = "", prefix = "aegis-userlearn 1\n") { (reading, word) ->
+            "F\t$reading\t$word\t3.0\t1700000000000\n"
+        }
+
+    @Test fun more_than_one_glued_word_is_counted_as_many_as_there_are() {
+        learn.writeText(learnedRows("ninen" to "你呢嗯", "nihao" to "你好", "zaijian" to "再见"))
+
+        scenario = ActivityScenario.launch(InputSettingsActivity::class.java)
+
+        compose.onNodeWithTag("auto_learn_count").performScrollTo().assertExists()
+        compose.onNodeWithText(ctxString(R.string.user_dict_auto_count_format).format(3))
+            .performScrollTo()
+            .assertExists()
+    }
+
+    @Test fun the_count_catches_up_with_what_was_learned_while_the_page_was_away() {
+        learn.writeText(learnedRows("ninen" to "你呢嗯"))
+
+        scenario = ActivityScenario.launch(InputSettingsActivity::class.java)
+        val one = ctxString(R.string.user_dict_auto_count_format).format(1)
+        compose.onNodeWithText(one).performScrollTo().assertExists()
+
+        learn.writeText(learnedRows("ninen" to "你呢嗯", "nihao" to "你好", "zaijian" to "再见"))
+        scenario!!.moveToState(Lifecycle.State.CREATED)
+        scenario!!.moveToState(Lifecycle.State.RESUMED)
+
+        val three = ctxString(R.string.user_dict_auto_count_format).format(3)
+        settled("the page counted the words learned while it was away") {
+            drainEdits()
+            compose.onAllNodesWithText(three).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText(three).performScrollTo().assertExists()
+        compose.onAllNodesWithText(one).assertCountEquals(0)
     }
 
     private class HoldingHost(

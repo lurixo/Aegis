@@ -18,14 +18,19 @@ package com.aegis.ime.ui
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 
 class InputSettingsActivity : ComponentActivity() {
+    private var resumeSignal by mutableIntStateOf(0)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         bootstrapSettingsEdgeToEdge()
         setContent {
             SettingsActivityChrome {
-                InputSettingsPage(onBack = { finish() })
+                InputSettingsPage(resumeSignal = resumeSignal, onBack = { finish() })
             }
         }
     }
@@ -33,5 +38,6 @@ class InputSettingsActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         bootstrapSettingsEdgeToEdge()
+        resumeSignal += 1
     }
 }

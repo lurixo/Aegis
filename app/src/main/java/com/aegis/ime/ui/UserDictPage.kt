@@ -45,6 +45,7 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -67,7 +68,7 @@ import com.aegis.ime.user.UserStoreEdits
 import java.io.File
 
 @Composable
-internal fun UserDictPage(onBack: () -> Unit) {
+internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
     val context = LocalContext.current
     val userDb = File(context.filesDir, "userdb.txt")
     val userLearn = File(context.filesDir, "userlearn.txt")
@@ -118,6 +119,17 @@ internal fun UserDictPage(onBack: () -> Unit) {
         }
     }
 
+    LaunchedEffect(resumeSignal) {
+        UserStoreEdits.submit {
+            val nextSummary = UserDictEdit.summary(userDb)
+            val nextLearned = UserLearnEdit.view(userLearn)
+            mainHandler.post {
+                summary = nextSummary
+                learnedView = nextLearned
+            }
+        }
+    }
+
     val exportLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.CreateDocument("text/plain"),
     ) { uri ->
@@ -125,7 +137,7 @@ internal fun UserDictPage(onBack: () -> Unit) {
             UserStoreEdits.submit {
                 val outcome = UserDictEdit.exportDictionary(
                     userDb,
-                    runCatching { context.contentResolver.openOutputStream(uri) }.getOrNull(),
+                    runCatching { context.contentResolver.openOutputStream(uri, "wt") }.getOrNull(),
                 )
                 mainHandler.post {
                     Toast.makeText(

@@ -31,6 +31,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,7 +53,7 @@ internal const val PREF_AUTO_LEARN_ON = "pref_auto_learn_on"
 internal const val AUTO_LEARN_DEFAULT_ON = true
 
 @Composable
-internal fun AutoLearnToggleCard() {
+internal fun AutoLearnToggleCard(resumeSignal: Int = 0) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
     val userLearn = File(context.filesDir, "userlearn.txt")
@@ -76,6 +77,13 @@ internal fun AutoLearnToggleCard() {
                     Toast.LENGTH_SHORT,
                 ).show()
             }
+        }
+    }
+
+    LaunchedEffect(resumeSignal) {
+        UserStoreEdits.submit {
+            val next = UserLearnEdit.view(userLearn)
+            mainHandler.post { learnedView = next }
         }
     }
 
