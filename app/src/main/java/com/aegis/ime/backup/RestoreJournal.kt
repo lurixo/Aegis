@@ -139,7 +139,6 @@ internal class RestoreJournal private constructor(
             }
             if (!journal.canRollBack()) {
                 LiveUserData.restoreTrouble = RestoreTrouble.ROLLBACK_IMPOSSIBLE
-                journal.discard()
                 return false
             }
             try {

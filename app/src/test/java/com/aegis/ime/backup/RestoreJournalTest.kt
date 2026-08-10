@@ -272,7 +272,15 @@ class RestoreJournalTest {
         )
 
         assertEquals("not one store may be emptied on the word of copies that are gone", before, snapshot())
-        assertFalse(journalDir().exists())
+        assertTrue(
+            "the rule here is now keep, not throw away: the journal is the only thing left that can tell " +
+                "a keyboard starting later that this device was left part restored",
+            journalDir().isDirectory,
+        )
+        assertFalse(
+            "and keeping it may leave nothing that reads as a copy waiting to go back on",
+            File(journalDir(), "before").exists(),
+        )
     }
 
     @Test fun a_journal_that_lost_the_copies_it_took_says_the_device_is_left_part_restored() {
@@ -284,6 +292,28 @@ class RestoreJournalTest {
 
         assertEquals(
             "nothing can put this device back, and it is on nobody's books unless this is set",
+            RestoreTrouble.ROLLBACK_IMPOSSIBLE,
+            LiveUserData.restoreTrouble,
+        )
+    }
+
+    @Test fun a_device_left_part_restored_is_put_on_the_books_again_by_every_later_start() {
+        seedLocalData()
+        RestoreJournal.open(filesDir, prefs)
+        assertTrue(File(journalDir(), "before").deleteRecursively())
+        assertFalse(RestoreJournal.finishAnyInterrupted(filesDir, prefs))
+        assertEquals(
+            "precondition: the first start put it on the books",
+            RestoreTrouble.ROLLBACK_IMPOSSIBLE,
+            LiveUserData.restoreTrouble,
+        )
+
+        LiveUserData.restoreTrouble = null
+
+        assertFalse(RestoreJournal.finishAnyInterrupted(filesDir, prefs))
+        assertEquals(
+            "the books are held in memory the process loses, so a start that finds the device still part " +
+                "restored has to put it back on them, or the user is told once and never again",
             RestoreTrouble.ROLLBACK_IMPOSSIBLE,
             LiveUserData.restoreTrouble,
         )
