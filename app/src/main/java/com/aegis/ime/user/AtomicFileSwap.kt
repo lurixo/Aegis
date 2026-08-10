@@ -47,8 +47,9 @@ internal object AtomicFileSwap {
             if (movedAside) kept.delete()
             return
         }
-        if (movedAside) kept.renameTo(dest)
+        val lost = movedAside && !kept.renameTo(dest)
         staged.delete()
+        if (lost) throw IOException("${dest.name} is gone and what it held is kept as ${kept.name}")
         throw IOException("${dest.name} could not be replaced")
     }
 

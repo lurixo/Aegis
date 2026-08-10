@@ -113,6 +113,67 @@ class AtomicFileSwapTest {
         assertEquals(listOf("symbol_usage.txt"), leftovers(dir))
     }
 
+    private class StagedCopyThatWillNotMove(
+        path: String,
+        private val onSecondTry: (File) -> Unit,
+    ) : File(path) {
+        private var tries = 0
+
+        override fun renameTo(dest: File): Boolean {
+            tries++
+            if (tries == 2) onSecondTry(dest)
+            return false
+        }
+    }
+
+    @Test fun a_destination_that_could_not_be_put_back_is_reported_as_gone() {
+        val dir = newDir()
+        val dest = File(dir, "userdb.txt").apply { writeText("旧词库") }
+        val staged = StagedCopyThatWillNotMove(AtomicFileSwap.stagingFor(dest, 9).path) { blocked ->
+            blocked.mkdirs()
+            File(blocked, "blocker").writeText("x")
+        }
+        staged.writeText("新词库")
+
+        try {
+            AtomicFileSwap.replace(staged, dest)
+            fail("expected a destination that could not be put back to be reported")
+        } catch (e: IOException) {
+            assertEquals(
+                "a destination that is gone must not be reported as one that was left as it was",
+                "userdb.txt is gone and what it held is kept as userdb.txt.9.tmp.kept",
+                e.message,
+            )
+        }
+
+        assertEquals(
+            "what the destination held must still be somewhere it can be found",
+            "旧词库",
+            File(dir, "userdb.txt.9.tmp.kept").readText(),
+        )
+    }
+
+    @Test fun a_destination_that_was_put_back_is_reported_as_one_that_kept_what_it_held() {
+        val dir = newDir()
+        val dest = File(dir, "userdb.txt").apply { writeText("旧词库") }
+        val staged = StagedCopyThatWillNotMove(AtomicFileSwap.stagingFor(dest, 9).path) { }
+        staged.writeText("新词库")
+
+        try {
+            AtomicFileSwap.replace(staged, dest)
+            fail("expected a swap that could not be carried out to be reported")
+        } catch (e: IOException) {
+            assertEquals(
+                "a destination that was put back must not be reported as one that is gone",
+                "userdb.txt could not be replaced",
+                e.message,
+            )
+        }
+
+        assertEquals("旧词库", dest.readText())
+        assertEquals("nothing but the destination may be left behind", listOf("userdb.txt"), leftovers(dir))
+    }
+
     @Test fun two_writers_over_one_destination_never_stage_through_one_path() {
         val dest = File(newDir(), "clipboard.txt")
 
