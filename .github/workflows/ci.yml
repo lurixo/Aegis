@@ -44,7 +44,7 @@ jobs:
           java-version: "25"
 
       - name: Validate Gradle wrapper
-        uses: gradle/actions/wrapper-validation@v6.2.0
+        uses: gradle/actions/wrapper-validation@v6.3.0
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
@@ -53,7 +53,7 @@ jobs:
         run: sdkmanager "platforms;android-37.0" "build-tools;36.0.0" "platform-tools"
 
       - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v6.2.0
+        uses: gradle/actions/setup-gradle@v6.3.0
 
       - name: Resolve the dictionary pack sha256
         id: dictpack
