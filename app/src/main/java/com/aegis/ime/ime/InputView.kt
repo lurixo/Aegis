@@ -365,6 +365,7 @@ class InputView(context: Context) : LinearLayout(context) {
     val copyBarShown: Boolean get() = copyBarView.visibility == VISIBLE
     internal fun copyBarActiveForTest(): Boolean = copyBarActive
     internal fun copyBarForTest(): CopyBarView = copyBarView
+    internal fun coveredBarForTest(): View? = coveredBar()
     internal fun finishCopySplitSelection() = copyBarView.finishSplitSelection()
 
     fun isComposing(): Boolean = composingNow
@@ -548,12 +549,15 @@ class InputView(context: Context) : LinearLayout(context) {
             val snap = when {
                 !animateReveal -> null
                 outgoing != null && outgoing !== panel -> Motion.snapshot(outgoing, palette.keyboardBg)
-                outgoing == null && coversBar && candidateView.visibility == VISIBLE -> expandCoverSnapshot()
+                outgoing == null && coversBar && coveredBar() != null -> expandCoverSnapshot()
                 outgoing == null && keyboardView.visibility == VISIBLE -> Motion.snapshot(keyboardView, palette.keyboardBg)
                 else -> null
             }
             attachPanel(panel)
-            if (coversBar) candidateView.visibility = GONE
+            if (coversBar) {
+                candidateView.visibility = GONE
+                copyBarView.visibility = GONE
+            }
             keyboardView.visibility = GONE
             panel.visibility = VISIBLE
             Motion.reset(panel)
@@ -563,16 +567,23 @@ class InputView(context: Context) : LinearLayout(context) {
         onOverlayChanged()
     }
 
+    private fun coveredBar(): View? = when {
+        copyBarView.visibility == VISIBLE -> copyBarView
+        candidateView.visibility == VISIBLE -> candidateView
+        else -> null
+    }
+
     private fun expandCoverSnapshot(): Bitmap? {
         if (!isAttachedToWindow || !Motion.enabled()) return null
-        val w = candidateView.width
-        val barH = candidateView.height
+        val bar = coveredBar() ?: return null
+        val w = bar.width
+        val barH = bar.height
         val kbdH = keyboardView.height
         if (w <= 0 || barH <= 0 || kbdH <= 0) return null
         val bitmap = Bitmap.createBitmap(w, barH + kbdH, Bitmap.Config.ARGB_8888)
         bitmap.eraseColor(palette.keyboardBg)
         val canvas = Canvas(bitmap)
-        candidateView.draw(canvas)
+        bar.draw(canvas)
         canvas.translate(0f, barH.toFloat())
         keyboardView.draw(canvas)
         return bitmap
