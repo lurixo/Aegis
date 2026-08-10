@@ -62,6 +62,15 @@ class AutoLearnManagementTest {
         return learning
     }
 
+    private fun typeRun(learning: UserLearning, vararg steps: Pair<String, String>) {
+        var prev: String? = null
+        for ((word, reading) in steps) {
+            learning.observeCommit(prev, word, reading, clock)
+            prev = word
+        }
+        learning.observeBreak()
+    }
+
     private fun rows() = listOf(
         EngineFixture.Row("ni", "你", 900),
         EngineFixture.Row("ne", "讷", 950),
@@ -179,6 +188,31 @@ class AutoLearnManagementTest {
         assertTrue(
             "switching it back on records again",
             model.userWordEntries().any { it.word == "你呢嗯" },
+        )
+    }
+
+    @Test fun the_count_rises_once_per_new_word_and_never_for_a_word_typed_again() {
+        val file = File(tmp.root, "userlearn.txt")
+        val learning = UserLearning { clock }
+        val first = arrayOf("张" to "zhang", "伟" to "wei", "明" to "ming")
+        val second = arrayOf("李" to "li", "雷" to "lei")
+        val third = arrayOf("韩" to "han", "梅" to "mei")
+        for (word in listOf(first, second, third)) repeat(3) { typeRun(learning, *word) }
+        learning.save(file)
+
+        assertEquals(
+            "three words each spelled out three times are three entries",
+            listOf("张伟明", "李雷", "韩梅").sorted(),
+            UserLearnEdit.view(file).entries.map { it.word }.sorted(),
+        )
+
+        repeat(5) { typeRun(learning, *first) }
+        learning.save(file)
+
+        assertEquals(
+            "spelling out a word that is already counted adds no entry",
+            3,
+            UserLearnEdit.view(file).entries.size,
         )
     }
 
