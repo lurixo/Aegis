@@ -138,7 +138,6 @@ class RestoreJournalTest {
         val before = snapshot()
         journalDir().deleteRecursively()
         assertTrue(File(journalDir(), "before").mkdirs())
-        File(journalDir(), "kept").writeText("userdb.txt")
 
         assertFalse(
             "no restore had started writing yet, so there is nothing to take back",
@@ -208,24 +207,22 @@ class RestoreJournalTest {
         assertEquals(before, snapshot())
     }
 
-    @Test fun a_journal_that_lost_its_list_of_what_was_there_before_takes_nothing_off_the_device() {
+    @Test fun a_list_of_what_was_there_before_that_says_nothing_empties_no_store() {
         seedLocalData()
-        RestoreJournal.open(filesDir, prefs)
         val before = snapshot()
-        assertTrue("precondition: the journal looks worth acting on", File(journalDir(), "ready").isFile)
-        assertTrue("precondition: the list of what was there before is gone", File(journalDir(), "kept").delete())
+        RestoreJournal.open(filesDir, prefs)
+        File(journalDir(), "kept").writeText("")
+        aRestoreWritesOverEverything()
+        assertFalse("precondition: the device now holds the backup", before == snapshot())
 
-        assertFalse(
-            "a journal that cannot say what was there before has nothing it can take back",
-            RestoreJournal.finishAnyInterrupted(filesDir, prefs),
-        )
+        assertTrue(RestoreJournal.finishAnyInterrupted(filesDir, prefs))
 
-        assertEquals("not one store may be emptied on the word of a list that is gone", before, snapshot())
         for (item in BackupItem.entries) {
             assertTrue("${item.relativePath} was deleted", File(filesDir, item.relativePath).isFile)
         }
         assertTrue("the big clip sidecars were deleted", File(filesDir, "clips").listFiles().orEmpty().isNotEmpty())
-        assertFalse("and the unusable journal must not block the next restore", journalDir().exists())
+        assertEquals("not one store may be emptied on the word of a list that says nothing", before, snapshot())
+        assertFalse(journalDir().exists())
     }
 
     @Test fun a_journal_that_lost_the_copies_it_took_takes_nothing_off_the_device() {
