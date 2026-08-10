@@ -187,6 +187,22 @@ class ClipboardFailureNoticeTest {
         assertTrue("ZH must say the same thing EN does", zh.contains("存不进去"))
     }
 
+    @Test fun the_unreadable_clipboard_notice_says_what_becomes_of_what_you_copy() {
+        val v = view(emptyList(), readable = false)
+        val en = text(R.string.clip_clipboard_unreadable_hint)
+        assertTrue("precondition: the notice is the one on screen", en in labels(v))
+
+        assertTrue("the file really is left alone, so that half stays", en.contains("has not been changed or emptied"))
+        assertTrue(
+            "a history that cannot be read records nothing new, and the notice must not leave that out",
+            en.contains("what you copy is not added here"),
+        )
+
+        val zh = zhString("clip_clipboard_unreadable_hint")
+        assertTrue(zh.contains("文件没有被改动"))
+        assertTrue("ZH must say the same thing EN does", zh.contains("你复制的内容不会记到这里"))
+    }
+
     @Test fun an_empty_phrase_list_is_still_shown_as_an_empty_one() {
         val v = emptyPhraseView(readable = true)
 

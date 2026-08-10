@@ -399,7 +399,7 @@
     <string name="clip_phrases_empty_hint">Tap ＋ to add a phrase, ✎ to create a category</string>
     <string name="clip_new_category">＋ New category…</string>
     <string name="clip_clipboard_unreadable">Clipboard history could not be read</string>
-    <string name="clip_clipboard_unreadable_hint">The file has not been changed or emptied.</string>
+    <string name="clip_clipboard_unreadable_hint">The file has not been changed or emptied. Until it can be read, what you copy is not added here.</string>
     <string name="clip_phrases_unreadable">Saved phrases could not be read</string>
     <string name="clip_phrases_unreadable_hint">The file has not been changed or emptied. Until it can be read, changes made here cannot be saved.</string>
     <string name="clip_change_not_saved">This change could not be written to the clipboard history, so it will come back</string>
