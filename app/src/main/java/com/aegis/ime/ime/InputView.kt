@@ -86,6 +86,8 @@ class InputView(context: Context) : LinearLayout(context) {
     private var copyBarActive = false
     private var editBarActive = false
     private var palette = ImePalette.STATIC_LIGHT
+    private var barTrouble: RestoreTrouble? = null
+    private var phraseNotice: String? = null
     private var gateDisposer: (() -> Unit)? = null
     private var windowNavBottomPx = lastNavBottomPx
     private var windowLeftSystemInsetPx = 0
@@ -136,7 +138,7 @@ class InputView(context: Context) : LinearLayout(context) {
         candidateView.onCollapse = { onCollapse() }
         candidateView.onCollapseExpanded = { showPanel(null) }
         candidateView.onDictGate = { DictDownloadWork.start(context); startGateMonitoring() }
-        candidateView.onRestoreNotice = { onRestoreNotice() }
+        candidateView.onRestoreNotice = { if (barTrouble != null) onRestoreNotice() else showPhraseNotice(null) }
         gridView.onPick = { index -> onPickCandidate(index) }
         gridView.onPickReading = { index -> onPickReading(index) }
         gridView.onClose = { showPanel(null) }
@@ -380,7 +382,8 @@ class InputView(context: Context) : LinearLayout(context) {
         lastSelectedReading = selectedReading
         preeditView.setText(preedit)
         candidateView.setContent(candidates, preedit, gate)
-        candidateView.setRestoreNotice(restoreTrouble?.let(::restoreNoticeLabel))
+        barTrouble = restoreTrouble
+        candidateView.setRestoreNotice(barNotice())
         if (gate) startGateMonitoring() else stopGateMonitoring()
         composingNow = candidates.isNotEmpty() || preedit.isNotEmpty()
         if (copyBarActive && composingNow) { hideCopyBar(); onCopyDismiss() }
@@ -433,6 +436,13 @@ class InputView(context: Context) : LinearLayout(context) {
         RestoreTrouble.ROLLBACK_IMPOSSIBLE -> context.getString(R.string.restore_gate_rollback_impossible)
     }
 
+    fun showPhraseNotice(message: String?) {
+        phraseNotice = message?.takeIf { it.isNotEmpty() }
+        candidateView.setRestoreNotice(barNotice())
+    }
+
+    private fun barNotice(): String? = barTrouble?.let(::restoreNoticeLabel) ?: phraseNotice
+
     internal fun gateShowsFailureForTest(snap: DownloadCardSnapshot): Boolean = gateShowsFailure(snap)
 
     internal fun candidateGateActiveForTest(): Boolean = candidateView.gateActiveForTest()
@@ -440,6 +450,8 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun restoreNoticeLabelForTest(trouble: RestoreTrouble): String = restoreNoticeLabel(trouble)
 
     internal fun candidateRestoreNoticeForTest(): String? = candidateView.restoreNoticeLabelForTest()
+
+    internal fun candidateBarForTest(): CandidateView = candidateView
 
     internal fun showExpandedCandidates() {
         if (lastCandidates.isEmpty()) return
