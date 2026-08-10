@@ -22,7 +22,9 @@ import android.view.View
 import com.aegis.ime.R
 import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.layout.Key
 import com.aegis.ime.user.LiveUserData
+import com.aegis.ime.user.RestoreTrouble
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -75,6 +77,52 @@ class RestoreNoticeBarTest {
     private fun tap(v: CandidateView, x: Float, y: Float) {
         v.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, x, y, 0))
         v.dispatchTouchEvent(MotionEvent.obtain(0, 10, MotionEvent.ACTION_UP, x, y, 0))
+    }
+
+    @Test fun the_bar_carries_the_notice_while_nothing_is_being_typed() {
+        LiveUserData.restoreTrouble = RestoreTrouble.ROLLBACK_FAILED
+
+        val (controller, view) = attached()
+
+        assertEquals(RestoreTrouble.ROLLBACK_FAILED, controller.restoreNoticeForTest())
+        assertEquals(
+            ctx.getString(R.string.restore_gate_rollback_failed),
+            view.candidateRestoreNoticeForTest(),
+        )
+    }
+
+    @Test fun the_bar_says_which_of_the_two_troubles_it_was() {
+        LiveUserData.restoreTrouble = RestoreTrouble.ROLLBACK_IMPOSSIBLE
+
+        val (_, view) = attached()
+
+        assertEquals(
+            ctx.getString(R.string.restore_gate_rollback_impossible),
+            view.candidateRestoreNoticeForTest(),
+        )
+        assertTrue(
+            "a rollback that failed and one that was never possible must not read the same",
+            view.restoreNoticeLabelForTest(RestoreTrouble.ROLLBACK_FAILED) !=
+                view.restoreNoticeLabelForTest(RestoreTrouble.ROLLBACK_IMPOSSIBLE),
+        )
+    }
+
+    @Test fun a_bar_with_nothing_to_report_carries_no_notice() {
+        val (controller, view) = attached()
+
+        assertNull(controller.restoreNoticeForTest())
+        assertNull(view.candidateRestoreNoticeForTest())
+    }
+
+    @Test fun typing_takes_the_bar_back_from_the_notice() {
+        LiveUserData.restoreTrouble = RestoreTrouble.ROLLBACK_FAILED
+        val (controller, view) = attached()
+        controller.switchTextLayoutForTest(nine = false)
+
+        "ni".forEach { controller.onKey(Key(it.toString(), output = it.toString())) }
+
+        assertNull("the strip belongs to what is being typed", controller.restoreNoticeForTest())
+        assertNull(view.candidateRestoreNoticeForTest())
     }
 
     @Test fun the_toolbar_gives_up_the_bar_while_the_notice_is_up() {
@@ -173,6 +221,19 @@ class RestoreNoticeBarTest {
         view.showPhraseNotice("常用语没能写进去")
 
         assertEquals("常用语没能写进去", view.candidateRestoreNoticeForTest())
+    }
+
+    @Test fun a_phrase_notice_gives_way_to_an_interrupted_restore() {
+        LiveUserData.restoreTrouble = RestoreTrouble.ROLLBACK_FAILED
+        val (_, view) = attached()
+
+        view.showPhraseNotice("常用语没能写进去")
+
+        assertEquals(
+            "a restore nobody took back is the worse of the two, so the bar must keep saying it",
+            ctx.getString(R.string.restore_gate_rollback_failed),
+            view.candidateRestoreNoticeForTest(),
+        )
     }
 
     @Test fun a_phrase_notice_outlives_the_typing_that_hides_it() {

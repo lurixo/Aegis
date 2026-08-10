@@ -26,6 +26,8 @@ import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
+import com.aegis.ime.user.LiveUserData
+import com.aegis.ime.user.RestoreTrouble
 
 private enum class ShiftState { OFF, ONCE, LOCK }
 
@@ -483,6 +485,11 @@ class KeyboardController(
             composing.indices.any { it !in literalIndices }
 
     internal fun chineseGateActiveForTest(): Boolean = chineseGateActive()
+
+    private fun restoreNotice(): RestoreTrouble? =
+        LiveUserData.restoreTrouble?.takeIf { composing.isEmpty() && candidates.isEmpty() }
+
+    internal fun restoreNoticeForTest(): RestoreTrouble? = restoreNotice()
 
     private fun handleCommit(key: Key) {
         if (key.preeditLiteral && mode() == Mode.PINYIN &&
@@ -1211,6 +1218,7 @@ class KeyboardController(
             readings,
             selectedExpandedReadingIndex(readings, highlight),
             chineseGateActive(),
+            restoreNotice(),
             candidateProjection = CandidateProjectionPolicy.PINYIN.takeIf {
                 mode() == Mode.PINYIN && composing.isNotEmpty()
             },

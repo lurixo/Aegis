@@ -818,6 +818,8 @@ class InputView(context: Context) : LinearLayout(context) {
 
     internal fun candidateGateActiveForTest(): Boolean = candidateView.gateActiveForTest()
 
+    internal fun restoreNoticeLabelForTest(trouble: RestoreTrouble): String = restoreNoticeLabel(trouble)
+
     internal fun candidateRestoreNoticeForTest(): String? = candidateView.restoreNoticeLabelForTest()
 
     internal fun candidateBarForTest(): CandidateView = candidateView
