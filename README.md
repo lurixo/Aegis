@@ -10,8 +10,8 @@
 
 **Aegis** is an offline-first Android input method for **Simplified Chinese** and **English**.
 It is built on the open **rime-wanxiang** CC BY dictionaries with a **self-built decoder**; no
-rime / librime at runtime. Everything you type stays on your device: **no keystroke ever makes a
-network call, and nothing you type is ever sent.**
+rime / librime at runtime. Everything you type stays on your device: **no network request is ever
+made while you type, and nothing you type is ever sent.**
 
 **English** | [简体中文](README.zh-CN.md)
 
@@ -40,7 +40,6 @@ network call, and nothing you type is ever sent.**
 - [Release dictionary pack](#release-dictionary-pack)
 - [Architecture](#architecture)
 - [Licensing &amp; acknowledgments](#licensing--acknowledgments)
-- [Status](#status)
 
 ## For users: install & enable
 
@@ -160,7 +159,7 @@ not depend on our word alone:
 - **`INTERNET`** fetches the dictionary pack (offered by the keyboard while no pack is installed,
   because no Chinese dictionary ships in the APK, and started only when you tap), the optional
   enhancement model (only when *you* tap to start it), and the update checks for those two. **No
-  keystroke ever makes a network call, and nothing you type is ever sent.**
+  network request is ever made while you type, and nothing you type is ever sent.**
 - **`USE_BIOMETRIC`** is used only for the default backup password: saving it, or filling it into a
   backup dialog, needs a biometric or screen-lock confirmation first.
 - Your **keystrokes, candidates, learned words, user dictionary, and clipboard never leave the
@@ -291,12 +290,3 @@ darts-clone (BSD-2-Clause).
 The full list, with the modifications made to each work, is in
 [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md); the app shows the same list under
 **Settings → About & enable → Open-source licenses**.
-
-## Status
-
-Aegis is in active development and releases are **pre-release** builds. Known limitations:
-
-- Releases are release builds signed with an Android debug key, distributed via GitHub Releases
-  rather than an app store, and carry the `arm64-v8a` ABI only.
-- The downloadable dictionary pack records its build inputs but is not yet a signed / independently
-  reproducible supply-chain artifact (see [Release dictionary pack](#release-dictionary-pack)).
