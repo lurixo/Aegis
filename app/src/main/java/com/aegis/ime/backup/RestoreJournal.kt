@@ -53,9 +53,7 @@ internal class RestoreJournal private constructor(
             }
         }
 
-        val liveClips = File(filesDir, CLIPS)
-        liveClips.deleteRecursively()
-        if (File(before, CLIPS).isDirectory) File(before, CLIPS).copyRecursively(liveClips, overwrite = true)
+        putClipsBack(File(before, CLIPS))
 
         val settings = File(before, SETTINGS)
         if (settings.isFile) {
@@ -67,6 +65,44 @@ internal class RestoreJournal private constructor(
         discard()
     }
 
+    private fun putClipsBack(copy: File) {
+        val live = File(filesDir, CLIPS)
+        if (!copy.isDirectory) {
+            if (live.exists() && !live.deleteRecursively()) {
+                throw IOException("$CLIPS could not be taken back off the device")
+            }
+            return
+        }
+        val staged = AtomicFileSwap.stagingFor(live, TAG)
+        staged.deleteRecursively()
+        if (runCatching { copy.copyRecursively(staged, overwrite = true) }.getOrNull() != true) {
+            staged.deleteRecursively()
+            throw IOException("the copy of $CLIPS taken before the restore could not be laid back down")
+        }
+        swapClipsIn(staged, live)
+    }
+
+    private fun swapClipsIn(staged: File, live: File) {
+        if (!live.exists()) {
+            if (staged.renameTo(live)) return
+            staged.deleteRecursively()
+            throw IOException("$CLIPS could not be put back")
+        }
+        val aside = File(staged.path + ASIDE)
+        aside.deleteRecursively()
+        if (!live.renameTo(aside)) {
+            staged.deleteRecursively()
+            throw IOException("$CLIPS could not be moved out of the way")
+        }
+        if (staged.renameTo(live)) {
+            aside.deleteRecursively()
+            return
+        }
+        aside.renameTo(live)
+        staged.deleteRecursively()
+        throw IOException("$CLIPS could not be put back")
+    }
+
     companion object {
 
         private const val DIR = "restore_journal"
@@ -75,6 +111,7 @@ internal class RestoreJournal private constructor(
         private const val DONE = "done"
         private const val SETTINGS = "settings.bin"
         private const val CLIPS = "clips"
+        private const val ASIDE = ".aside"
         private const val TAG = 0L
 
         private val FILE_TARGETS = BackupItem.entries.map { it.relativePath }

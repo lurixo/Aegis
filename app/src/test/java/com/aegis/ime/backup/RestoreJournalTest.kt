@@ -240,6 +240,22 @@ class RestoreJournalTest {
         assertFalse(journalDir().exists())
     }
 
+    @Test fun the_big_clip_sidecars_are_not_swept_before_the_copies_of_them_are_in_hand() {
+        seedLocalData()
+        val before = snapshot()
+        val journal = RestoreJournal.open(filesDir, prefs)
+        val copies = File(journalDir(), "before/clips").listFiles().orEmpty()
+        assertTrue("precondition: the journal took a copy of a sidecar", copies.isNotEmpty())
+        copies.forEach { it.setReadable(false, false) }
+        assertFalse("precondition: the copies can no longer be read", copies.first().canRead())
+
+        val rolledBack = runCatching { journal.rollBack(prefs) }
+
+        copies.forEach { it.setReadable(true, true) }
+        assertTrue("a rollback that could not lay the sidecars back down must say so", rolledBack.isFailure)
+        assertEquals("the big clip sidecars must still be on the device", before["clips"], snapshot()["clips"])
+    }
+
     @Test fun a_rollback_that_cannot_be_carried_out_is_not_reported_as_one_that_was() {
         seedLocalData()
         val journal = RestoreJournal.open(filesDir, prefs)
