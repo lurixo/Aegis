@@ -21,6 +21,7 @@ import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import android.os.Looper
 import com.aegis.ime.ime.SymbolsView
 import com.aegis.ime.user.SymbolUsageStore
 import org.junit.After
@@ -33,6 +34,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.shadows.ShadowToast
 import java.io.File
@@ -108,12 +110,18 @@ class ClearRecentsNoticeTest {
 
     private fun notice() = app.getString(R.string.svc_recents_not_cleared)
 
+    private fun settle() {
+        SymbolUsageStore.flushPendingWrites()
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+
     @Test fun a_symbol_clear_that_could_not_be_done_says_so() {
         sealed(symbolFile)
         val service = started()
 
         open(service, "showSymbolsPanel")
         (panel(service, "symbolsView") as SymbolsView).onClearRecents()
+        settle()
 
         assertEquals(
             "a clear that never happened must not look to the user like one that did",
@@ -129,6 +137,7 @@ class ClearRecentsNoticeTest {
         val panel = panel(service, "symbolsView") as SymbolsView
         panel.onSymbol("€", null)
         panel.onClearRecents()
+        settle()
 
         assertNull("a clear that happened must not be reported as a failure", ShadowToast.getTextOfLatestToast())
     }
@@ -146,6 +155,7 @@ class ClearRecentsNoticeTest {
         )
 
         panel.onClearRecents()
+        settle()
 
         assertEquals(
             "a clear that never happened must not look to the user like one that did",
@@ -166,6 +176,7 @@ class ClearRecentsNoticeTest {
 
         open(service, "showEmojiPanel")
         (panel(service, "emojiView") as EmojiView).onClearRecents()
+        settle()
 
         assertEquals(
             "a clear that never happened must not look to the user like one that did",
@@ -181,6 +192,7 @@ class ClearRecentsNoticeTest {
         val panel = panel(service, "emojiView") as EmojiView
         panel.onEmoji("😀")
         panel.onClearRecents()
+        settle()
 
         assertNull("a clear that happened must not be reported as a failure", ShadowToast.getTextOfLatestToast())
     }

@@ -232,6 +232,8 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
     internal fun cancelClearForTest(): Boolean = clearDialog.cancelForTest()
     internal fun dismissClearForTest(): Boolean = clearDialog.performClick()
 
+    fun refresh() = showCategory(selected)
+
     private fun showCategory(index: Int, animate: Boolean = true) {
         dismissVariants()
         val tabChanged = index != selected

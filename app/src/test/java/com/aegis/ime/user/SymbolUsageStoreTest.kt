@@ -26,6 +26,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
@@ -84,7 +85,8 @@ class SymbolUsageStoreTest {
             record("÷", "math")
             record("≈", "math")
         }
-        assertTrue("a clear that emptied the file must say it was done", store.clear())
+        assertTrue("a clear that emptied the file must say it was taken", store.clear())
+        SymbolUsageStore.flushPendingWrites()
         assertTrue(store.recent().isEmpty())
         assertTrue(store.recentEntries().isEmpty())
         assertTrue(SymbolUsageStore(dir).apply { load() }.recent().isEmpty())
@@ -299,9 +301,86 @@ class SymbolUsageStoreTest {
         s.record("→", "符号")
         release?.countDown()
         s.clear()
+        SymbolUsageStore.flushPendingWrites()
 
         assertEquals("", File(dir, "symbol_usage.txt").readText())
         assertTrue(SymbolUsageStore(dir).apply { load() }.recent().isEmpty())
+    }
+
+    @Test(timeout = 30_000) fun a_write_that_never_finishes_does_not_hold_up_loading_the_recents() {
+        val dir = newDir()
+        val s = SymbolUsageStore(dir).apply { load(); record("★", "符号") }
+        occupyTheWriteLane()
+
+        val startedAt = System.nanoTime()
+        s.clear()
+        SymbolUsageStore(dir).apply { load() }
+        val waitedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+
+        assertTrue(
+            "clearing and loading the recents waited ${waitedMillis}ms behind a write that never finishes",
+            waitedMillis < 2_000,
+        )
+        release?.countDown()
+    }
+
+    @Test fun a_clear_that_never_reached_the_file_leaves_the_recents_where_they_were() {
+        val dir = newDir()
+        val s = SymbolUsageStore(dir).apply { load(); record("★", "符号") }
+        SymbolUsageStore.flushPendingWrites()
+        assertTrue("precondition: the clear cannot reach the disk", s.tempFile().mkdirs())
+        val reported = CopyOnWriteArrayList<Boolean>()
+        s.reportWritesTo({ it.run() }) { reported.add(it) }
+
+        assertTrue("the store takes the clear before the file has had its say", s.clear())
+        SymbolUsageStore.flushPendingWrites()
+
+        assertFalse("a clear that never reached the file must not come back as one that did", reported.single())
+        assertEquals(
+            "and what is still on the disk must still be on the panel",
+            listOf("★"),
+            s.recent(),
+        )
+    }
+
+    @Test fun a_load_takes_the_file_and_a_tap_it_overtook_never_writes_over_it() {
+        val dir = newDir()
+        val s = SymbolUsageStore(dir).apply { load() }
+        occupyTheWriteLane()
+
+        s.record("★", "符号")
+        File(dir, "symbol_usage.txt").writeText("☆\t恢复\n")
+        s.load()
+
+        assertEquals("a load must take up what the file holds now", listOf("☆"), s.recent())
+        release?.countDown()
+        SymbolUsageStore.flushPendingWrites()
+        assertEquals(
+            "and a tap the load overtook must not write over what was just taken up",
+            "☆\t恢复\n",
+            File(dir, "symbol_usage.txt").readText(),
+        )
+    }
+
+    @Test fun a_symbol_used_right_after_a_clear_is_the_only_one_left_on_the_file() {
+        val dir = newDir()
+        val s = SymbolUsageStore(dir).apply { load(); record("★", "符号"); record("→", "符号") }
+        SymbolUsageStore.flushPendingWrites()
+        occupyTheWriteLane()
+
+        assertTrue(s.clear())
+        s.record("☆", "符号")
+
+        release?.countDown()
+        SymbolUsageStore.flushPendingWrites()
+
+        assertEquals("the panel must show only what was used after the clear", listOf("☆"), s.recent())
+        assertEquals(
+            "and a tap made after a clear must not carry the cleared list back to the file",
+            "☆\t符号",
+            File(dir, "symbol_usage.txt").readText(),
+        )
+        assertEquals(listOf("☆"), SymbolUsageStore(dir).apply { load() }.recent())
     }
 
     @Test fun two_symbol_stores_over_one_directory_never_share_a_temp_file() {

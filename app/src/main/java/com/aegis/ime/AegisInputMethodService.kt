@@ -134,8 +134,22 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
     private val clipboardPendingWriteFlush: () -> Unit = { clipboardStore.flushPendingWrites() }
-    private val symbolUsageStore by lazy { SymbolUsageStore(filesDir).also { it.load() } }
-    private val emojiUsageStore by lazy { SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).also { it.load() } }
+    private val symbolUsageStore by lazy {
+        SymbolUsageStore(filesDir).also {
+            it.load()
+            it.reportWritesTo(mainLane) { landed -> reportRecentsCleared(landed) { symbolsView?.refresh() } }
+        }
+    }
+    private val emojiUsageStore by lazy {
+        SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).also {
+            it.load()
+            it.reportWritesTo(mainLane) { landed -> reportRecentsCleared(landed) { emojiView?.refresh() } }
+        }
+    }
+
+    private fun reportRecentsCleared(landed: Boolean, redraw: () -> Unit) {
+        if (landed) redraw() else toast(getString(R.string.svc_recents_not_cleared))
+    }
     @Volatile private var secureField = false
     @Volatile private var personalizationBlocked = false
 
@@ -881,7 +895,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 if (!personalizationBlocked) emojiUsageStore.record(e)
                 commitExternalText(e)
             }
-            it.onClearRecents = { if (!emojiUsageStore.clear()) toast(getString(R.string.svc_recents_not_cleared)) }
+            it.onClearRecents = { emojiUsageStore.clear() }
             it.onBackspace = { panelBackspace() }
             it.onBack = { inputView?.showPanel(null) }
             emojiView = it
@@ -1000,7 +1014,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val sv = symbolsView ?: SymbolsView(this).also {
             it.recentProvider = { symbolUsageStore.recent() }
             it.recentOriginOf = { s -> symbolUsageStore.originOf(s) }
-            it.onClearRecents = { if (!symbolUsageStore.clear()) toast(getString(R.string.svc_recents_not_cleared)) }
+            it.onClearRecents = { symbolUsageStore.clear() }
             it.onSymbol = { s, origin ->
                 if (!personalizationBlocked) symbolUsageStore.record(s, origin)
                 commitExternalSymbol(s)
@@ -1286,6 +1300,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         LiveUserData.unregisterClipboardPersistenceHooks(clipboardPendingWriteFlush)
         clipboardStore.stopReportingPhraseWrites()
         clipboardStore.stopReportingClipWrites()
+        symbolUsageStore.stopReportingWrites()
+        emojiUsageStore.stopReportingWrites()
         clipboardStore.stopSaving()
         if (LiveUserData.clipboardHost === clipboardStore) LiveUserData.clipboardHost = null
         LiveUserData.onRestored = null

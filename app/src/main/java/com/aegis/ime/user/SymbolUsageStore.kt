@@ -20,6 +20,7 @@ import java.io.File
 import java.io.IOException
 import java.nio.file.Files
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicLong
 
@@ -37,8 +38,34 @@ class SymbolUsageStore(private val dir: File) {
     var readable: Boolean = true
         private set
 
+    private val loadGen = AtomicLong(0)
+
+    @Volatile
+    private var clearFailed = false
+
+    private var clearedAway: List<Entry> = emptyList()
+
+    @Volatile
+    private var reportLane: Executor = Executor { it.run() }
+
+    @Volatile
+    private var report: ((Boolean) -> Unit)? = null
+
+    fun reportWritesTo(lane: Executor, report: (Boolean) -> Unit) {
+        reportLane = lane
+        this.report = report
+    }
+
+    fun stopReportingWrites() { report = null }
+
+    private fun reportWrite(landed: Boolean) {
+        if (report == null) return
+        reportLane.execute { report?.invoke(landed) }
+    }
+
     fun load() {
-        flushPendingWrites()
+        settleClear()
+        loadGen.incrementAndGet()
         used.clear()
         val seen = HashSet<String>()
         readable = runCatching {
@@ -54,24 +81,55 @@ class SymbolUsageStore(private val dir: File) {
     }
 
     fun record(symbol: String, origin: String? = null) {
+        settleClear()
         if (symbol.isEmpty() || !readable) return
         val key = SymbolCatalog.foldFullWidth(symbol)
         used.removeAll { SymbolCatalog.foldFullWidth(it.symbol) == key }
         used.add(0, Entry(symbol, origin))
         while (used.size > MAX) used.removeAt(used.size - 1)
         if (LiveUserData.restoreInProgress) return
-        val text = serialize()
-        onWriteLane { runCatching { writeAtomically(text) } }
+        writeLater(serialize())
     }
 
     fun clear(): Boolean {
-        if (!readable) return false
-        if (runCatching { onWriteLaneNow { writeAtomically("") } }.isFailure) return false
+        settleClear()
+        if (!readable) { reportWrite(false); return false }
+        clearedAway = ArrayList(used)
         used.clear()
+        writeLater("", tellClear = true)
         return true
     }
 
+    private fun settleClear() {
+        if (!clearFailed) return
+        clearFailed = false
+        val back = clearedAway
+        clearedAway = emptyList()
+        val seen = used.mapTo(HashSet()) { SymbolCatalog.foldFullWidth(it.symbol) }
+        for (e in back) if (seen.add(SymbolCatalog.foldFullWidth(e.symbol))) used.add(e)
+        while (used.size > MAX) used.removeAt(used.size - 1)
+    }
+
+    private fun writeLater(text: String, tellClear: Boolean = false) {
+        val gen = loadGen.get()
+        val queued = runCatching {
+            io.execute {
+                val overtaken = gen != loadGen.get()
+                val landed = !overtaken && runCatching { writeAtomically(text) }.isSuccess
+                if (tellClear) {
+                    if (!landed && !overtaken) clearFailed = true
+                    reportWrite(landed)
+                }
+            }
+        }.isSuccess
+        if (!queued && tellClear) {
+            clearFailed = true
+            reportWrite(false)
+        }
+    }
+
     fun importEntries(incoming: List<Entry>, merge: Boolean): Boolean {
+        settleClear()
         if (merge) {
             if (!readable) return false
         } else {
@@ -86,11 +144,6 @@ class SymbolUsageStore(private val dir: File) {
         while (used.size > MAX) used.removeAt(used.size - 1)
         persist()
         return true
-    }
-
-    private fun onWriteLane(work: () -> Unit) {
-        val queued = runCatching { io.execute(work) }.isSuccess
-        if (!queued) work()
     }
 
     private fun onWriteLaneNow(work: () -> Unit) {
@@ -116,11 +169,18 @@ class SymbolUsageStore(private val dir: File) {
 
     private fun writeAtomically(text: String) = AtomicFileSwap.write(file, tmpTag, text)
 
-    fun recent(n: Int = MAX): List<String> = used.take(n).map { it.symbol }
+    fun recent(n: Int = MAX): List<String> {
+        settleClear()
+        return used.take(n).map { it.symbol }
+    }
 
-    fun recentEntries(n: Int = MAX): List<Entry> = used.take(n)
+    fun recentEntries(n: Int = MAX): List<Entry> {
+        settleClear()
+        return used.take(n)
+    }
 
     fun originOf(symbol: String): String? {
+        settleClear()
         val key = SymbolCatalog.foldFullWidth(symbol)
         return used.firstOrNull { SymbolCatalog.foldFullWidth(it.symbol) == key }?.origin
     }
