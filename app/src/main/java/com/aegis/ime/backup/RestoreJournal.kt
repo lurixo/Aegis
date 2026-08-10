@@ -18,6 +18,7 @@ package com.aegis.ime.backup
 import android.content.SharedPreferences
 import com.aegis.ime.user.AtomicFileSwap
 import com.aegis.ime.user.LiveUserData
+import com.aegis.ime.user.RestoreTrouble
 import java.io.File
 import java.io.IOException
 
@@ -132,11 +133,22 @@ internal class RestoreJournal private constructor(
             val dir = File(filesDir, DIR)
             if (!dir.isDirectory) return false
             val journal = RestoreJournal(filesDir, dir)
-            if (File(dir, DONE).isFile || !File(dir, READY).isFile || !journal.canRollBack()) {
+            if (File(dir, DONE).isFile || !File(dir, READY).isFile) {
                 journal.discard()
                 return false
             }
-            journal.rollBack(prefs)
+            if (!journal.canRollBack()) {
+                LiveUserData.restoreTrouble = RestoreTrouble.ROLLBACK_IMPOSSIBLE
+                journal.discard()
+                return false
+            }
+            try {
+                journal.rollBack(prefs)
+            } catch (e: Exception) {
+                LiveUserData.restoreTrouble = RestoreTrouble.ROLLBACK_FAILED
+                throw e
+            }
+            LiveUserData.restoreTrouble = null
             return true
         }
 

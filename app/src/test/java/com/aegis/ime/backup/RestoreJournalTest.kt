@@ -19,12 +19,14 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.LiveUserData
+import com.aegis.ime.user.RestoreTrouble
 import com.aegis.ime.user.SymbolUsageStore
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -48,6 +50,7 @@ class RestoreJournalTest {
         UserDictHot.host = null
         LiveUserData.clipboardHost = null
         LiveUserData.restoreInProgress = false
+        LiveUserData.restoreTrouble = null
         listOf("userdb.txt", "userlearn.txt", "phrases.txt", "clipboard.txt", "symbol_usage.txt").forEach {
             File(filesDir, it).deleteRecursively()
         }
@@ -270,6 +273,55 @@ class RestoreJournalTest {
 
         assertEquals("not one store may be emptied on the word of copies that are gone", before, snapshot())
         assertFalse(journalDir().exists())
+    }
+
+    @Test fun a_journal_that_lost_the_copies_it_took_says_the_device_is_left_part_restored() {
+        seedLocalData()
+        RestoreJournal.open(filesDir, prefs)
+        assertTrue(File(journalDir(), "before").deleteRecursively())
+
+        assertFalse(RestoreJournal.finishAnyInterrupted(filesDir, prefs))
+
+        assertEquals(
+            "nothing can put this device back, and it is on nobody's books unless this is set",
+            RestoreTrouble.ROLLBACK_IMPOSSIBLE,
+            LiveUserData.restoreTrouble,
+        )
+    }
+
+    @Test fun a_rollback_that_threw_is_put_on_the_books() {
+        seedLocalData()
+        RestoreJournal.open(filesDir, prefs)
+        val copies = File(journalDir(), "before/clips").listFiles().orEmpty()
+        assertTrue("precondition: the journal took a copy of a sidecar", copies.isNotEmpty())
+        copies.forEach { it.setReadable(false, false) }
+        aRestoreWritesOverEverything()
+
+        val outcome = runCatching { RestoreJournal.finishAnyInterrupted(filesDir, prefs) }
+
+        copies.forEach { it.setReadable(true, true) }
+        assertTrue("precondition: the rollback really did fail", outcome.isFailure)
+        assertEquals(RestoreTrouble.ROLLBACK_FAILED, LiveUserData.restoreTrouble)
+    }
+
+    @Test fun a_rollback_that_got_through_takes_the_notice_back_down() {
+        seedLocalData()
+        RestoreJournal.open(filesDir, prefs)
+        aRestoreWritesOverEverything()
+        LiveUserData.restoreTrouble = RestoreTrouble.ROLLBACK_FAILED
+
+        assertTrue(RestoreJournal.finishAnyInterrupted(filesDir, prefs))
+
+        assertNull("a rollback that landed leaves nothing to tell the user about", LiveUserData.restoreTrouble)
+    }
+
+    @Test fun a_journal_with_nothing_to_finish_says_nothing_is_wrong() {
+        seedLocalData()
+        RestoreJournal.open(filesDir, prefs).markDone()
+
+        assertFalse(RestoreJournal.finishAnyInterrupted(filesDir, prefs))
+
+        assertNull("a restore that got to the end must never raise a notice", LiveUserData.restoreTrouble)
     }
 
     @Test fun the_big_clip_sidecars_are_not_swept_before_the_copies_of_them_are_in_hand() {

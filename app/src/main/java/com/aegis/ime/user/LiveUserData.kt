@@ -76,4 +76,12 @@ object LiveUserData {
 
     @Volatile
     var restoreInProgress: Boolean = false
+
+    @Volatile
+    var restoreTrouble: RestoreTrouble? = null
+}
+
+enum class RestoreTrouble {
+    ROLLBACK_FAILED,
+    ROLLBACK_IMPOSSIBLE,
 }
