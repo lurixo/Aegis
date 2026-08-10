@@ -55,15 +55,22 @@ class ClipboardRecordQueueTest {
         return ArrayList(field.get(store) as ArrayList<ClipEntry>)
     }
 
+    private fun changer(store: ClipboardStore): ExecutorService {
+        val field = ClipboardStore::class.java.getDeclaredField("changes")
+        field.isAccessible = true
+        return field.get(store) as ExecutorService
+    }
+
     private fun occupy(store: ClipboardStore) {
-        val entered = CountDownLatch(1)
+        val lanes = listOf(changer(store), writer(store))
+        val entered = CountDownLatch(lanes.size)
         val gate = CountDownLatch(1)
         release = gate
-        writer(store).execute {
+        for (lane in lanes) lane.execute {
             entered.countDown()
             gate.await(10, TimeUnit.SECONDS)
         }
-        assertTrue("precondition: the clipboard writer is occupied", entered.await(2, TimeUnit.SECONDS))
+        assertTrue("precondition: both clipboard lanes are occupied", entered.await(2, TimeUnit.SECONDS))
     }
 
     private fun big(marker: String): String = marker + "x".repeat(ClipboardStore.BIG_THRESHOLD + 1)
@@ -236,6 +243,76 @@ class ClipboardRecordQueueTest {
         )
 
         assertEquals(listOf("交班前的最后一条"), store(dir).historyText())
+    }
+
+    @Test(timeout = 30_000) fun a_write_that_never_finishes_does_not_hold_up_reading_the_panel() {
+        val dir = newDir()
+        val s = store(dir)
+        val entered = CountDownLatch(1)
+        val gate = CountDownLatch(1)
+        release = gate
+        writer(s).execute {
+            entered.countDown()
+            gate.await(20, TimeUnit.SECONDS)
+        }
+        assertTrue("precondition: the file writer is occupied", entered.await(2, TimeUnit.SECONDS))
+
+        s.record("刚复制的")
+        s.settleChanges()
+
+        val startedAt = System.nanoTime()
+        val rows = s.history()
+        s.reloadPhrases()
+        val waitedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+
+        assertEquals("what the panel opens on must already hold the clip", listOf("刚复制的"), rows.map { it.body() })
+        assertTrue(
+            "opening the panel waited ${waitedMillis}ms behind a write that never finishes",
+            waitedMillis < 2_000,
+        )
+        assertFalse("precondition: the write really was still stuck", File(dir, "clipboard.txt").exists())
+    }
+
+    @Test(timeout = 30_000) fun a_clip_that_has_not_been_filed_yet_is_never_left_off_the_panel() {
+        val dir = newDir()
+        val s = store(dir)
+        occupy(s)
+
+        s.record("还在排队的")
+        val reader = Thread { s.history() }.apply { isDaemon = true; start() }
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        while (System.nanoTime() < deadline && reader.state !in setOf(Thread.State.WAITING, Thread.State.TIMED_WAITING)) {
+            Thread.onSpinWait()
+        }
+
+        assertTrue(
+            "reading the history must wait for a clip that was taken but not filed rather than leave it out",
+            reader.isAlive,
+        )
+
+        release?.countDown()
+        reader.join(TimeUnit.SECONDS.toMillis(20))
+        assertEquals(listOf("还在排队的"), s.history().map { it.body() })
+    }
+
+    @Test fun a_reload_never_throws_away_a_phrase_edit_the_writer_still_holds() {
+        val dir = newDir()
+        val s = store(dir)
+        File(dir, "phrases.txt").writeText("C\t甲\nP\t盘上的\n")
+        s.load()
+        occupy(s)
+
+        assertEquals(1, s.addPhrasesTo("甲", listOf("刚加的")))
+        s.reloadPhrases()
+
+        assertEquals(
+            "a reload must not put back a file that is older than the edit still on its way to it",
+            listOf("刚加的", "盘上的"),
+            s.phrasesIn("甲"),
+        )
+        release?.countDown()
+        s.flushPendingWrites()
+        assertEquals(listOf("刚加的", "盘上的"), store(dir).phrasesIn("甲"))
     }
 
     @Test fun a_reload_never_sees_half_of_a_clip_that_was_still_being_filed() {

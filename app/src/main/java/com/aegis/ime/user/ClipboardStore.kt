@@ -140,7 +140,12 @@ class ClipboardStore(private val dir: File) {
     private val io = Executors.newSingleThreadExecutor { r ->
         Thread(r, "aegis-clip-io").apply { isDaemon = true }.also { writer = it }
     }
+    private var changer: Thread? = null
+    private val changes = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "aegis-clip-changes").apply { isDaemon = true }.also { changer = it }
+    }
     private val saveGen = AtomicLong(0)
+    private val phrasesPending = AtomicLong(0)
 
     private class Phrase(var text: String, var note: String = "")
     private class Category(var name: String, val phrases: ArrayList<Phrase> = ArrayList())
@@ -254,7 +259,7 @@ class ClipboardStore(private val dir: File) {
     fun record(text: String?) {
         val t = text?.trim().orEmpty()
         if (t.isEmpty()) return
-        onWriteLane { recordHere(t) }
+        onChangeLane { recordHere(t) }
     }
 
     private fun recordHere(text: String) {
@@ -265,8 +270,8 @@ class ClipboardStore(private val dir: File) {
             history.add(0, entry)
             PendingWrite(saveGen.incrementAndGet(), ArrayList(history))
         }
-        if (pending.gen != saveGen.get() || !historyReadable) return
-        runCatching { writeHistory(pending.rows) }
+        if (!historyReadable) return
+        onWriteLane { if (pending.gen == saveGen.get()) runCatching { writeHistory(pending.rows) } }
     }
 
     fun importHistory(entries: List<ClipEntry>, merge: Boolean) {
@@ -304,7 +309,7 @@ class ClipboardStore(private val dir: File) {
     fun delete(text: String) = deleteAll(listOf(text))
 
     fun deleteAll(texts: Collection<String>): Boolean {
-        flushPendingWrites()
+        settleChanges()
         if (!historyReadable) return false
         val keys = texts.toSet()
         if (!synchronized(history) { history.removeAll { it.key in keys } }) return true
@@ -312,24 +317,24 @@ class ClipboardStore(private val dir: File) {
     }
 
     fun clearHistory(): Boolean {
-        flushPendingWrites()
+        settleChanges()
         if (!historyReadable) return false
         if (!synchronized(history) { history.isNotEmpty().also { history.clear() } }) return true
         return saveHistoryNow()
     }
 
     fun history(): List<ClipEntry> {
-        flushPendingWrites()
+        settleChanges()
         return snapshot()
     }
 
     internal fun latest(): String? {
-        flushPendingWrites()
+        settleChanges()
         return synchronized(history) { history.firstOrNull() }?.body()
     }
 
     internal fun residentBodyChars(): Long {
-        flushPendingWrites()
+        settleChanges()
         return snapshot().sumOf { it.residentChars().toLong() }
     }
 
@@ -337,7 +342,7 @@ class ClipboardStore(private val dir: File) {
 
 
     fun reloadPhrases() {
-        flushPendingWrites()
+        if (phrasesPending.get() > 0L) return
         loadPhrases()
     }
 
@@ -616,11 +621,26 @@ class ClipboardStore(private val dir: File) {
         MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it.toInt() and 0xFF) }
 
     internal fun flushPendingWrites() {
+        settleChanges()
         if (Thread.currentThread() === writer) return
         runCatching { io.submit { }.get() }
     }
 
-    fun stopSaving() { runCatching { io.shutdown() } }
+    internal fun settleChanges() {
+        if (Thread.currentThread() === changer || Thread.currentThread() === writer) return
+        runCatching { changes.submit { }.get() }
+    }
+
+    fun stopSaving() {
+        runCatching { changes.shutdown() }
+        runCatching { io.shutdown() }
+    }
+
+    private fun onChangeLane(work: () -> Unit) {
+        if (Thread.currentThread() === changer) return work()
+        val queued = runCatching { changes.execute(work) }.isSuccess
+        if (!queued) work()
+    }
 
     private fun onWriteLane(work: () -> Unit) {
         val queued = runCatching { io.execute(work) }.isSuccess
@@ -659,13 +679,18 @@ class ClipboardStore(private val dir: File) {
     private fun phraseWritesAllowed(): Boolean = phrasesReadable && !LiveUserData.restoreInProgress
 
     private fun writePhrases(edit: PhraseEdit, count: Int, requested: Int, text: String) {
+        phrasesPending.incrementAndGet()
         val queued = runCatching {
             io.execute {
                 val landed = runCatching { atomicWrite(phraseFile, text) }.isSuccess
+                phrasesPending.decrementAndGet()
                 reportPhraseWrite(PhraseChange(edit, count, requested, landed))
             }
         }.isSuccess
-        if (!queued) reportPhraseWrite(PhraseChange(edit, count, requested, false))
+        if (!queued) {
+            phrasesPending.decrementAndGet()
+            reportPhraseWrite(PhraseChange(edit, count, requested, false))
+        }
     }
 
     private fun refusePhraseWrite(edit: PhraseEdit, requested: Int) =

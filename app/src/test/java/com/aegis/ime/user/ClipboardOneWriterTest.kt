@@ -108,6 +108,27 @@ class ClipboardOneWriterTest {
         assertFalse("a write that never reached the file must not be reported as one that landed", change!!.saved)
     }
 
+    @Test(timeout = 120_000) fun a_phrase_write_the_next_one_queued_behind_still_reports_what_reached_the_file() {
+        val dir = newDir()
+        val s = store(dir)
+        val reported = ArrayBlockingQueue<PhraseChange>(8)
+        s.reportPhraseWritesTo({ it.run() }) { reported.add(it) }
+        val gate = occupy(s)
+
+        assertTrue("precondition: the category is taken", s.addCategory("甲"))
+        assertEquals("precondition: the phrase is taken", 1, s.addPhrasesTo("甲", listOf("存进去的")))
+
+        gate.countDown()
+        s.flushPendingWrites()
+
+        assertEquals(
+            "two edits made back to back both reached phrases.txt, so neither may be called a failure",
+            listOf(true, true),
+            listOf(reported.poll(30, TimeUnit.SECONDS)?.saved, reported.poll(30, TimeUnit.SECONDS)?.saved),
+        )
+        assertEquals(listOf("存进去的"), store(dir).phrasesIn("甲"))
+    }
+
     @Test fun an_imported_history_is_written_by_the_store_writer_alone() {
         val dir = newDir()
         val s = store(dir)
