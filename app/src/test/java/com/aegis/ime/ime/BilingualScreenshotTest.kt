@@ -22,6 +22,10 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.os.Looper
 import android.view.View
+import android.view.ViewGroup
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -42,6 +46,7 @@ import com.aegis.ime.ui.SettingsHomePage
 import com.aegis.ime.ui.theme.AegisTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -72,9 +77,10 @@ class BilingualScreenshotTest {
 
     private fun exactly(px: Int) = View.MeasureSpec.makeMeasureSpec(px, View.MeasureSpec.EXACTLY)
 
-    private fun snap(view: View, hPx: Int, dir: File, name: String) {
+    private fun snap(view: View, hPx: Int, dir: File, name: String, afterLayout: (View) -> Unit = {}) {
         view.measure(exactly(wPx), exactly(hPx))
         view.layout(0, 0, wPx, hPx)
+        afterLayout(view)
         val bmp = Bitmap.createBitmap(wPx, hPx, Bitmap.Config.ARGB_8888)
         bmp.eraseColor(Color.MAGENTA)
         view.draw(Canvas(bmp))
@@ -94,6 +100,45 @@ class BilingualScreenshotTest {
         val content = painted - fill
         assertTrue("$label: rendered essentially nothing (still the magenta sentinel)", painted > total / 50)
         assertTrue("$label: a flat fill with nothing drawn on it", content > total / 500)
+    }
+
+    private fun categoryRailOf(panel: View): ScrollView {
+        val hits = ArrayList<ScrollView>()
+        fun walk(v: View) {
+            if (v is ScrollView) {
+                val child = v.getChildAt(0)
+                if (child is LinearLayout && child.childCount > 0 &&
+                    (0 until child.childCount).all { child.getChildAt(it) is TextView }
+                ) hits.add(v)
+            }
+            if (v is ViewGroup) for (i in 0 until v.childCount) walk(v.getChildAt(i))
+        }
+        walk(panel)
+        return hits.single()
+    }
+
+    private fun alignCategoryRail(panel: View) {
+        val scroll = categoryRailOf(panel)
+        val rail = scroll.getChildAt(0) as LinearLayout
+        val tabs = (0 until rail.childCount).map { rail.getChildAt(it) }
+        val words = tabs.map { it.top + it.paddingTop to it.bottom - it.paddingBottom }
+        val open = tabs.single { it.background != null }
+        val viewport = scroll.height
+        fun cuts(edge: Int) = words.any { (top, bottom) -> edge > top && edge < bottom }
+        fun clearance(edge: Int) = words.minOf { (top, bottom) ->
+            minOf(kotlin.math.abs(edge - top), kotlin.math.abs(edge - bottom))
+        }
+        fun chipLoss(offset: Int) =
+            maxOf(0, offset - open.top) + maxOf(0, open.bottom - (offset + viewport))
+        val resting = (0..maxOf(0, rail.height - viewport))
+            .filterNot { cuts(it) || cuts(it + viewport) }
+            .minWithOrNull(
+                compareBy<Int> { chipLoss(it) }
+                    .thenByDescending { minOf(clearance(it), clearance(it + viewport)) },
+            )
+        assertNotNull("no rail position leaves every category label whole", resting)
+        scroll.isVerticalScrollBarEnabled = false
+        scroll.scrollTo(0, resting!!)
     }
 
     private fun snapCompose(dir: File, name: String, hDp: Int = 1180, content: @Composable () -> Unit) {
@@ -168,7 +213,7 @@ class BilingualScreenshotTest {
                 applyPalette(pal)
                 openCategoryForTest(0)
             },
-            (560 * density).toInt(), dir, "emoji.png",
+            (360 * density).toInt(), dir, "emoji.png", ::alignCategoryRail,
         )
 
         snap(
@@ -189,7 +234,7 @@ class BilingualScreenshotTest {
                 applyPalette(pal)
                 openCategoryForTest(1)
             },
-            (560 * density).toInt(), dir, "symbols.png",
+            (360 * density).toInt(), dir, "symbols.png", ::alignCategoryRail,
         )
 
         snapCompose(dir, "settings.png") { SettingsHomePage(onOpenGroup = {}) }
