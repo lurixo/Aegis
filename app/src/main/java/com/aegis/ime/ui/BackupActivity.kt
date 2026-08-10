@@ -97,9 +97,7 @@ class BackupActivity : ComponentActivity() {
         defaultPasswordStore = backupDefaultPasswordStore(this)
         defaultPasswordAuthenticator = PlatformBackupDefaultPasswordAuthenticator(this)
         refreshDefaultPasswordState()
-        if (BackupJob.inProgress || savedInstanceState?.getBoolean(STATE_WORKING) == true) {
-            uiState = BackupUiState.Working
-        }
+        uiState = resumedState(savedInstanceState)
         bootstrapSettingsEdgeToEdge()
         setContent {
             SettingsActivityChrome {
@@ -150,7 +148,17 @@ class BackupActivity : ComponentActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
-        outState.putBoolean(STATE_WORKING, uiState == BackupUiState.Working)
+        val working = uiState == BackupUiState.Working
+        outState.putBoolean(STATE_WORKING, working)
+        outState.putBoolean(STATE_WORKING_JOB, working && BackupJob.awaitingReport)
+    }
+
+    private fun resumedState(savedInstanceState: Bundle?): BackupUiState = when {
+        BackupJob.awaitingReport -> BackupUiState.Working
+        savedInstanceState?.getBoolean(STATE_WORKING_JOB) == true ->
+            BackupUiState.Result(R.string.backup_job_interrupted)
+        savedInstanceState?.getBoolean(STATE_WORKING) == true -> BackupUiState.Working
+        else -> BackupUiState.Menu
     }
 
     override fun onDestroy() {
@@ -322,6 +330,7 @@ class BackupActivity : ComponentActivity() {
         const val MIME_TYPE = "application/octet-stream"
         const val DEFAULT_FILE_NAME = "aegis-backup.aegisbak"
         const val STATE_WORKING = "backup_working"
+        const val STATE_WORKING_JOB = "backup_working_job"
     }
 }
 
@@ -338,6 +347,8 @@ internal object BackupJob {
 
     private var finished: BackupUiState.Result? = null
     private var listener: ((BackupUiState.Result) -> Unit)? = null
+
+    val awaitingReport: Boolean get() = inProgress || finished != null
 
     fun start(work: () -> BackupUiState.Result) {
         inProgress = true
