@@ -162,6 +162,7 @@ class SharedPanelBackControlTest {
             val button = panel.backButtonForTest()
             assertTrue("$field uses the edit panel title control", button is TextView)
             assertTrue("$field back hit height", button.height >= dp(48))
+            assertTrue("$field back hit width", button.width >= dp(48))
             val editBack = editPanelBack()
             assertEquals("$field back text scale", editBack.textSize, (button as TextView).textSize, 0.01f)
             assertEquals(
@@ -358,16 +359,21 @@ class SharedPanelBackControlTest {
                     val bar = topBarOf(clipboard)
                     val content = bar.getChildAt(0)
                     val back = backControls(clipboard).single()
-                    val viewport = boundsIn(clipboard, bar)
-                    assertFalse("$name must fit the whole top bar at 320dp", bar.canScrollHorizontally(1))
-                    for (target in topBarTargets(content)) {
-                        val box = boundsIn(clipboard, target)
-                        assertTrue(
-                            "$name leaves a target outside the viewport unscrolled: $box in $viewport",
-                            box.left >= viewport.left && box.right <= viewport.right,
-                        )
-                    }
                     assertEquals("$name yields the back label rather than the buttons", "", back.text.toString())
+                    assertTrue(
+                        "$name shrank the back control to ${back.width / density}dp," +
+                            " under the ${PanelBackButton.HIT_DP}dp touch target it must keep",
+                        back.width >= dp(PanelBackButton.HIT_DP),
+                    )
+                    assertEquals("$name flexible gap gives up its room first", 0, topBarSpacer(content).width)
+                    val last = topBarTargets(content).last()
+                    bar.scrollTo(content.width, 0)
+                    val visible = boundsIn(clipboard, last)
+                    val viewport = boundsIn(clipboard, bar)
+                    assertTrue(
+                        "$name last target must be reachable: $visible in $viewport",
+                        visible.left >= viewport.left && visible.right <= viewport.right,
+                    )
                     assertEquals(
                         "$name keeps naming the back control for accessibility",
                         ctx.getString(R.string.clip_back),
@@ -379,6 +385,29 @@ class SharedPanelBackControlTest {
             }
         } finally {
             RuntimeEnvironment.setFontScale(1f)
+        }
+    }
+
+    @Test
+    @Config(qualifiers = "w320dp-h640dp-mdpi")
+    fun the_back_control_keeps_its_touch_target_however_narrow_the_panel_gets() {
+        for (widthDp in listOf(411, 360, 340, 320, 300, 280)) {
+            for (phrase in listOf(false, true)) {
+                val clipboard = clipboardView(phrase)
+                layout(clipboard, width = dp(widthDp), height = dp(400))
+                val back = backControls(clipboard).single()
+                val name = "${widthDp}dp ${if (phrase) "phrases" else "clipboard"}"
+                assertTrue(
+                    "$name back control is ${back.width / density}dp wide," +
+                        " under the ${PanelBackButton.HIT_DP}dp touch target",
+                    back.width >= dp(PanelBackButton.HIT_DP),
+                )
+                assertTrue(
+                    "$name back control is ${back.height / density}dp tall," +
+                        " under the ${PanelBackButton.HIT_DP}dp touch target",
+                    back.height >= dp(PanelBackButton.HIT_DP),
+                )
+            }
         }
     }
 
@@ -488,6 +517,7 @@ class SharedPanelBackControlTest {
             val name = if (phrase) "phrases" else "clipboard"
             val button = backControls(clipboard).single()
             assertEquals("$name back hit height", dp(48), button.height)
+            assertTrue("$name back hit width", button.width >= dp(48))
             assertEquals("$name back text scale", editBack.textSize, button.textSize, 0.01f)
             assertEquals(
                 "$name back icon box",

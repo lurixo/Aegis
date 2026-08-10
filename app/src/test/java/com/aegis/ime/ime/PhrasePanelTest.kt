@@ -716,6 +716,8 @@ class PhrasePanelTest {
             ViewGroup.LayoutParams.WRAP_CONTENT,
             back.layoutParams.width,
         )
+        layout(v)
+        assertTrue("返回 keeps a 48dp hit target however its label is sized", back.width >= backTarget)
         assertEquals("all top action icons share one width (item7)", 1, actions.map { it.layoutParams.width }.toSet().size)
         assertEquals("all top action icons share one height (item7)", 1, actions.map { it.layoutParams.height }.toSet().size)
         val surfaced = icons.filter { it.contentDescription?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_add_phrase), ctx.getString(com.aegis.ime.R.string.clip_edit_phrases), ctx.getString(com.aegis.ime.R.string.clip_clear_category)) }
