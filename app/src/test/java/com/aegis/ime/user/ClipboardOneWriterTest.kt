@@ -129,6 +129,39 @@ class ClipboardOneWriterTest {
         assertEquals(listOf("存进去的"), store(dir).phrasesIn("甲"))
     }
 
+    @Test(timeout = 120_000) fun a_clip_delete_the_writer_never_answers_lets_the_caller_go_and_reports_later() {
+        val dir = newDir()
+        val s = store(dir)
+        s.record("要删的一条")
+        s.flushPendingWrites()
+        val blocker = s.tempFileFor(File(dir, "clipboard.txt"))
+        assertTrue("precondition: the write can never reach the disk", blocker.mkdirs())
+        assertTrue(File(blocker, "occupied").createNewFile())
+        val reported = ArrayBlockingQueue<Boolean>(8)
+        s.reportClipWritesTo({ it.run() }) { reported.add(it) }
+        val gate = occupy(s)
+
+        val startedAt = System.nanoTime()
+        val taken = s.deleteAll(listOf("要删的一条"))
+        val waitedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
+
+        assertTrue("the store must take a deletion it has not written yet", taken)
+        assertTrue(
+            "the caller waited ${waitedMillis}ms rather than being let go at once",
+            waitedMillis < 2_000,
+        )
+        assertNull(
+            "nothing may be reported while the write is still stuck behind the occupied writer",
+            reported.poll(2, TimeUnit.SECONDS),
+        )
+
+        gate.countDown()
+
+        val landed = reported.poll(30, TimeUnit.SECONDS)
+        assertNotNull("the write the caller walked away from must still report back", landed)
+        assertFalse("a write that never reached the file must not be reported as one that landed", landed!!)
+    }
+
     @Test fun an_imported_history_is_written_by_the_store_writer_alone() {
         val dir = newDir()
         val s = store(dir)

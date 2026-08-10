@@ -22,8 +22,6 @@ import java.security.MessageDigest
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicLong
 
 class ClipEntry private constructor(
@@ -172,6 +170,26 @@ class ClipboardStore(private val dir: File) {
 
     fun stopReportingPhraseWrites() { writeReport = null }
 
+    @Volatile
+    private var clipReportLane: Executor = Executor { it.run() }
+
+    @Volatile
+    private var clipReport: ((Boolean) -> Unit)? = null
+
+    fun reportClipWritesTo(lane: Executor, report: (Boolean) -> Unit) {
+        clipReportLane = lane
+        clipReport = report
+    }
+
+    fun stopReportingClipWrites() { clipReport = null }
+
+    private fun reportClipWrite(landed: Boolean) {
+        if (clipReport == null) return
+        clipReportLane.execute { clipReport?.invoke(landed) }
+    }
+
+    private fun clipWritesAllowed(): Boolean = historyReadable && !LiveUserData.restoreInProgress
+
     fun load() {
         flushPendingWrites()
         synchronized(history) {
@@ -310,17 +328,19 @@ class ClipboardStore(private val dir: File) {
 
     fun deleteAll(texts: Collection<String>): Boolean {
         settleChanges()
-        if (!historyReadable) return false
+        if (!clipWritesAllowed()) { reportClipWrite(false); return false }
         val keys = texts.toSet()
         if (!synchronized(history) { history.removeAll { it.key in keys } }) return true
-        return saveHistoryNow()
+        saveHistoryLater()
+        return true
     }
 
     fun clearHistory(): Boolean {
         settleChanges()
-        if (!historyReadable) return false
+        if (!clipWritesAllowed()) { reportClipWrite(false); return false }
         if (!synchronized(history) { history.isNotEmpty().also { history.clear() } }) return true
-        return saveHistoryNow()
+        saveHistoryLater()
+        return true
     }
 
     fun history(): List<ClipEntry> {
@@ -564,10 +584,16 @@ class ClipboardStore(private val dir: File) {
     private fun stampPendingWrite(): PendingWrite =
         synchronized(history) { PendingWrite(saveGen.incrementAndGet(), ArrayList(history)) }
 
-    private fun saveHistoryNow(): Boolean {
-        if (!historyReadable || LiveUserData.restoreInProgress) return false
+    private fun saveHistoryLater() {
         val pending = stampPendingWrite()
-        return onWriteLaneReporting { if (pending.gen == saveGen.get()) writeHistory(pending.rows) }
+        val queued = runCatching {
+            io.execute {
+                val landed = pending.gen != saveGen.get() ||
+                    runCatching { writeHistory(pending.rows) }.isSuccess
+                reportClipWrite(landed)
+            }
+        }.isSuccess
+        if (!queued) reportClipWrite(false)
     }
 
     private fun writeHistory(snapshot: List<ClipEntry>) {
@@ -645,22 +671,6 @@ class ClipboardStore(private val dir: File) {
     private fun onWriteLane(work: () -> Unit) {
         val queued = runCatching { io.execute(work) }.isSuccess
         if (!queued) work()
-    }
-
-    private fun onWriteLaneReporting(work: () -> Unit): Boolean {
-        if (Thread.currentThread() === writer) return runCatching(work).isSuccess
-        val pending = runCatching { io.submit(work) }.getOrNull() ?: return false
-        return try {
-            pending.get(WRITE_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)
-            true
-        } catch (_: InterruptedException) {
-            Thread.currentThread().interrupt()
-            false
-        } catch (_: ExecutionException) {
-            false
-        } catch (_: TimeoutException) {
-            false
-        }
     }
 
     private fun onWriteLaneNow(work: () -> Unit) {
@@ -770,8 +780,6 @@ class ClipboardStore(private val dir: File) {
     }
 
     companion object {
-        const val WRITE_TIMEOUT_MILLIS = 5_000L
-
         private val TMP_TAGS = AtomicLong(0)
 
         private const val LEGACY_IMG_PREFIX = "img:"

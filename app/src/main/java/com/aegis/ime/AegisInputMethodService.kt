@@ -129,6 +129,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         ClipboardStore(filesDir).also {
             it.load()
             it.reportPhraseWritesTo(mainLane, ::reportPhraseWrite)
+            it.reportClipWritesTo(mainLane, ::reportClipWrite)
             LiveUserData.clipboardHost = it
         }
     }
@@ -1106,6 +1107,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         endInlineInput()
     }
 
+    private fun reportClipWrite(landed: Boolean) {
+        if (landed) {
+            inputView?.showPhraseNotice(null)
+            return
+        }
+        val panel = clipboardView
+        if (panel != null && inputView?.isPanelShowing(panel) == true) panel.reportClipWrite()
+        else inputView?.showPhraseNotice(getString(R.string.clip_change_not_saved))
+    }
+
     private fun reportPhraseWrite(change: PhraseChange) {
         val panel = clipboardView
         val leftOut = if (change.edit == PhraseEdit.ADD) panel?.takeClipsLeftOut() ?: 0 else 0
@@ -1274,6 +1285,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         liveUserDictHost.stopSaving()
         LiveUserData.unregisterClipboardPersistenceHooks(clipboardPendingWriteFlush)
         clipboardStore.stopReportingPhraseWrites()
+        clipboardStore.stopReportingClipWrites()
         clipboardStore.stopSaving()
         if (LiveUserData.clipboardHost === clipboardStore) LiveUserData.clipboardHost = null
         LiveUserData.onRestored = null

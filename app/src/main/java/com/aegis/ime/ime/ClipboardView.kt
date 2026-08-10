@@ -2358,6 +2358,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         showOverlay(card)
     }
 
+    fun reportClipWrite() = showNotice(R.string.clip_change_not_saved)
+
     fun reportPhraseWrite(change: PhraseChange, leftOut: Int = 0) {
         val message = phraseWriteNotice(context, change, leftOut)
         if (message.isNotEmpty()) showNotice(message, if (change.saved && leftOut <= 0) TEXT_DARK else RED)

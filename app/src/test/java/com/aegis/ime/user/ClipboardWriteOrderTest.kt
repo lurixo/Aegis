@@ -66,7 +66,7 @@ class ClipboardWriteOrderTest {
     }
 
     private fun saveHistoryOnAnotherThread(store: ClipboardStore): Thread {
-        val method = ClipboardStore::class.java.getDeclaredMethod("saveHistoryNow")
+        val method = ClipboardStore::class.java.getDeclaredMethod("saveHistoryLater")
         method.isAccessible = true
         val stamped = stampCount(store)
         val saver = Thread { method.invoke(store) }.apply { isDaemon = true; start() }

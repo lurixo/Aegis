@@ -892,11 +892,20 @@ class ClipboardStoreTest {
         assertTrue("precondition: the history write is blocked", blocker.mkdirs())
         assertTrue(File(blocker, "occupied").createNewFile())
 
-        assertFalse(
-            "a delete that never reached the file must not come back as one that did",
+        val reported = CopyOnWriteArrayList<Boolean>()
+        s.reportClipWritesTo({ it.run() }) { reported.add(it) }
+
+        assertTrue(
+            "the store takes the delete before the file has had its say",
             s.deleteAll(listOf("要删的")),
         )
+        s.flushPendingWrites()
 
+        assertEquals("a delete owes the panel exactly one answer", 1, reported.size)
+        assertFalse(
+            "a delete that never reached the file must not come back as one that did",
+            reported.single(),
+        )
         assertEquals(
             "the clip is still on the disk, which is what the user has to be told",
             listOf("留下的", "要删的"),
@@ -911,8 +920,13 @@ class ClipboardStoreTest {
         assertTrue("precondition: the history write is blocked", blocker.mkdirs())
         assertTrue(File(blocker, "occupied").createNewFile())
 
-        assertFalse("a clear that never reached the file must not come back as one that did", s.clearHistory())
+        val reported = CopyOnWriteArrayList<Boolean>()
+        s.reportClipWritesTo({ it.run() }) { reported.add(it) }
 
+        assertTrue("the store takes the clear before the file has had its say", s.clearHistory())
+        s.flushPendingWrites()
+
+        assertFalse("a clear that never reached the file must not come back as one that did", reported.single())
         assertEquals(listOf("要清的"), ClipboardStore(dir).apply { load() }.historyText())
     }
 
@@ -920,8 +934,14 @@ class ClipboardStoreTest {
         val dir = newDir()
         val s = ClipboardStore(dir).apply { load(); record("要删的"); record("留下的"); flushPendingWrites() }
 
-        assertTrue("a delete the file took must be reported as taken", s.deleteAll(listOf("要删的")))
+        val reported = CopyOnWriteArrayList<Boolean>()
+        s.reportClipWritesTo({ it.run() }) { reported.add(it) }
 
+        assertTrue("the store takes the delete before the file has had its say", s.deleteAll(listOf("要删的")))
+        s.flushPendingWrites()
+
+        assertEquals("a delete owes the panel exactly one answer", 1, reported.size)
+        assertTrue("a delete the file took must come back as one that did", reported.single())
         assertEquals(listOf("留下的"), ClipboardStore(dir).apply { load() }.historyText())
     }
 
@@ -1041,8 +1061,17 @@ class ClipboardStoreTest {
         val s = ClipboardStore(dir).apply { load(); record("a"); record("b"); flushPendingWrites() }
         s.stopSaving()
 
-        assertFalse("a store with no writer left cannot promise the change lands", s.deleteAll(s.historyKeys().take(1)))
-        assertFalse(s.clearHistory())
+        val reported = CopyOnWriteArrayList<Boolean>()
+        s.reportClipWritesTo({ it.run() }) { reported.add(it) }
+
+        assertTrue(s.deleteAll(s.historyKeys().take(1)))
+        assertTrue(s.clearHistory())
+
+        assertEquals(
+            "a store with no writer left cannot promise either change lands",
+            listOf(false, false),
+            reported.toList(),
+        )
     }
 
     @Test fun two_stores_over_one_directory_never_share_a_temp_file() {
