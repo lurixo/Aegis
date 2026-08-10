@@ -15,6 +15,9 @@
 
 package com.aegis.ime.ui
 
+import android.app.Activity
+import android.content.Intent
+import android.net.Uri
 import android.os.Looper
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
@@ -721,5 +724,37 @@ class UserDictPageTest {
                 shadowOf(activity).peekNextStartedActivityForResult() != null,
             )
         }
+    }
+
+    @Test fun an_export_over_a_longer_file_leaves_none_of_the_old_one_behind() {
+        val target = File(ctx.cacheDir, "user-dict-over-a-longer-file.txt")
+        target.parentFile?.mkdirs()
+        target.writeBytes(ByteArray(200_000))
+        val stale = target.length()
+        seed(0, "nihao" to "你好")
+        openUserDictPage()
+
+        ShadowToast.reset()
+        compose.onNodeWithTag("user_dict_export").performClick()
+        settleEdits()
+        scenario!!.onActivity { activity ->
+            val picked = shadowOf(activity).peekNextStartedActivityForResult()
+            assertNotNull("precondition: the export must reach the document picker", picked)
+            shadowOf(activity).receiveResult(
+                picked.intent,
+                Activity.RESULT_OK,
+                Intent().setData(Uri.fromFile(target)),
+            )
+        }
+
+        assertEquals(
+            "precondition: the export itself must go through",
+            s(R.string.user_dict_toast_export_done),
+            reported(),
+        )
+        assertTrue(
+            "a word list export must not leave the tail of a longer file behind, was ${target.length()} of $stale bytes",
+            target.length() < stale,
+        )
     }
 }
