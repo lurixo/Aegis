@@ -297,6 +297,21 @@ class SettingsWiringTest {
         assertTrue("the hide request must precede the activity launch", launch > hide)
     }
 
+    @Test fun the_restore_notice_hides_the_keyboard_before_opening_backup_and_restore() {
+        val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
+        val body = svc.substringAfter("private fun openBackup()").substringBefore("private fun launchPhraseTransfer")
+        val hide = body.indexOf("requestHideSelf(0)")
+        val launch = body.indexOf("startActivity(")
+        assertTrue("openBackup must request the IME hide", hide >= 0)
+        assertTrue("the hide request must precede the activity launch", launch > hide)
+        assertTrue("the notice must open the backup and restore page", body.contains("BackupActivity::class.java"))
+        assertTrue("an IME launches into its own task", body.contains("FLAG_ACTIVITY_NEW_TASK"))
+        assertTrue(
+            "a tap on the notice must reach openBackup",
+            svc.contains("onRestoreNotice = { openBackup() }"),
+        )
+    }
+
     @Test fun download_work_is_screen_independent_and_observed_by_cards() {
         val runtime = src("src/main/java/com/aegis/ime/ui/DownloadCardWork.kt")
         assertTrue("download runtime must use the application context, not a screen context", runtime.contains("context.applicationContext"))

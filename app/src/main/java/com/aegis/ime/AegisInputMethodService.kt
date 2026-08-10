@@ -514,6 +514,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onEditConfirm = { confirmInlineInput() }
             onEditCancel = { cancelInlineInput() }
             onOverlayChanged = { syncBackCallback() }
+            onRestoreNotice = { openBackup() }
         }
         inputView = view
         view.onPanelChanged = { panel ->
@@ -1008,6 +1009,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         runCatching {
             startActivity(
                 android.content.Intent(this, com.aegis.ime.ui.SetupActivity::class.java)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
+    }
+
+    private fun openBackup() {
+        requestHideSelf(0)
+        runCatching {
+            startActivity(
+                android.content.Intent(this, com.aegis.ime.ui.BackupActivity::class.java)
                     .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
             )
         }
