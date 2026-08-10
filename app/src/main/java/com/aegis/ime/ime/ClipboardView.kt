@@ -340,6 +340,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
     private fun entryBodies(keys: List<String>): List<String> = keys.mapNotNull(::entryBody)
 
+    private var clipsLeftOut = 0
+
+    internal fun takeClipsLeftOut(): Int = clipsLeftOut.also { clipsLeftOut = 0 }
+
     private fun ll(w: Int, h: Int, weight: Float = 0f) = LinearLayout.LayoutParams(w, h, weight)
 
     init {
@@ -2166,17 +2170,45 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
     private fun chooseCategoryThen(keys: List<String>, after: () -> Unit = {}) {
         val cats = categoriesProvider()
-        if (cats.isEmpty()) { after(); onAddCategoryThenAdd(entryBodies(keys)); return }
+        if (cats.isEmpty()) { after(); handOffToNewCategory(keys); return }
         val card = menuCard()
         card.addView(menuTitle(context.getString(R.string.clip_choose_category)))
-        for (c in cats) { card.addView(menuItem(displayCat(c)) { hideOverlay(); onSaveAsPhrasesTo(c, entryBodies(keys)); after(); refresh() }) }
-        card.addView(menuItem(context.getString(R.string.clip_new_category)) { hideOverlay(); after(); onAddCategoryThenAdd(entryBodies(keys)) })
+        for (c in cats) { card.addView(menuItem(displayCat(c)) { hideOverlay(); saveAsPhrasesAndReport(c, keys); after(); refresh() }) }
+        card.addView(menuItem(context.getString(R.string.clip_new_category)) { hideOverlay(); after(); handOffToNewCategory(keys) })
         showOverlay(card)
+    }
+
+    private fun saveAsPhrasesAndReport(category: String, keys: List<String>) {
+        val bodies = entryBodies(keys)
+        val leftOut = keys.size - bodies.size
+        clipsLeftOut = 0
+        if (bodies.isEmpty()) {
+            if (leftOut > 0) showNotice(context.getString(R.string.clip_entries_unreadable_count, leftOut), RED)
+            return
+        }
+        clipsLeftOut = leftOut
+        onSaveAsPhrasesTo(category, bodies)
+    }
+
+    private fun handOffToNewCategory(keys: List<String>) {
+        val bodies = entryBodies(keys)
+        val leftOut = keys.size - bodies.size
+        clipsLeftOut = 0
+        if (leftOut <= 0) { onAddCategoryThenAdd(bodies); return }
+        val told = context.getString(R.string.clip_entries_unreadable_count, leftOut)
+        if (bodies.isEmpty()) showNotice(told, RED) else showNotice(told, RED) { onAddCategoryThenAdd(bodies) }
     }
 
     private fun showSplit(key: String) {
         finishSplitSelection()
-        val text = entryBody(key) ?: return
+        val text = entryBody(key)
+        if (text == null) {
+            showNotice(
+                if (clipTab() && clipIndex[key]?.available == true) R.string.clip_entry_unreadable_body
+                else R.string.clip_entry_lost_body,
+            )
+            return
+        }
         val selection = SplitSelectionModel.from(text)
         splitSelection = selection
         val panel = LinearLayout(context).apply {
@@ -2319,16 +2351,16 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
     private fun showNotice(messageRes: Int) = showNotice(context.getString(messageRes), RED)
 
-    private fun showNotice(message: String, color: Int) {
+    private fun showNotice(message: String, color: Int, onDone: () -> Unit = {}) {
         val card = menuCard()
         card.addView(menuTitle(message, color = color))
-        card.addView(menuItem(context.getString(R.string.clip_done)) { hideOverlay() })
+        card.addView(menuItem(context.getString(R.string.clip_done)) { hideOverlay(); onDone() })
         showOverlay(card)
     }
 
-    fun reportPhraseWrite(change: PhraseChange) {
-        val message = phraseWriteNotice(context, change)
-        if (message.isNotEmpty()) showNotice(message, if (change.saved) TEXT_DARK else RED)
+    fun reportPhraseWrite(change: PhraseChange, leftOut: Int = 0) {
+        val message = phraseWriteNotice(context, change, leftOut)
+        if (message.isNotEmpty()) showNotice(message, if (change.saved && leftOut <= 0) TEXT_DARK else RED)
     }
 
     private fun emptyHint(): View = LinearLayout(context).apply {
@@ -2502,7 +2534,14 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 }
 
-internal fun phraseWriteNotice(context: Context, change: PhraseChange): String = when (change.edit) {
+internal fun phraseWriteNotice(context: Context, change: PhraseChange, leftOut: Int = 0): String {
+    val head = phraseWriteHead(context, change)
+    if (leftOut <= 0) return head
+    val told = context.getString(R.string.clip_entries_unreadable_count, leftOut)
+    return if (head.isEmpty()) told else head + "\n" + told
+}
+
+private fun phraseWriteHead(context: Context, change: PhraseChange): String = when (change.edit) {
     PhraseEdit.ADD -> when {
         !change.saved ->
             context.getString(R.string.clip_phrases_not_saved, change.count.takeIf { it > 0 } ?: change.requested)

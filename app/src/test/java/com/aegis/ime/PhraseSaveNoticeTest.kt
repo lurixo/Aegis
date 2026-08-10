@@ -49,18 +49,21 @@ class PhraseSaveNoticeTest {
 
     private val app = RuntimeEnvironment.getApplication()
     private val phraseFile = File(app.filesDir, "phrases.txt")
+    private val historyFile = File(app.filesDir, "clipboard.txt")
 
     @Before fun start() {
         ShadowToast.reset()
         LiveUserData.clipboardHost = null
         phraseFile.setReadable(true, false)
         phraseFile.delete()
+        historyFile.delete()
     }
 
     @After fun clean() {
         LiveUserData.clipboardHost = null
         phraseFile.setReadable(true, false)
         phraseFile.delete()
+        historyFile.delete()
         ShadowToast.reset()
     }
 
@@ -135,6 +138,21 @@ class PhraseSaveNoticeTest {
 
     private fun labels(root: View): List<String> =
         allViews(root).filterIsInstance<TextView>().mapNotNull { it.text?.toString() }
+
+    private fun layout(v: View) {
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec(480, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(700, View.MeasureSpec.EXACTLY),
+        )
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+    }
+
+    private fun clickText(root: View, label: String) {
+        val tv = allViews(root).filterIsInstance<TextView>()
+            .firstOrNull { it.text?.toString() == label && it.hasOnClickListeners() }
+        assertTrue("no clickable text labelled $label", tv != null)
+        tv!!.performClick()
+    }
 
     private fun label(id: Int, vararg args: Any) = app.getString(id, *args)
 
@@ -273,6 +291,35 @@ class PhraseSaveNoticeTest {
         } finally {
             blocker.deleteRecursively()
         }
+    }
+
+    @Test fun a_save_that_left_a_clip_out_is_not_toasted_away_with_the_one_that_landed() {
+        historyFile.parentFile?.mkdirs()
+        historyFile.writeText("B\t" + "a".repeat(64) + "\n还在的\n")
+        val service = started()
+        val panel = clipboard(service)
+        layout(panel)
+
+        panel.enterSelectForTest(store(service).history().map { it.key })
+        layout(panel)
+        clickText(panel, label(R.string.clip_add_phrase))
+        layout(panel)
+        clickText(panel, label(R.string.clip_default_category))
+        layout(panel)
+        settle(service)
+        layout(panel)
+
+        assertTrue(
+            "a clip left out of a save that otherwise landed must be readable at the user's own pace",
+            labels(panel).any {
+                it.contains(label(R.string.clip_phrases_saved, 1)) &&
+                    it.contains(label(R.string.clip_entries_unreadable_count, 1))
+            },
+        )
+        assertFalse(
+            "and it must not be a bare success the user has nothing to go back to",
+            ShadowToast.getTextOfLatestToast() == label(R.string.clip_phrases_saved, 1),
+        )
     }
 
     @Test fun opening_the_clipboard_panel_again_takes_the_bar_notice_down() {

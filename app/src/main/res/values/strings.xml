@@ -409,6 +409,7 @@
     <string name="clip_phrase_change_not_saved">This change could not be written to your saved phrases, so it will come back</string>
     <string name="clip_entry_lost_body">This clip is no longer stored on this device</string>
     <string name="clip_entry_unreadable_body">This clip is still on this device but could not be read</string>
+    <string name="clip_entries_unreadable_count">%1$d of the selected clips could not be read and were left out</string>
     <string name="clip_phrases_saved">Saved %1$d to your phrases</string>
     <string name="clip_phrases_saved_existing">Saved %1$d, %2$d were already in this category</string>
     <string name="clip_phrases_exist">All %1$d are already in this category</string>

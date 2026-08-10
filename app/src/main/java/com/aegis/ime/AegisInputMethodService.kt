@@ -62,6 +62,7 @@ import com.aegis.ime.user.CustomSymbolStore
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.PhraseChange
+import com.aegis.ime.user.PhraseEdit
 import com.aegis.ime.user.SymbolUsageStore
 import com.aegis.ime.user.UserDeletionPromises
 import com.aegis.ime.user.UserDictHot
@@ -1106,14 +1107,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun reportPhraseWrite(change: PhraseChange) {
-        val message = phraseWriteNotice(this, change)
         val panel = clipboardView
-        if (change.saved) {
+        val leftOut = if (change.edit == PhraseEdit.ADD) panel?.takeClipsLeftOut() ?: 0 else 0
+        val message = phraseWriteNotice(this, change, leftOut)
+        if (change.saved && leftOut <= 0) {
             inputView?.showPhraseNotice(null)
             if (message.isNotEmpty()) toast(message)
             return
         }
-        if (panel != null && inputView?.isPanelShowing(panel) == true) panel.reportPhraseWrite(change)
+        if (panel != null && inputView?.isPanelShowing(panel) == true) panel.reportPhraseWrite(change, leftOut)
         else inputView?.showPhraseNotice(message)
     }
 
