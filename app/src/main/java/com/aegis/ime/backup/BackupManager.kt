@@ -16,6 +16,7 @@
 package com.aegis.ime.backup
 
 import android.content.SharedPreferences
+import com.aegis.ime.user.AtomicFileSwap
 import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.SymbolUsageStore
@@ -47,6 +48,7 @@ object BackupManager {
     private const val EMOJI_DIR = "emoji"
     private val EMOJI_USAGE = BackupItem.EMOJI_USAGE.relativePath
     private const val STAGING_DIR = "backup_staging"
+    private const val TMP_TAG = 0L
 
     private val DOWNLOAD_STATE_KEYS = setOf(
         "engine_pack_touch",
@@ -292,7 +294,7 @@ object BackupManager {
         if (!staged.isFile) return
         val target = File(filesDir, USERLEARN)
         if (merge && target.isFile) return
-        staged.copyTo(target, overwrite = true)
+        AtomicFileSwap.copy(staged, target, TMP_TAG)
     }
 
     private fun applyPhrases(filesDir: File, staging: File, merge: Boolean) {

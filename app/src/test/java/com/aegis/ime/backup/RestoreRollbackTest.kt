@@ -173,6 +173,40 @@ class RestoreRollbackTest {
         assertFalse("the guard must not stay latched", LiveUserData.restoreInProgress)
     }
 
+    @Test fun the_learned_data_is_left_where_it_is_until_the_copy_replacing_it_is_written() {
+        seedBackupData()
+        val backup = export()
+        wipe()
+        seedLocalData()
+        val userLearn = File(filesDir, "userlearn.txt")
+        val local = userLearn.readText()
+        val staged = File(filesDir, "backup_staging/userlearn.txt")
+        val copy = File(filesDir, "restore_journal/before/userlearn.txt")
+        val unreadableOnce = object : SharedPreferences by prefs {
+            override fun getAll(): MutableMap<String, *> {
+                staged.setReadable(false, false)
+                copy.setReadable(false, false)
+                return prefs.all
+            }
+        }
+
+        val restored = runCatching {
+            BackupManager.restore(
+                filesDir,
+                unreadableOnce,
+                password.toCharArray(),
+                ByteArrayInputStream(backup),
+                BackupManager.Mode.OVERWRITE,
+            )
+        }
+
+        staged.setReadable(true, true)
+        copy.setReadable(true, true)
+        assertTrue("precondition: the restore could not be carried out", restored.isFailure)
+        assertTrue("the learned data was taken off the device", userLearn.isFile)
+        assertEquals("the learned data must be exactly as the device had it", local, userLearn.readText())
+    }
+
     @Test fun a_merge_that_could_not_finish_leaves_every_store_as_it_was() {
         seedBackupData()
         val backup = export()
