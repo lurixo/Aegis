@@ -187,7 +187,7 @@ class BilingualScreenshotTest {
             SymbolsView(ctx).apply {
                 recentProvider = { symbols }
                 applyPalette(pal)
-                openCategoryForTest(0)
+                openCategoryForTest(1)
             },
             (560 * density).toInt(), dir, "symbols.png",
         )
