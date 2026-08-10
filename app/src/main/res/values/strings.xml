@@ -165,7 +165,7 @@
     <string name="user_dict_toast_export_empty">There is no learning dictionary on this device yet, so there was nothing to export</string>
     <string name="user_dict_auto_title">Auto learning</string>
     <string name="user_dict_auto_description">Words Aegis glued together from characters you typed one by one. Delete one to drop it from suggestions, or clear them all. Your words above are not affected.</string>
-    <string name="user_dict_auto_count_format">Auto learned: %1$d</string>
+    <string name="user_dict_auto_count_format">Auto-learned words: %1$d</string>
     <string name="user_dict_auto_empty">Nothing learned automatically yet.</string>
     <string name="user_dict_auto_clear_button">Clear learned data</string>
     <string name="user_dict_auto_clear_dialog_title">Clear learned data</string>
@@ -174,7 +174,7 @@
     <string name="user_dict_auto_clear_cancel">Cancel</string>
     <string name="user_dict_toast_auto_cleared">Learned data cleared</string>
     <string name="auto_learn_title">Auto learning</string>
-    <string name="auto_learn_description">Learn the words you assemble character by character and offer them as candidates. Off stops new learning and keeps learned words out of the candidate bar; what was learned already is kept until you clear it.</string>
+    <string name="auto_learn_description">Learn the words you assemble character by character and offer them as candidates. A word is kept once you have assembled it three times; typing it again does not add another entry. Off stops new learning and keeps learned words out of the candidate bar; what was learned already is kept until you clear it.</string>
 
     <string name="app_version_card_title">App release</string>
     <string name="app_version_card_description">Aegis app release label. This is separate from the learning dictionary, main dictionary, and model files.</string>

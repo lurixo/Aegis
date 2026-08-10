@@ -165,7 +165,7 @@
     <string name="user_dict_toast_export_empty">本机还没有学习词库，没有可导出的内容</string>
     <string name="user_dict_auto_title">自动学习</string>
     <string name="user_dict_auto_description">你逐字拼出、被自动粘成的词。可以删掉某一条让它不再进候选，也可以全部清空。上面「我的词」不受影响。</string>
-    <string name="user_dict_auto_count_format">自动学习：%1$d</string>
+    <string name="user_dict_auto_count_format">自动学习：%1$d 个词</string>
     <string name="user_dict_auto_empty">还没有自动学习的词。</string>
     <string name="user_dict_auto_clear_button">清空学习数据</string>
     <string name="user_dict_auto_clear_dialog_title">清空学习数据</string>
@@ -174,7 +174,7 @@
     <string name="user_dict_auto_clear_cancel">取消</string>
     <string name="user_dict_toast_auto_cleared">已清空学习数据</string>
     <string name="auto_learn_title">自动学习</string>
-    <string name="auto_learn_description">把你逐字拼出的词记下来并作为候选。关闭后不再记录，已学到的词也不再进候选；数据仍保留，直到你清空。</string>
+    <string name="auto_learn_description">把你逐字拼出的词记下来并作为候选。同一个词逐字拼出三次才会记住，重复输入不会增加条数。关闭后不再记录，已学到的词也不再进候选；数据仍保留，直到你清空。</string>
 
     <string name="app_version_card_title">应用版本</string>
     <string name="app_version_card_description">Aegis 应用发布标签。它与学习词库、主词库和模型文件版本相互独立。</string>
