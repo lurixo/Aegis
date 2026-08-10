@@ -207,6 +207,38 @@ class RestoreJournalTest {
         assertEquals(before, snapshot())
     }
 
+    @Test fun the_big_clip_sidecars_a_device_never_had_are_taken_away_again() {
+        prefs.edit().putString("cn_layout", "本机布局").commit()
+        val clips = File(filesDir, "clips")
+        assertFalse("precondition: the device carries no sidecars of its own", clips.exists())
+        val before = snapshot()
+        RestoreJournal.open(filesDir, prefs)
+        assertTrue(clips.mkdirs())
+        File(clips, "1.txt").writeText("备份大块")
+        assertFalse("precondition: the restore laid down sidecars of its own", before == snapshot())
+
+        assertTrue(RestoreJournal.finishAnyInterrupted(filesDir, prefs))
+
+        assertEquals("a history the device never had must not be left behind", before, snapshot())
+        assertFalse(clips.exists())
+    }
+
+    @Test fun the_big_clip_sidecars_a_restore_wrote_over_are_put_back_as_they_were() {
+        seedLocalData()
+        val clips = File(filesDir, "clips")
+        val before = snapshot()
+        assertTrue("precondition: the device carries a sidecar of its own", clips.listFiles().orEmpty().isNotEmpty())
+        RestoreJournal.open(filesDir, prefs)
+        clips.listFiles().orEmpty().forEach { it.writeText("备份大块") }
+        File(clips, "9999.txt").writeText("备份另一块")
+        assertFalse("precondition: the restore wrote over the sidecars", before == snapshot())
+
+        assertTrue(RestoreJournal.finishAnyInterrupted(filesDir, prefs))
+
+        assertEquals("every sidecar must be back exactly as the device had it", before, snapshot())
+        assertFalse("a sidecar the restore added must not be left behind", File(clips, "9999.txt").exists())
+    }
+
     @Test fun a_list_of_what_was_there_before_that_says_nothing_empties_no_store() {
         seedLocalData()
         val before = snapshot()
