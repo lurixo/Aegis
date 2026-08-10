@@ -284,7 +284,7 @@ class BackupActivity : ComponentActivity() {
     }
 
     private fun writeExport(uri: Uri, password: CharArray): BackupManager.ExportReport? {
-        val out = contentResolver.openOutputStream(uri) ?: return null
+        val out = contentResolver.openOutputStream(uri, "wt") ?: return null
         return try {
             BackupManager.export(filesDir, aegisPrefs(), password, out)
         } finally {

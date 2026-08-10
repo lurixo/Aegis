@@ -37,6 +37,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -105,6 +106,21 @@ class BackupActivityUiTest {
         assertTrue(
             "a document the provider only commits on close must not be reported as an exported backup",
             written.isFailure,
+        )
+    }
+
+    @Test fun an_export_over_a_longer_file_leaves_none_of_the_old_one_behind() {
+        val target = File(RuntimeEnvironment.getApplication().cacheDir, "over-a-longer-file.aegisbak")
+        target.parentFile?.mkdirs()
+        target.writeBytes(ByteArray(200_000))
+        val stale = target.length()
+
+        val written = writeExport(Uri.fromFile(target))
+
+        assertTrue("precondition: the export itself must go through", written.isSuccess)
+        assertTrue(
+            "an export must not leave the tail of a longer file behind, was ${target.length()} of $stale bytes",
+            target.length() < stale,
         )
     }
 
