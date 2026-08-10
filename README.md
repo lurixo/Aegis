@@ -15,15 +15,21 @@ network call, and nothing you type is ever sent.**
 
 **English** | [简体中文](README.zh-CN.md)
 
-<p align="center">
-  <img src="docs/screenshots/en/keyboard-qwerty.png" alt="26-key keyboard" width="420">
-  <img src="docs/screenshots/en/keyboard-t9.png" alt="9-key T9 keyboard" width="420">
-</p>
-<p align="center">
-  <img src="docs/screenshots/en/emoji.png" alt="Emoji panel" width="280">
-  <img src="docs/screenshots/en/clipboard.png" alt="Clipboard history and saved phrases" width="280">
-  <img src="docs/screenshots/en/symbols.png" alt="Symbol panel" width="280">
-</p>
+<div align="center">
+<table>
+<tr>
+<td><img src="docs/screenshots/en/keyboard-qwerty.png" alt="26-key keyboard" width="420"></td>
+<td><img src="docs/screenshots/en/keyboard-t9.png" alt="9-key T9 keyboard" width="420"></td>
+</tr>
+</table>
+<table>
+<tr>
+<td><img src="docs/screenshots/en/emoji.png" alt="Emoji panel" width="280"></td>
+<td><img src="docs/screenshots/en/clipboard.png" alt="Clipboard history and saved phrases" width="280"></td>
+<td><img src="docs/screenshots/en/symbols.png" alt="Symbol panel" width="280"></td>
+</tr>
+</table>
+</div>
 
 ## Contents
 
