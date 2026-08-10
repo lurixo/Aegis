@@ -157,7 +157,7 @@ class ClipboardRestoreWriteGuardTest {
         )
     }
 
-    @Test fun a_phrase_delete_outside_a_restore_says_it_was_written() {
+    @Test fun a_phrase_delete_outside_a_restore_is_taken_and_written() {
         val dir = newDir()
         val live = store(dir)
         live.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("留下的", "要删的常用语"))
@@ -168,6 +168,7 @@ class ClipboardRestoreWriteGuardTest {
             "a phrase delete with nothing to remove has nothing to report",
             live.deletePhraseFrom(ClipboardStore.DEFAULT_CATEGORY_ID, "不存在"),
         )
+        live.flushPendingWrites()
         assertEquals(listOf("留下的"), store(dir).phrases())
     }
 

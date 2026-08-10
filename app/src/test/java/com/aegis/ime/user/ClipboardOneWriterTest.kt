@@ -18,10 +18,13 @@ package com.aegis.ime.user
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
@@ -67,7 +70,7 @@ class ClipboardOneWriterTest {
         }
     }
 
-    @Test(timeout = 120_000) fun a_deletion_the_writer_never_answers_is_reported_instead_of_holding_the_caller() {
+    @Test(timeout = 120_000) fun a_deletion_the_writer_never_answers_lets_the_caller_go_and_reports_later() {
         val dir = newDir()
         val s = store(dir)
         assertEquals(
@@ -75,19 +78,34 @@ class ClipboardOneWriterTest {
             1,
             s.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("要删的一条")),
         )
+        s.flushPendingWrites()
+        val blocker = s.tempFileFor(File(dir, "phrases.txt"))
+        assertTrue("precondition: the write can never reach the disk", blocker.mkdirs())
+        assertTrue(File(blocker, "occupied").createNewFile())
+        val reported = ArrayBlockingQueue<PhraseChange>(8)
+        s.reportPhraseWritesTo({ it.run() }) { reported.add(it) }
         val gate = occupy(s)
 
         val startedAt = System.nanoTime()
-        val reported = s.deletePhrasesFrom(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("要删的一条"))
+        val taken = s.deletePhrasesFrom(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("要删的一条"))
         val waitedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt)
 
-        assertFalse("a write the lane never answered must not be reported as done", reported)
+        assertTrue("the store must take a deletion it has not written yet", taken)
         assertTrue(
             "the caller waited ${waitedMillis}ms: a deletion the user made from the panel runs on the" +
-                " drawing thread, so it must be let go on a bound rather than held for the whole write",
-            waitedMillis < 20_000,
+                " drawing thread, so it must not wait for the write at all",
+            waitedMillis < 2_000,
         )
+        assertNull(
+            "nothing may be reported while the write is still stuck behind the occupied writer",
+            reported.poll(2, TimeUnit.SECONDS),
+        )
+
         gate.countDown()
+
+        val change = reported.poll(30, TimeUnit.SECONDS)
+        assertNotNull("the write the caller walked away from must still report back", change)
+        assertFalse("a write that never reached the file must not be reported as one that landed", change!!.saved)
     }
 
     @Test fun an_imported_history_is_written_by_the_store_writer_alone() {

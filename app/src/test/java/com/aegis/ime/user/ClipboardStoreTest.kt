@@ -24,6 +24,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.util.concurrent.CopyOnWriteArrayList
 
 class ClipboardStoreTest {
 
@@ -934,16 +935,105 @@ class ClipboardStoreTest {
         val blocker = s.tempFileFor(File(dir, "phrases.txt"))
         assertTrue("precondition: the phrase write is blocked", blocker.mkdirs())
         assertTrue(File(blocker, "occupied").createNewFile())
+        val reported = CopyOnWriteArrayList<PhraseChange>()
+        s.reportPhraseWritesTo({ it.run() }) { reported.add(it) }
 
-        assertFalse(
-            "a phrase delete that never reached the file must not come back as one that did",
+        assertTrue(
+            "the store takes the delete before it knows what the file will do with it",
             s.deletePhraseFrom(ClipboardStore.DEFAULT_CATEGORY_ID, "要删的常用语"),
         )
+        s.flushPendingWrites()
 
+        assertEquals("a delete owes the panel exactly one answer", 1, reported.size)
+        assertFalse(
+            "a phrase delete that never reached the file must not come back as one that did",
+            reported.single().saved,
+        )
         assertEquals(
             listOf("留下的", "要删的常用语"),
             ClipboardStore(dir).apply { load() }.phrases().sorted(),
         )
+    }
+
+    @Test fun a_phrase_write_nobody_is_listening_for_still_reaches_the_file() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load() }
+        s.reportPhraseWritesTo({ it.run() }) { }
+        s.stopReportingPhraseWrites()
+
+        assertEquals(1, s.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("没人听着的")))
+        s.flushPendingWrites()
+
+        assertEquals(listOf("没人听着的"), ClipboardStore(dir).apply { load() }.phrases())
+    }
+
+    @Test fun a_phrase_batch_reports_what_landed_and_what_was_already_there() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("已有")) }
+        s.flushPendingWrites()
+        val reported = CopyOnWriteArrayList<PhraseChange>()
+        s.reportPhraseWritesTo({ it.run() }) { reported.add(it) }
+
+        assertEquals(1, s.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("已有", "新的")))
+        s.flushPendingWrites()
+
+        val change = reported.single()
+        assertEquals(PhraseEdit.ADD, change.edit)
+        assertEquals("only the entry that was not there yet was added", 1, change.count)
+        assertEquals("the batch the panel asked for is what the count is measured against", 2, change.requested)
+        assertTrue(change.saved)
+    }
+
+    @Test fun a_phrase_batch_that_was_all_there_already_reports_a_write_it_never_needed() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("已有")) }
+        s.flushPendingWrites()
+        val reported = CopyOnWriteArrayList<PhraseChange>()
+        s.reportPhraseWritesTo({ it.run() }) { reported.add(it) }
+
+        assertEquals(0, s.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("已有")))
+
+        val change = reported.single()
+        assertEquals(0, change.count)
+        assertTrue("a batch with nothing to write owes the user no failure", change.saved)
+    }
+
+    @Test fun a_phrase_edit_over_phrases_nobody_could_read_reports_the_refusal_it_returned() {
+        val dir = newDir()
+        File(dir, "phrases.txt").let {
+            assertTrue(it.mkdirs())
+            File(it, "occupied").writeText("x")
+        }
+        val s = ClipboardStore(dir).apply { load() }
+        assertFalse("precondition: the phrases could not be read", s.phrasesReadable)
+        val reported = CopyOnWriteArrayList<PhraseChange>()
+        s.reportPhraseWritesTo({ it.run() }) { reported.add(it) }
+
+        assertEquals(0, s.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("一", "二")))
+        assertFalse(s.addCategory("新组"))
+
+        assertEquals(
+            listOf(PhraseEdit.ADD to 2, PhraseEdit.CATEGORY to 1),
+            reported.map { it.edit to it.requested },
+        )
+        assertTrue("a refusal is a write that did not land", reported.none { it.saved })
+    }
+
+    @Test fun a_phrase_edit_during_a_restore_is_refused_rather_than_left_in_memory() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply { load(); addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("原有")) }
+        s.flushPendingWrites()
+        val reported = CopyOnWriteArrayList<PhraseChange>()
+        s.reportPhraseWritesTo({ it.run() }) { reported.add(it) }
+        LiveUserData.restoreInProgress = true
+        try {
+            assertEquals(0, s.addPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("恢复期新增")))
+
+            assertEquals(listOf("原有"), s.phrases())
+            assertFalse("an edit the restore stood down must not be reported as written", reported.single().saved)
+        } finally {
+            LiveUserData.restoreInProgress = false
+        }
     }
 
     @Test fun a_delete_after_the_writer_was_handed_back_says_it_was_not_written() {

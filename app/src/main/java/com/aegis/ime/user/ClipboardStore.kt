@@ -20,6 +20,7 @@ import java.io.IOException
 import java.nio.file.Files
 import java.security.MessageDigest
 import java.util.concurrent.ExecutionException
+import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
@@ -117,6 +118,10 @@ class ClipEntry private constructor(
 
 internal class UnreadablePhrasesException : IOException("saved phrases could not be read")
 
+enum class PhraseEdit { ADD, MOVE, TEXT, CATEGORY, LIST }
+
+class PhraseChange(val edit: PhraseEdit, val count: Int, val requested: Int, val saved: Boolean)
+
 class ClipboardStore(private val dir: File) {
 
     private val histFile get() = File(dir, "clipboard.txt")
@@ -148,6 +153,19 @@ class ClipboardStore(private val dir: File) {
     @Volatile
     var phrasesReadable: Boolean = true
         private set
+
+    @Volatile
+    private var writeReportLane: Executor = Executor { it.run() }
+
+    @Volatile
+    private var writeReport: ((PhraseChange) -> Unit)? = null
+
+    fun reportPhraseWritesTo(lane: Executor, report: (PhraseChange) -> Unit) {
+        writeReportLane = lane
+        writeReport = report
+    }
+
+    fun stopReportingPhraseWrites() { writeReport = null }
 
     fun load() {
         flushPendingWrites()
@@ -334,109 +352,147 @@ class ClipboardStore(private val dir: File) {
     fun noteFor(category: String, text: String): String =
         synchronized(phraseCats) { findPhrase(find(category), text)?.note.orEmpty() }
 
-    fun setPhraseNote(category: String, text: String, note: String): Boolean = synchronized(phraseCats) {
-        if (!phrasesReadable) return false
-        val p = findPhrase(find(category), text) ?: return false
-        p.note = note.filterNot { Character.isISOControl(it) }.trim()
-        savePhrases()
+    fun setPhraseNote(category: String, text: String, note: String): Boolean {
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.TEXT, 1); return false }
+        val after = synchronized(phraseCats) {
+            val p = findPhrase(find(category), text) ?: return false
+            p.note = note.filterNot { Character.isISOControl(it) }.trim()
+            serialize(phraseCats)
+        }
+        writePhrases(PhraseEdit.TEXT, 1, 1, after)
         return true
     }
 
-    fun addCategory(name: String): Boolean = synchronized(phraseCats) {
-        if (!phrasesReadable) return false
-        val n = name.trim()
-        if (n.isEmpty() || phraseCats.any { it.name == n }) return false
-        phraseCats.add(Category(n)); savePhrases(); return true
+    fun addCategory(name: String): Boolean {
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.CATEGORY, 1); return false }
+        val after = synchronized(phraseCats) {
+            val n = name.trim()
+            if (n.isEmpty() || phraseCats.any { it.name == n }) return false
+            phraseCats.add(Category(n))
+            serialize(phraseCats)
+        }
+        writePhrases(PhraseEdit.CATEGORY, 1, 1, after)
+        return true
     }
 
     fun deleteCategory(name: String) {
-        synchronized(phraseCats) {
-            if (!phrasesReadable) return
-            if (phraseCats.removeAll { it.name == name }) savePhrases()
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.LIST, 1); return }
+        val after = synchronized(phraseCats) {
+            if (!phraseCats.removeAll { it.name == name }) return
+            serialize(phraseCats)
         }
+        writePhrases(PhraseEdit.LIST, 1, 1, after)
     }
 
-    fun renameCategory(old: String, new: String): Boolean = synchronized(phraseCats) {
-        if (!phrasesReadable) return false
-        val n = new.trim()
-        val c = find(old) ?: return false
-        if (n.isEmpty() || (n != old && phraseCats.any { it.name == n })) return false
-        c.name = n; savePhrases(); return true
+    fun renameCategory(old: String, new: String): Boolean {
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.TEXT, 1); return false }
+        val after = synchronized(phraseCats) {
+            val n = new.trim()
+            val c = find(old) ?: return false
+            if (n.isEmpty() || (n != old && phraseCats.any { it.name == n })) return false
+            c.name = n
+            serialize(phraseCats)
+        }
+        writePhrases(PhraseEdit.TEXT, 1, 1, after)
+        return true
     }
 
-    fun addPhrasesTo(category: String, texts: Collection<String>): Int = synchronized(phraseCats) {
-        if (category.isBlank() || !phrasesReadable) return 0
-        val c = find(category) ?: Category(category).also { phraseCats.add(it) }
-        val seen = c.phrases.mapTo(HashSet()) { it.text }
-        val added = ArrayList<Phrase>()
-        for (raw in texts) {
-            val t = raw.trim()
-            if (t.isEmpty() || !seen.add(t)) continue
-            added.add(Phrase(t))
+    fun addPhrasesTo(category: String, texts: Collection<String>): Int {
+        val requested = texts.size
+        if (category.isBlank()) return 0
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.ADD, requested); return 0 }
+        var added = 0
+        val after = synchronized(phraseCats) {
+            val c = find(category) ?: Category(category).also { phraseCats.add(it) }
+            val seen = c.phrases.mapTo(HashSet()) { it.text }
+            val fresh = ArrayList<Phrase>()
+            for (raw in texts) {
+                val t = raw.trim()
+                if (t.isEmpty() || !seen.add(t)) continue
+                fresh.add(Phrase(t))
+            }
+            if (fresh.isEmpty()) null
+            else {
+                c.phrases.addAll(0, fresh)
+                added = fresh.size
+                serialize(phraseCats)
+            }
         }
-        if (added.isNotEmpty()) {
-            c.phrases.addAll(0, added)
-            savePhrases()
-        }
-        return added.size
+        if (after == null) reportPhraseWrite(PhraseChange(PhraseEdit.ADD, 0, requested, true))
+        else writePhrases(PhraseEdit.ADD, added, requested, after)
+        return added
     }
 
-    fun addPhrases(texts: Collection<String>): Int = synchronized(phraseCats) {
-        addPhrasesTo(phraseCats.firstOrNull()?.name ?: DEFAULT_CATEGORY_ID, texts)
-    }
+    fun addPhrases(texts: Collection<String>): Int =
+        addPhrasesTo(synchronized(phraseCats) { phraseCats.firstOrNull()?.name ?: DEFAULT_CATEGORY_ID }, texts)
 
     fun deletePhraseFrom(category: String, text: String): Boolean = deletePhrasesFrom(category, listOf(text))
 
     fun deletePhrasesFrom(category: String, texts: Collection<String>): Boolean {
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.LIST, texts.size); return false }
         val victims = texts.toSet()
         val after = synchronized(phraseCats) {
-            if (!phrasesReadable) return false
             val c = find(category) ?: return true
             if (!c.phrases.removeAll { it.text in victims }) return true
             serialize(phraseCats)
         }
-        return savePhraseText(after)
-    }
-
-    fun deletePhrase(text: String) {
-        synchronized(phraseCats) {
-            if (!phrasesReadable) return
-            var changed = false
-            for (c in phraseCats) if (c.phrases.removeAll { it.text == text }) changed = true
-            if (changed) savePhrases()
-        }
-    }
-
-    fun clearPhrasesIn(category: String): Int = synchronized(phraseCats) {
-        if (!phrasesReadable) return 0
-        val c = find(category) ?: return 0
-        val n = c.phrases.size
-        if (n > 0) { c.phrases.clear(); savePhrases() }
-        return n
-    }
-
-    fun editPhrase(category: String, oldText: String, newText: String): Boolean = synchronized(phraseCats) {
-        if (!phrasesReadable) return false
-        val c = find(category) ?: return false
-        val idx = c.phrases.indexOfFirst { it.text == oldText }
-        if (idx < 0) return false
-        val n = newText.filterNot { Character.isISOControl(it) }.trim()
-        if (n.isEmpty()) return false
-        if (c.phrases.withIndex().any { (j, p) -> j != idx && p.text == n }) return false
-        c.phrases[idx].text = n
-        savePhrases()
+        writePhrases(PhraseEdit.LIST, victims.size, texts.size, after)
         return true
     }
 
-    fun movePhrase(fromCategory: String, text: String, toCategory: String): Boolean = synchronized(phraseCats) {
-        if (!phrasesReadable) return false
-        val to = find(toCategory) ?: return false
-        val from = find(fromCategory) ?: return false
-        if (from === to) return true
-        val p = findPhrase(from, text) ?: return false
-        from.phrases.remove(p)
-        carryInto(to, p)
-        savePhrases()
+    fun deletePhrase(text: String) {
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.LIST, 1); return }
+        val after = synchronized(phraseCats) {
+            var changed = false
+            for (c in phraseCats) if (c.phrases.removeAll { it.text == text }) changed = true
+            if (!changed) return
+            serialize(phraseCats)
+        }
+        writePhrases(PhraseEdit.LIST, 1, 1, after)
+    }
+
+    fun clearPhrasesIn(category: String): Int {
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.LIST, 0); return 0 }
+        var cleared = 0
+        val after = synchronized(phraseCats) {
+            val c = find(category) ?: return 0
+            if (c.phrases.isEmpty()) return 0
+            cleared = c.phrases.size
+            c.phrases.clear()
+            serialize(phraseCats)
+        }
+        writePhrases(PhraseEdit.LIST, cleared, cleared, after)
+        return cleared
+    }
+
+    fun editPhrase(category: String, oldText: String, newText: String): Boolean {
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.TEXT, 1); return false }
+        val after = synchronized(phraseCats) {
+            val c = find(category) ?: return false
+            val idx = c.phrases.indexOfFirst { it.text == oldText }
+            if (idx < 0) return false
+            val n = newText.filterNot { Character.isISOControl(it) }.trim()
+            if (n.isEmpty()) return false
+            if (c.phrases.withIndex().any { (j, p) -> j != idx && p.text == n }) return false
+            c.phrases[idx].text = n
+            serialize(phraseCats)
+        }
+        writePhrases(PhraseEdit.TEXT, 1, 1, after)
+        return true
+    }
+
+    fun movePhrase(fromCategory: String, text: String, toCategory: String): Boolean {
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.MOVE, 1); return false }
+        val after = synchronized(phraseCats) {
+            val to = find(toCategory) ?: return false
+            val from = find(fromCategory) ?: return false
+            if (from === to) return true
+            val p = findPhrase(from, text) ?: return false
+            from.phrases.remove(p)
+            carryInto(to, p)
+            serialize(phraseCats)
+        }
+        writePhrases(PhraseEdit.MOVE, 1, 1, after)
         return true
     }
 
@@ -449,39 +505,49 @@ class ClipboardStore(private val dir: File) {
         else if (existing.note.isEmpty() && p.note.isNotEmpty()) existing.note = p.note
     }
 
-    fun movePhrasesTo(fromCategory: String, texts: Collection<String>, toCategory: String): Int =
-        synchronized(phraseCats) {
-            if (!phrasesReadable) return 0
+    fun movePhrasesTo(fromCategory: String, texts: Collection<String>, toCategory: String): Int {
+        val requested = texts.size
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.MOVE, requested); return 0 }
+        var moved = 0
+        val after = synchronized(phraseCats) {
             val to = find(toCategory) ?: return 0
             val from = find(fromCategory) ?: return 0
             if (from === to) return 0
-            var moved = 0
             for (t in texts) {
                 val p = findPhrase(from, t) ?: continue
                 from.phrases.remove(p)
                 carryInto(to, p)
                 moved++
             }
-            if (moved > 0) savePhrases()
-            return moved
+            if (moved == 0) return 0
+            serialize(phraseCats)
         }
+        writePhrases(PhraseEdit.MOVE, moved, requested, after)
+        return moved
+    }
 
-    fun reorderPhrase(category: String, fromIndex: Int, toIndex: Int): Boolean = synchronized(phraseCats) {
-        if (!phrasesReadable) return false
-        val c = find(category) ?: return false
-        val n = c.phrases.size
-        if (fromIndex !in 0 until n || toIndex !in 0 until n || fromIndex == toIndex) return false
-        c.phrases.add(toIndex, c.phrases.removeAt(fromIndex))
-        savePhrases()
+    fun reorderPhrase(category: String, fromIndex: Int, toIndex: Int): Boolean {
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.LIST, 1); return false }
+        val after = synchronized(phraseCats) {
+            val c = find(category) ?: return false
+            val n = c.phrases.size
+            if (fromIndex !in 0 until n || toIndex !in 0 until n || fromIndex == toIndex) return false
+            c.phrases.add(toIndex, c.phrases.removeAt(fromIndex))
+            serialize(phraseCats)
+        }
+        writePhrases(PhraseEdit.LIST, 1, 1, after)
         return true
     }
 
-    fun reorderCategory(fromIndex: Int, toIndex: Int): Boolean = synchronized(phraseCats) {
-        if (!phrasesReadable) return false
-        val n = phraseCats.size
-        if (fromIndex !in 0 until n || toIndex !in 0 until n || fromIndex == toIndex) return false
-        phraseCats.add(toIndex, phraseCats.removeAt(fromIndex))
-        savePhrases()
+    fun reorderCategory(fromIndex: Int, toIndex: Int): Boolean {
+        if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.LIST, 1); return false }
+        val after = synchronized(phraseCats) {
+            val n = phraseCats.size
+            if (fromIndex !in 0 until n || toIndex !in 0 until n || fromIndex == toIndex) return false
+            phraseCats.add(toIndex, phraseCats.removeAt(fromIndex))
+            serialize(phraseCats)
+        }
+        writePhrases(PhraseEdit.LIST, 1, 1, after)
         return true
     }
 
@@ -590,15 +656,24 @@ class ClipboardStore(private val dir: File) {
         }
     }
 
-    private fun savePhrases() {
-        if (LiveUserData.restoreInProgress || !phrasesReadable) return
-        val text = serializePhrases()
-        onWriteLane { runCatching { atomicWrite(phraseFile, text) } }
+    private fun phraseWritesAllowed(): Boolean = phrasesReadable && !LiveUserData.restoreInProgress
+
+    private fun writePhrases(edit: PhraseEdit, count: Int, requested: Int, text: String) {
+        val queued = runCatching {
+            io.execute {
+                val landed = runCatching { atomicWrite(phraseFile, text) }.isSuccess
+                reportPhraseWrite(PhraseChange(edit, count, requested, landed))
+            }
+        }.isSuccess
+        if (!queued) reportPhraseWrite(PhraseChange(edit, count, requested, false))
     }
 
-    private fun savePhraseText(text: String): Boolean {
-        if (LiveUserData.restoreInProgress || !phrasesReadable) return false
-        return onWriteLaneReporting { atomicWrite(phraseFile, text) }
+    private fun refusePhraseWrite(edit: PhraseEdit, requested: Int) =
+        reportPhraseWrite(PhraseChange(edit, 0, requested, false))
+
+    private fun reportPhraseWrite(change: PhraseChange) {
+        if (writeReport == null) return
+        writeReportLane.execute { writeReport?.invoke(change) }
     }
 
     private fun savePhrasesOrThrow(text: String) {
