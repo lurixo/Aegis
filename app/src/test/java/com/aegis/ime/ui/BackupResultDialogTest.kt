@@ -32,6 +32,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
@@ -40,6 +41,13 @@ class BackupResultDialogTest {
     @get:Rule val compose = createAndroidComposeRule<BackupActivity>()
 
     private fun text(id: Int) = RuntimeEnvironment.getApplication().getString(id)
+
+    private fun zhString(name: String): String {
+        val found = Regex("<string name=\"$name\">(.*?)</string>")
+            .find(File("src/main/res/values-zh/strings.xml").readText())
+        assertTrue("values-zh must define $name", found != null)
+        return found!!.groupValues[1]
+    }
 
     private fun show(state: BackupUiState) {
         compose.runOnUiThread {
@@ -107,6 +115,30 @@ class BackupResultDialogTest {
         )
         assertEquals(R.string.backup_export_ok_partial, result.messageRes)
         assertEquals(listOf(R.string.backup_item_learning, R.string.backup_item_emoji), result.omittedRes)
+    }
+
+    @Test fun every_name_the_dialog_can_show_is_one_the_page_already_taught_the_user() {
+        val res = RuntimeEnvironment.getApplication().resources
+        assertEquals(
+            "the omission list must name the learned store the way the settings page names it",
+            text(R.string.user_dict_auto_title),
+            text(R.string.backup_item_learning),
+        )
+        assertEquals(zhString("user_dict_auto_title"), zhString("backup_item_learning"))
+
+        val intro = text(R.string.backup_intro).lowercase()
+        val introZh = zhString("backup_intro")
+        for (item in BackupItem.entries) {
+            val id = backupItemLabel(item)
+            assertTrue(
+                "${item.name} can show up in the omission list, so the introduction must say it is backed up",
+                intro.contains(text(id).lowercase()),
+            )
+            assertTrue(
+                "ZH introduction must name ${item.name} too",
+                introZh.contains(zhString(res.getResourceEntryName(id))),
+            )
+        }
     }
 
     @Test fun an_export_that_did_not_happen_is_still_reported_as_a_failure() {
