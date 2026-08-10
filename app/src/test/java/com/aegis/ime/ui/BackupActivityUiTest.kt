@@ -203,6 +203,20 @@ class BackupActivityUiTest {
         compose.onNodeWithText(str(R.string.backup_export_button)).performScrollTo().assertExists()
     }
 
+    private fun beginImport(password: String, mode: BackupManager.Mode) {
+        BackupActivity::class.java
+            .getDeclaredMethod("beginImport", String::class.java, BackupManager.Mode::class.java)
+            .apply { isAccessible = true }
+            .invoke(compose.activity, password, mode)
+    }
+
+    @Test fun an_import_that_lost_the_file_it_was_given_says_so() {
+        beginImport("backup-pass-01", BackupManager.Mode.OVERWRITE)
+        compose.waitForIdle()
+
+        compose.onNodeWithText(str(R.string.backup_import_interrupted)).assertExists()
+    }
+
     @Test fun back_arrow_finishes_the_activity() {
         compose.onNodeWithContentDescription(str(R.string.settings_back)).performScrollTo().performClick()
         compose.waitForIdle()

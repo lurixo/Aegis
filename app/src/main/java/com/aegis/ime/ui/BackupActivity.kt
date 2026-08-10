@@ -151,6 +151,7 @@ class BackupActivity : ComponentActivity() {
         val working = uiState == BackupUiState.Working
         outState.putBoolean(STATE_WORKING, working)
         outState.putBoolean(STATE_WORKING_JOB, working && BackupJob.awaitingReport)
+        outState.putBoolean(STATE_IMPORT_PENDING, pendingImportUri != null)
     }
 
     private fun resumedState(savedInstanceState: Bundle?): BackupUiState = when {
@@ -158,6 +159,8 @@ class BackupActivity : ComponentActivity() {
         savedInstanceState?.getBoolean(STATE_WORKING_JOB) == true ->
             BackupUiState.Result(R.string.backup_job_interrupted)
         savedInstanceState?.getBoolean(STATE_WORKING) == true -> BackupUiState.Working
+        savedInstanceState?.getBoolean(STATE_IMPORT_PENDING) == true ->
+            BackupUiState.Result(R.string.backup_import_interrupted)
         else -> BackupUiState.Menu
     }
 
@@ -295,7 +298,7 @@ class BackupActivity : ComponentActivity() {
     private fun beginImport(password: String, mode: BackupManager.Mode) {
         val uri = pendingImportUri
         if (uri == null) {
-            uiState = BackupUiState.Menu
+            uiState = BackupUiState.Result(R.string.backup_import_interrupted)
             return
         }
         val chars = password.toCharArray()
@@ -331,6 +334,7 @@ class BackupActivity : ComponentActivity() {
         const val DEFAULT_FILE_NAME = "aegis-backup.aegisbak"
         const val STATE_WORKING = "backup_working"
         const val STATE_WORKING_JOB = "backup_working_job"
+        const val STATE_IMPORT_PENDING = "backup_import_pending"
     }
 }
 

@@ -237,6 +237,7 @@
     <string name="backup_export_ok">Backup exported</string>
     <string name="backup_export_failed">Export failed</string>
     <string name="backup_export_interrupted">The export was interrupted, so no backup was written. Start it again.</string>
+    <string name="backup_import_interrupted">The import was interrupted before it began, so nothing on this device was changed. Choose the file again.</string>
     <string name="backup_job_interrupted">Aegis stopped while this was running, so there is no result to report. Anything already written may be incomplete. Check it, and start again if needed.</string>
     <string name="backup_import_ok_overwrite">Backup restored</string>
     <string name="backup_import_ok_merge">Backup merged</string>

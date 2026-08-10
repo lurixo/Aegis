@@ -236,6 +236,7 @@
     <string name="backup_export_ok">已导出备份</string>
     <string name="backup_export_failed">导出失败</string>
     <string name="backup_export_interrupted">导出中断了，没有写出任何备份。请重新导出。</string>
+    <string name="backup_import_interrupted">导入在开始前就中断了，本机数据一点没动。请重新选择文件。</string>
     <string name="backup_job_interrupted">还在处理时 Aegis 中途退出了，因此没有结果可报。已经写下的部分可能不完整。请检查后按需重新开始。</string>
     <string name="backup_import_ok_overwrite">已恢复备份</string>
     <string name="backup_import_ok_merge">已合并备份</string>
