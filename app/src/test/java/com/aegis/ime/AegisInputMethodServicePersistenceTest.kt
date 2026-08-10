@@ -343,6 +343,27 @@ class AegisInputMethodServicePersistenceTest {
         assertTrue("the words are still queued for after the restore", learning(service).dirty)
     }
 
+    @Test fun a_restore_in_flight_is_not_written_over_by_teardown() {
+        val service = started()
+        model(service).record(null, "恢复前打的", 1L)
+        assertTrue("precondition: the keyboard holds a word it has not written", model(service).dirty)
+        UserModel().apply { addManualWord("gd", "归档词", 2L) }.save(userDb)
+        val restored = userDb.readText()
+
+        LiveUserData.restoreInProgress = true
+        try {
+            service.onDestroy()
+        } finally {
+            LiveUserData.restoreInProgress = false
+        }
+
+        assertEquals(
+            "a restore is replacing this file; teardown writing the pre-restore state over it undoes it silently",
+            restored,
+            userDb.readText(),
+        )
+    }
+
     @Test fun a_restore_in_flight_is_not_raced_by_a_reload_from_the_input_session() {
         val service = started()
         assertTrue("precondition: the dictionary loaded fine", model(service).readable)

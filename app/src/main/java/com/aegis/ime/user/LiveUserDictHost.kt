@@ -44,12 +44,14 @@ class LiveUserDictHost(
     }
 
     override fun addWord(reading: String, word: String, now: Long): Boolean {
+        if (LiveUserData.restoreInProgress) return false
         if (word.isBlank() || !model.readable) return false
         if (!model.addManualWord(reading, word, now)) return false
         return save().dictionary
     }
 
     override fun removeWord(reading: String, word: String): Boolean {
+        if (LiveUserData.restoreInProgress) return false
         if (word.isBlank() || !model.readable) return false
         if (!learnedReadable()) return false
         model.removeWord(reading, word)
@@ -94,6 +96,7 @@ class LiveUserDictHost(
     override fun learnedReadable(): Boolean = userLearning?.readable != false
 
     override fun removeLearned(word: String, reading: String): Boolean {
+        if (LiveUserData.restoreInProgress) return false
         val learning = userLearning
         if (learning != null && !learning.readable) return false
         learning?.removeFormed(word, reading)
@@ -108,6 +111,7 @@ class LiveUserDictHost(
         model.addTombstone(word, reading) && save().dictionary
 
     override fun clearLearned(): Boolean {
+        if (LiveUserData.restoreInProgress) return false
         userLearning?.clear()
         val written = saveLearning()
         if (!written.result.learning) {
@@ -133,12 +137,12 @@ class LiveUserDictHost(
 
     override fun flush(): Boolean {
         if (!anythingUnsaved()) return true
-        return onWriterThread(PersistResult.FAILED, ::persistUnsaved).both
+        return onWriterThread(PersistResult.FAILED) { persistUnsaved() }.both
     }
 
     override fun flushDictionary(): Boolean {
         if (!anythingUnsaved()) return true
-        return onWriterThread(PersistResult.FAILED, ::persistUnsaved).dictionary
+        return onWriterThread(PersistResult.FAILED) { persistUnsaved(forRestore = true) }.dictionary
     }
 
     fun scheduleSave() {
@@ -154,8 +158,11 @@ class LiveUserDictHost(
 
     private fun anythingUnsaved(): Boolean = model.dirty || userLearning?.dirty == true
 
-    private fun persistUnsaved(): PersistResult =
-        if (anythingUnsaved()) persistHere(writeUserDb = model.dirty) else PersistResult.DONE
+    private fun persistUnsaved(forRestore: Boolean = false): PersistResult = when {
+        !forRestore && LiveUserData.restoreInProgress -> PersistResult.FAILED
+        anythingUnsaved() -> persistHere(writeUserDb = model.dirty)
+        else -> PersistResult.DONE
+    }
 
     private fun save(): PersistResult =
         onWriterThread(PersistResult.FAILED) { persistHere(writeUserDb = true) }

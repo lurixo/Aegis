@@ -56,6 +56,7 @@ class LiveUserDictHostTest {
 
     @After fun stopHosts() {
         hosts.forEach { runCatching { it.stopSaving() } }
+        LiveUserData.restoreInProgress = false
     }
 
     private fun host(): LiveUserDictHost {
@@ -551,6 +552,55 @@ class LiveUserDictHostTest {
         model.addManualWord("nihao", "你好", 1L)
 
         assertFalse("a dictionary that could not be written must still stop a restore", h.flushDictionary())
+    }
+
+    @Test fun a_restore_in_flight_refuses_the_writes_the_keyboard_and_the_pages_ask_for() {
+        val h = host()
+        UserModel().apply { addManualWord("gd", "归档词", 2L) }.save(db)
+        val restored = db.readText()
+        model.record(null, "恢复前打的", 1L)
+
+        LiveUserData.restoreInProgress = true
+        try {
+            assertFalse("a word added while a restore holds the file must be reported as not added", h.addWord("xin", "新词", now = 3L))
+            assertFalse("nor may what is unsaved be flushed over the file the restore is replacing", h.flush())
+        } finally {
+            LiveUserData.restoreInProgress = false
+        }
+
+        assertEquals("the restore keeps the file it just wrote", restored, db.readText())
+    }
+
+    @Test fun the_dictionary_a_restore_lays_down_still_goes_through_the_live_host() {
+        val h = host()
+        val staged = File(tmp.root, "staged-userdb.txt")
+        UserModel().apply { addManualWord("gd", "归档词", 2L) }.save(staged)
+
+        LiveUserData.restoreInProgress = true
+        try {
+            assertTrue(
+                "a restore replaces the dictionary through this very call, so it must not stand itself down",
+                h.importUserDict(staged, merge = false, now = 3L),
+            )
+        } finally {
+            LiveUserData.restoreInProgress = false
+        }
+
+        assertEquals(listOf("归档词"), reloadFromDisk().readingSnapshot()["gd"])
+    }
+
+    @Test fun the_flush_a_restore_takes_of_the_live_dictionary_still_writes() {
+        val h = host()
+        model.addManualWord("nihao", "你好", 1L)
+
+        LiveUserData.restoreInProgress = true
+        try {
+            assertTrue("the restore raises the flag before taking this flush, so its own flush must go through", h.flushDictionary())
+        } finally {
+            LiveUserData.restoreInProgress = false
+        }
+
+        assertEquals(listOf("你好"), reloadFromDisk().readingSnapshot()["nihao"])
     }
 
     @Test fun clearing_a_broken_learning_store_is_reported_saved_and_makes_it_writable_again() {
