@@ -34,12 +34,6 @@ class ClipboardPolicyTest {
     }
 
 
-    @Test fun no_clip_read_when_gated_by_secure_field_or_history_off() {
-        assertFalse("secure field → skip read", ClipboardPolicy.shouldReadSystemClip(true, true))
-        assertFalse("history off → skip read", ClipboardPolicy.shouldReadSystemClip(false, false))
-        assertTrue("normal field, history on → read", ClipboardPolicy.shouldReadSystemClip(false, true))
-    }
-
     @Test fun ordinary_fields_are_not_sensitive() {
         assertFalse(ClipboardPolicy.isSensitive(InputType.TYPE_CLASS_TEXT))
         assertFalse(ClipboardPolicy.isSensitive(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS))

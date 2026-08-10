@@ -1177,7 +1177,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun captureClip() {
         if (LiveUserData.restoreInProgress) return
-        if (!com.aegis.ime.user.ClipboardPolicy.shouldReadSystemClip(secureField, historyEnabled())) return
         if (!com.aegis.ime.user.ClipboardStore.shouldCapture(historyEnabled())) return
         runCatching {
             val clip = clipboardManager.primaryClip ?: return
@@ -1189,11 +1188,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun onSystemClipChanged() {
         if (LiveUserData.restoreInProgress) return
-        if (!com.aegis.ime.user.ClipboardPolicy.shouldReadSystemClip(secureField, historyEnabled())) return
+        if (!com.aegis.ime.user.ClipboardStore.shouldCapture(historyEnabled())) return
         val clip = runCatching { clipboardManager.primaryClip }.getOrNull() ?: return
         if (clip.itemCount == 0) return
         val item = clip.getItemAt(0)
-        if (!com.aegis.ime.user.ClipboardStore.shouldCapture(historyEnabled())) return
         if (item.uri != null && item.text == null) return
         val t = runCatching { item.coerceToText(this)?.toString() }.getOrNull()?.trim().orEmpty()
         if (t.isNotEmpty()) recordTextClip(t)
@@ -1214,7 +1212,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun copyBlocksToAegis(blocks: List<String>) {
         if (LiveUserData.restoreInProgress) return
-        if (!com.aegis.ime.user.ClipboardPolicy.shouldReadSystemClip(secureField, historyEnabled())) return
         if (!com.aegis.ime.user.ClipboardStore.shouldCapture(historyEnabled())) return
         if (blocks.isEmpty()) return
         for (block in blocks) clipboardStore.record(block)

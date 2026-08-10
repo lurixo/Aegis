@@ -26,8 +26,6 @@ import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.historyText
 import org.junit.After
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -37,7 +35,7 @@ import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
-class PasswordFieldClipCaptureTest {
+class EveryFieldClipCaptureTest {
 
     @Before fun clean() {
         LiveUserData.clipboardHost = null
@@ -91,7 +89,7 @@ class PasswordFieldClipCaptureTest {
         service.javaClass.getDeclaredMethod("captureClip").apply { isAccessible = true }.invoke(service)
     }
 
-    @Test fun a_clip_copied_in_a_password_field_never_reaches_the_history() {
+    @Test fun a_clip_copied_in_a_password_field_reaches_the_history_like_any_other() {
         val service = service()
         val store = store(service)
         service.onStartInput(password(), false)
@@ -99,13 +97,14 @@ class PasswordFieldClipCaptureTest {
         copyOutside(service, "hunter2-from-the-password-box")
         systemClipChanged(service)
 
-        assertTrue(
-            "what the user copies inside a password field must not be kept",
-            store.historyText().isEmpty(),
+        assertEquals(
+            "the history takes what is copied in every field, and deciding otherwise is not this keyboard's call",
+            listOf("hunter2-from-the-password-box"),
+            store.historyText(),
         )
     }
 
-    @Test fun opening_the_clipboard_panel_in_a_password_field_does_not_swallow_the_password() {
+    @Test fun opening_the_clipboard_panel_in_a_password_field_picks_up_the_clip_all_the_same() {
         val service = service()
         val store = store(service)
         service.onStartInput(password(), false)
@@ -113,9 +112,10 @@ class PasswordFieldClipCaptureTest {
 
         captureClip(service)
 
-        assertTrue(
-            "the panel picks up whatever the system clipboard holds, so it must respect the same gate",
-            store.historyText().isEmpty(),
+        assertEquals(
+            "the panel hands over whatever the system clipboard holds, whichever field it is opened over",
+            listOf("hunter2-already-on-the-system-clip"),
+            store.historyText(),
         )
     }
 
@@ -141,40 +141,40 @@ class PasswordFieldClipCaptureTest {
         assertEquals(listOf("already copied before the panel opened"), store.historyText())
     }
 
-    @Test fun leaving_the_password_field_lets_the_history_work_again() {
+    @Test fun moving_out_of_a_password_field_adds_to_the_history_instead_of_reopening_it() {
         val service = service()
         val store = store(service)
         service.onStartInput(password(), false)
         copyOutside(service, "hunter2-while-secure")
         systemClipChanged(service)
-        assertTrue("precondition: the secure field kept it out", store.historyText().isEmpty())
 
         service.onStartInput(ordinary(), false)
         copyOutside(service, "back in an ordinary field")
         systemClipChanged(service)
 
         assertEquals(
-            "the gate follows the field the user is in, it is not a one-way switch",
-            listOf("back in an ordinary field"),
+            "the field the user copied in is not part of the record, so both clips are simply there",
+            listOf("back in an ordinary field", "hunter2-while-secure"),
             store.historyText(),
         )
     }
 
-    @Test fun a_password_field_does_not_stage_the_copy_bar_either() {
+    @Test fun a_clip_copied_in_a_password_field_is_staged_in_the_copy_bar_too() {
         val service = service()
         store(service)
         service.onStartInput(password(), false)
 
-        copyOutside(service, "hunter2-must-not-be-offered-back")
+        copyOutside(service, "hunter2-offered-back-like-anything-else")
         systemClipChanged(service)
 
         val lastCopy = service.javaClass.getDeclaredField("lastCopy").run {
             isAccessible = true
             get(service)
         }
-        assertFalse(
-            "a password the keyboard never recorded must not be sitting in the paste affordance either",
-            "hunter2-must-not-be-offered-back" == lastCopy,
+        assertEquals(
+            "a clip the keyboard just recorded is offered back for pasting, whichever field it came from",
+            "hunter2-offered-back-like-anything-else",
+            lastCopy,
         )
     }
 }

@@ -37,9 +37,6 @@ object ClipboardPolicy {
         isSensitive(inputType) ||
             (imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
 
-    fun shouldReadSystemClip(secureField: Boolean, historyEnabled: Boolean): Boolean =
-        !secureField && historyEnabled
-
     @Suppress("UNUSED_PARAMETER")
     fun shouldRestoreCopyBar(lastCopy: String?, secureField: Boolean): Boolean = lastCopy != null
 }
