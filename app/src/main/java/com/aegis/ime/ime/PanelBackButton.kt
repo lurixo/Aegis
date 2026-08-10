@@ -57,6 +57,7 @@ object PanelBackButton {
             setCompoundDrawablesWithIntrinsicBounds(glyph, null, null, null)
             compoundDrawablePadding = (GAP_DP * density).toInt()
             setPadding((edgeDp * density).toInt(), 0, (edgeDp * density).toInt(), 0)
+            minWidth = (HIT_DP * density).toInt()
         }
     }
 }
