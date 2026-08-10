@@ -22,9 +22,11 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.nio.file.Files
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicLong
 
 class ClipboardRecordQueueTest {
 
@@ -218,6 +220,37 @@ class ClipboardRecordQueueTest {
         s.load()
 
         assertEquals("a reload must not drop a clip the writer had not filed yet", 1, s.history().size)
+    }
+
+    private fun stampCount(store: ClipboardStore): Long {
+        val field = ClipboardStore::class.java.getDeclaredField("saveGen")
+        field.isAccessible = true
+        return (field.get(store) as AtomicLong).get()
+    }
+
+    private fun fileIdentity(file: File): String {
+        val attributes = Files.readAttributes(file.toPath(), BasicFileAttributes::class.java)
+        return "${attributes.fileKey()} ${attributes.lastModifiedTime()} ${attributes.size()}"
+    }
+
+    @Test fun copying_the_clip_already_on_top_again_does_not_write_the_history_again() {
+        val dir = newDir()
+        val s = store(dir)
+        s.record("下面的")
+        s.record("顶上的")
+        s.flushPendingWrites()
+        val index = fileIdentity(File(dir, "clipboard.txt"))
+        val stamps = stampCount(s)
+        val order = s.latestEntry()!!.captureOrder
+
+        s.record("顶上的")
+        s.flushPendingWrites()
+
+        assertEquals("a copy that changes nothing on disk must not take a turn on the writer", stamps, stampCount(s))
+        assertEquals("and the history file must not be written again", index, fileIdentity(File(dir, "clipboard.txt")))
+        assertTrue("the copy is still the newest capture", s.latestEntry()!!.captureOrder > order)
+        assertEquals(listOf("顶上的", "下面的"), s.historyText())
+        assertEquals(listOf("顶上的", "下面的"), store(dir).historyText())
     }
 
     @Test fun copying_the_clip_on_top_again_after_its_write_failed_still_writes_it() {

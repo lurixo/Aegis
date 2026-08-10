@@ -270,6 +270,32 @@ class ClipboardStore(private val dir: File) {
         return true
     }
 
+    fun latestEntry(): ClipEntry? = synchronized(history) { history.firstOrNull() }
+
+    fun editClip(key: String, newText: String): Boolean {
+        if (!clipWritesAllowed()) { reportClipWrite(false); return false }
+        if (newText.isBlank()) { reportClipWrite(false); return false }
+        val replacement = adopt(newText)
+        var missing = false
+        val changed = synchronized(history) {
+            val at = history.indexOfFirst { it.key == key }
+            if (at < 0) { missing = true; false }
+            else if (history[at].key == replacement.key) false
+            else {
+                val duplicate = history.indexOfFirst { it.key == replacement.key }
+                if (duplicate < 0 || duplicate == at) history[at] = replacement
+                else {
+                    history[minOf(at, duplicate)] = replacement
+                    history.removeAt(maxOf(at, duplicate))
+                }
+                true
+            }
+        }
+        if (missing) { reportClipWrite(false); return false }
+        if (changed) saveHistoryLater()
+        return true
+    }
+
     fun clearHistory(): Boolean {
         if (!clipWritesAllowed()) { reportClipWrite(false); return false }
         if (!synchronized(history) { history.isNotEmpty().also { history.clear() } }) return true
