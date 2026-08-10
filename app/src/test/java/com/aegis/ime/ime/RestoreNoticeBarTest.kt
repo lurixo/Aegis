@@ -20,6 +20,7 @@ import android.graphics.Canvas
 import android.view.MotionEvent
 import android.view.View
 import com.aegis.ime.R
+import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.user.LiveUserData
 import org.junit.After
@@ -41,9 +42,21 @@ class RestoreNoticeBarTest {
     private val ctx = RuntimeEnvironment.getApplication()
     private val density = ctx.resources.displayMetrics.density
 
+    private class Host : ImeHost {
+        override fun commitText(text: CharSequence) {}
+        override fun deleteBackward() {}
+        override fun performEnter() {}
+    }
+
     @Before fun noTroubleYet() { LiveUserData.restoreTrouble = null }
 
     @After fun leaveNoTrouble() { LiveUserData.restoreTrouble = null }
+
+    private fun attached(): Pair<KeyboardController, InputView> {
+        val view = InputView(ctx)
+        val controller = KeyboardController(Host(), DictEngine(null, null, null)).apply { attachView(view) }
+        return controller to view
+    }
 
     private fun laidOut(): CandidateView {
         val v = CandidateView(ctx)
@@ -152,6 +165,67 @@ class RestoreNoticeBarTest {
         assertEquals("the edge inset leaves the notice alone", 0, opened)
         tap(notice, notice.width - inset - 1f, notice.height / 2f)
         assertEquals("the notice ends at the edge inset", 1, opened)
+    }
+
+    @Test fun the_bar_carries_a_phrase_write_nobody_landed_as_well() {
+        val (_, view) = attached()
+
+        view.showPhraseNotice("常用语没能写进去")
+
+        assertEquals("常用语没能写进去", view.candidateRestoreNoticeForTest())
+    }
+
+    @Test fun a_phrase_notice_outlives_the_typing_that_hides_it() {
+        val (_, view) = attached()
+        view.showPhraseNotice("常用语没能写进去")
+
+        view.showCandidates(listOf("你", "泥"), "ni", emptyList())
+
+        assertFalse(
+            "what is being typed owns the bar",
+            view.candidateBarForTest().restoreNoticeShownForTest(),
+        )
+        assertEquals(
+            "the notice waits behind what is being typed rather than being thrown away",
+            "常用语没能写进去",
+            view.candidateRestoreNoticeForTest(),
+        )
+
+        view.showCandidates(emptyList(), "", emptyList())
+
+        assertTrue(
+            "a bar with nothing on it takes the notice back up",
+            view.candidateBarForTest().restoreNoticeShownForTest(),
+        )
+    }
+
+    @Test fun a_phrase_notice_is_taken_back_once_the_write_that_replaces_it_lands() {
+        val (_, view) = attached()
+        view.showPhraseNotice("常用语没能写进去")
+
+        view.showPhraseNotice(null)
+
+        assertNull(view.candidateRestoreNoticeForTest())
+    }
+
+    @Test fun a_tap_on_a_phrase_notice_dismisses_it_instead_of_opening_backup() {
+        val (_, view) = attached()
+        var opened = 0
+        view.onRestoreNotice = { opened++ }
+        view.showPhraseNotice("常用语没能写进去")
+
+        view.candidateBarForTest().let { bar ->
+            bar.measure(
+                View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec((44 * density).toInt(), View.MeasureSpec.EXACTLY),
+            )
+            bar.layout(0, 0, bar.measuredWidth, bar.measuredHeight)
+            draw(bar)
+            tap(bar, bar.width / 2f, bar.height / 2f)
+        }
+
+        assertEquals("a phrase write has nothing to do with backup and restore", 0, opened)
+        assertNull(view.candidateRestoreNoticeForTest())
     }
 
     @Test fun the_notice_is_drawn_in_the_colour_kept_for_trouble() {

@@ -573,6 +573,8 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
 
     internal fun gateTextColorForTest(): Int = gateColor()
 
+    internal fun restoreNoticeLabelForTest(): String? = restoreNoticeLabel
+
     internal fun restoreNoticeShownForTest(): Boolean = isRestoreNoticeMode()
 
     internal fun pressedTargetForTest(): String? = pressedTarget?.kind?.name
