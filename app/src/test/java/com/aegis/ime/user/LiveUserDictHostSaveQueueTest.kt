@@ -375,6 +375,30 @@ class LiveUserDictHostSaveQueueTest {
         assertEquals("the words the user added by hand stay", listOf("张伟明"), onDisk().userWordEntries().map { it.word })
     }
 
+    @Test(timeout = 60_000) fun deleting_a_word_on_a_writer_that_never_answers_leaves_no_promise_behind() {
+        val learning = learnedOnce()
+        val h = host(learning)
+        seedOneLearnedEntry(learning)
+        model.addManualWord("ninen", "你呢嗯", 1_000L)
+        model.addManualWord("zwm", "张伟明", 1_000L)
+        val release = wedged(h)
+        val removing = helper().submit<Boolean> { h.removeWord("ninen", "你呢嗯") }
+
+        assertFalse("a deletion nothing was written for is not reported as done", removing.get(30, TimeUnit.SECONDS))
+        assertEquals(
+            "a deletion the writer never answered writes nothing, so it owes nothing:" +
+                " a promise here would outlive the write and take the word again once it is learned back",
+            emptyList<Pair<String, String>>(),
+            model.tombstones(),
+        )
+
+        release.countDown()
+        assertTrue(drained(h))
+        assertFalse("the queued write still carries the deletion", learnFile.readText().contains("你呢嗯"))
+        assertFalse("and leaves no deletion owed on disk", db.readText().contains("D\t"))
+        assertEquals("the words the user added by hand stay", listOf("张伟明"), onDisk().userWordEntries().map { it.word })
+    }
+
     @Test(timeout = 60_000) fun a_promise_is_struck_off_when_a_later_write_carried_what_the_first_could_not() {
         val learning = learnedOnce()
         val h = host(learning)
