@@ -41,12 +41,14 @@ class CandidateView(context: Context) : View(context) {
     var onCollapse: () -> Unit = {}
     var onCollapseExpanded: () -> Unit = {}
     var onDictGate: (() -> Unit)? = null
+    var onRestoreNotice: (() -> Unit)? = null
 
     private var items: List<String> = emptyList()
     private var composing: String = ""
     private var gateActive = false
     private var gateLabel = ""
     private var gateFailed = false
+    private var restoreNoticeLabel: String? = null
     private var expanded = false
     private val hitRects = ArrayList<RectF>()
     private var hitCount = 0
@@ -151,6 +153,12 @@ class CandidateView(context: Context) : View(context) {
         if (text == gateLabel && failed == gateFailed) return
         gateLabel = text
         gateFailed = failed
+        invalidate()
+    }
+
+    fun setRestoreNotice(label: String?) {
+        if (label == restoreNoticeLabel) return
+        restoreNoticeLabel = label
         invalidate()
     }
 
@@ -265,6 +273,7 @@ class CandidateView(context: Context) : View(context) {
         if (items.isEmpty()) {
             when {
                 gateActive -> drawGate(canvas, baseline)
+                isRestoreNoticeMode() -> drawRestoreNotice(canvas, baseline)
                 isFunctionMode() -> drawFunctions(canvas, baseline)
             }
             return
@@ -295,15 +304,22 @@ class CandidateView(context: Context) : View(context) {
         Glyphs.drawChevron(canvas, iconPaint, chCx, chCy, chS, down = !expanded)
     }
 
-    private fun drawGate(canvas: Canvas, baseline: Float) {
-        val text = gateLabel
+    private fun drawGate(canvas: Canvas, baseline: Float) =
+        drawBarNotice(canvas, baseline, gateLabel, gateColor())
+
+    private fun drawRestoreNotice(canvas: Canvas, baseline: Float) =
+        drawBarNotice(canvas, baseline, restoreNoticeLabel.orEmpty(), restoreNoticeColor())
+
+    private fun drawBarNotice(canvas: Canvas, baseline: Float, text: String, color: Int) {
         if (text.isEmpty()) return
-        gatePaint.color = gateColor()
+        gatePaint.color = color
         val x = ((width - gatePaint.measureText(text)) / 2f).coerceAtLeast(padding)
         canvas.drawText(text, x, baseline, gatePaint)
     }
 
     private fun gateColor(): Int = if (gateFailed) palette.deletable else palette.candidateFirst
+
+    private fun restoreNoticeColor(): Int = palette.deletable
 
     private fun drawFunctions(canvas: Canvas, baseline: Float) {
         val capL = capMarginH
@@ -441,6 +457,7 @@ class CandidateView(context: Context) : View(context) {
                 }
                 if (fling.stopArmed) return true
                 if (isGateMode()) { performClick(); onDictGate?.invoke(); return true }
+                if (isRestoreNoticeMode()) { performClick(); onRestoreNotice?.invoke(); return true }
                 if (isFunctionMode()) {
                     val upTarget = toolbarTargetAt(event.x, event.y)
                     if (downTarget == upTarget) {
@@ -474,11 +491,22 @@ class CandidateView(context: Context) : View(context) {
 
     private fun isGateMode(): Boolean = gateActive && items.isEmpty()
 
+    private fun isRestoreNoticeMode(): Boolean = !gateActive && restoreNoticeLabel != null && items.isEmpty()
+
     internal fun gateActiveForTest(): Boolean = gateActive
 
     internal fun gateTextColorForTest(): Int = gateColor()
 
+    internal fun restoreNoticeLabelForTest(): String? = restoreNoticeLabel
+
+    internal fun restoreNoticeShownForTest(): Boolean = isRestoreNoticeMode()
+
+    internal fun pressedTargetForTest(): String? = pressedTarget?.kind?.name
+
+    internal fun restoreNoticeTextColorForTest(): Int = restoreNoticeColor()
+
     private fun targetAt(x: Float, y: Float): PressTarget? {
+        if (isRestoreNoticeMode()) return null
         if (isFunctionMode()) {
             return toolbarTargetAt(x, y)
         }

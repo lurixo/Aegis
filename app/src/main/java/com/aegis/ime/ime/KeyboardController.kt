@@ -27,6 +27,8 @@ import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
+import com.aegis.ime.user.LiveUserData
+import com.aegis.ime.user.RestoreTrouble
 import com.aegis.ime.user.UserLearning
 
 private enum class ShiftState { OFF, ONCE, LOCK }
@@ -402,6 +404,11 @@ class KeyboardController(
         mode() == Mode.PINYIN && !engineSupportsChinese && composing.isNotEmpty()
 
     internal fun chineseGateActiveForTest(): Boolean = chineseGateActive()
+
+    private fun restoreNotice(): RestoreTrouble? =
+        LiveUserData.restoreTrouble?.takeIf { composing.isEmpty() && candidates.isEmpty() }
+
+    internal fun restoreNoticeForTest(): RestoreTrouble? = restoreNotice()
 
     private fun handleCommit(key: Key) {
         if (key.direct) {
@@ -1006,7 +1013,14 @@ class KeyboardController(
         }
         v.showKeyboard(layout, shifted, shiftState == ShiftState.LOCK, lang)
         val readings = expandedReadings()
-        v.showCandidates(candidates.map { it.word }, preeditText(), readings, selectedExpandedReadingIndex(readings, highlight), chineseGateActive())
+        v.showCandidates(
+            candidates.map { it.word },
+            preeditText(),
+            readings,
+            selectedExpandedReadingIndex(readings, highlight),
+            chineseGateActive(),
+            restoreNotice(),
+        )
     }
 
     internal fun shiftStateName(): String = shiftState.name

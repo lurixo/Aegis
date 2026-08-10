@@ -37,6 +37,7 @@ import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.ui.DictDownloadWork
 import com.aegis.ime.ui.DownloadCardSnapshot
 import com.aegis.ime.ui.LocalizedText
+import com.aegis.ime.user.RestoreTrouble
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.KeyboardLayout
@@ -60,6 +61,7 @@ class InputView(context: Context) : LinearLayout(context) {
     var onEditConfirm: () -> Unit = {}
     var onEditCancel: () -> Unit = {}
     var onOverlayChanged: () -> Unit = {}
+    var onRestoreNotice: () -> Unit = {}
 
     var onPanelChanged: (View?) -> Unit = {}
 
@@ -134,6 +136,7 @@ class InputView(context: Context) : LinearLayout(context) {
         candidateView.onCollapse = { onCollapse() }
         candidateView.onCollapseExpanded = { showPanel(null) }
         candidateView.onDictGate = { DictDownloadWork.start(context); startGateMonitoring() }
+        candidateView.onRestoreNotice = { onRestoreNotice() }
         gridView.onPick = { index -> onPickCandidate(index) }
         gridView.onPickReading = { index -> onPickReading(index) }
         gridView.onClose = { showPanel(null) }
@@ -364,12 +367,20 @@ class InputView(context: Context) : LinearLayout(context) {
 
     fun isComposing(): Boolean = composingNow
 
-    fun showCandidates(candidates: List<String>, preedit: String, readings: List<String>, selectedReading: Int = -1, gate: Boolean = false) {
+    fun showCandidates(
+        candidates: List<String>,
+        preedit: String,
+        readings: List<String>,
+        selectedReading: Int = -1,
+        gate: Boolean = false,
+        restoreTrouble: RestoreTrouble? = null,
+    ) {
         lastCandidates = candidates
         lastReadings = readings
         lastSelectedReading = selectedReading
         preeditView.setText(preedit)
         candidateView.setContent(candidates, preedit, gate)
+        candidateView.setRestoreNotice(restoreTrouble?.let(::restoreNoticeLabel))
         if (gate) startGateMonitoring() else stopGateMonitoring()
         composingNow = candidates.isNotEmpty() || preedit.isNotEmpty()
         if (copyBarActive && composingNow) { hideCopyBar(); onCopyDismiss() }
@@ -417,9 +428,18 @@ class InputView(context: Context) : LinearLayout(context) {
         else -> false
     }
 
+    private fun restoreNoticeLabel(trouble: RestoreTrouble): String = when (trouble) {
+        RestoreTrouble.ROLLBACK_FAILED -> context.getString(R.string.restore_gate_rollback_failed)
+        RestoreTrouble.ROLLBACK_IMPOSSIBLE -> context.getString(R.string.restore_gate_rollback_impossible)
+    }
+
     internal fun gateShowsFailureForTest(snap: DownloadCardSnapshot): Boolean = gateShowsFailure(snap)
 
     internal fun candidateGateActiveForTest(): Boolean = candidateView.gateActiveForTest()
+
+    internal fun restoreNoticeLabelForTest(trouble: RestoreTrouble): String = restoreNoticeLabel(trouble)
+
+    internal fun candidateRestoreNoticeForTest(): String? = candidateView.restoreNoticeLabelForTest()
 
     internal fun showExpandedCandidates() {
         if (lastCandidates.isEmpty()) return

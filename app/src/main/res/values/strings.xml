@@ -249,6 +249,8 @@
     <string name="backup_error_rollback_failed">The import could not be finished, and what this device held before it could not be put back, so some data may now be a mix of the two. Import the backup again.</string>
     <string name="backup_export_ok_partial">Backup exported. These could not be read, so they were left out:</string>
     <string name="backup_error_damaged_content">Nothing was restored and nothing on this device was changed. These parts of the backup could not be read:</string>
+    <string name="restore_gate_rollback_failed">Restore unfinished — undo failed, tap here</string>
+    <string name="restore_gate_rollback_impossible">Restore unfinished — cannot undo, tap here</string>
     <string name="backup_item_dictionary">Learning dictionary</string>
     <string name="backup_item_learning">Auto learning</string>
     <string name="backup_item_phrases">Saved phrases</string>

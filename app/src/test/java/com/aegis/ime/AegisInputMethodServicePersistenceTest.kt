@@ -21,6 +21,7 @@ import android.view.inputmethod.EditorInfo
 import com.aegis.ime.backup.RestoreJournal
 import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.LiveUserData
+import com.aegis.ime.user.RestoreTrouble
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserLearnEdit
 import com.aegis.ime.user.UserLearning
@@ -58,6 +59,7 @@ class AegisInputMethodServicePersistenceTest {
         LiveUserData.onBeforeExport = null
         LiveUserData.onBeforeRestore = null
         LiveUserData.restoreInProgress = false
+        LiveUserData.restoreTrouble = null
         userDb.delete()
         userLearn.delete()
         File(filesDir, "restore_journal").deleteRecursively()
@@ -68,6 +70,7 @@ class AegisInputMethodServicePersistenceTest {
         UserDictHot.host = null
         LiveUserData.onBeforeExport = null
         LiveUserData.onBeforeRestore = null
+        LiveUserData.restoreTrouble = null
     }
 
     private fun started(): AegisInputMethodService {
@@ -176,6 +179,33 @@ class AegisInputMethodServicePersistenceTest {
         )
         assertEquals("and the keyboard must be holding what was put back", listOf("本地词"), model(service).userWordEntries().map { it.word })
         assertFalse("the spent journal must be gone", File(filesDir, "restore_journal").exists())
+    }
+
+    @Test fun a_rollback_the_cold_start_could_not_carry_out_is_left_where_the_keyboard_can_say_so() {
+        aRestoreCaughtHalfWay()
+        val copy = File(filesDir, "restore_journal/before/userdb.txt")
+        assertTrue("precondition: the journal took a copy to put back", copy.isFile)
+        assertTrue(copy.setReadable(false, false))
+
+        try {
+            started()
+        } finally {
+            copy.setReadable(true, true)
+        }
+
+        assertEquals(
+            "a rollback the keyboard could not carry out must not go unsaid",
+            RestoreTrouble.ROLLBACK_FAILED,
+            LiveUserData.restoreTrouble,
+        )
+        assertTrue("the journal must stay for the next try", File(filesDir, "restore_journal").isDirectory)
+        assertEquals("nothing was put back, so the device still holds the archive", listOf("归档词"), wordsOnDisk())
+    }
+
+    @Test fun a_cold_start_with_nothing_to_take_back_says_nothing_is_wrong() {
+        started()
+
+        assertNull("a keyboard that found no interrupted restore has nothing to report", LiveUserData.restoreTrouble)
     }
 
     @Test fun a_restore_that_did_finish_is_left_alone_when_the_keyboard_comes_up() {

@@ -248,6 +248,8 @@
     <string name="backup_error_rollback_failed">导入没能做完，本机原有数据也没能还原回去，部分数据现在可能是两者的混合。请重新导入这个备份。</string>
     <string name="backup_export_ok_partial">已导出备份。以下内容读不出来，没有放进备份：</string>
     <string name="backup_error_damaged_content">没有恢复任何内容，本机数据一点没动。备份里以下内容读不出来：</string>
+    <string name="restore_gate_rollback_failed">恢复没做完，撤销失败，点这里</string>
+    <string name="restore_gate_rollback_impossible">恢复没做完，无法撤销，点这里</string>
     <string name="backup_item_dictionary">学习词库</string>
     <string name="backup_item_learning">自动学习</string>
     <string name="backup_item_phrases">常用语</string>
