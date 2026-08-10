@@ -362,6 +362,35 @@ class SymbolUsageStoreTest {
         )
     }
 
+    @Test fun a_second_clear_inside_the_write_window_never_loses_what_the_first_one_took_away() {
+        val dir = newDir()
+        val s = SymbolUsageStore(dir).apply { load(); record("★", "符号"); record("→", "符号") }
+        SymbolUsageStore.flushPendingWrites()
+        val onDisk = File(dir, "symbol_usage.txt").readText()
+        assertTrue("precondition: no clear can reach the disk", s.tempFile().mkdirs())
+        val reported = CopyOnWriteArrayList<Boolean>()
+        s.reportWritesTo({ it.run() }) { reported.add(it) }
+        occupyTheWriteLane()
+
+        assertTrue(s.clear())
+        assertTrue("a second clear over an emptied list is still taken", s.clear())
+
+        release?.countDown()
+        SymbolUsageStore.flushPendingWrites()
+
+        assertEquals(
+            "a clear with nothing left to take away owes the writer no second empty file",
+            listOf(false),
+            reported.toList(),
+        )
+        assertEquals(
+            "the recents no clear could write must come back to the panel",
+            listOf("→", "★"),
+            s.recent(),
+        )
+        assertEquals("and they must still be on the disk", onDisk, File(dir, "symbol_usage.txt").readText())
+    }
+
     @Test fun a_symbol_used_right_after_a_clear_is_the_only_one_left_on_the_file() {
         val dir = newDir()
         val s = SymbolUsageStore(dir).apply { load(); record("★", "符号"); record("→", "符号") }

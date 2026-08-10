@@ -94,6 +94,7 @@ class SymbolUsageStore(private val dir: File) {
     fun clear(): Boolean {
         settleClear()
         if (!readable) { reportWrite(false); return false }
+        if (used.isEmpty()) return true
         clearedAway = ArrayList(used)
         used.clear()
         writeLater("", tellClear = true)
