@@ -181,7 +181,9 @@
     <string name="app_release_label_format" translatable="false">Aegis v%1$s</string>
 
     <string name="phrase_transfer_toast_export_ok">Phrases exported</string>
-    <string name="phrase_transfer_toast_export_failed">Export failed</string>
+    <string name="phrase_transfer_toast_export_store_unreadable">Export failed: the saved phrases on this device cannot be read; nothing was written to the file you picked.</string>
+    <string name="phrase_transfer_toast_export_write_failed">Export failed: the file you picked could not be written; your phrases were not changed.</string>
+    <string name="phrase_transfer_toast_export_empty">Export failed: there was nothing to export; your phrases were not changed.</string>
     <string name="phrase_transfer_toast_import_read_failed">Import failed: file cannot be read; phrases were not changed</string>
     <string name="phrase_transfer_toast_import_merged">Phrases imported and merged</string>
     <string name="phrase_transfer_toast_import_overwritten">Phrases imported and overwritten</string>

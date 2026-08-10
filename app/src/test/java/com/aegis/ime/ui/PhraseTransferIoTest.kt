@@ -56,7 +56,10 @@ class PhraseTransferIoTest {
         }
 
         val out = ByteArrayOutputStream()
-        assertTrue(PhraseTransferIo.exportPhrases(dir) { out })
+        assertEquals(
+            R.string.phrase_transfer_toast_export_ok,
+            phraseExportMessage(PhraseTransferIo.exportPhrases(dir) { out }),
+        )
 
         val text = String(out.toByteArray(), Charsets.UTF_8)
         assertTrue("export wrote bytes", out.size() > 0)
@@ -69,14 +72,21 @@ class PhraseTransferIoTest {
         val dir = newDir()
         ClipboardStore(dir).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("已收到")); flushPendingWrites() }
 
-        assertFalse(PhraseTransferIo.exportPhrases(dir) { null })
+        assertEquals(
+            "a file that could not be opened is a file that could not be written",
+            R.string.phrase_transfer_toast_export_write_failed,
+            phraseExportMessage(PhraseTransferIo.exportPhrases(dir) { null }),
+        )
     }
 
     @Test fun exportPhrases_treats_unwritable_output_as_failure() {
         val dir = newDir()
         ClipboardStore(dir).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("已收到")); flushPendingWrites() }
 
-        assertFalse(PhraseTransferIo.exportPhrases(dir) { FailingOutputStream() })
+        assertEquals(
+            R.string.phrase_transfer_toast_export_write_failed,
+            phraseExportMessage(PhraseTransferIo.exportPhrases(dir) { FailingOutputStream() }),
+        )
     }
 
     @Test fun exportPhrases_treats_a_phrase_list_nobody_could_read_as_failure() {
@@ -85,11 +95,34 @@ class PhraseTransferIoTest {
         assertTrue("precondition: the phrase file cannot be read back", file.setReadable(false, false))
         try {
             val out = ByteArrayOutputStream()
-            assertFalse(PhraseTransferIo.exportPhrases(dir) { out })
+            assertEquals(
+                "an export that never read the phrases must not be reported as an unwritable file",
+                R.string.phrase_transfer_toast_export_store_unreadable,
+                phraseExportMessage(PhraseTransferIo.exportPhrases(dir) { out }),
+            )
             assertEquals("nothing may be handed to the picked document", 0, out.size())
         } finally {
             file.setReadable(true, false)
         }
+    }
+
+    @Test fun an_export_of_a_phrase_list_nobody_could_read_says_which_failure_it_was() {
+        assertEquals(
+            R.string.phrase_transfer_toast_export_store_unreadable,
+            phraseExportMessage(Result.failure(UnreadablePhrasesException())),
+        )
+        assertEquals(
+            R.string.phrase_transfer_toast_export_write_failed,
+            phraseExportMessage(Result.failure(IOException("the picked document rejected the write"))),
+        )
+        assertEquals(
+            R.string.phrase_transfer_toast_export_empty,
+            phraseExportMessage(Result.success(false)),
+        )
+        assertEquals(
+            R.string.phrase_transfer_toast_export_ok,
+            phraseExportMessage(Result.success(true)),
+        )
     }
 
     @Test fun an_import_over_a_phrase_list_nobody_could_read_says_which_failure_it_was() {
@@ -170,7 +203,7 @@ class PhraseTransferIoTest {
         LiveUserData.clipboardHost = live
         try {
             val out = ByteArrayOutputStream()
-            assertTrue(PhraseTransferIo.exportPhrases(dir) { out })
+            assertTrue(PhraseTransferIo.exportPhrases(dir) { out }.getOrDefault(false))
             val text = String(out.toByteArray(), Charsets.UTF_8)
             assertTrue("the running store is the one that knows what the phrases are", text.contains("P\t内存里的\n"))
             assertFalse("a second store over the same file reads whatever happens to be there", text.contains("磁盘上的"))

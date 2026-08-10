@@ -31,8 +31,8 @@ class PhraseTransferActivity : ComponentActivity() {
 
     private val exportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) {
-            val ok = PhraseTransferIo.exportPhrases(filesDir) { contentResolver.openOutputStream(uri, "wt") }
-            toast(if (ok) R.string.phrase_transfer_toast_export_ok else R.string.phrase_transfer_toast_export_failed)
+            val outcome = PhraseTransferIo.exportPhrases(filesDir) { contentResolver.openOutputStream(uri, "wt") }
+            toast(phraseExportMessage(outcome))
         }
         finish()
     }
@@ -90,6 +90,14 @@ class PhraseTransferActivity : ComponentActivity() {
                 .putExtra(EXTRA_IMPORT_MERGE, merge)
                 .addFlags(LAUNCH_FLAGS)
     }
+}
+
+internal fun phraseExportMessage(outcome: Result<Boolean>): Int = when {
+    outcome.exceptionOrNull() is UnreadablePhrasesException ->
+        R.string.phrase_transfer_toast_export_store_unreadable
+    outcome.isFailure -> R.string.phrase_transfer_toast_export_write_failed
+    outcome.getOrDefault(false) -> R.string.phrase_transfer_toast_export_ok
+    else -> R.string.phrase_transfer_toast_export_empty
 }
 
 internal fun phraseImportMessage(outcome: Result<Boolean>, merge: Boolean): Int = when {
