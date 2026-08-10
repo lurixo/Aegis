@@ -1186,6 +1186,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
 
     private fun copyBlocksToAegis(blocks: List<String>) {
+        if (LiveUserData.restoreInProgress) return
+        if (!com.aegis.ime.user.ClipboardPolicy.shouldReadSystemClip(secureField, historyEnabled())) return
+        if (!com.aegis.ime.user.ClipboardStore.shouldCapture(historyEnabled())) return
         if (blocks.isEmpty()) return
         for (block in blocks) clipboardStore.record(block)
         refreshOpenClipboardPanel()
