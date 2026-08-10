@@ -5,7 +5,7 @@
 </p>
 
 [![License: GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
-[![Latest release](https://img.shields.io/github/v/release/lurixo/Aegis?include_prereleases&sort=semver)](https://github.com/lurixo/Aegis/releases)
+[![Latest release](https://img.shields.io/github/v/release/lurixo/Aegis?include_prereleases&sort=date)](https://github.com/lurixo/Aegis/releases)
 [![Platform: Android 14+](https://img.shields.io/badge/Android-14%2B%20(API%2034)-3DDC84.svg)](#requirements)
 
 **Aegis** is an offline-first Android input method for **Simplified Chinese** and **English**.

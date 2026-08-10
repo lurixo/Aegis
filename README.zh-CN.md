@@ -5,7 +5,7 @@
 </p>
 
 [![许可证：GPL-3.0](https://img.shields.io/badge/license-GPL--3.0-blue.svg)](LICENSE)
-[![最新发布](https://img.shields.io/github/v/release/lurixo/Aegis?include_prereleases&sort=semver)](https://github.com/lurixo/Aegis/releases)
+[![最新发布](https://img.shields.io/github/v/release/lurixo/Aegis?include_prereleases&sort=date)](https://github.com/lurixo/Aegis/releases)
 [![平台：Android 14+](https://img.shields.io/badge/Android-14%2B%20(API%2034)-3DDC84.svg)](#系统要求)
 
 **Aegis** 是一款离线优先的安卓**简体中文与英文**输入法。它基于开源的 **rime-wanxiang**（万象）
