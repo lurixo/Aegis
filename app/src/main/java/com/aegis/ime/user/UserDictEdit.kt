@@ -16,7 +16,6 @@
 package com.aegis.ime.user
 
 import java.io.File
-import java.io.InputStream
 import java.io.OutputStream
 
 object UserDictEdit {
@@ -71,41 +70,9 @@ object UserDictEdit {
             return ExportResult.NOTHING_TO_EXPORT
         }
         val copied = runCatching {
-            out.use { sink -> userDb.inputStream().use { source -> copyWithoutTombstones(source, sink) } }
+            out.use { sink -> userDb.inputStream().use { source -> UserDictExport.copyWithoutTombstones(source, sink) } }
         }.isSuccess
         return if (copied) ExportResult.WRITTEN else ExportResult.NOT_WRITTEN
-    }
-
-    private fun copyWithoutTombstones(source: InputStream, sink: OutputStream) {
-        val reader = source.buffered()
-        val writer = sink.buffered()
-        val head = ByteArray(TOMBSTONE_ROW.size)
-        while (true) {
-            var seen = 0
-            while (seen < head.size) {
-                val b = reader.read()
-                if (b < 0) break
-                head[seen++] = b.toByte()
-                if (b == NEWLINE) break
-            }
-            if (seen == 0) break
-            val owed = seen == head.size && head.contentEquals(TOMBSTONE_ROW)
-            if (!owed) writer.write(head, 0, seen)
-            if (head[seen - 1].toInt() != NEWLINE) {
-                var ended = true
-                while (true) {
-                    val b = reader.read()
-                    if (b < 0) break
-                    if (!owed) writer.write(b)
-                    if (b == NEWLINE) {
-                        ended = false
-                        break
-                    }
-                }
-                if (ended) break
-            }
-        }
-        writer.flush()
     }
 
     fun list(userDb: File): List<UserModel.Entry> {
@@ -133,7 +100,4 @@ object UserDictEdit {
         if (!userDb.exists()) return 0
         return runCatching { UserModel().apply { load(userDb) }.forgottenCount }.getOrDefault(0)
     }
-
-    private val TOMBSTONE_ROW = "D\t".toByteArray(Charsets.US_ASCII)
-    private const val NEWLINE = '\n'.code
 }
