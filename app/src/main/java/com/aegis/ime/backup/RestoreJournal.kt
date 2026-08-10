@@ -34,20 +34,18 @@ internal class RestoreJournal private constructor(
         dir.deleteRecursively()
     }
 
-    fun canRollBack(): Boolean = File(dir, BEFORE).isDirectory && File(dir, KEPT).isFile
+    fun canRollBack(): Boolean = File(dir, BEFORE).isDirectory
 
     fun rollBack(prefs: SharedPreferences) {
         if (!canRollBack()) {
             throw IOException("the record of what the device held before the restore is gone")
         }
         val before = File(dir, BEFORE)
-        val kept = File(dir, KEPT).readLines().filterNot { it.isEmpty() }.toSet()
 
         for (relativePath in FILE_TARGETS) {
             val live = File(filesDir, relativePath)
-            if (relativePath in kept) {
-                val copy = File(before, relativePath)
-                if (!copy.isFile) throw IOException("the copy of $relativePath taken before the restore is gone")
+            val copy = File(before, relativePath)
+            if (copy.isFile) {
                 live.parentFile?.mkdirs()
                 AtomicFileSwap.copy(copy, live, TAG)
             } else if (live.isFile && !live.delete()) {
@@ -57,7 +55,7 @@ internal class RestoreJournal private constructor(
 
         val liveClips = File(filesDir, CLIPS)
         liveClips.deleteRecursively()
-        if (CLIPS_ENTRY in kept) File(before, CLIPS).copyRecursively(liveClips, overwrite = true)
+        if (File(before, CLIPS).isDirectory) File(before, CLIPS).copyRecursively(liveClips, overwrite = true)
 
         val settings = File(before, SETTINGS)
         if (settings.isFile) {
@@ -73,12 +71,10 @@ internal class RestoreJournal private constructor(
 
         private const val DIR = "restore_journal"
         private const val BEFORE = "before"
-        private const val KEPT = "kept"
         private const val READY = "ready"
         private const val DONE = "done"
         private const val SETTINGS = "settings.bin"
         private const val CLIPS = "clips"
-        private const val CLIPS_ENTRY = "clips/"
         private const val TAG = 0L
 
         private val FILE_TARGETS = BackupItem.entries.map { it.relativePath }
@@ -110,22 +106,16 @@ internal class RestoreJournal private constructor(
         private fun capture(filesDir: File, dir: File, prefs: SharedPreferences) {
             val before = File(dir, BEFORE)
             if (!before.mkdirs()) throw IOException("the restore journal could not be opened")
-            val kept = ArrayList<String>()
             for (relativePath in FILE_TARGETS) {
                 val live = File(filesDir, relativePath)
                 if (!live.isFile) continue
                 val copy = File(before, relativePath)
                 copy.parentFile?.mkdirs()
                 live.copyTo(copy, overwrite = true)
-                kept += relativePath
             }
             val liveClips = File(filesDir, CLIPS)
-            if (liveClips.isDirectory) {
-                liveClips.copyRecursively(File(before, CLIPS), overwrite = true)
-                kept += CLIPS_ENTRY
-            }
+            if (liveClips.isDirectory) liveClips.copyRecursively(File(before, CLIPS), overwrite = true)
             File(before, SETTINGS).writeBytes(PrefsCodec.encode(prefs.all))
-            AtomicFileSwap.write(File(dir, KEPT), TAG, kept.joinToString("\n"))
             AtomicFileSwap.write(File(dir, READY), TAG, "")
         }
     }
