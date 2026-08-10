@@ -20,14 +20,25 @@ import android.app.Activity.OVERRIDE_TRANSITION_OPEN
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
 import com.aegis.ime.R
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.UnreadablePhrasesException
+import java.util.concurrent.Executor
+import java.util.concurrent.ExecutorService
+import java.util.concurrent.Executors
 
 class PhraseTransferActivity : ComponentActivity() {
+
+    private val mainLane = Executor { r -> Handler(Looper.getMainLooper()).post(r) }
+
+    private val importWorker: ExecutorService = Executors.newSingleThreadExecutor { r ->
+        Thread(r, "aegis-phrase-import").apply { isDaemon = true }
+    }
 
     private val exportLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("text/plain")) { uri ->
         if (uri != null) {
@@ -61,11 +72,20 @@ class PhraseTransferActivity : ComponentActivity() {
     }
 
     private fun applyImport(text: String, merge: Boolean) {
-        val outcome = runCatching {
-            LiveUserData.withClipboardStore(filesDir) { it.importPhrasesText(text, merge) }
+        importWorker.execute {
+            val outcome = runCatching {
+                LiveUserData.withClipboardStore(filesDir) { it.importPhrasesText(text, merge) }
+            }
+            mainLane.execute {
+                toast(phraseImportMessage(outcome, merge))
+                finish()
+            }
         }
-        toast(phraseImportMessage(outcome, merge))
-        finish()
+    }
+
+    override fun onDestroy() {
+        runCatching { importWorker.shutdown() }
+        super.onDestroy()
     }
 
     private fun toast(resId: Int) = Toast.makeText(this, resId, Toast.LENGTH_SHORT).show()
