@@ -19,11 +19,11 @@ import java.io.File
 
 object EngineAssets {
 
-    val ASSET_NAMES: List<String> = ModelDownload.DICT_PACK_FILES + ModelDownload.GRAM_NAME
+    val ASSET_NAMES: List<String> = ModelDownload.DICT_MANAGED_FILES + ModelDownload.GRAM_NAME
 
     fun downloadedOverride(downloadedDir: File, name: String, minBytes: Long = 1L): File? =
         if (
-            name in ModelDownload.DICT_PACK_FILES &&
+            name in ModelDownload.DICT_MANAGED_FILES &&
             downloadedDir.parentFile?.let { ModelDownload.unmarkedDictionaryRecoveryRequired(it) } == true
         ) {
             null

@@ -446,12 +446,27 @@ object ModelDownload {
 
     const val LM_NAME = "aegis_lm.bin"
 
+    const val EN_NAME = "aegis_english.bin"
+
+    const val EN_PACK_ENTRY = "aegis_en_full.bin"
+
+    private val LEGACY_ROUTED_SUBSTRINGS = listOf("dict", "t9", "jianpin")
+
     val DICT_BIN_FILES = listOf("aegis_dict.bin", "aegis_t9.bin", "aegis_jianpin.bin")
 
     val DICT_PACK_FILES = DICT_BIN_FILES + LM_NAME
 
+    val DICT_OPTIONAL_FILES = listOf(EN_NAME)
+
+    val DICT_MANAGED_FILES = DICT_PACK_FILES + DICT_OPTIONAL_FILES
+
+    internal fun routesOnlyToItself(name: String): Boolean {
+        val n = name.substringAfterLast('/').substringAfterLast('\\').lowercase(Locale.ROOT)
+        return n != LM_NAME && LEGACY_ROUTED_SUBSTRINGS.none { it in n }
+    }
+
     fun installedDictionaryBytes(filesDir: File): Long =
-        DICT_PACK_FILES.sumOf { File(downloadedDir(filesDir), it).length() }
+        DICT_MANAGED_FILES.sumOf { File(downloadedDir(filesDir), it).length() }
 
     const val DICT_VALIDATOR_PREF = "dict_validator"
     const val DICT_SHA256_PREF = "dict_sha256"
@@ -493,6 +508,16 @@ object ModelDownload {
     private fun dictPendingShaFile(filesDir: File) = File(downloadedDir(filesDir), DICT_PENDING_SHA_NAME)
 
     private val BUNDLED_DICT_CACHE_NAMES = DICT_PACK_FILES + listOf("aegis_en.bin", "aegis_fuzzy.bin")
+
+    init {
+        require(routesOnlyToItself(EN_PACK_ENTRY)) {
+            "$EN_PACK_ENTRY would overwrite a Chinese table on older releases"
+        }
+        require(routesOnlyToItself(EN_NAME)) {
+            "$EN_NAME would overwrite a Chinese table on older releases"
+        }
+        require(EN_NAME !in BUNDLED_DICT_CACHE_NAMES) { "$EN_NAME is deleted as a bundled-era leftover" }
+    }
 
     private fun bundledDictCacheFiles(filesDir: File): List<File> =
         BUNDLED_DICT_CACHE_NAMES.flatMap { listOf(File(filesDir, it), File(filesDir, "$it.part")) }
@@ -566,7 +591,7 @@ object ModelDownload {
                 return
             }
 
-            val transactionFiles = DICT_PACK_FILES + DICT_INSTALLED_SHA_NAME
+            val transactionFiles = DICT_MANAGED_FILES + DICT_INSTALLED_SHA_NAME
             val backups = transactionFiles.associateWith { dictBackupFile(filesDir, it) }
             val hadBackups = backups.values.any(File::exists)
             val completeNewGeneration = isDictDownloaded(filesDir) && installedDictionaryFileSha(filesDir) != null
@@ -584,11 +609,11 @@ object ModelDownload {
             }
             val pendingArchive = dictZipFile(filesDir).exists()
             if (!isDictDownloaded(filesDir) && !pendingArchive) {
-                DICT_PACK_FILES.forEach { File(downloadedDir(filesDir), it).delete() }
+                DICT_MANAGED_FILES.forEach { File(downloadedDir(filesDir), it).delete() }
                 dictInstalledShaFile(filesDir).delete()
             }
             backups.values.forEach { it.delete() }
-            DICT_PACK_FILES.forEach { File(downloadedDir(filesDir), "$it.part").delete() }
+            DICT_MANAGED_FILES.forEach { File(downloadedDir(filesDir), "$it.part").delete() }
             dictStagingDir(filesDir).deleteRecursively()
             if (completeNewGeneration || recoveryRequired) dictZipFile(filesDir).delete()
             if (!dictZipFile(filesDir).exists()) clearPendingDictionarySha(filesDir)
@@ -614,10 +639,10 @@ object ModelDownload {
                 val expectedSha = pendingDictionarySha(filesDir)
                 if (expectedSha == null) {
                     if (unmarkedDictionaryRecoveryRequired(filesDir)) {
-                        DICT_PACK_FILES.forEach { File(downloadedDir(filesDir), it).delete() }
+                        DICT_MANAGED_FILES.forEach { File(downloadedDir(filesDir), it).delete() }
                         dictInstalledShaFile(filesDir).delete()
                         if (
-                            DICT_PACK_FILES.none { File(downloadedDir(filesDir), it).exists() } &&
+                            DICT_MANAGED_FILES.none { File(downloadedDir(filesDir), it).exists() } &&
                             !dictInstalledShaFile(filesDir).exists()
                         ) {
                             zip.delete()
@@ -629,7 +654,7 @@ object ModelDownload {
                 }
                 val installed = runCatching { installDictPack(filesDir, expectedSha) }.getOrDefault(false)
                 if (!installed && !isDictDownloaded(filesDir)) {
-                    DICT_PACK_FILES.forEach { File(downloadedDir(filesDir), it).delete() }
+                    DICT_MANAGED_FILES.forEach { File(downloadedDir(filesDir), it).delete() }
                     dictInstalledShaFile(filesDir).delete()
                 }
             } finally {
@@ -690,7 +715,7 @@ object ModelDownload {
             val installed = ArrayList<String>()
             try {
                 val transactionFiles =
-                    DICT_PACK_FILES.filter { File(staging, it).exists() } + DICT_INSTALLED_SHA_NAME
+                    DICT_MANAGED_FILES.filter { File(staging, it).exists() } + DICT_INSTALLED_SHA_NAME
                 transactionFiles.forEach { name ->
                     val live = File(downloadedDir(filesDir), name)
                     val backup = dictBackupFile(filesDir, name)
@@ -716,6 +741,8 @@ object ModelDownload {
                 return false
             }
             backedUp.forEach { dictBackupFile(filesDir, it).delete() }
+            DICT_OPTIONAL_FILES.filterNot { it in installed }
+                .forEach { File(downloadedDir(filesDir), it).delete() }
             true
         } finally {
             zip.delete()
@@ -855,6 +882,7 @@ object ModelDownload {
         val n = entryName.substringAfterLast('/').substringAfterLast('\\').lowercase()
         return when {
             n == LM_NAME -> LM_NAME
+            n == EN_PACK_ENTRY -> EN_NAME
             "jianpin" in n -> "aegis_jianpin.bin"
             "t9" in n -> "aegis_t9.bin"
             "dict" in n -> "aegis_dict.bin"
@@ -884,7 +912,7 @@ object ModelDownload {
                 key in recoveringDicts ||
                 dictZipFile(filesDir).absolutePath in inFlight
             ) return false
-            DICT_PACK_FILES.forEach {
+            DICT_MANAGED_FILES.forEach {
                 File(downloadedDir(filesDir), it).delete()
                 File(downloadedDir(filesDir), "$it.part").delete()
                 dictBackupFile(filesDir, it).delete()
@@ -899,7 +927,7 @@ object ModelDownload {
             legacyDictZipFile(filesDir).delete()
             legacyDictPartFile(filesDir).delete()
             deleteBundledDictCache(filesDir)
-            return DICT_PACK_FILES.none {
+            return DICT_MANAGED_FILES.none {
                 File(downloadedDir(filesDir), it).exists() ||
                     File(downloadedDir(filesDir), "$it.part").exists() ||
                     dictBackupFile(filesDir, it).exists()

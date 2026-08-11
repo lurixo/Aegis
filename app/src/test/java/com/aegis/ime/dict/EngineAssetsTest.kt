@@ -29,11 +29,12 @@ class EngineAssetsTest {
 
     @Test
     fun tracks_exactly_the_downloaded_pack_files_plus_the_gram_model() {
-        assertEquals(ModelDownload.DICT_PACK_FILES + ModelDownload.GRAM_NAME, EngineAssets.ASSET_NAMES)
-        assertEquals(5, EngineAssets.ASSET_NAMES.size)
+        assertEquals(ModelDownload.DICT_MANAGED_FILES + ModelDownload.GRAM_NAME, EngineAssets.ASSET_NAMES)
+        assertEquals(6, EngineAssets.ASSET_NAMES.size)
         assertTrue("aegis_dict.bin" in EngineAssets.ASSET_NAMES)
         assertTrue("wanxiang-lts-zh-hans.gram" in EngineAssets.ASSET_NAMES)
         assertTrue("aegis_lm.bin" in EngineAssets.ASSET_NAMES)
+        assertTrue("aegis_english.bin" in EngineAssets.ASSET_NAMES)
     }
 
     @Test
