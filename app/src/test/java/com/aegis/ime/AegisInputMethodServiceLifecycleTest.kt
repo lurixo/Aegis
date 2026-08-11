@@ -93,13 +93,42 @@ class AegisInputMethodServiceLifecycleTest {
         val committedChunks = ArrayList<String>()
         val contextMenuActions = ArrayList<Int>()
         val sentKeyCodes = ArrayList<Int>()
+        val surroundingDeletes = ArrayList<Int>()
         var onContextMenuAction: (Int) -> Unit = {}
         var finishes = 0
+        var hidesSelection = false
+
+        override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+            surroundingDeletes.add(beforeLength)
+            return super.deleteSurroundingText(beforeLength, afterLength)
+        }
+
+        override fun getSelectedText(flags: Int): CharSequence? =
+            if (hidesSelection) null else super.getSelectedText(flags)
 
         override fun sendKeyEvent(event: KeyEvent): Boolean {
             if (event.action != KeyEvent.ACTION_DOWN) return super.sendKeyEvent(event)
             sentKeyCodes.add(event.keyCode)
+            if (event.keyCode == KeyEvent.KEYCODE_DEL) backspaceEditable()
             return super.sendKeyEvent(event)
+        }
+
+        private fun backspaceEditable() {
+            val content = editable ?: return
+            val start = Selection.getSelectionStart(content)
+            val end = Selection.getSelectionEnd(content)
+            if (start < 0 || end < 0) return
+            val lo = minOf(start, end)
+            val hi = maxOf(start, end)
+            if (lo != hi) {
+                content.delete(lo, hi)
+                Selection.setSelection(content, lo)
+                return
+            }
+            if (lo == 0) return
+            val from = if (lo >= 2 && Character.isSurrogatePair(content[lo - 2], content[lo - 1])) lo - 2 else lo - 1
+            content.delete(from, lo)
+            Selection.setSelection(content, from)
         }
 
         override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? {
@@ -107,8 +136,9 @@ class AegisInputMethodServiceLifecycleTest {
             return ExtractedText().apply {
                 startOffset = 0
                 text = content.subSequence(0, content.length)
-                selectionStart = Selection.getSelectionStart(content)
-                selectionEnd = Selection.getSelectionEnd(content)
+                val end = Selection.getSelectionEnd(content)
+                selectionStart = if (hidesSelection) end else Selection.getSelectionStart(content)
+                selectionEnd = end
             }
         }
 
@@ -676,6 +706,45 @@ class AegisInputMethodServiceLifecycleTest {
 
         assertEquals("delete removes the whole grapheme cluster", "ab", connection.editable.toString())
         assertTrue("the panel must not fall back to a raw KEYCODE_DEL", connection.sentKeyCodes.isEmpty())
+    }
+
+    @Test fun backspace_over_a_line_break_goes_through_a_key_event() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("ab\n", 1)
+
+        handleEdit(f.service, EditAction.DELETE)
+
+        assertEquals("the line break is gone", "ab", connection.editable.toString())
+        assertTrue("a line break is removed by a key event", connection.sentKeyCodes.contains(KeyEvent.KEYCODE_DEL))
+        assertTrue("no ranged delete is used for a line break", connection.surroundingDeletes.isEmpty())
+    }
+
+    @Test fun backspace_over_a_grapheme_cluster_keeps_using_a_ranged_delete() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("ab😀", 1)
+
+        handleEdit(f.service, EditAction.DELETE)
+
+        assertEquals("the cluster is gone", "ab", connection.editable.toString())
+        assertEquals("the cluster is removed in one ranged delete", listOf(2), connection.surroundingDeletes)
+        assertTrue("a cluster never goes through a key event", connection.sentKeyCodes.isEmpty())
+    }
+
+    @Test fun delete_removes_a_selection_the_editor_never_reported() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("hello", 1)
+        Selection.setSelection(connection.editable, 0, 5)
+        connection.hidesSelection = true
+
+        handleEdit(f.service, EditAction.DELETE)
+
+        assertEquals("the hidden selection is what gets removed", "", connection.editable.toString())
     }
 
     @Test fun edit_delete_consumes_the_preedit_before_the_editor_text() {

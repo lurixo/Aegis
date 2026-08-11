@@ -1372,7 +1372,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val ic = currentInputConnection ?: return
         val before = ic.getTextBeforeCursor(GraphemeText.WINDOW, 0) ?: ""
         val n = GraphemeText.lastClusterLength(before)
-        ic.deleteSurroundingText(if (n > 0) n else 1, 0)
+        if (n > 1) ic.deleteSurroundingText(n, 0) else sendKey(KeyEvent.KEYCODE_DEL, false)
     }
 
     override fun panelBackspace() {
