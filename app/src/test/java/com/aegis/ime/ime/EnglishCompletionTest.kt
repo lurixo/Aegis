@@ -324,6 +324,17 @@ class EnglishCompletionTest {
     }
 
     @Test
+    fun an_external_commit_flushes_the_word_first() {
+        val h = FakeHost()
+        val c = english(h)
+        type(c, "or")
+        c.expireCandidateChoiceUndo()
+        assertEquals(listOf("or"), h.commits)
+        assertEquals("", c.englishWordForTest())
+        assertEquals(emptyList<String>(), c.candidateWords())
+    }
+
+    @Test
     fun changing_the_default_language_away_flushes_the_word() {
         val h = FakeHost()
         val c = english(h)

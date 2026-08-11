@@ -1573,6 +1573,10 @@ class KeyboardController(
 
     fun expireCandidateChoiceUndo() {
         expirePreeditChoiceUndo()
+        if (englishWord.isEmpty()) return
+        flushComposing()
+        refreshCandidates()
+        render()
     }
 
     private fun restorePreeditChoiceUndo(): Boolean {
