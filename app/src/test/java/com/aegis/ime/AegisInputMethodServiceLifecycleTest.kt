@@ -97,6 +97,7 @@ class AegisInputMethodServiceLifecycleTest {
         var onContextMenuAction: (Int) -> Unit = {}
         var finishes = 0
         var hidesSelection = false
+        var hidesExtractedText = false
 
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
             surroundingDeletes.add(beforeLength)
@@ -132,6 +133,7 @@ class AegisInputMethodServiceLifecycleTest {
         }
 
         override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? {
+            if (hidesExtractedText) return null
             val content = editable ?: return null
             return ExtractedText().apply {
                 startOffset = 0
@@ -734,6 +736,60 @@ class AegisInputMethodServiceLifecycleTest {
         assertTrue("a cluster never goes through a key event", connection.sentKeyCodes.isEmpty())
     }
 
+    @Test fun select_all_also_reaches_editors_that_own_their_selection() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("hello", 1)
+
+        handleEdit(f.service, EditAction.SELECT_ALL)
+
+        assertTrue(
+            "select all still uses the editor action",
+            connection.contextMenuActions.contains(android.R.id.selectAll),
+        )
+        assertTrue("select all also sends the editor shortcut", connection.sentKeyCodes.contains(KeyEvent.KEYCODE_A))
+    }
+
+    @Test fun copy_leaves_the_clipboard_alone_when_the_editor_reports_a_bare_cursor() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("hello", 1)
+
+        handleEdit(f.service, EditAction.COPY)
+        handleEdit(f.service, EditAction.CUT)
+
+        assertTrue("a bare cursor must not reach copy or cut", connection.contextMenuActions.isEmpty())
+        assertEquals("cut must not touch the text either", "hello", connection.editable.toString())
+    }
+
+    @Test fun copy_still_runs_when_the_editor_reports_no_text_at_all() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("hello", 1)
+        connection.hidesExtractedText = true
+
+        handleEdit(f.service, EditAction.COPY)
+
+        assertTrue(
+            "an editor that reports nothing still gets the copy",
+            connection.contextMenuActions.contains(android.R.id.copy),
+        )
+    }
+
+    @Test fun select_all_keeps_the_shortcut_away_from_editors_that_take_raw_keys() {
+        val f = fixture()
+
+        assertTrue(
+            "a raw key editor must not receive the shortcut",
+            f.service.takesRawKeys(editor().apply { inputType = InputType.TYPE_NULL }),
+        )
+        assertFalse("an ordinary text field still gets it", f.service.takesRawKeys(editor()))
+        assertFalse("an unknown editor still gets it", f.service.takesRawKeys(null))
+    }
+
     @Test fun delete_removes_a_selection_the_editor_never_reported() {
         val f = fixture()
         val connection = RecordingInputConnection(FrameLayout(f.service))
@@ -1028,6 +1084,8 @@ class AegisInputMethodServiceLifecycleTest {
         val f = fixture()
         val connection = RecordingInputConnection(FrameLayout(f.service))
         installInputConnection(f.service, connection)
+        connection.commitText("edited text", 1)
+        Selection.setSelection(connection.editable, 0, 6)
         val systemClipboard = f.service.getSystemService(ClipboardManager::class.java)
         connection.onContextMenuAction = { id ->
             val text = when (id) {

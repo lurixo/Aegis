@@ -76,6 +76,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
     private val actionViews = mutableMapOf<EditAction, View>()
     private val arrowIcons = mutableMapOf<EditAction, GlyphDrawable>()
     private val tintAnimators = HashMap<View, ValueAnimator>()
+    private var selectionTinted = false
     private var selecting = false
     private val titleBar: LinearLayout
     private val actionColumn: LinearLayout
@@ -92,7 +93,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
             actionViews[action]?.let { Motion.applyTapFeedback(it, p.keyLabel, radiusDp = ImeShapes.keyRadiusDp) }
         }
         for (g in icons) g.applyTint(p.keyLabel)
-        applySelectionTint(copyBtn.isEnabled, animate = false)
+        applySelectionTint(selectionTinted, animate = false)
     }
 
     private fun recolor(v: View) {
@@ -290,9 +291,9 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
     fun setHasSelection(has: Boolean) = applySelectionTint(has, animate = true)
 
     private fun applySelectionTint(has: Boolean, animate: Boolean) {
+        selectionTinted = has
         val tint = if (has) palette.keyLabel else palette.disabled
         for ((b, icon) in listOf(copyBtn to copyIcon, cutBtn to cutIcon)) {
-            b.isEnabled = has
             Motion.applyTapFeedback(b, tint, radiusDp = ImeShapes.keyRadiusDp)
             tintAnimators.remove(b)?.cancel()
             if (animate) {

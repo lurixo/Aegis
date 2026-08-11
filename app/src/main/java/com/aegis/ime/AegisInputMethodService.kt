@@ -800,13 +800,18 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 controller.onKey(Key(action = key))
                 resetSelectionAnchor()
             }
-            EditAction.COPY -> currentInputConnection?.performContextMenuAction(android.R.id.copy)
-            EditAction.CUT -> {
+            EditAction.COPY -> if (!editorReportsNoSelection()) {
+                currentInputConnection?.performContextMenuAction(android.R.id.copy)
+            }
+            EditAction.CUT -> if (!editorReportsNoSelection()) {
                 currentInputConnection?.performContextMenuAction(android.R.id.cut)
                 resetSelectionAnchor()
             }
             EditAction.SELECT_ALL -> {
                 currentInputConnection?.performContextMenuAction(android.R.id.selectAll)
+                if (!takesRawKeys(currentInputEditorInfo)) {
+                    sendKeyWithMeta(KeyEvent.KEYCODE_A, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON)
+                }
                 resetSelectionAnchor()
             }
             EditAction.PASTE -> {
@@ -822,6 +827,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             if (panelInput.active) { if (up) panelInput.begin("") }
             else handleBackspaceSwipe(up)
         }
+    }
+
+    internal fun takesRawKeys(info: EditorInfo?): Boolean =
+        info != null && info.inputType == InputType.TYPE_NULL
+
+    private fun editorReportsNoSelection(): Boolean {
+        val extracted = currentInputConnection?.getExtractedText(ExtractedTextRequest(), 0) ?: return false
+        return extracted.selectionStart >= 0 && extracted.selectionStart == extracted.selectionEnd
     }
 
     private fun toggleSelecting() {
@@ -856,10 +869,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         ic.setSelection(minOf(selAnchor, selMoving), maxOf(selAnchor, selMoving))
     }
 
-    private fun sendKey(code: Int, shift: Boolean) {
+    private fun sendKey(code: Int, shift: Boolean) =
+        sendKeyWithMeta(code, if (shift) KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON else 0)
+
+    private fun sendKeyWithMeta(code: Int, meta: Int) {
         if (panelInput.active) return
         val ic = currentInputConnection ?: return
-        val meta = if (shift) KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON else 0
         val now = SystemClock.uptimeMillis()
         ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, code, 0, meta))
         ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0, meta))

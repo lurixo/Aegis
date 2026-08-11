@@ -277,7 +277,7 @@ class PanelMotionTest {
             assertEquals(light.disabled, copy.currentTextColor)
 
             v.setHasSelection(true)
-            assertTrue("copy enables synchronously", copy.isEnabled)
+            assertTrue("copy stays tappable while selected", copy.isEnabled)
             assertTrue("the tint change cross-fades", v.selectionTintAnimatingForTest())
             flushMotion()
             assertEquals(light.keyLabel, copy.currentTextColor)
@@ -288,7 +288,7 @@ class PanelMotionTest {
             assertEquals(light.keyLabel, copy.currentTextColor)
 
             v.setHasSelection(false)
-            assertFalse("copy disables synchronously", copy.isEnabled)
+            assertTrue("copy stays tappable when the host reports no selection", copy.isEnabled)
             assertTrue(v.selectionTintAnimatingForTest())
             flushMotion()
             assertEquals(light.disabled, copy.currentTextColor)
@@ -329,7 +329,7 @@ class PanelMotionTest {
             assertFalse("a palette reapply must not start a tint fade", v.selectionTintAnimatingForTest())
             assertEquals("copy is already at the final disabled tint", dark.disabled, copy.currentTextColor)
             assertEquals("cut is already at the final disabled tint", dark.disabled, cut.currentTextColor)
-            assertFalse(copy.isEnabled)
+            assertTrue("a palette reapply must not lock the key", copy.isEnabled)
             flushMotion()
             assertEquals(dark.disabled, copy.currentTextColor)
         } finally {
