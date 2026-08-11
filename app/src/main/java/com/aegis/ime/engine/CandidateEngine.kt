@@ -49,6 +49,8 @@ interface CandidateEngine {
 
     fun predict(prevWord: String?): List<String> = emptyList()
 
+    fun englishCompletions(typed: String): List<String> = emptyList()
+
     fun learn(prevWord: String?, word: String) {}
 
     fun learnWord(reading: String, word: String, assembled: Boolean) {}

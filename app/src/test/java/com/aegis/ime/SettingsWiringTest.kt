@@ -95,7 +95,7 @@ class SettingsWiringTest {
         val userLearnLoad = initialLoad.indexOf("userLearning.load(userLearnFile)")
         assertTrue("secondary learning must load after userdb", userDbLoad in 1 until userLearnLoad)
         assertTrue(svc.contains("controller.userLearning = userLearning"))
-        assertTrue(svc.contains("octagram, userLearning)"))
+        assertTrue(svc.contains("octagram, userLearning, englishDict,"))
         assertTrue(
             "a store that could not be read refuses its own write, so one store's failure must not gate the other",
             svc.contains("liveUserDictHost.scheduleSave()") &&

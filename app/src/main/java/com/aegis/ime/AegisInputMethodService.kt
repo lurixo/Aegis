@@ -361,14 +361,19 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         com.aegis.ime.dict.ModelDownload.recoverInterruptedDictionaryInstall(filesDir)
         val (sig, dictionaries) = com.aegis.ime.dict.ModelDownload.withDictionaryGeneration {
             EngineAssets.signature(File(filesDir, "downloaded")) to
-                ParallelLoad.results(com.aegis.ime.dict.ModelDownload.DICT_BIN_FILES.map { { loadDict(it) } })
+                ParallelLoad.results(
+                    (com.aegis.ime.dict.ModelDownload.DICT_BIN_FILES +
+                        com.aegis.ime.dict.ModelDownload.EN_NAME).map { { loadDict(it) } },
+                )
         }
-        val (dict, t9Dict, initialsDict) = dictionaries
+        val (dict, t9Dict, initialsDict, englishDict) = dictionaries
         val fuzzyRules = currentFuzzyRules()
         val lm = loadLm(com.aegis.ime.dict.ModelDownload.LM_NAME)
         val octagram = runCatching { OctagramReader.fromDownloads(this, "wanxiang-lts-zh-hans.gram") }
             .onFailure { Log.e("Aegis", "octagram load failed", it) }.getOrNull()
-        val engine = DictEngine(dict, t9Dict, lm, userModel, fuzzyRules, initialsDict, octagram, userLearning)
+        val engine = DictEngine(
+            dict, t9Dict, lm, userModel, fuzzyRules, initialsDict, octagram, userLearning, englishDict,
+        )
         engineSig = sig
         return engine
     }

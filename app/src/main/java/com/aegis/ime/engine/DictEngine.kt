@@ -20,6 +20,7 @@ import com.aegis.ime.decoder.PinyinDecoder
 import com.aegis.ime.decoder.Syllable
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.dict.EnglishKey
 import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
@@ -33,6 +34,7 @@ class DictEngine(
     initialsDict: BinaryDict? = null,
     octagram: OctagramReader? = null,
     private val userLearning: UserLearning? = null,
+    private val englishDict: BinaryDict? = null,
 ) : CandidateEngine {
     private val decoder = pinyinDict?.let {
         PinyinDecoder(
@@ -109,6 +111,20 @@ class DictEngine(
         return out.take(MAX_PREDICTIONS)
     }
 
+    override fun englishCompletions(typed: String): List<String> {
+        val dict = englishDict ?: return emptyList()
+        val key = EnglishKey.normalize(typed)
+        if (key.isEmpty()) return emptyList()
+        val out = LinkedHashSet<String>()
+        for (hit in dict.prefixByFreq(key, ENGLISH_SUPPLY)) {
+            if (hit.word.length <= typed.length) continue
+            if (!hit.word.startsWith(typed, ignoreCase = true)) continue
+            out.add(hit.word)
+            if (out.size == MAX_CANDIDATES) break
+        }
+        return out.toList()
+    }
+
     override fun learn(prevWord: String?, word: String) {
         userModel?.record(prevWord, word, System.currentTimeMillis())
     }
@@ -125,5 +141,6 @@ class DictEngine(
     private companion object {
         const val MAX_CANDIDATES = 30
         const val MAX_PREDICTIONS = 8
+        const val ENGLISH_SUPPLY = 128
     }
 }
