@@ -16,12 +16,14 @@ an independent project not affiliated with the RIME project.
 - **Copyright:** © amzxyz and the rime-wanxiang contributors
 - **License:** Creative Commons Attribution 4.0 International (CC BY 4.0) —
   <https://creativecommons.org/licenses/by/4.0/>
-- **Source:** <https://github.com/amzxyz/rime-wanxiang> (tag `v17.2.4`, commit
-  `73aa35ef26350fc553ffd619ea2e8260f78b4935`)
+- **Source:** <https://github.com/amzxyz/rime-wanxiang> (tag `v17.2.5`, commit
+  `5aadd65230f6badd36227e3904393d81ee6d0781`)
 - **Used in:** the downloadable dictionary pack — `aegis_{dict,t9,jianpin}.bin`, which is where every
-  Chinese candidate comes from, and `aegis_lm.bin`, the character-bigram context model; nothing
-  derived from these tables ships inside the APK. All are derived from the 14 tables
-  (字 基础 联想 错音 多音 诗词 地名 医学 化学 药品 名人 异体 物种 人名).
+  Chinese candidate comes from, `aegis_lm.bin`, the character-bigram context model, and
+  `aegis_english.bin`, the English word list behind English completions; nothing derived from these
+  tables ships inside the APK. The Chinese tables are derived from the 14 tables
+  (字 基础 联想 错音 多音 诗词 地名 医学 化学 药品 名人 异体 物种 人名) and the English one from
+  `dicts/en.dict.yaml`.
 - **Modifications:** tones stripped (ü→v), syllables concatenated into toneless keys, repacked into
   Aegis's own binary format; the pack keeps every entry (`--min-freq 1`). `aegis_lm.bin` is compiled
   from the same tables into a character-bigram language model in Aegis's format (used for context

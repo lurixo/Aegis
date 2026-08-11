@@ -54,7 +54,7 @@ class LicensesTest {
     )
 
     private val dictionaryBins =
-        listOf("aegis_dict.bin", "aegis_t9.bin", "aegis_jianpin.bin", "aegis_lm.bin")
+        listOf("aegis_dict.bin", "aegis_t9.bin", "aegis_jianpin.bin", "aegis_lm.bin", "aegis_english.bin")
 
     private val braceShorthand = Regex("""([\w./-]*)\{([^{}]*)\}([\w.-]*)""")
 
@@ -70,7 +70,7 @@ class LicensesTest {
         val doc = File("../THIRD_PARTY_LICENSES.md").readText()
         for (needle in listOf(
             "rime-wanxiang", "amzxyz", "CC BY 4.0", "creativecommons.org/licenses/by/4.0",
-            "v17.2.4", "73aa35ef", "character-bigram",
+            "v17.2.5", "5aadd652", "character-bigram",
             "RIME-LMDG", "OpenCC", "BYVoid", "Apache-2.0",
             "Unicode", "unicode.org/license",
             "AndroidX", "Compose", "Material 3", "Kotlin",
@@ -90,19 +90,19 @@ class LicensesTest {
     @Test fun the_binary_coverage_check_fails_when_a_binary_goes_unnamed() {
         assertEquals(
             emptyList<String>(),
-            unnamedDictionaryBins("`aegis_{dict,t9,jianpin}.bin` and `assets/aegis_lm.bin`"),
+            unnamedDictionaryBins("`aegis_{dict,t9,jianpin}.bin`, `assets/aegis_lm.bin` and `aegis_english.bin`"),
         )
         assertEquals(
             emptyList<String>(),
-            unnamedDictionaryBins("aegis_dict.bin, aegis_t9.bin, aegis_jianpin.bin, aegis_lm.bin"),
+            unnamedDictionaryBins("aegis_dict.bin, aegis_t9.bin, aegis_jianpin.bin, aegis_lm.bin, aegis_english.bin"),
         )
         assertEquals(
             emptyList<String>(),
-            unnamedDictionaryBins("all of `assets/aegis_{lm,dict,jianpin,t9}.bin` are derived"),
+            unnamedDictionaryBins("all of `assets/aegis_{lm,dict,jianpin,t9,english}.bin` are derived"),
         )
         assertEquals(
             listOf("aegis_t9.bin"),
-            unnamedDictionaryBins("`aegis_{dict,jianpin}.bin` and `assets/aegis_lm.bin`"),
+            unnamedDictionaryBins("`aegis_{dict,jianpin}.bin`, `assets/aegis_lm.bin` and `aegis_english.bin`"),
         )
         assertEquals(dictionaryBins, unnamedDictionaryBins("no binary is named here"))
     }
