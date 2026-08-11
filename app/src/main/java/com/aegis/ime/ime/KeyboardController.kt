@@ -99,8 +99,13 @@ class KeyboardController(
 
     private var customOperators: List<String> = emptyList()
 
+    private val englishWord = StringBuilder()
+    private var englishPendingDelta = 0
+    private var englishPick = ""
+
     private var directCommitCands: Set<Cand> = emptySet()
     private var predictionCands: Set<Cand> = emptySet()
+    private var englishCands: Set<Cand> = emptySet()
     private var calcCand: Cand? = null
     private var calcExpr = ""
     private var calcResult = ""
@@ -157,6 +162,41 @@ class KeyboardController(
 
     fun setLearningBlocked(blocked: Boolean) { learningBlocked = blocked }
 
+    private fun englishActive(): Boolean = lang == Lang.EN && layoutId == LayoutId.ALPHA
+
+    private fun forgetEnglishWord() { englishWord.setLength(0) }
+
+    fun clearEnglishWord() {
+        englishPendingDelta = 0
+        if (englishWord.isEmpty()) return
+        forgetEnglishWord()
+        refreshCandidates()
+        render()
+    }
+
+    fun onSelectionUpdate(oldStart: Int, oldEnd: Int, newStart: Int, newEnd: Int) {
+        val expected = englishPendingDelta
+        englishPendingDelta = 0
+        if (oldStart == oldEnd && newStart == newEnd && newStart == oldStart + expected) return
+        clearEnglishWord()
+    }
+
+    private fun trackEnglishInput(text: String) {
+        englishPendingDelta += text.length
+        if (englishActive() && text.isNotEmpty() && text.all { it in 'a'..'z' || it in 'A'..'Z' }) {
+            englishWord.append(text)
+        } else {
+            forgetEnglishWord()
+        }
+    }
+
+    private fun dropEnglishTail() {
+        englishPendingDelta -= 1
+        if (englishWord.isNotEmpty()) englishWord.setLength(englishWord.length - 1)
+    }
+
+    internal fun englishWordForTest(): String = englishWord.toString()
+
     fun setCnDefaultLayout(id: LayoutId) {
         if (cnDefaultLayout == id) return
         cnDefaultLayout = id
@@ -176,6 +216,7 @@ class KeyboardController(
         if (lang != l && (layoutId == LayoutId.NINE || layoutId == LayoutId.ALPHA) &&
             composing.isEmpty() && committedPrefix.isEmpty()
         ) {
+            forgetEnglishWord()
             lang = l
             shiftState = ShiftState.OFF
             layoutId = if (l == Lang.CN) cnLayout else LayoutId.ALPHA
@@ -213,6 +254,8 @@ class KeyboardController(
         drillChoices.clear()
         committedPrefix.setLength(0)
         shiftState = ShiftState.OFF
+        forgetEnglishWord()
+        englishPendingDelta = 0
         if (!preserveLayout) {
             lang = defaultLang
             cnLayout = cnDefaultLayout
@@ -261,6 +304,7 @@ class KeyboardController(
             KeyAction.SHOW_SYMBOLS -> { flushComposing(); onShowSymbols() }
             KeyAction.TOGGLE_LANG -> {
                 flushComposing()
+                forgetEnglishWord()
                 shiftState = ShiftState.OFF
                 if (lang == Lang.CN) {
                     lang = Lang.EN
@@ -301,6 +345,7 @@ class KeyboardController(
     fun applyLayoutChoice(choice: LayoutChoice) {
         expirePreeditChoiceUndo()
         flushComposing()
+        forgetEnglishWord()
         shiftState = ShiftState.OFF
         if (choice == LayoutChoice.EN_ALPHA) {
             lang = Lang.EN
@@ -367,7 +412,9 @@ class KeyboardController(
                 val live = if (learningBlocked) null else Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN))
                 if (live != null && live.expr == calcExpr && live.result == calcResult && !host.hasSelection()) {
                     host.commitText(live.append)
+                    englishPendingDelta += live.append.length
                 }
+                forgetEnglishWord()
                 clearComposingState(); lastWord = null
             }
             cand in directCommitCands -> {
@@ -376,6 +423,15 @@ class KeyboardController(
                 host.commitText(text)
                 applyDeferredLearning()
                 clearComposingState(); lastWord = null
+            }
+            cand in englishCands -> {
+                expirePreeditChoiceUndo()
+                val suffix = cand.word.substring(englishPick.length)
+                host.commitText(suffix)
+                englishPendingDelta += suffix.length
+                forgetEnglishWord()
+                englishWord.append(englishPick).append(suffix)
+                lastWord = null
             }
             cand in predictionCands -> {
                 expirePreeditChoiceUndo()
@@ -413,7 +469,9 @@ class KeyboardController(
     private fun handleCommit(key: Key) {
         if (key.direct) {
             if (composing.isNotEmpty() || committedPrefix.isNotEmpty()) flushComposing()
-            host.commitText(if (key.verbatim) key.output else applyCase(key.output))
+            val text = if (key.verbatim) key.output else applyCase(key.output)
+            host.commitText(text)
+            trackEnglishInput(text)
             if (shiftState == ShiftState.ONCE && key.output.any { it.isLetter() }) shiftState = ShiftState.OFF
             lastWord = null
             calcDismissed = false
@@ -422,7 +480,9 @@ class KeyboardController(
         when (mode()) {
             Mode.PINYIN -> { composing.append(key.output); history.addLast(StepKind.DIGIT) }
             Mode.DIRECT -> {
-                host.commitText(applyCase(key.output))
+                val text = applyCase(key.output)
+                host.commitText(text)
+                trackEnglishInput(text)
                 if (shiftState == ShiftState.ONCE && key.output.any { it.isLetter() }) shiftState = ShiftState.OFF
                 lastWord = null
                 calcDismissed = false
@@ -443,7 +503,13 @@ class KeyboardController(
                 return
             }
             if (calcCand != null && !host.hasSelection()) { calcDismissed = true; return }
-            if (host.hasSelection()) host.deleteSelection() else host.deleteBackward()
+            if (host.hasSelection()) {
+                host.deleteSelection()
+                forgetEnglishWord()
+            } else {
+                host.deleteBackward()
+                dropEnglishTail()
+            }
             lastWord = null
             if (calcCand != null) calcDismissed = true
             return
@@ -483,6 +549,7 @@ class KeyboardController(
         if (composing.isEmpty()) {
             if (committedPrefix.isNotEmpty()) { flushComposing(); return }
             host.commitText(" ")
+            trackEnglishInput(" ")
             lastWord = null
             return
         }
@@ -509,6 +576,7 @@ class KeyboardController(
             flushComposing()
         } else {
             host.performEnter()
+            forgetEnglishWord()
             lastWord = null
         }
     }
@@ -577,6 +645,7 @@ class KeyboardController(
 
     private fun switchLayout(id: LayoutId) {
         flushComposing()
+        forgetEnglishWord()
         shiftState = ShiftState.OFF
         layoutId = id
         if (lang == Lang.CN && (id == LayoutId.NINE || id == LayoutId.ALPHA)) cnLayout = id
@@ -739,6 +808,7 @@ class KeyboardController(
         val learningBlocked: Boolean,
         val calcDismissed: Boolean,
         val lastWord: String?,
+        val englishTyped: String,
     )
 
     private class DecodeResult(
@@ -748,6 +818,8 @@ class KeyboardController(
         val calcCand: Cand?,
         val calcExpr: String,
         val calcResult: String,
+        val englishCands: Set<Cand> = emptySet(),
+        val englishTyped: String = "",
     )
 
     private fun emptyDecodeResult(): DecodeResult =
@@ -787,6 +859,7 @@ class KeyboardController(
             learningBlocked = learningBlocked,
             calcDismissed = calcDismissed,
             lastWord = lastWord,
+            englishTyped = if (englishActive()) englishWord.toString() else "",
         )
     }
 
@@ -797,11 +870,14 @@ class KeyboardController(
         calcCand = r.calcCand
         calcExpr = r.calcExpr
         calcResult = r.calcResult
+        englishCands = r.englishCands
+        englishPick = r.englishTyped
     }
 
     private fun computeDecode(req: DecodeRequest): DecodeResult = synchronized(decodeLock) {
         var directCommit: Set<Cand> = emptySet()
         var prediction: Set<Cand> = emptySet()
+        var english: Set<Cand> = emptySet()
         var calcC: Cand? = null; var calcE = ""; var calcR = ""
         val base = computeBase(req)
         val out = when {
@@ -824,7 +900,13 @@ class KeyboardController(
                         calcC = cand; calcE = match.expr; calcR = match.result
                         listOf(cand)
                     }
-                    !req.associationsEnabled || req.learningBlocked -> emptyList()
+                    !req.associationsEnabled -> emptyList()
+                    req.englishTyped.isNotEmpty() -> {
+                        val words = req.engine.englishCompletions(req.englishTyped).map { Cand(it, 0) }
+                        english = words.toSet()
+                        words
+                    }
+                    req.learningBlocked -> emptyList()
                     else -> {
                         val preds = req.engine.predict(req.lastWord).map { Cand(it, 0) }
                         prediction = preds.toSet()
@@ -834,7 +916,7 @@ class KeyboardController(
             }
             else -> base
         }
-        DecodeResult(out, directCommit, prediction, calcC, calcE, calcR)
+        DecodeResult(out, directCommit, prediction, calcC, calcE, calcR, english, req.englishTyped)
     }
 
     private fun computeBase(req: DecodeRequest): List<Cand> {
@@ -894,6 +976,7 @@ class KeyboardController(
 
     fun expireCandidateChoiceUndo() {
         expirePreeditChoiceUndo()
+        clearEnglishWord()
     }
 
     private fun restorePreeditChoiceUndo(): Boolean {

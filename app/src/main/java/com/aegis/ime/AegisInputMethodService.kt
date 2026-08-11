@@ -446,6 +446,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         personalizationBlocked =
             info != null && com.aegis.ime.user.ClipboardPolicy.blocksLearning(info.inputType, info.imeOptions)
         controller.setLearningBlocked(personalizationBlocked)
+        controller.clearEnglishWord()
         val quiet = userStoresLoaded && !liveUserDictHost.writing && !LiveUserData.restoreInProgress
         if (quiet && (!userModel.dirty || !userModel.readable) && userDbFile.lastModified() > userDbMtime) {
             val readAt = userDbFile.lastModified()
@@ -748,6 +749,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         candidatesStart: Int, candidatesEnd: Int,
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        if (::controller.isInitialized) {
+            controller.onSelectionUpdate(oldSelStart, oldSelEnd, newSelStart, newSelEnd)
+        }
         editPanelView?.setHasSelection(newSelStart != newSelEnd)
     }
 
