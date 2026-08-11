@@ -69,27 +69,31 @@ class KeyboardLabelFitTest {
         }
     }
 
-    private fun englishViews(): List<Pair<String, KeyboardView>> = listOf(
-        "alpha" to alphaView(shifted = false),
-        "alphaShifted" to alphaView(shifted = true),
-        "nine" to nineView(LetterCase.AUTO),
-        "nineLower" to nineView(LetterCase.LOWER),
-        "number" to plainView(LayoutId.NUMBER),
-        "symbol" to plainView(LayoutId.SYMBOL),
+    private fun englishViews(): List<Pair<String, KeyboardView>> = views(Lang.EN)
+
+    private fun chineseViews(): List<Pair<String, KeyboardView>> = views(Lang.CN)
+
+    private fun views(lang: Lang): List<Pair<String, KeyboardView>> = listOf(
+        "alpha" to alphaView(lang, shifted = false),
+        "alphaShifted" to alphaView(lang, shifted = true),
+        "nine" to nineView(lang, LetterCase.AUTO),
+        "nineLower" to nineView(lang, LetterCase.LOWER),
+        "number" to plainView(LayoutId.NUMBER, lang),
+        "symbol" to plainView(LayoutId.SYMBOL, lang),
         "numpad" to numpadView(),
     )
 
-    private fun alphaView(shifted: Boolean): KeyboardView = KeyboardView(ctx).apply {
-        setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), shifted, false, Lang.EN)
+    private fun alphaView(lang: Lang, shifted: Boolean): KeyboardView = KeyboardView(ctx).apply {
+        setLayout(Layouts.forId(LayoutId.ALPHA, lang), shifted, false, lang)
     }
 
-    private fun nineView(case: LetterCase): KeyboardView = KeyboardView(ctx).apply {
-        setLayout(Layouts.nine(Lang.EN, Layouts.ninePunctuation()), false, false, Lang.EN)
+    private fun nineView(lang: Lang, case: LetterCase): KeyboardView = KeyboardView(ctx).apply {
+        setLayout(Layouts.nine(lang, Layouts.ninePunctuation()), false, false, lang)
         caseMode = case
     }
 
-    private fun plainView(id: LayoutId): KeyboardView = KeyboardView(ctx).apply {
-        setLayout(Layouts.forId(id, Lang.EN), false, false, Lang.EN)
+    private fun plainView(id: LayoutId, lang: Lang): KeyboardView = KeyboardView(ctx).apply {
+        setLayout(Layouts.forId(id, lang), false, false, lang)
     }
 
     private fun numpadView(): KeyboardView = KeyboardView(ctx).apply {
@@ -195,7 +199,18 @@ class KeyboardLabelFitTest {
     }
 
     @Test
-    fun englishKeyLabelsFitTheirKeysAcrossPortraitWidths() {
+    fun englishKeyLabelsFitTheirKeysAcrossPortraitWidths() = auditPortraitWidths("+en", ::englishViews)
+
+    @Test
+    fun chineseKeyLabelsFitTheirKeysAcrossPortraitWidths() = auditPortraitWidths("+zh-rCN", ::chineseViews)
+
+    @Test
+    fun englishKeyLabelsFitTheirKeysAcrossLandscapeDocks() = auditLandscapeDocks("+en", ::englishViews)
+
+    @Test
+    fun chineseKeyLabelsFitTheirKeysAcrossLandscapeDocks() = auditLandscapeDocks("+zh-rCN", ::chineseViews)
+
+    private fun auditPortraitWidths(locale: String, views: () -> List<Pair<String, KeyboardView>>) {
         val fails = ArrayList<String>()
         for (q in listOf(
             "w250dp-h700dp-mdpi",
@@ -205,16 +220,16 @@ class KeyboardLabelFitTest {
             "w480dp-h900dp-hdpi",
         )) {
             RuntimeEnvironment.setQualifiers(q)
+            RuntimeEnvironment.setQualifiers(locale)
             val widthPx = ctx.resources.displayMetrics.widthPixels
-            for ((state, view) in englishViews()) {
+            for ((state, view) in views()) {
                 fails += audit("$q $state", laidOut(view, widthPx, null))
             }
         }
         assertTrue("label overflow/collision: ${fails.joinToString("\n")}", fails.isEmpty())
     }
 
-    @Test
-    fun englishKeyLabelsFitTheirKeysAcrossLandscapeDocks() {
+    private fun auditLandscapeDocks(locale: String, views: () -> List<Pair<String, KeyboardView>>) {
         val fails = ArrayList<String>()
         for (q in listOf(
             "w640dp-h291dp-land-hdpi",
@@ -223,6 +238,7 @@ class KeyboardLabelFitTest {
             "w320dp-h200dp-land-mdpi",
         )) {
             RuntimeEnvironment.setQualifiers(q)
+            RuntimeEnvironment.setQualifiers(locale)
             val density = ctx.resources.displayMetrics.density
             val configuration = ctx.resources.configuration
             val surface = LandscapeDockSizing.resolveWidth(
@@ -234,7 +250,7 @@ class KeyboardLabelFitTest {
                 rightSystemInset = 0,
             ).surfaceWidth
             val widthPx = surface - 2 * (4f * density).roundToInt()
-            for ((state, view) in englishViews()) {
+            for ((state, view) in views()) {
                 val rows = view.rowCountForSizing()
                 val spec = LandscapeDockSizing.resolveHeight(
                     availableHeight = ctx.resources.displayMetrics.heightPixels,

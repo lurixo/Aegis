@@ -617,7 +617,7 @@ class KeyboardView(context: Context) : View(context) {
         val baseTextSize = paint.textSize
         paint.textSize = baseTextSize * scale
         if (display.length > 1) {
-            val avail = p.rect.width() - 14f * density
+            val avail = p.rect.width() - 4f * density
             val w = paint.measureText(display)
             if (w > avail && avail > 0f) paint.textSize = (paint.textSize * avail / w).coerceAtLeast(11f * density * scale)
             val face = p.rect.width() - 2f * density
