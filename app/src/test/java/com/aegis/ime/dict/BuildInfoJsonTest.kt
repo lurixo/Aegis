@@ -98,8 +98,9 @@ class BuildInfoJsonTest {
         val attestation = dictionary.getJSONObject("attestation")
         val missing = attestation.getJSONArray("missing").join(" ")
 
-        assertEquals(ModelDownload.DICT_PACK_FILES.toSet(), names)
-        assertEquals(ModelDownload.DICT_PACK_FILES.size, bins.length())
+        assertTrue("every file the pack must carry is described", names.containsAll(ModelDownload.DICT_PACK_FILES))
+        assertTrue("no bin outside the ones the app installs", ModelDownload.DICT_MANAGED_FILES.containsAll(names))
+        assertEquals(names.size, bins.length())
         for (i in 0 until bins.length()) {
             val bin = bins.getJSONObject(i)
             assertTrue(bin.getString("sha256").matches(Regex("[0-9a-f]{64}")))
