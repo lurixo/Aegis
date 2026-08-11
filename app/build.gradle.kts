@@ -20,6 +20,7 @@ android {
     buildTypes {
         debug {
             ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
+            applicationIdSuffix = ".debug"
         }
         release {
             ndk { abiFilters += "arm64-v8a" }
