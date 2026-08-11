@@ -104,6 +104,9 @@ class UserLexicon(private val prefs: SharedPreferences) {
         editor.commit()
     }
 
+    fun englishCompletions(key: String): List<String> =
+        entries(Kind.ENGLISH).filter { EnglishKey.normalize(it).startsWith(key) }
+
     companion object {
         const val PREF_ENGLISH_WORDS = "user_english_words"
         const val PREF_EMAIL_DOMAINS = "user_email_domains"

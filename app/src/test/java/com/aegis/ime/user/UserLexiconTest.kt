@@ -17,6 +17,9 @@ package com.aegis.ime.user
 
 import android.content.Context
 import android.content.SharedPreferences
+import com.aegis.ime.decoder.EngineFixture
+import com.aegis.ime.dict.EnglishKey
+import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.ime.EmailDomains
 import org.junit.Assert.*
 import org.junit.Test
@@ -41,6 +44,27 @@ class UserLexiconTest {
         for (invalid in listOf("", "你好", "abc你好", "name@example.com", "two\nlines", "<tag>", "123", "a".repeat(129))) {
             assertEquals(invalid, UserLexicon.AddResult.INVALID, store.add(UserLexicon.Kind.ENGLISH, invalid))
         }
+    }
+
+    @Test fun custom_completions_work_without_downloaded_tables_and_refresh_after_edits() {
+        val engine = DictEngine(null, null, null, userLexicon = store)
+        assertTrue(engine.englishCompletions("ope").isEmpty())
+        store.add(UserLexicon.Kind.ENGLISH, "OpenAegis")
+        assertEquals(listOf("OpenAegis"), engine.englishCompletions("ope"))
+        assertEquals(listOf("OpenAegis"), engine.englishCompletions("OPEN"))
+        assertTrue(engine.englishCompletions("OpenAegis").isEmpty())
+        assertTrue(store.remove(UserLexicon.Kind.ENGLISH, "OpenAegis"))
+        assertTrue(engine.englishCompletions("ope").isEmpty())
+    }
+
+    @Test fun custom_spelling_precedes_table_words_without_duplicate_normalized_entries() {
+        store.add(UserLexicon.Kind.ENGLISH, "OpenAegis")
+        val table = EngineFixture.build(listOf(
+            EngineFixture.Row(EnglishKey.normalize("openaegis"), "openaegis", 5000),
+            EngineFixture.Row("open", "open", 9000),
+        ))
+        val engine = DictEngine(null, null, null, englishDict = table, userLexicon = store)
+        assertEquals(listOf("OpenAegis", "open"), engine.englishCompletions("ope"))
     }
 
     @Test fun suffixes_normalize_reject_addresses_and_join_frequency_ranking() {

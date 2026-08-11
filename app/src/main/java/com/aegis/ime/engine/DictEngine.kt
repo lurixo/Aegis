@@ -21,9 +21,11 @@ import com.aegis.ime.decoder.Syllable
 import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.dict.EnglishKey
 import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
+import com.aegis.ime.user.UserLexicon
 
 class DictEngine(
     pinyinDict: BinaryDict?,
@@ -34,6 +36,8 @@ class DictEngine(
     initialsDict: BinaryDict? = null,
     octagram: OctagramReader? = null,
     private val userLearning: UserLearning? = null,
+    private val englishDict: BinaryDict? = null,
+    private val userLexicon: UserLexicon? = null,
 ) : CandidateEngine {
     private val decoder = pinyinDict?.let {
         PinyinDecoder(
@@ -113,6 +117,25 @@ class DictEngine(
         return out.take(MAX_PREDICTIONS)
     }
 
+    override fun englishCompletions(typed: String): List<String> {
+        val key = EnglishKey.normalize(typed)
+        if (key.isEmpty()) return emptyList()
+        val out = LinkedHashSet<String>()
+        val custom = userLexicon?.englishCompletions(key).orEmpty()
+        val customKeys = custom.mapTo(HashSet()) { EnglishKey.normalize(it) }
+        for (word in custom) {
+            if (word != typed) out.add(word)
+            if (out.size == MAX_CANDIDATES) return out.toList()
+        }
+        for (hit in englishDict?.prefixByFreq(key, ENGLISH_SUPPLY).orEmpty()) {
+            if (hit.word == typed) continue
+            if (EnglishKey.normalize(hit.word) in customKeys) continue
+            out.add(hit.word)
+            if (out.size == MAX_CANDIDATES) break
+        }
+        return out.toList()
+    }
+
     override fun learn(prevWord: String?, word: String) {
         userModel?.record(prevWord, word, System.currentTimeMillis())
     }
@@ -139,6 +162,7 @@ class DictEngine(
     private companion object {
         const val MAX_CANDIDATES = 30
         const val MAX_PREDICTIONS = 8
+        const val ENGLISH_SUPPLY = 128
     }
 }
 
