@@ -18,6 +18,8 @@ package com.aegis.ime.ime
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
+import com.aegis.ime.layout.Lang
+import com.aegis.ime.layout.LayoutId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -28,11 +30,14 @@ class EnglishCompletionTest {
         val commits = mutableListOf<String>()
         val text = StringBuilder()
         var selection = false
+        var enters = 0
+        var deletes = 0
         override fun commitText(text: CharSequence) { commits.add(text.toString()); this.text.append(text) }
         override fun deleteBackward() {
+            deletes++
             if (text.isNotEmpty()) text.delete(text.length - 1, text.length)
         }
-        override fun performEnter() {}
+        override fun performEnter() { enters++ }
         override fun hasSelection(): Boolean = selection
         override fun deleteSelection() { selection = false; text.setLength(0) }
         override fun textBeforeCursor(n: Int): CharSequence = text.substring(maxOf(0, text.length - n))
@@ -69,22 +74,22 @@ class EnglishCompletionTest {
     }
 
     @Test
-    fun typing_or_offers_orange_from_the_english_table() {
+    fun typed_letters_compose_a_preedit_instead_of_reaching_the_editor() {
         val h = FakeHost()
         val c = english(h)
         type(c, "or")
-        assertTrue("orange" in c.candidateWords())
-        assertEquals(listOf("orange", "order", "organ", "ordinary"), c.candidateWords())
+        assertEquals(emptyList<String>(), h.commits)
+        assertEquals("", h.text.toString())
+        assertEquals("or", c.englishWordForTest())
+        assertEquals("or", c.preeditForTest())
     }
 
     @Test
-    fun the_letters_still_reach_the_editor_one_by_one() {
+    fun the_typed_word_leads_the_candidates_before_the_completions() {
         val h = FakeHost()
         val c = english(h)
         type(c, "or")
-        assertEquals(listOf("o", "r"), h.commits)
-        assertEquals("or", h.text.toString())
-        assertEquals("", c.preeditForTest())
+        assertEquals(listOf("or", "orange", "order", "organ", "ordinary"), c.candidateWords())
     }
 
     @Test
@@ -92,107 +97,132 @@ class EnglishCompletionTest {
         val h = FakeHost()
         val c = english(h)
         type(c, "ora")
-        assertEquals(listOf("orange"), c.candidateWords())
+        assertEquals(listOf("ora", "orange"), c.candidateWords())
     }
 
     @Test
-    fun turning_associations_off_leaves_english_exactly_as_it_was() {
+    fun turning_associations_off_leaves_english_committing_directly() {
         val h = FakeHost()
         val c = english(h, associations = false)
         type(c, "or")
         assertEquals(emptyList<String>(), c.candidateWords())
         assertEquals(listOf("o", "r"), h.commits)
         assertEquals("or", h.text.toString())
+        assertEquals("", c.englishWordForTest())
+        assertEquals("", c.preeditForTest())
     }
 
     @Test
-    fun the_toggle_takes_effect_without_retyping() {
+    fun disabling_associations_mid_word_flushes_the_preedit_first() {
+        val h = FakeHost()
+        val c = english(h)
+        type(c, "or")
+        c.setAssociationsEnabled(false)
+        assertEquals(listOf("or"), h.commits)
+        assertEquals("", c.englishWordForTest())
+        type(c, "d")
+        assertEquals(listOf("or", "d"), h.commits)
+    }
+
+    @Test
+    fun enabling_associations_starts_composing_from_the_next_letter() {
         val h = FakeHost()
         val c = english(h, associations = false)
         type(c, "or")
-        assertEquals(emptyList<String>(), c.candidateWords())
         c.setAssociationsEnabled(true)
-        assertEquals(listOf("orange", "order", "organ", "ordinary"), c.candidateWords())
-        c.setAssociationsEnabled(false)
-        assertEquals(emptyList<String>(), c.candidateWords())
+        type(c, "d")
+        assertEquals(listOf("o", "r"), h.commits)
+        assertEquals("d", c.englishWordForTest())
     }
 
     @Test
-    fun picking_a_completion_commits_only_the_missing_suffix() {
+    fun picking_a_completion_commits_exactly_the_word_it_shows() {
         val h = FakeHost()
         val c = english(h)
         type(c, "or")
         c.onPickCandidate(c.candidateWords().indexOf("orange"))
-        assertEquals(listOf("o", "r", "ange"), h.commits)
+        assertEquals(listOf("orange"), h.commits)
         assertEquals("orange", h.text.toString())
+        assertEquals("", c.englishWordForTest())
     }
 
     @Test
-    fun picking_a_completion_keeps_the_case_the_user_typed() {
+    fun picking_the_typed_word_commits_it_verbatim() {
+        val h = FakeHost()
+        val c = english(h)
+        type(c, "or")
+        c.onPickCandidate(0)
+        assertEquals(listOf("or"), h.commits)
+        assertEquals("or", h.text.toString())
+        assertEquals("", c.englishWordForTest())
+    }
+
+    @Test
+    fun shifted_letters_compose_in_their_typed_case_and_lead_the_candidates() {
         val h = FakeHost()
         val c = english(h)
         c.onKey(act(KeyAction.SHIFT))
         type(c, "or")
-        assertEquals("Or", h.text.toString())
+        assertEquals("Or", c.englishWordForTest())
+        assertEquals("Or", c.candidateWords().first())
+        assertTrue("orange" in c.candidateWords())
         c.onPickCandidate(c.candidateWords().indexOf("orange"))
-        assertEquals(listOf("O", "r", "ange"), h.commits)
-        assertEquals("Orange", h.text.toString())
+        assertEquals(listOf("orange"), h.commits)
     }
 
     @Test
-    fun a_picked_completion_becomes_the_word_that_further_letters_extend() {
-        val h = FakeHost()
-        val c = english(h)
-        type(c, "or")
-        c.onPickCandidate(c.candidateWords().indexOf("order"))
-        assertEquals("order", c.englishWordForTest())
-        assertEquals(emptyList<String>(), c.candidateWords())
-    }
-
-    @Test
-    fun a_space_ends_the_tracked_word() {
+    fun a_space_commits_the_word_and_its_trailing_space_in_one_piece() {
         val h = FakeHost()
         val c = english(h)
         type(c, "or")
         c.onKey(act(KeyAction.SPACE))
-        assertEquals("", c.englishWordForTest())
-        assertEquals(emptyList<String>(), c.candidateWords())
+        assertEquals(listOf("or "), h.commits)
         assertEquals("or ", h.text.toString())
+        assertEquals("", c.englishWordForTest())
     }
 
     @Test
-    fun a_non_letter_ends_the_tracked_word() {
+    fun a_space_with_nothing_composed_is_just_a_space() {
         val h = FakeHost()
         val c = english(h)
-        type(c, "or")
-        c.onKey(Key("-", output = "-", direct = true))
-        assertEquals("", c.englishWordForTest())
-        assertEquals(emptyList<String>(), c.candidateWords())
+        c.onKey(act(KeyAction.SPACE))
+        assertEquals(listOf(" "), h.commits)
     }
 
     @Test
-    fun enter_ends_the_tracked_word() {
+    fun enter_commits_the_word_and_swallows_the_line_break() {
         val h = FakeHost()
         val c = english(h)
         type(c, "or")
         c.onKey(act(KeyAction.ENTER))
+        assertEquals(listOf("or"), h.commits)
+        assertEquals(0, h.enters)
         assertEquals("", c.englishWordForTest())
-        assertEquals(emptyList<String>(), c.candidateWords())
     }
 
     @Test
-    fun backspace_shortens_the_tracked_word_and_reopens_the_wider_list() {
+    fun enter_with_nothing_composed_sends_the_line_break() {
+        val h = FakeHost()
+        val c = english(h)
+        c.onKey(act(KeyAction.ENTER))
+        assertEquals(1, h.enters)
+        assertEquals(emptyList<String>(), h.commits)
+    }
+
+    @Test
+    fun backspace_shortens_the_preedit_without_touching_the_editor() {
         val h = FakeHost()
         val c = english(h)
         type(c, "ora")
-        assertEquals(listOf("orange"), c.candidateWords())
+        assertEquals(listOf("ora", "orange"), c.candidateWords())
         c.onKey(act(KeyAction.BACKSPACE))
         assertEquals("or", c.englishWordForTest())
-        assertEquals(listOf("orange", "order", "organ", "ordinary"), c.candidateWords())
+        assertEquals(0, h.deletes)
+        assertEquals(listOf("or", "orange", "order", "organ", "ordinary"), c.candidateWords())
     }
 
     @Test
-    fun backspacing_the_word_away_stops_the_completions() {
+    fun backspacing_the_word_away_returns_backspace_to_the_editor() {
         val h = FakeHost()
         val c = english(h)
         type(c, "or")
@@ -200,150 +230,142 @@ class EnglishCompletionTest {
         c.onKey(act(KeyAction.BACKSPACE))
         assertEquals("", c.englishWordForTest())
         assertEquals(emptyList<String>(), c.candidateWords())
+        assertEquals(0, h.deletes)
         c.onKey(act(KeyAction.BACKSPACE))
-        assertEquals("", c.englishWordForTest())
+        assertEquals(1, h.deletes)
     }
 
     @Test
-    fun deleting_a_selection_ends_the_tracked_word() {
+    fun backspace_during_composition_ignores_an_editor_selection() {
         val h = FakeHost()
         val c = english(h)
         type(c, "or")
         h.selection = true
         c.onKey(act(KeyAction.BACKSPACE))
+        assertEquals("o", c.englishWordForTest())
+        assertTrue(h.selection)
+    }
+
+    @Test
+    fun swiping_up_on_backspace_discards_the_word_silently() {
+        val h = FakeHost()
+        val c = english(h)
+        type(c, "or")
+        assertTrue(c.onBackspaceSwipe(true))
+        assertEquals("", c.englishWordForTest())
+        assertEquals(emptyList<String>(), h.commits)
+        assertEquals(emptyList<String>(), c.candidateWords())
+    }
+
+    @Test
+    fun a_direct_symbol_flushes_the_word_and_lands_after_it() {
+        val h = FakeHost()
+        val c = english(h)
+        type(c, "don")
+        c.onKey(Key("'", output = "'", direct = true))
+        assertEquals(listOf("don", "'"), h.commits)
+        assertEquals("don'", h.text.toString())
+        assertEquals("", c.englishWordForTest())
+        type(c, "t")
+        assertEquals("t", c.englishWordForTest())
+    }
+
+    @Test
+    fun a_non_letter_output_flushes_the_word_then_commits_itself() {
+        val h = FakeHost()
+        val c = english(h)
+        type(c, "or")
+        c.onKey(out("1"))
+        assertEquals(listOf("or", "1"), h.commits)
         assertEquals("", c.englishWordForTest())
     }
 
     @Test
-    fun switching_to_chinese_ends_the_tracked_word() {
+    fun switching_language_flushes_the_word_to_the_editor() {
         val h = FakeHost()
         val c = english(h)
         type(c, "or")
         c.onKey(act(KeyAction.TOGGLE_LANG))
+        assertEquals(listOf("or"), h.commits)
         assertEquals("", c.englishWordForTest())
         assertEquals(emptyList<String>(), c.candidateWords())
     }
 
     @Test
-    fun leaving_the_letter_layout_ends_the_tracked_word() {
+    fun leaving_the_letter_layout_flushes_the_word() {
         val h = FakeHost()
         val c = english(h)
         type(c, "or")
         c.onKey(act(KeyAction.SWITCH_SYMBOLS))
+        assertEquals(listOf("or"), h.commits)
         assertEquals("", c.englishWordForTest())
         c.onKey(act(KeyAction.SWITCH_ALPHA))
         assertEquals(emptyList<String>(), c.candidateWords())
     }
 
     @Test
-    fun choosing_the_english_layout_from_the_panel_ends_the_tracked_word() {
+    fun reapplying_the_layout_choice_flushes_the_word() {
         val h = FakeHost()
         val c = english(h)
         type(c, "or")
         c.applyLayoutChoice(LayoutChoice.EN_ALPHA)
+        assertEquals(listOf("or"), h.commits)
         assertEquals("", c.englishWordForTest())
     }
 
     @Test
-    fun a_new_editor_session_ends_the_tracked_word() {
+    fun a_bar_function_flushes_the_word_before_its_panel_opens() {
+        val h = FakeHost()
+        val c = english(h)
+        type(c, "or")
+        c.onBarFunction(BarFunction.EMOJI)
+        assertEquals(listOf("or"), h.commits)
+        assertEquals("", c.englishWordForTest())
+    }
+
+    @Test
+    fun an_external_commit_flushes_the_word_first() {
+        val h = FakeHost()
+        val c = english(h)
+        type(c, "or")
+        c.expireCandidateChoiceUndo()
+        assertEquals(listOf("or"), h.commits)
+        assertEquals("", c.englishWordForTest())
+        assertEquals(emptyList<String>(), c.candidateWords())
+    }
+
+    @Test
+    fun changing_the_default_language_away_flushes_the_word() {
+        val h = FakeHost()
+        val c = english(h)
+        c.setDefaultLang(Lang.EN)
+        type(c, "or")
+        c.setDefaultLang(Lang.CN)
+        assertEquals(listOf("or"), h.commits)
+        assertEquals("", c.englishWordForTest())
+        assertEquals(LayoutId.NINE, c.activeLayoutId())
+    }
+
+    @Test
+    fun a_new_editor_session_discards_the_word_without_committing() {
         val h = FakeHost()
         val c = english(h)
         type(c, "or")
         c.reset()
         assertEquals("", c.englishWordForTest())
+        assertEquals(emptyList<String>(), h.commits)
+        assertEquals("", h.text.toString())
     }
 
     @Test
-    fun the_service_can_end_the_tracked_word_on_its_own() {
-        val h = FakeHost()
-        val c = english(h)
-        type(c, "or")
-        c.clearEnglishWord()
-        assertEquals("", c.englishWordForTest())
-        assertEquals(emptyList<String>(), c.candidateWords())
-    }
-
-    @Test
-    fun ending_the_tracked_word_also_forgets_the_moves_it_was_waiting_for() {
-        val h = FakeHost()
-        val c = english(h)
-        type(c, "or")
-        c.clearEnglishWord()
-
-        type(c, "o")
-        assertEquals("o", c.englishWordForTest())
-        assertTrue("the first letter after a field change still tracks", c.candidateWords().isNotEmpty())
-    }
-
-    @Test
-    fun a_panel_edit_action_ends_the_tracked_word() {
-        val h = FakeHost()
-        val c = english(h)
-        type(c, "or")
-        c.expireCandidateChoiceUndo()
-        assertEquals("", c.englishWordForTest())
-        assertEquals(emptyList<String>(), c.candidateWords())
-    }
-
-    @Test
-    fun a_cursor_move_we_did_not_cause_ends_the_tracked_word() {
-        val h = FakeHost()
-        val c = english(h)
-        type(c, "or")
-        c.onSelectionUpdate(2, 2, 2, 2)
-        c.onSelectionUpdate(2, 2, 9, 9)
-        assertEquals("", c.englishWordForTest())
-        assertEquals(emptyList<String>(), c.candidateWords())
-    }
-
-    @Test
-    fun the_cursor_move_our_own_typing_causes_keeps_the_tracked_word() {
-        val h = FakeHost()
-        val c = english(h)
-        c.onKey(out("o"))
-        c.onSelectionUpdate(0, 0, 1, 1)
-        c.onKey(out("r"))
-        c.onSelectionUpdate(1, 1, 2, 2)
-        assertEquals("or", c.englishWordForTest())
-        assertEquals(listOf("orange", "order", "organ", "ordinary"), c.candidateWords())
-    }
-
-    @Test
-    fun a_batched_report_of_our_own_typing_keeps_the_tracked_word() {
-        val h = FakeHost()
-        val c = english(h)
-        type(c, "or")
-        c.onSelectionUpdate(0, 0, 2, 2)
-        assertEquals("or", c.englishWordForTest())
-    }
-
-    @Test
-    fun a_selection_appearing_ends_the_tracked_word() {
-        val h = FakeHost()
-        val c = english(h)
-        type(c, "or")
-        c.onSelectionUpdate(0, 0, 0, 2)
-        assertEquals("", c.englishWordForTest())
-    }
-
-    @Test
-    fun the_cursor_move_a_picked_completion_causes_keeps_the_word() {
-        val h = FakeHost()
-        val c = english(h)
-        type(c, "or")
-        c.onSelectionUpdate(0, 0, 2, 2)
-        c.onPickCandidate(c.candidateWords().indexOf("orange"))
-        c.onSelectionUpdate(2, 2, 6, 6)
-        assertEquals("orange", c.englishWordForTest())
-    }
-
-    @Test
-    fun without_an_english_table_nothing_is_offered_and_nothing_breaks() {
+    fun without_an_english_table_the_typed_word_still_leads_and_nothing_breaks() {
         val h = FakeHost()
         val c = english(h, engine = noDictionary)
         type(c, "or")
-        assertEquals(emptyList<String>(), c.candidateWords())
-        assertEquals(listOf("o", "r"), h.commits)
+        assertEquals(listOf("or"), c.candidateWords())
+        assertEquals(emptyList<String>(), h.commits)
+        c.onPickCandidate(0)
+        assertEquals(listOf("or"), h.commits)
         assertEquals("or", h.text.toString())
     }
 
@@ -353,23 +375,38 @@ class EnglishCompletionTest {
         val c = english(h)
         c.setLearningBlocked(true)
         type(c, "or")
-        assertEquals(listOf("orange", "order", "organ", "ordinary"), c.candidateWords())
+        assertEquals(listOf("or", "orange", "order", "organ", "ordinary"), c.candidateWords())
     }
 
     @Test
-    fun taking_a_calculator_result_ends_the_tracked_word() {
+    fun a_composing_word_outranks_the_calculator() {
         val h = object : FakeHost() {
             override fun textBeforeCursor(n: Int): CharSequence = "1+2"
         }
         val c = english(h)
-        type(c, "or")
         assertEquals(listOf("=3"), c.candidateWords())
-        c.onPickCandidate(0)
+        type(c, "or")
+        assertEquals(listOf("or", "orange", "order", "organ", "ordinary"), c.candidateWords())
+        c.onKey(act(KeyAction.BACKSPACE))
+        c.onKey(act(KeyAction.BACKSPACE))
         assertEquals("", c.englishWordForTest())
+        assertEquals(listOf("=3"), c.candidateWords())
     }
 
     @Test
-    fun chinese_typing_is_untouched_by_the_english_ledger() {
+    fun picking_a_word_leaves_no_stale_predictions_behind() {
+        val h = FakeHost()
+        val c = english(h)
+        type(c, "or")
+        c.onPickCandidate(c.candidateWords().indexOf("order"))
+        assertEquals(emptyList<String>(), c.candidateWords())
+        type(c, "s")
+        assertEquals("s", c.englishWordForTest())
+        assertEquals(listOf("s"), c.candidateWords())
+    }
+
+    @Test
+    fun chinese_typing_is_untouched_by_the_english_preedit() {
         val h = FakeHost()
         val c = KeyboardController(h, dictionary)
         c.setAssociationsEnabled(true)

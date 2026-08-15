@@ -69,36 +69,29 @@ class EnglishCompletionServiceTest {
         controller.onKey(Key("", action = KeyAction.TOGGLE_LANG))
         "or".forEach { controller.onKey(Key(it.toString(), output = it.toString())) }
         assertEquals("or", controller.englishWordForTest())
-        assertEquals(listOf("orange", "order"), controller.candidateWords())
+        assertEquals(listOf("or", "orange", "order"), controller.candidateWords())
         return Fixture(service, controller, info)
     }
 
     @Test
-    fun a_cursor_jump_reported_by_the_editor_drops_the_tracked_word() {
-        val f = typingOr()
-        f.service.onUpdateSelection(2, 2, 12, 12, -1, -1)
-        assertEquals("", f.controller.englishWordForTest())
-        assertEquals(emptyList<String>(), f.controller.candidateWords())
-    }
-
-    @Test
-    fun the_editor_reporting_our_own_typing_keeps_the_tracked_word() {
+    fun selection_reports_from_the_editor_leave_the_composing_word_alone() {
         val f = typingOr()
         f.service.onUpdateSelection(0, 0, 2, 2, -1, -1)
+        f.service.onUpdateSelection(2, 2, 12, 12, -1, -1)
         assertEquals("or", f.controller.englishWordForTest())
-        assertEquals(listOf("orange", "order"), f.controller.candidateWords())
+        assertEquals(listOf("or", "orange", "order"), f.controller.candidateWords())
     }
 
     @Test
-    fun a_restart_on_the_same_field_drops_the_tracked_word() {
+    fun a_restart_on_the_same_field_keeps_the_composing_word() {
         val f = typingOr()
         f.service.onStartInput(f.info, true)
-        assertEquals("", f.controller.englishWordForTest())
-        assertEquals(emptyList<String>(), f.controller.candidateWords())
+        assertEquals("or", f.controller.englishWordForTest())
+        assertEquals(listOf("or", "orange", "order"), f.controller.candidateWords())
     }
 
     @Test
-    fun the_end_of_the_input_session_drops_the_tracked_word() {
+    fun the_end_of_the_input_session_drops_the_composing_word() {
         val f = typingOr()
         f.service.onFinishInput()
         assertEquals("", f.controller.englishWordForTest())

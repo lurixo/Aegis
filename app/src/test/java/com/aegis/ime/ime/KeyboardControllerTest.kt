@@ -314,8 +314,9 @@ class KeyboardControllerTest {
         "don".forEach { c.onKey(out(it.toString())) }
         c.onKey(Key("'", output = "'", direct = true))
         c.onKey(out("t"))
-        assertEquals(listOf("d", "o", "n", "'", "t"), h.commits)
-        assertEquals("don't", h.text.toString())
+        c.onKey(act(KeyAction.SPACE))
+        assertEquals(listOf("don", "'", "t "), h.commits)
+        assertEquals("don't ", h.text.toString())
     }
 
     @Test fun direct_pairable_symbol_flushes_pinyin_then_commits_plain_text() {
@@ -357,8 +358,10 @@ class KeyboardControllerTest {
         assertEquals("ONCE", c.shiftStateName())
         c.onKey(out("a"))
         c.onKey(out("b"))
-        assertEquals(listOf("A", "b"), h.commits)
+        assertEquals("Ab", c.englishWordForTest())
         assertEquals("OFF", c.shiftStateName())
+        c.onKey(act(KeyAction.SPACE))
+        assertEquals(listOf("Ab "), h.commits)
     }
 
     @Test fun double_tap_shift_lock_keeps_uppercasing_until_toggled() {
@@ -368,7 +371,7 @@ class KeyboardControllerTest {
         c.onKey(act(KeyAction.SHIFT_LOCK))
         assertEquals("LOCK", c.shiftStateName())
         c.onKey(out("a")); c.onKey(out("b"))
-        assertEquals(listOf("A", "B"), h.commits)
+        assertEquals("AB", c.englishWordForTest())
         assertEquals("LOCK", c.shiftStateName())
         c.onKey(act(KeyAction.SHIFT))
         assertEquals("OFF", c.shiftStateName())
@@ -408,7 +411,8 @@ class KeyboardControllerTest {
         assertEquals("punctuation must not consume the pending shift", "ONCE", c.shiftStateName())
         c.onKey(out("a"))
         assertEquals("the next letter consumes the pending shift", "OFF", c.shiftStateName())
-        assertEquals(listOf("1", ",", "A"), h.commits)
+        assertEquals(listOf("1", ","), h.commits)
+        assertEquals("A", c.englishWordForTest())
     }
 
     @Test fun one_shot_shift_survives_the_case_box_symbol_cell_but_not_its_letter_cells() {
@@ -423,14 +427,17 @@ class KeyboardControllerTest {
         assertEquals(listOf("%", "g"), h.commits)
     }
 
-    @Test fun english_letters_commit_directly_not_buffered() {
+    @Test fun english_letters_compose_until_space_commits_the_word() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
         c.onKey(act(KeyAction.SWITCH_NINE))
         c.onKey(act(KeyAction.TOGGLE_LANG))
         c.onKey(out("a"))
+        assertEquals(emptyList<String>(), h.commits)
+        assertEquals("a", c.englishWordForTest())
         c.onKey(act(KeyAction.SPACE))
-        assertEquals(listOf("a", " "), h.commits)
+        assertEquals(listOf("a "), h.commits)
+        assertEquals("", c.englishWordForTest())
     }
 
 
@@ -991,8 +998,8 @@ class KeyboardControllerTest {
         c.reset()
         assertEquals("the EN default overrides the remembered CN", LayoutId.ALPHA, c.activeLayoutId())
         c.onKey(out("a"))
-        assertEquals("the new session commits EN letters directly", listOf("a"), h.commits)
-        assertEquals("", c.preeditForTest())
+        assertEquals("the new session composes EN letters", "a", c.englishWordForTest())
+        assertTrue(h.commits.isEmpty())
     }
 
     @Test fun same_package_reset_keeps_the_last_used_language_over_the_default() {
@@ -1041,7 +1048,8 @@ class KeyboardControllerTest {
         c.onKey(act(KeyAction.CLEAR_COMPOSING))
         c.reset()
         c.onKey(out("a"))
-        assertEquals("the stored default still applies on the next reset", listOf("a"), h.commits)
+        assertEquals("the stored default still applies on the next reset", "a", c.englishWordForTest())
+        assertTrue(h.commits.isEmpty())
     }
 
     @Test fun restore_base_keyboard_preserves_nine_twenty_six_and_english_without_committing() {
@@ -1074,7 +1082,8 @@ class KeyboardControllerTest {
         assertEquals("OFF", english.shiftStateName())
         assertTrue(englishHost.commits.isEmpty())
         english.onKey(out("a"))
-        assertEquals(listOf("a"), englishHost.commits)
+        assertEquals("a", english.englishWordForTest())
+        assertTrue(englishHost.commits.isEmpty())
     }
 
     @Test fun restore_base_keyboard_keeps_normal_composition_without_committing() {
