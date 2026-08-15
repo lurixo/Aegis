@@ -117,8 +117,7 @@ class DictEngine(
         if (key.isEmpty()) return emptyList()
         val out = LinkedHashSet<String>()
         for (hit in dict.prefixByFreq(key, ENGLISH_SUPPLY)) {
-            if (hit.word.length <= typed.length) continue
-            if (!hit.word.startsWith(typed, ignoreCase = true)) continue
+            if (hit.word == typed) continue
             out.add(hit.word)
             if (out.size == MAX_CANDIDATES) break
         }

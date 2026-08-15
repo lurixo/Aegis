@@ -58,7 +58,7 @@ class EnglishCompletionLookupTest {
 
     @Test
     fun an_uppercase_prefix_still_finds_the_lowercase_entries() {
-        assertEquals(listOf("order", "orange", "ordinary", "organ"), words.englishCompletions("OR"))
+        assertEquals(listOf("or", "order", "orange", "ordinary", "organ"), words.englishCompletions("OR"))
         assertEquals(listOf("orange"), words.englishCompletions("Oran"))
     }
 
@@ -66,12 +66,14 @@ class EnglishCompletionLookupTest {
     fun a_stripped_key_keeps_its_punctuated_word_reachable_from_the_letters_before_it() {
         val engine = englishEngine(row("don't", 900), row("done", 800))
         assertEquals(listOf("don't", "done"), engine.englishCompletions("don"))
+        assertEquals(listOf("don't"), engine.englishCompletions("dont"))
     }
 
     @Test
-    fun a_word_that_does_not_literally_extend_the_typed_prefix_is_withheld() {
+    fun a_folded_key_offers_its_word_in_the_form_it_will_commit() {
         val engine = englishEngine(row("déjà vu", 900), row("dejected", 800))
-        assertEquals(listOf("dejected"), engine.englishCompletions("dej"))
+        assertEquals(listOf("déjà vu", "dejected"), engine.englishCompletions("dej"))
+        assertEquals(listOf("déjà vu"), engine.englishCompletions("deja"))
     }
 
     @Test
