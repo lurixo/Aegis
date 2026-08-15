@@ -33,7 +33,7 @@ an independent project not affiliated with the RIME project.
 
 - **Copyright:** © amzxyz
 - **License:** CC BY 4.0 — <https://creativecommons.org/licenses/by/4.0/>
-- **Source:** <https://github.com/amzxyz/RIME-LMDG> (`wanxiang-lts-zh-hans.gram`, ~401 MB)
+- **Source:** <https://github.com/amzxyz/RIME-LMDG> (`wanxiang-lts-zh-hans.gram`, ~420 MB)
 - **Used in:** the optional top-tier context model behind next-word / whole-sentence ranking. Fetched
   only on explicit opt-in; **not** bundled in the APK.
 - **Modifications:** none to the model bytes (downloaded and used as published). `OctagramReader`
