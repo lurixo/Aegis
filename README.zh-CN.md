@@ -143,8 +143,7 @@ tools/build/install/tools/bin/tools --out <jp>   --min-freq 1 --keytype initials
 tools/build/install/tools/bin/tools lm --out <lm> --t2s-data tools/t2s-data <14 张万象 .dict.yaml ...>
 ```
 
-本文的截图是渲染出来的，不是拍摄的：单元测试会把它们写到 `app/build/render/i18n/{en,zh}/`，
-`docs/screenshots/` 保存上文引用的那份副本。
+本文的截图实拍自运行中的应用，`docs/screenshots/` 保存上文引用的那份副本。
 
 ## 发布词库包
 

@@ -214,8 +214,8 @@ tools/build/install/tools/bin/tools --out <jp>   --min-freq 1 --keytype initials
 tools/build/install/tools/bin/tools lm --out <lm> --t2s-data tools/t2s-data <14 wanxiang .dict.yaml ...>
 ```
 
-The screenshots in this README are rendered, not photographed: the unit tests write them to
-`app/build/render/i18n/{en,zh}/`, and `docs/screenshots/` holds the copies linked above.
+The screenshots in this README are captured from the running app, and `docs/screenshots/` holds
+the copies linked above.
 
 ## Release dictionary pack
 
