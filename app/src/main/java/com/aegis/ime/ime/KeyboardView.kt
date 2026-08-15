@@ -616,6 +616,11 @@ class KeyboardView(context: Context) : View(context) {
         val scale = labelScale(p.rect)
         val baseTextSize = paint.textSize
         paint.textSize = baseTextSize * scale
+        if (p.key.action == KeyAction.SHOW_SYMBOLS && layout.id == LayoutId.ALPHA && display.length >= 5) {
+            drawStackedLabel(canvas, p.rect, display, paint, scale)
+            paint.textSize = baseTextSize
+            return
+        }
         if (display.length > 1) {
             val avail = p.rect.width() - 4f * density
             val w = paint.measureText(display)
@@ -671,6 +676,21 @@ class KeyboardView(context: Context) : View(context) {
             }
             subPaint.textSize = subBaseTextSize
         }
+    }
+
+    private fun drawStackedLabel(canvas: Canvas, rect: RectF, display: String, paint: Paint, scale: Float) {
+        val head = display.substring(0, display.length / 2)
+        val tail = display.substring(display.length / 2)
+        val avail = rect.width() - 4f * density
+        val w = maxOf(paint.measureText(head), paint.measureText(tail))
+        if (w > avail && avail > 0f) paint.textSize = (paint.textSize * avail / w).coerceAtLeast(11f * density * scale)
+        val face = rect.width() - 2f * density
+        val fw = maxOf(paint.measureText(head), paint.measureText(tail))
+        if (fw > face && face > 0f) paint.textSize = paint.textSize * face / fw
+        val step = (paint.descent() - paint.ascent()) / 2f
+        val baseline = rect.centerY() - (paint.descent() + paint.ascent()) / 2f
+        canvas.drawText(head, rect.centerX(), baseline - step, paint)
+        canvas.drawText(tail, rect.centerX(), baseline + step, paint)
     }
 
     private fun labelScale(rect: RectF): Float = min(1f, rect.height() / rowHeight)
