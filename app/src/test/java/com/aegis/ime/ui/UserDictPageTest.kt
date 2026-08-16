@@ -21,6 +21,8 @@ import android.net.Uri
 import android.os.Looper
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsOff
+import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
@@ -350,6 +352,179 @@ class UserDictPageTest {
         assertTrue("confirming clears the learned data", UserLearnEdit.list(learn).isEmpty())
         compose.onNodeWithText(s(R.string.user_dict_auto_empty)).assertExists()
         assertTrue("the words the user added by hand survive", UserDictEdit.list(db).any { it.word == "你好" })
+    }
+
+    @Test fun selection_mode_swaps_delete_buttons_for_ticks_and_leaves_no_tick_behind() {
+        seed(0, "nihao" to "你好")
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_search").performTextInput("nihao")
+        compose.onNodeWithText(s(R.string.user_dict_delete_button)).assertExists()
+        compose.onNodeWithTag("user_dict_select").performClick()
+        compose.waitForIdle()
+
+        compose.onAllNodesWithText(s(R.string.user_dict_delete_button)).assertCountEquals(0)
+        compose.onNodeWithText(row("你好", "nihao")).assertIsOff()
+        compose.onNodeWithText(row("你好", "nihao")).performClick()
+        compose.onNodeWithText(row("你好", "nihao")).assertIsOn()
+
+        compose.onNodeWithTag("user_dict_select_cancel").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(s(R.string.user_dict_delete_button)).assertExists()
+
+        compose.onNodeWithTag("user_dict_select").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(row("你好", "nihao")).assertIsOff()
+        assertTrue("leaving selection mode deletes nothing", UserDictEdit.list(db).any { it.word == "你好" })
+    }
+
+    @Test fun select_all_asks_with_the_count_and_only_a_confirmation_empties_both_sections() {
+        seed(0, "nihao" to "你好", "ceshi" to "测试")
+        seedLearned("你" to "ni", "呢" to "ne", "嗯" to "n")
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_select").performClick()
+        compose.onNodeWithTag("user_dict_select_all").performClick()
+        compose.onNodeWithTag("user_dict_delete_selected").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_batch_delete_dialog_body, 3)).assertExists()
+        assertEquals("nothing is deleted before the confirmation", 2, UserDictEdit.list(db).size)
+        assertEquals("nothing is deleted before the confirmation", 1, UserLearnEdit.list(learn).size)
+
+        compose.onNodeWithTag("user_dict_batch_delete_cancel").performClick()
+        compose.waitForIdle()
+        assertEquals("cancelling keeps every word", 2, UserDictEdit.list(db).size)
+        assertEquals("cancelling keeps every learned word", 1, UserLearnEdit.list(learn).size)
+
+        compose.onNodeWithTag("user_dict_delete_selected").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("user_dict_batch_delete_confirm").performClick()
+        assertEquals(s(R.string.user_dict_toast_batch_deleted), reported())
+
+        assertTrue("every ticked word left the word list", UserDictEdit.list(db).isEmpty())
+        assertTrue("every ticked learned word left the store", UserLearnEdit.list(learn).isEmpty())
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_count_format, 0)).assertExists()
+        compose.onNodeWithTag("user_dict_select").assertExists()
+    }
+
+    @Test fun select_all_under_a_search_reaches_no_further_than_what_the_search_found() {
+        seed(0, "nihao" to "你好", "ceshi" to "测试", "liuxia" to "留下")
+        seedLearned("你" to "ni", "呢" to "ne", "嗯" to "n")
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_search").performTextInput("nihao")
+        compose.onNodeWithTag("user_dict_select").performClick()
+        compose.onNodeWithTag("user_dict_select_all").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(row("你好", "nihao")).assertIsOn()
+
+        compose.onNodeWithTag("user_dict_delete_selected").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_batch_delete_dialog_body, 1)).assertExists()
+        compose.onNodeWithTag("user_dict_batch_delete_confirm").performClick()
+        assertEquals(s(R.string.user_dict_toast_batch_deleted), reported())
+
+        assertEquals(
+            "a word the search never showed must not be deleted",
+            listOf("测试", "留下"),
+            UserDictEdit.list(db).map { it.word }.sorted(),
+        )
+        assertTrue(
+            "and neither may a learned word the search never showed",
+            UserLearnEdit.list(learn).any { it.word == "你呢嗯" },
+        )
+    }
+
+    @Test fun select_all_with_no_search_behind_it_ticks_every_word_in_both_sections() {
+        seed(0, "nihao" to "你好", "ceshi" to "测试")
+        seedLearned("你" to "ni", "呢" to "ne", "嗯" to "n")
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_select").performClick()
+        compose.onNodeWithTag("user_dict_select_all").performClick()
+        compose.waitForIdle()
+
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(row("你好", "nihao")))
+        compose.onNodeWithText(row("你好", "nihao")).assertIsOn()
+        compose.onNodeWithText(row("测试", "ceshi")).assertIsOn()
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(row("你呢嗯", "ninen")))
+        compose.onNodeWithText(row("你呢嗯", "ninen")).assertIsOn()
+
+        compose.onNodeWithTag("user_dict_delete_selected").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_batch_delete_dialog_body, 3)).assertExists()
+    }
+
+    @Test fun select_all_replaces_the_earlier_selection_rather_than_adding_to_it() {
+        seed(0, "nihao" to "你好", "ceshi" to "测试", "liuxia" to "留下")
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_search").performTextInput("nihao")
+        compose.onNodeWithTag("user_dict_select").performClick()
+        compose.onNodeWithTag("user_dict_select_all").performClick()
+        compose.waitForIdle()
+
+        compose.onNodeWithTag("user_dict_search").performTextClearance()
+        compose.onNodeWithTag("user_dict_search").performTextInput("ceshi")
+        compose.onNodeWithTag("user_dict_select_all").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(row("测试", "ceshi")).assertIsOn()
+
+        compose.onNodeWithTag("user_dict_delete_selected").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_batch_delete_dialog_body, 1)).assertExists()
+        compose.onNodeWithTag("user_dict_batch_delete_confirm").performClick()
+        assertEquals(s(R.string.user_dict_toast_batch_deleted), reported())
+
+        assertEquals(
+            "what an earlier search had ticked must not be carried into this deletion",
+            listOf("你好", "留下"),
+            UserDictEdit.list(db).map { it.word }.sorted(),
+        )
+    }
+
+    @Test fun ticking_two_rows_deletes_just_those_and_keeps_the_rest() {
+        seed(0, "nihao" to "你好", "ceshi" to "测试", "liuxia" to "留下")
+        seedLearned("你" to "ni", "呢" to "ne", "嗯" to "n")
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_select").performClick()
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(row("你好", "nihao")))
+        compose.onNodeWithText(row("你好", "nihao")).performClick()
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(row("你呢嗯", "ninen")))
+        compose.onNodeWithText(row("你呢嗯", "ninen")).performClick()
+
+        compose.onNodeWithTag("user_dict_delete_selected").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_batch_delete_dialog_body, 2)).assertExists()
+        compose.onNodeWithTag("user_dict_batch_delete_confirm").performClick()
+        assertEquals(s(R.string.user_dict_toast_batch_deleted), reported())
+
+        assertEquals(
+            "the words left unticked survive",
+            listOf("测试", "留下"),
+            UserDictEdit.list(db).map { it.word }.sorted(),
+        )
+        assertTrue("the ticked word is gone", UserDictEdit.list(db).none { it.word == "你好" })
+        assertTrue("the ticked learned word is gone", UserLearnEdit.list(learn).none { it.word == "你呢嗯" })
+    }
+
+    @Test fun a_batch_delete_that_never_reached_storage_says_so() {
+        UserDictHot.host = RefusingHost(
+            listOf(UserModel.Entry("shanchu", "删除词", 1)),
+            listOf(UserLearning.Formed("你呢嗯", "ninen")),
+        )
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_select").performClick()
+        compose.onNodeWithTag("user_dict_select_all").performClick()
+        ShadowToast.reset()
+        compose.onNodeWithTag("user_dict_delete_selected").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_batch_delete_dialog_body, 2)).assertExists()
+        compose.onNodeWithTag("user_dict_batch_delete_confirm").performClick()
+
+        assertEquals(s(R.string.user_dict_toast_write_failed), reported())
     }
 
     @Test fun re_adding_a_word_that_is_already_there_says_it_is_yours_from_now_on() {

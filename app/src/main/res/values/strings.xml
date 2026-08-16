@@ -178,6 +178,13 @@
     <string name="user_dict_delete_dialog_body">This deletes %1$s from this device. This cannot be undone.</string>
     <string name="user_dict_delete_confirm">Delete</string>
     <string name="user_dict_delete_cancel">Cancel</string>
+    <string name="user_dict_select_button">Select words to delete</string>
+    <string name="user_dict_select_all_button">Select all</string>
+    <string name="user_dict_select_cancel_button">Cancel</string>
+    <string name="user_dict_delete_selected_button">Delete selected</string>
+    <string name="user_dict_batch_delete_dialog_title">Delete selected words</string>
+    <string name="user_dict_batch_delete_dialog_body">This deletes the %1$d selected word(s) from this device. This cannot be undone.</string>
+    <string name="user_dict_toast_batch_deleted">Selected words deleted</string>
     <string name="auto_learn_title">Auto learning</string>
     <string name="auto_learn_description">Learn the words you assemble character by character and offer them as candidates. A word is kept once you have assembled it three times; typing it again does not add another entry. Off stops new learning and keeps learned words out of the candidate bar; what was learned already is kept until you clear it.</string>
 

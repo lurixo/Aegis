@@ -36,9 +36,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -80,6 +82,7 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
     val addFailedToast = stringResource(R.string.user_dict_toast_add_failed)
     val addRejectedToast = stringResource(R.string.user_dict_toast_add_rejected)
     val deletedToast = stringResource(R.string.user_dict_toast_deleted)
+    val batchDeletedToast = stringResource(R.string.user_dict_toast_batch_deleted)
     val autoClearedToast = stringResource(R.string.user_dict_toast_auto_cleared)
     val writeFailedToast = stringResource(R.string.user_dict_toast_write_failed)
     val exportBlockedToast = stringResource(R.string.user_dict_toast_export_blocked)
@@ -89,6 +92,9 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
     var pendingAutoClear by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<PendingDelete?>(null) }
+    var pendingBatchDelete by remember { mutableStateOf(false) }
+    var selecting by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf(emptySet<String>()) }
 
     var learnedView by remember { mutableStateOf(UserLearnEdit.view(userLearn)) }
     val learned = learnedView.entries
@@ -105,6 +111,12 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
     var newWord by remember { mutableStateOf("") }
     var newReading by remember { mutableStateOf("") }
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
+
+    fun manualKey(entry: UserModel.Entry) = "${entry.reading}\t${entry.word}"
+    fun learnedKey(entry: UserLearning.Formed) = "auto\t${entry.word}\t${entry.reading}"
+    fun toggle(key: String) {
+        selected = if (key in selected) selected - key else selected + key
+    }
 
     fun edit(success: String, failure: String, done: (Boolean) -> Unit = {}, work: () -> Boolean) {
         UserStoreEdits.submit {
@@ -204,6 +216,18 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
         if (target.learned) deleteLearned(target.word, target.reading) else deleteWord(target.reading, target.word)
     }
 
+    fun deleteSelected() {
+        val chosenWords = entries.filter { manualKey(it) in selected }
+        val chosenLearned = learned.filter { learnedKey(it) in selected }
+        selecting = false
+        selected = emptySet()
+        edit(batchDeletedToast, writeFailedToast) {
+            val words = UserDictEdit.removeAll(userDb, chosenWords)
+            val glued = UserLearnEdit.removeAll(userLearn, chosenLearned)
+            words && glued
+        }
+    }
+
     fun clearLearned() {
         edit(autoClearedToast, writeFailedToast) { UserLearnEdit.clear(userLearn) }
     }
@@ -260,6 +284,43 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
                 color = MaterialTheme.colorScheme.error,
                 modifier = Modifier.testTag("user_dict_unreadable"),
             )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            if (!selecting) {
+                TextButton(
+                    onClick = { selecting = true },
+                    enabled = filtered.isNotEmpty() || filteredLearned.isNotEmpty(),
+                    modifier = Modifier.testTag("user_dict_select"),
+                ) {
+                    Text(stringResource(R.string.user_dict_select_button))
+                }
+            } else {
+                TextButton(
+                    onClick = {
+                        selected = (filtered.map { manualKey(it) } + filteredLearned.map { learnedKey(it) }).toSet()
+                    },
+                    modifier = Modifier.testTag("user_dict_select_all"),
+                ) {
+                    Text(stringResource(R.string.user_dict_select_all_button))
+                }
+                TextButton(
+                    onClick = { pendingBatchDelete = true },
+                    enabled = selected.isNotEmpty(),
+                    modifier = Modifier.testTag("user_dict_delete_selected"),
+                ) {
+                    Text(stringResource(R.string.user_dict_delete_selected_button))
+                }
+                TextButton(
+                    onClick = { selecting = false; selected = emptySet() },
+                    modifier = Modifier.testTag("user_dict_select_cancel"),
+                ) {
+                    Text(stringResource(R.string.user_dict_select_cancel_button))
+                }
+            }
         }
         LazyColumn(
             modifier = Modifier
@@ -337,9 +398,12 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
                     )
                 }
             }
-            items(filtered, key = { "${it.reading}\t${it.word}" }) { entry ->
+            items(filtered, key = { manualKey(it) }) { entry ->
                 UserDictEntryRow(
                     entry,
+                    selecting = selecting,
+                    checked = manualKey(entry) in selected,
+                    onToggle = { toggle(manualKey(entry)) },
                     onDelete = { pendingDelete = PendingDelete(entry.word, entry.reading, learned = false) },
                 )
             }
@@ -351,9 +415,12 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
                         modifier = Modifier.padding(top = 8.dp).testTag("user_dict_auto_header"),
                     )
                 }
-                items(filteredLearned, key = { "auto\t${it.word}\t${it.reading}" }) { entry ->
+                items(filteredLearned, key = { learnedKey(it) }) { entry ->
                     LearnedEntryRow(
                         entry,
+                        selecting = selecting,
+                        checked = learnedKey(entry) in selected,
+                        onToggle = { toggle(learnedKey(entry)) },
                         onDelete = { pendingDelete = PendingDelete(entry.word, entry.reading, learned = true) },
                     )
                 }
@@ -416,9 +483,12 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
                         )
                     }
                 } else {
-                    items(learned, key = { "auto\t${it.word}\t${it.reading}" }) { entry ->
+                    items(learned, key = { learnedKey(it) }) { entry ->
                         LearnedEntryRow(
                             entry,
+                            selecting = selecting,
+                            checked = learnedKey(entry) in selected,
+                            onToggle = { toggle(learnedKey(entry)) },
                             onDelete = { pendingDelete = PendingDelete(entry.word, entry.reading, learned = true) },
                         )
                     }
@@ -452,6 +522,32 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
                 TextButton(
                     onClick = { pendingDelete = null },
                     modifier = Modifier.testTag("user_dict_delete_cancel"),
+                ) {
+                    Text(stringResource(R.string.user_dict_delete_cancel))
+                }
+            },
+        )
+    }
+
+    if (pendingBatchDelete) {
+        val chosenCount = entries.count { manualKey(it) in selected } +
+            learned.count { learnedKey(it) in selected }
+        AegisAlertDialog(
+            onDismissRequest = { pendingBatchDelete = false },
+            title = { Text(stringResource(R.string.user_dict_batch_delete_dialog_title)) },
+            text = { Text(stringResource(R.string.user_dict_batch_delete_dialog_body, chosenCount)) },
+            confirmButton = {
+                TextButton(
+                    onClick = { deleteSelected(); pendingBatchDelete = false },
+                    modifier = Modifier.testTag("user_dict_batch_delete_confirm"),
+                ) {
+                    Text(stringResource(R.string.user_dict_delete_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { pendingBatchDelete = false },
+                    modifier = Modifier.testTag("user_dict_batch_delete_cancel"),
                 ) {
                     Text(stringResource(R.string.user_dict_delete_cancel))
                 }
@@ -511,37 +607,73 @@ internal fun Modifier.userDictPageInsets(
     .windowInsetsPadding(topInsets.only(WindowInsetsSides.Top))
 
 @Composable
-private fun LearnedEntryRow(entry: UserLearning.Formed, onDelete: () -> Unit) {
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            stringResource(R.string.user_dict_entry_format, entry.word, entry.reading),
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.weight(1f),
-        )
-        Spacer(Modifier.width(8.dp))
-        TextButton(onClick = onDelete) {
-            Text(stringResource(R.string.user_dict_delete_button))
-        }
-    }
+private fun LearnedEntryRow(
+    entry: UserLearning.Formed,
+    selecting: Boolean,
+    checked: Boolean,
+    onToggle: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    DictEntryRow(
+        text = stringResource(R.string.user_dict_entry_format, entry.word, entry.reading),
+        selecting = selecting,
+        checked = checked,
+        onToggle = onToggle,
+        onDelete = onDelete,
+    )
 }
 
 @Composable
-private fun UserDictEntryRow(entry: UserModel.Entry, onDelete: () -> Unit) {
+private fun UserDictEntryRow(
+    entry: UserModel.Entry,
+    selecting: Boolean,
+    checked: Boolean,
+    onToggle: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    DictEntryRow(
+        text = stringResource(R.string.user_dict_entry_format, entry.word, entry.reading),
+        selecting = selecting,
+        checked = checked,
+        onToggle = onToggle,
+        onDelete = onDelete,
+    )
+}
+
+@Composable
+private fun DictEntryRow(
+    text: String,
+    selecting: Boolean,
+    checked: Boolean,
+    onToggle: () -> Unit,
+    onDelete: () -> Unit,
+) {
     Row(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .then(
+                if (selecting) {
+                    Modifier.toggleable(value = checked, onValueChange = { onToggle() })
+                } else {
+                    Modifier
+                },
+            ),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (selecting) {
+            Checkbox(checked = checked, onCheckedChange = null)
+            Spacer(Modifier.width(8.dp))
+        }
         Text(
-            stringResource(R.string.user_dict_entry_format, entry.word, entry.reading),
+            text,
             style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.weight(1f),
         )
-        Spacer(Modifier.width(8.dp))
-        TextButton(onClick = onDelete) {
-            Text(stringResource(R.string.user_dict_delete_button))
+        if (!selecting) {
+            Spacer(Modifier.width(8.dp))
+            TextButton(onClick = onDelete) {
+                Text(stringResource(R.string.user_dict_delete_button))
+            }
         }
     }
 }
