@@ -309,7 +309,12 @@ class PinyinDecoder(
         return score
     }
 
-    private fun assemblyFrequency(word: String, headFrequency: Double): Double {
+    private fun assemblyFrequency(
+        word: String,
+        headFrequency: Double,
+        readingMass: Double,
+        classMass: Double,
+    ): Double {
         val model = lm ?: return headFrequency
         var offset = 0
         var previous = word.codePointAt(offset)
@@ -324,7 +329,9 @@ class PinyinDecoder(
             pairs++
         }
         if (pairs == 0) return headFrequency
-        return exp(ln(headFrequency.coerceAtLeast(1.0)) + total / pairs)
+        val estimate = exp(ln(headFrequency.coerceAtLeast(1.0)) + total / pairs)
+        if (classMass <= 0.0 || readingMass <= 0.0) return estimate
+        return estimate * minOf(1.0, classMass / readingMass)
     }
 
     private fun wordModelScore(word: String, freq: Int, ctxId: Int, ctx: Ctx, condMemo: HashMap<Long, Double>): Double =
@@ -616,10 +623,21 @@ class PinyinDecoder(
         val tailScore = HashMap<String, Double>()
         val tailFreq = HashMap<String, Double>()
         val tailCand = LinkedHashMap<String, Cand>()
+        val measuredMass = HashMap<Int, Double>()
+        for ((w, f) in leadFreq) {
+            val cov = leadCov[w] ?: input.length
+            if (dict.exactWordFreq(input.substring(0, cov), w) != null) {
+                measuredMass[cov] = (measuredMass[cov] ?: 0.0) + f.toDouble()
+            }
+        }
+        var readingMass = 0.0
+        for (f in sylCharFreq[0].values) readingMass += f
         fun tailFrequency(word: String, coveredSyls: Int, carried: Double): Double {
             val plain = commonnessFreq(word, coveredSyls, carried)
-            return if (isSingleChar(word)) plain
-            else assemblyFrequency(word, sylCharFreq[0][String(Character.toChars(word.codePointAt(0)))] ?: plain)
+            if (isSingleChar(word)) return plain
+            val head = sylCharFreq[0][String(Character.toChars(word.codePointAt(0)))] ?: plain
+            val cov = if (coveredSyls <= 0) input.length else B[coveredSyls.coerceAtMost(nSyl)]
+            return assemblyFrequency(word, head, readingMass, measuredMass[cov] ?: 0.0)
         }
         fun offerTail(word: String, coveredLen: Int, coveredSyls: Int, carried: Double) {
             if (word == best || word in leadFreq) return
