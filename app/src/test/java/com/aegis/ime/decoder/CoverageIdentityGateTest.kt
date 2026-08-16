@@ -19,6 +19,7 @@ import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
 import java.security.MessageDigest
@@ -101,6 +102,17 @@ class CoverageIdentityGateTest {
         else decoder.decodeCoveredAtomic(input, 30, cutsOf(keys), context)
     }
 
+    private fun groupsOf(): Sequence<Pair<String, List<Cand>>> = sequence {
+        for ((mode, syls, context) in probes()) {
+            for (letters in listOf(true, false)) {
+                val keys = if (letters) syls else syls.map { T9Pinyin.toT9(it) }
+                val layout = if (letters) "26" else "9"
+                val head = "$layout\t$mode\t${keys.joinToString("")}\t${if (context.isEmpty()) "-" else context}"
+                yield(head to decode(letters, mode, syls, context))
+            }
+        }
+    }
+
     private fun sha256(file: File): String {
         val digest = MessageDigest.getInstance("SHA-256")
         file.inputStream().buffered().use { input ->
@@ -112,6 +124,16 @@ class CoverageIdentityGateTest {
             }
         }
         return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+    }
+
+    private fun actualAssetHashes(): Map<String, String> = ASSET_NAMES.associateWith { name ->
+        val file = FullDictTestAssets.file(name)
+        assertTrue("coverage baseline asset exists: $name", file.isFile)
+        sha256(file)
+    }
+
+    private fun verifyAssetIdentity(expected: Map<String, String>) {
+        assertEquals("coverage baseline asset SHA-256 identities", expected, actualAssetHashes())
     }
 
     private fun probeHeads(): List<String> = probes().flatMap { (mode, syls, context) ->
@@ -150,6 +172,11 @@ class CoverageIdentityGateTest {
         val encoded = digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
         return byWord.size to encoded
     }
+
+    private fun probeDigests(): List<ProbeDigest> = groupsOf().mapIndexed { ordinal, (head, cands) ->
+        val (count, digest) = digest(cands)
+        ProbeDigest(ordinal, head, count, digest)
+    }.toList()
 
     private fun header(probes: Int, assets: Map<String, String>): List<String> = buildList {
         add("# aegis-coverage-identity-v2")
@@ -249,5 +276,68 @@ class CoverageIdentityGateTest {
         assertInvalidBaseline(parserFixture().toMutableList().apply {
             this[8] = this[8].substringBeforeLast('\t') + "\tbad"
         })
+    }
+
+    @Test fun everyCandidateKeepsTheKeyCountItAteInTheBaseline() {
+        assumeTrue(
+            "coverage identity gate runs only in the dictionary-release verification",
+            System.getenv("AEGIS_DICTIONARY_RELEASE_VERIFY") == "1",
+        )
+        assertTrue(
+            "dictionary-release verification sets AEGIS_COVERAGE_DIGEST_BASELINE",
+            System.getenv("AEGIS_COVERAGE_DIGEST_BASELINE")?.isNotBlank() == true,
+        )
+        assertTrue(
+            "dictionary-release verification provides every decoder asset",
+            FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile),
+        )
+        val parsed = baselineDigests()
+        verifyAssetIdentity(parsed.assets)
+        val baseline = parsed.probes
+        val current = probeDigests()
+        val drifted = ArrayList<String>()
+        val added = ArrayList<String>()
+        val dropped = ArrayList<String>()
+        val shared = minOf(baseline.size, current.size)
+        for (index in 0 until shared) {
+            val before = baseline[index]
+            val here = current[index]
+            if (before.head != here.head) {
+                dropped += "#$index ${before.head}"
+                added += "#$index ${here.head}"
+            } else if (before.uniqueCandidates < here.uniqueCandidates) {
+                added += "#$index ${here.head}: ${before.uniqueCandidates} -> ${here.uniqueCandidates}"
+            } else if (before.uniqueCandidates > here.uniqueCandidates) {
+                dropped += "#$index ${here.head}: ${before.uniqueCandidates} -> ${here.uniqueCandidates}"
+            } else if (before.sha256 != here.sha256) {
+                drifted += "#$index ${here.head}: ${before.sha256} -> ${here.sha256}"
+            }
+        }
+        for (index in shared until baseline.size) dropped += "#$index ${baseline[index].head}"
+        for (index in shared until current.size) added += "#$index ${current[index].head}"
+        assertTrue("baseline digest covers a non-trivial sweep: ${baseline.size}", baseline.size > 1000)
+        val out = File(System.getenv("AEGIS_AUDIT_DIR") ?: "build/decode-audit").apply { mkdirs() }
+        File(out, "coverage_identity.tsv").writeText(
+            buildString {
+                appendLine(
+                    "summary\tbaseline=${baseline.size}\tcurrent=${current.size}\t" +
+                        "drift=${drifted.size}\tadded=${added.size}\tdropped=${dropped.size}",
+                )
+                appendLine("kind\tdetail")
+                drifted.forEach { appendLine("drift\t$it") }
+                added.forEach { appendLine("added\t$it") }
+                dropped.forEach { appendLine("dropped\t$it") }
+            },
+        )
+        println(
+            "Coverage identity gate: baseline=${baseline.size}, current=${current.size}, " +
+                "drift=${drifted.size}, added=${added.size}, dropped=${dropped.size}",
+        )
+        assertTrue(
+            "candidate groups must keep the reviewed per-probe (word, coveredLen) digest: " +
+                "${drifted.size} drifted, ${added.size} added, ${dropped.size} dropped; " +
+                "first: ${drifted.take(4)} ${added.take(4)} ${dropped.take(4)}",
+            drifted.isEmpty() && added.isEmpty() && dropped.isEmpty(),
+        )
     }
 }
