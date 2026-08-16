@@ -309,6 +309,24 @@ class PinyinDecoder(
         return score
     }
 
+    private fun assemblyFrequency(word: String, headFrequency: Double): Double {
+        val model = lm ?: return headFrequency
+        var offset = 0
+        var previous = word.codePointAt(offset)
+        offset += Character.charCount(previous)
+        var total = 0.0
+        var pairs = 0
+        while (offset < word.length) {
+            val next = word.codePointAt(offset)
+            total += model.logCond(previous, next)
+            previous = next
+            offset += Character.charCount(next)
+            pairs++
+        }
+        if (pairs == 0) return headFrequency
+        return exp(ln(headFrequency.coerceAtLeast(1.0)) + total / pairs)
+    }
+
     private fun wordModelScore(word: String, freq: Int, ctxId: Int, ctx: Ctx, condMemo: HashMap<Long, Double>): Double =
         wordModelScore(word, freq.toDouble(), ctxId, ctx, condMemo)
 
@@ -534,7 +552,21 @@ class PinyinDecoder(
         }
         val remainderStart = out.size
         appendLeadingSingles(input, input.length, out, ctx)
+        closeWithRareSingles(input, out)
         return out to remainderStart
+    }
+
+    private fun closeWithRareSingles(input: String, out: MutableList<Cand>) {
+        val heads = HashMap<String, Map<String, Double>>()
+        val rare = ArrayList<Cand>()
+        var write = 0
+        for (c in out) {
+            val key = input.substring(0, c.coveredLen.coerceIn(1, input.length))
+            val closing = isSingleChar(c.word) &&
+                rareSingle(c.word, heads.getOrPut(key) { homophoneFreqs(key).toMap() })
+            if (closing) rare.add(c) else out[write++] = c
+        }
+        for (c in rare) out[write++] = c
     }
 
     private fun decodeAtomic(input: String, interior: Set<Int>, ctx: Ctx, staged: Boolean): List<Cand> {
@@ -580,12 +612,23 @@ class PinyinDecoder(
             return if (mn == Double.MAX_VALUE) carried else mn
         }
         val tailScore = HashMap<String, Double>()
+        val tailFreq = HashMap<String, Double>()
         val tailCand = LinkedHashMap<String, Cand>()
+        fun tailFrequency(word: String, coveredSyls: Int, carried: Double): Double {
+            val plain = commonnessFreq(word, coveredSyls, carried)
+            return if (isSingleChar(word)) plain
+            else assemblyFrequency(word, sylCharFreq[0][String(Character.toChars(word.codePointAt(0)))] ?: plain)
+        }
         fun offerTail(word: String, coveredLen: Int, coveredSyls: Int, carried: Double) {
             if (word == best || word in leadFreq) return
-            val score = wordModelScore(word, commonnessFreq(word, coveredSyls, carried), ctxId, ctx, condMemo)
+            val frequency = tailFrequency(word, coveredSyls, carried)
+            val score = wordModelScore(word, frequency, ctxId, ctx, condMemo)
             val prev = tailScore[word]
-            if (prev == null || score > prev) { tailScore[word] = score; tailCand[word] = Cand(word, coveredLen) }
+            if (prev == null || score > prev) {
+                tailScore[word] = score
+                tailFreq[word] = frequency
+                tailCand[word] = Cand(word, coveredLen)
+            }
         }
         for (sentence in sentences) offerTail(sentence.text, input.length, nSyl, 1.0)
         for ((w, _) in homophoneFreqs(input.substring(0, B[1]))) offerTail(w, B[1], 1, 0.0)
@@ -622,16 +665,33 @@ class PinyinDecoder(
                 if (w !in head) head.add(w)
             }
             emit(head)
-            for (c in tailRanked) if (isSingleChar(c.word) && seen.add(c.word)) out.add(c)
         }
         val rest = ArrayList<String>(leadFreq.size + 1)
         best?.let { rest.add(it) }
         for (w in leadFreq.keys.sortedByDescending { wordModelScore(it, leadFreq.getValue(it), ctxId, ctx, condMemo) }) {
             if (w !in rest) rest.add(w)
         }
-        emit(rest)
+        if (!staged) emit(rest)
         best?.let { if (seen.add(it)) out.add(Cand(it, input.length)) }
-        for (c in tailRanked) if (seen.add(c.word)) out.add(c)
+        val merged = ArrayList<Cand>(leadFreq.size + tailRanked.size)
+        for (w in rest) if (w !in seen) merged.add(Cand(w, leadCov[w] ?: input.length))
+        for (c in tailRanked) if (c.word !in seen) merged.add(c)
+        fun candFrequency(c: Cand): Double =
+            leadFreq[c.word]?.toDouble() ?: tailFreq[c.word] ?: tailFrequency(c.word, nSyl, 1.0)
+        val classTotal = HashMap<Int, Double>()
+        for (c in out) classTotal[c.coveredLen] = (classTotal[c.coveredLen] ?: 0.0) + candFrequency(c)
+        for (c in merged) classTotal[c.coveredLen] = (classTotal[c.coveredLen] ?: 0.0) + candFrequency(c)
+        val mergedRank = HashMap<String, Double>(merged.size * 2)
+        for (c in merged) {
+            val raw = tailScore[c.word] ?: wordModelScore(c.word, candFrequency(c), ctxId, ctx, condMemo)
+            mergedRank[c.word] = raw + lnTotal - ln((classTotal[c.coveredLen] ?: 1.0).coerceAtLeast(1.0))
+        }
+        merged.sortWith(
+            compareBy<Cand> { if (rareSingle(it.word, sylCharFreq[0])) 1 else 0 }
+                .thenByDescending { mergedRank.getValue(it.word) }
+                .thenBy { supplementarySingleTieRank(it.word) },
+        )
+        for (c in merged) if (seen.add(c.word)) out.add(c)
         return out
     }
 
@@ -769,7 +829,12 @@ class PinyinDecoder(
         return rerankSentencePaths(ordered, ctx.tail)
     }
 
-    private fun appendLeadingSingles(input: String, span: Int, out: ArrayList<Cand>, ctx: Ctx) {
+    private fun appendLeadingSingles(
+        input: String,
+        span: Int,
+        out: ArrayList<Cand>,
+        ctx: Ctx,
+    ) {
         val ctxId = resolveCtxId(ctx.cp)
         val condMemo = HashMap<Long, Double>()
         val head = input.substring(0, span)
@@ -788,7 +853,6 @@ class PinyinDecoder(
                         wf.word,
                         q,
                         wordModelScore(wf.word, wf.freq, ctxId, ctx, condMemo),
-                        single = false,
                         frequency = wf.freq.toDouble(),
                     ),
                 )
@@ -800,7 +864,6 @@ class PinyinDecoder(
                             w,
                             q,
                             wordModelScore(w, f, ctxId, ctx, condMemo),
-                            single = true,
                             frequency = f,
                         ),
                     )
@@ -821,13 +884,14 @@ class PinyinDecoder(
                         w,
                         k,
                         wordModelScore(w, f, ctxId, ctx, condMemo),
-                        single = true,
                         frequency = f,
                     ),
                 )
         }
+        val classTotal = HashMap<Int, Double>()
+        for (e in entries) classTotal[e.cov] = (classTotal[e.cov] ?: 0.0) + e.frequency
         entries.sortWith(
-            compareByDescending<Entry> { it.score }
+            compareByDescending<Entry> { it.score + lnTotal - ln((classTotal[it.cov] ?: 1.0).coerceAtLeast(1.0)) }
                 .thenBy { supplementarySingleTieRank(it.word) },
         )
         enforceRareAfterCommon(entries, word = { it.word }, frequency = { it.frequency })
@@ -866,6 +930,12 @@ class PinyinDecoder(
         entries.addAll(ordered)
     }
 
+    internal fun rareSingle(word: String, frequencies: Map<String, Double>): Boolean {
+        if (lm == null || !isSingleChar(word)) return false
+        val frequency = frequencies[word] ?: return false
+        return homophoneLayer(word, frequency) >= LAYER_RARE
+    }
+
     private data class RankedWord(
         val wordFreq: BinaryDict.WordFreq,
         val score: Double,
@@ -875,7 +945,6 @@ class PinyinDecoder(
         val word: String,
         val cov: Int,
         val score: Double,
-        val single: Boolean,
         val frequency: Double,
     )
 
@@ -938,7 +1007,7 @@ class PinyinDecoder(
     internal fun homophonesOf(key: String): List<String> =
         homophoneFreqs(key).sortedBy { homophoneLayer(it.first, it.second) }.map { it.first }
 
-    private fun homophoneLayer(word: String, frequency: Double): Int {
+    internal fun homophoneLayer(word: String, frequency: Double): Int {
         if ((userModel?.wordBoost(word) ?: 0.0) > 0.0) return LAYER_COMMON
         if (frequency <= ORDERING_INJECTED_FREQ) return LAYER_INJECTED
         val byCommonness = when (frequencyClass(characterCommonness(word, frequency))) {

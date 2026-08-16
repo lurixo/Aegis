@@ -279,9 +279,15 @@ class StagedFirstScreenTest {
                 assertTrue("$key: $lead ahead of the singles must be a dictionary word", covered)
             }
             assertEquals(
-                "$key: the single segment holds every dictionary single of the first reading",
+                "$key: the list holds every dictionary single of the first reading and no other",
                 dict.exact(readings.first()).filter { isSingleChar(it.word) }.map { it.word }.toSet(),
-                decoded.drop(firstSingle).takeWhile { isSingleChar(it) }.toSet(),
+                decoded.filter { isSingleChar(it) }.toSet(),
+            )
+            val closing = decoded.takeLastWhile { isSingleChar(it) }
+            assertTrue("$key: the list closes on single characters", closing.isNotEmpty())
+            assertTrue(
+                "$key: every multi-char candidate precedes the closing run, was ${decoded.size - closing.size}",
+                decoded.indexOfLast { !isSingleChar(it) } < decoded.size - closing.size,
             )
         }
     }

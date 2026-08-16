@@ -137,9 +137,15 @@ class StagedFirstScreenKeyboardTest {
             .map { it.word }
             .toSet()
         assertEquals(
-            "$label: the single segment holds every dictionary single of the first reading",
+            "$label: the list holds every dictionary single of the first reading and no other",
             singles,
-            candidates.drop(firstSingle).takeWhile { isSingleChar(it) }.toSet(),
+            candidates.filter { isSingleChar(it) }.toSet(),
+        )
+        val closing = candidates.takeLastWhile { isSingleChar(it) }
+        assertTrue("$label: the list closes on single characters", closing.isNotEmpty())
+        assertTrue(
+            "$label: every multi-char candidate precedes the closing run, was ${candidates.size - closing.size}",
+            candidates.indexOfLast { !isSingleChar(it) } < candidates.size - closing.size,
         )
     }
 
@@ -200,13 +206,20 @@ class StagedFirstScreenKeyboardTest {
         assertEquals("both keyboards agree", cases[0].second, cases[1].second)
     }
 
-    @Test fun gluedCombinationsLeaveTheFirstScreenButStayReachable() {
+    @Test fun gluedCombinationsAndEntriesBothPrecedeTheClosingRun() {
         assumeTrue(assetsPresent())
         val readings = listOf("wan", "shi", "wang", "lian")
-        val candidates = alphaLocked(readings)
-        val firstSingle = candidates.indexOfFirst { isSingleChar(it) }
-        val glued = candidates.indexOf("万事网联")
-        assertTrue("the glued combination stays reachable, was ${candidates.size} candidates", glued >= 0)
-        assertTrue("the glued combination leaves the first screen, was at $glued", glued > firstSingle)
+        for ((label, candidates) in listOf("26-key" to alphaLocked(readings), "9-key" to nineKeyLocked(readings))) {
+            val closing = candidates.takeLastWhile { isSingleChar(it) }
+            assertTrue("$label: the list closes on single characters", closing.isNotEmpty())
+            for (word in listOf("万事网联", "万事")) {
+                val at = candidates.indexOf(word)
+                assertTrue("$label: $word stays in the list, was ${candidates.size} candidates", at >= 0)
+                assertTrue(
+                    "$label: $word precedes the closing run, was at $at of ${candidates.size}",
+                    at < candidates.size - closing.size,
+                )
+            }
+        }
     }
 }

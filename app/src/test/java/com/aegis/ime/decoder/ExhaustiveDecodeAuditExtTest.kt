@@ -418,6 +418,8 @@ class ExhaustiveDecodeAuditExtTest {
     private val E6_RARE = 100
     private val E6_COMMON = 1000
 
+    private val RANKED_LEAD_WORDS = 1
+
     private val HEAVY_USE = 256
 
     private class E6View(val exact: Map<String, Int>, val alias: Map<String, Int>, val prefix: Map<String, Int>) {
@@ -456,9 +458,18 @@ class ExhaustiveDecodeAuditExtTest {
     private val jianpin: BinaryDict by lazy { BinaryDict.fromFile(jianpinFile) }
     private val E6_PREFIX_SCAN = 8192
 
-    private fun e6Check(source: BinaryDict, input: String, layered: Pair<List<Cand>, Int>): List<String> {
+    private fun e6Check(
+        source: BinaryDict,
+        decoder: PinyinDecoder,
+        input: String,
+        layered: Pair<List<Cand>, Int>,
+    ): List<String> {
         val (cands, remainderStart) = layered
         val rows = ArrayList<String>()
+        fun rare(c: Cand) = decoder.rareSingle(
+            c.word,
+            homophoneFreqsOf(source, decoder, input.substring(0, c.coveredLen.coerceIn(1, input.length))),
+        )
         val exactWords = source.exact(input).filterNot { isSingleChar(it.word) }.mapTo(HashSet()) { it.word }
         val buckets = LinkedHashMap<Int, MutableList<Pair<String, Int?>>>()
         val atLonger = HashMap<String, Int>()
@@ -480,12 +491,25 @@ class ExhaustiveDecodeAuditExtTest {
                 if (f != null && f >= E6_COMMON) commonAfter = w
             }
             val readingFreq = source.exact(key).filter { isSingleChar(it.word) }.associate { it.word to it.freq }
-            var prev = Int.MAX_VALUE
-            for ((w, _) in ws) {
-                val f = readingFreq[w] ?: continue
-                if (f > prev) rows.add("$input\tcov$cov\tO1\t$w@$f after a lower-freq same-reading single")
-                prev = f
+            val heads = homophoneFreqsOf(source, decoder, key)
+            for (closing in listOf(false, true)) {
+                var prev = Int.MAX_VALUE
+                for ((w, _) in ws) {
+                    if (decoder.rareSingle(w, heads) != closing) continue
+                    val f = readingFreq[w] ?: continue
+                    if (f > prev) rows.add("$input\tcov$cov\tO1\t$w@$f after a lower-freq same-reading single")
+                    prev = f
+                }
             }
+        }
+        val firstRare = cands.indexOfFirst { rare(it) }
+        if (firstRare >= 0) {
+            val lastWord = cands.indexOfLast { !isSingleChar(it.word) }
+            if (lastWord > firstRare) {
+                rows.add("$input\ttail\tR1\t${cands[lastWord].word} sits at $lastWord after the rare run at $firstRare")
+            }
+            val broken = (firstRare until cands.size).firstOrNull { !rare(cands[it]) }
+            if (broken != null) rows.add("$input\ttail\tR2\t${cands[broken].word} breaks the closing rare run at $broken")
         }
         val scanFrom = maxOf(remainderStart, 1)
         var commonAfter: String? = null
@@ -509,9 +533,9 @@ class ExhaustiveDecodeAuditExtTest {
         val dT = e6Decoder(letters = false)
         val rows = ArrayList<String>()
         for (s in syls) {
-            rows.addAll(e6Check(dict, s, dL.decodeCoveredLayered(s, 30)))
+            rows.addAll(e6Check(dict, dL, s, dL.decodeCoveredLayered(s, 30)))
             val dig = T9Pinyin.toT9(s)
-            rows.addAll(e6Check(t9Dict, dig, dT.decodeCoveredLayered(dig, 30)))
+            rows.addAll(e6Check(t9Dict, dT, dig, dT.decodeCoveredLayered(dig, 30)))
         }
         val pairs = listOf(
             "en" to "de", "fo" to "le", "dong" to "shi", "chua" to "de", "den" to "hao",
@@ -519,9 +543,9 @@ class ExhaustiveDecodeAuditExtTest {
             "ni" to "hao", "wo" to "de", "xian" to "zai", "liang" to "ge", "die" to "de",
         )
         for ((s1, s2) in pairs) {
-            rows.addAll(e6Check(dict, s1 + s2, dL.decodeCoveredLayered(s1 + s2, 30)))
+            rows.addAll(e6Check(dict, dL, s1 + s2, dL.decodeCoveredLayered(s1 + s2, 30)))
             val dig = T9Pinyin.toT9(s1 + s2)
-            rows.addAll(e6Check(t9Dict, dig, dT.decodeCoveredLayered(dig, 30)))
+            rows.addAll(e6Check(t9Dict, dT, dig, dT.decodeCoveredLayered(dig, 30)))
         }
         File(outDir(), "ext_e6.tsv").writeText(
             "# $runStamp\ninput\tbucket\tinvariant\tdetail\n" + rows.joinToString("\n") + if (rows.isNotEmpty()) "\n" else ""
@@ -542,8 +566,17 @@ class ExhaustiveDecodeAuditExtTest {
         }
     private fun nativeSingleFreq(source: BinaryDict, key: String, ch: String): Int? = nativeSinglesOf(source, key)[ch]
 
+    private val homophoneFreqMap = HashMap<String, Map<String, Double>>()
+
+    private fun homophoneFreqsOf(source: BinaryDict, decoder: PinyinDecoder, key: String): Map<String, Double> =
+        homophoneFreqMap.getOrPut((if (source === dict) "L:" else "D:") + key) { decoder.homophoneFreqs(key).toMap() }
+
+    private fun contiguous(positions: List<Int>) =
+        positions.isEmpty() || positions.last() - positions.first() + 1 == positions.size
+
     private fun lockedOrderViolations(
         source: BinaryDict,
+        decoder: PinyinDecoder,
         sylKeys: List<String>,
         cands: List<Cand>,
         checkLossless: Boolean,
@@ -553,33 +586,59 @@ class ExhaustiveDecodeAuditExtTest {
         for (i in sylKeys.indices) cum[i + 1] = cum[i] + sylKeys[i].length
         fun coveredSyls(cov: Int): Int { for (j in sylKeys.indices) if (cum[j + 1] == cov) return j + 1; return -1 }
         val tag = sylKeys.joinToString("+")
-        val singlePositions = ArrayList<Int>()
-        val singleBucket = ArrayList<Pair<String, Int>>()
+        val heads = homophoneFreqsOf(source, decoder, sylKeys[0])
+        val leadingPositions = ArrayList<Int>()
+        val closingPositions = ArrayList<Int>()
+        val leadingBucket = ArrayList<Pair<String, Int>>()
+        val closingBucket = ArrayList<Pair<String, Int>>()
         val emittedFirstSingles = HashSet<String>()
         for ((pos, c) in cands.withIndex()) {
             val ncp = c.word.codePointCount(0, c.word.length)
             val ks = coveredSyls(c.coveredLen)
             if (ncp >= 2) continue
-            singlePositions.add(pos)
+            val rare = decoder.rareSingle(c.word, heads)
+            if (rare) closingPositions.add(pos) else leadingPositions.add(pos)
             if (ks != 1) continue
             emittedFirstSingles.add(c.word)
-            val native = nativeSingleFreq(source, sylKeys[0], c.word)
-            if (native != null) singleBucket.add(c.word to native)
+            val native = nativeSingleFreq(source, sylKeys[0], c.word) ?: continue
+            if (rare) closingBucket.add(c.word to native) else leadingBucket.add(c.word to native)
         }
-        if (singlePositions.isNotEmpty()) {
-            val start = singlePositions.first()
-            val end = singlePositions.last()
-            if (end - start + 1 != singlePositions.size) {
-                rows.add("$tag\tW\tmulti-char candidates split the single segment between $start and $end")
+        if (!contiguous(closingPositions)) {
+            rows.add(
+                "$tag\tW\tmulti-char candidates split the closing rare run between " +
+                    "${closingPositions.first()} and ${closingPositions.last()}",
+            )
+        }
+        if (closingPositions.isNotEmpty()) {
+            if (closingPositions.last() != cands.size - 1) {
+                rows.add("$tag\tW\tthe closing rare run stops at ${closingPositions.last()} of ${cands.size}")
             }
-            if (start > PinyinDecoder.STAGED_REAL_WORD_SLOTS) {
+            val lastWord = cands.indexOfLast { it.word.codePointCount(0, it.word.length) >= 2 }
+            if (lastWord > closingPositions.first()) {
+                rows.add(
+                    "$tag\tW\t${cands[lastWord].word} sits at $lastWord after the rare run " +
+                        "at ${closingPositions.first()}",
+                )
+            }
+        }
+        if (leadingPositions.isNotEmpty()) {
+            val start = leadingPositions.first()
+            if (cands.subList(0, start).any { it.word.codePointCount(0, it.word.length) < 2 }) {
+                rows.add("$tag\tS\ta rare single precedes the common singles at $start")
+            }
+            if (start > PinyinDecoder.STAGED_REAL_WORD_SLOTS + RANKED_LEAD_WORDS) {
                 rows.add("$tag\tS\tthe single segment starts at $start, past the real word slots")
             }
         }
-        var prev = Int.MAX_VALUE
-        for ((w, f) in singleBucket) {
-            if (f > prev) rows.add("$tag\tO1\t$w@$f after a lower-freq same-reading single")
-            prev = f
+        if (leadingPositions.isEmpty() && nativeSinglesOf(source, sylKeys[0]).keys.any { !decoder.rareSingle(it, heads) }) {
+            rows.add("$tag\tS\tno common single of ${sylKeys[0]} reaches the first screen")
+        }
+        for (bucket in listOf(leadingBucket, closingBucket)) {
+            var prev = Int.MAX_VALUE
+            for ((w, f) in bucket) {
+                if (f > prev) rows.add("$tag\tO1\t$w@$f after a lower-freq same-reading single")
+                prev = f
+            }
         }
         if (checkLossless) for (w in nativeSinglesOf(source, sylKeys[0]).keys) {
             if (w !in emittedFirstSingles) rows.add("$tag\tL\t$w native single of ${sylKeys[0]} dropped from the locked grid")
@@ -592,7 +651,7 @@ class ExhaustiveDecodeAuditExtTest {
         val input = syls.joinToString("")
         val cuts = HashSet<Int>(); var acc = 0
         for (k in 0 until syls.size - 1) { acc += syls[k].length; cuts.add(acc) }
-        return lockedOrderViolations(dict, syls, d.decodeCoveredAtomic(input, 30, cuts), checkLossless = true)
+        return lockedOrderViolations(dict, d, syls, d.decodeCoveredAtomic(input, 30, cuts), checkLossless = true)
     }
 
     private fun lockedDigit(d: PinyinDecoder, s1: String, vararg rest: String): List<String> {
@@ -601,7 +660,7 @@ class ExhaustiveDecodeAuditExtTest {
         val cuts = HashSet<Int>(); var acc = 0
         for (k in 0 until syls.size - 1) { acc += syls[k].length; cuts.add(acc) }
         return lockedOrderViolations(
-            t9Dict, syls, d.decodeCoveredAtomic(input, 30, cuts),
+            t9Dict, d, syls, d.decodeCoveredAtomic(input, 30, cuts),
             checkLossless = T9Pinyin.segment(syls[0])?.size == 1,
         )
     }
@@ -702,14 +761,14 @@ class ExhaustiveDecodeAuditExtTest {
         val dT = userDecoder(letters = false, um)
         val rows = ArrayList<String>()
         for (s in runtimeSyllables()) {
-            rows.addAll(e6Check(dict, s, dL.decodeCoveredLayered(s, 30)))
+            rows.addAll(e6Check(dict, dL, s, dL.decodeCoveredLayered(s, 30)))
             val dig = T9Pinyin.toT9(s)
-            rows.addAll(e6Check(t9Dict, dig, dT.decodeCoveredLayered(dig, 30)))
+            rows.addAll(e6Check(t9Dict, dT, dig, dT.decodeCoveredLayered(dig, 30)))
         }
         for (gw in words) {
-            rows.addAll(e6Check(dict, gw.reading, dL.decodeCoveredLayered(gw.reading, 30)))
+            rows.addAll(e6Check(dict, dL, gw.reading, dL.decodeCoveredLayered(gw.reading, 30)))
             val dig = T9Pinyin.toT9(gw.reading)
-            rows.addAll(e6Check(t9Dict, dig, dT.decodeCoveredLayered(dig, 30)))
+            rows.addAll(e6Check(t9Dict, dT, dig, dT.decodeCoveredLayered(dig, 30)))
         }
         return rows
     }

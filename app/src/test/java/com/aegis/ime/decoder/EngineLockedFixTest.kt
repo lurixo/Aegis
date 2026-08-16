@@ -237,10 +237,10 @@ class EngineLockedFixTest {
     @Test fun ciku_keepsTheWordAndCommonChars() {
         assertCleanAtomic(listOf("ci", "ku"), "词库")
         val w = words(locked(listOf("ci", "ku")))
-        val firstSingle = w.indexOfFirst { it.codePointCount(0, it.length) == 1 }
-        assertTrue("a single layer exists", firstSingle >= 0)
-        assertTrue("the word layer precedes the single layer", w.drop(firstSingle).none { it.codePointCount(0, it.length) > 1 })
-        assertEquals("common ci 同音字 lead the single layer", listOf("次", "此"), w.drop(firstSingle).take(2))
+        val singles = w.filter { it.codePointCount(0, it.length) == 1 }
+        assertTrue("a single layer exists", singles.isNotEmpty())
+        assertTrue("the list closes on single characters", w.takeLastWhile { it.codePointCount(0, it.length) == 1 }.isNotEmpty())
+        assertEquals("common ci 同音字 lead the single layer", listOf("次", "此"), singles.take(2))
     }
 
     @Test fun jiujian_keepsTheWord() {
@@ -262,10 +262,10 @@ class EngineLockedFixTest {
         assertFalse("no extension-area single in the top 10", w.take(10).any { isSupp(it) })
         assertFalse("NO candidate contains 西安", w.any { it.contains("西安") })
         assertTrue("不实现 present", "不实现" in w)
-        val firstSingle = w.indexOfFirst { it.codePointCount(0, it.length) == 1 }
-        assertTrue("a single layer exists", firstSingle >= 0)
-        assertTrue("the word layer precedes the single layer", w.drop(firstSingle).none { it.codePointCount(0, it.length) > 1 })
-        assertEquals("common bu 同音字 lead the single layer", listOf("不", "部"), w.drop(firstSingle).take(2))
+        val singles = w.filter { it.codePointCount(0, it.length) == 1 }
+        assertTrue("a single layer exists", singles.isNotEmpty())
+        assertTrue("the list closes on single characters", w.takeLastWhile { it.codePointCount(0, it.length) == 1 }.isNotEmpty())
+        assertEquals("common bu 同音字 lead the single layer", listOf("不", "部"), singles.take(2))
         assertTrue("现 navigable at the last syllable", "现" in d.homophonesAt("bushixian", 2))
         pureSentences(c, "bushixian".length).forEach {
             assertEquals("every pure sentence spans 3 syllables", 3, it.codePointCount(0, it.length))
