@@ -550,9 +550,11 @@ class PinyinDecoder(
             val present = out.mapTo(HashSet()) { it.word }
             for (uw in userWordsFor(input)) if (present.add(uw)) out.add(Cand(uw, input.length))
         }
-        val remainderStart = out.size
+        val covered = out.mapTo(HashSet<String>(out.size * 2)) { it.word }
         appendLeadingSingles(input, input.length, out, ctx)
         closeWithRareSingles(input, out)
+        var remainderStart = 0
+        while (remainderStart < out.size && out[remainderStart].word in covered) remainderStart++
         return out to remainderStart
     }
 
