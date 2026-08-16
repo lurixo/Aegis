@@ -191,12 +191,22 @@ Prerequisites:
 ./gradlew :app:lintDebug          # Android lint
 ```
 
-No dictionary-derived asset is packaged in the APK at all: `app/build.gradle.kts` excludes
+No dictionary-derived asset is packaged in the APK: `app/build.gradle.kts` excludes
 `aegis_dict.bin`, `aegis_t9.bin`, `aegis_jianpin.bin` and the character-bigram context model
 `aegis_lm.bin` from the packaged assets. All four are downloaded at runtime into
 `filesDir/downloaded/` as members of one dictionary pack; the three dictionaries are the only
 source of Chinese candidates and `aegis_lm.bin` reranks them. Decoding does not strictly require
 `aegis_lm.bin`, but a pack missing it counts as incomplete and the app offers the download again.
+
+The APK does carry one generated table of Aegis's own, `aegis_tgh.bin`: a character grading table
+derived from the national standard 通用规范汉字表 (8105 characters, levels 1 / 2 / 3), used to decide
+which single-character candidates rank as rare. It is packaged as a Java resource at
+`com/aegis/ime/dict/aegis_tgh.bin`, not as an Android asset, so the unit tests read the same bytes off
+the classpath that the app reads at runtime. The build generates it from the checked-in source table
+`app/src/main/assets-src/tongyong-guifan-hanzi-8105.tsv`; the generated binary is not checked in. It
+holds code points and grading levels only, is derived from no dictionary, and does not change when
+the dictionary pack is updated. Nothing is added to the packaged `assets/`, which holds nothing but
+the `dexopt` baseline profiles the Android Gradle plugin adds to release builds.
 
 The decode tests that need the real tables read them from the directory named by
 `AEGIS_FULLDICT_DIR`; `python3 tools/fetch_test_dict.py` downloads the published pack and unpacks it

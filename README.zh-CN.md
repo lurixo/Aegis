@@ -129,6 +129,14 @@ APK 内不打包任何由词库派生的资源：`app/build.gradle.kts` 把 `aeg
 `aegis_jianpin.bin` 以及字级二元上下文模型 `aegis_lm.bin` 一并排除在打包资源之外。这四者作为同一个词库包的成员，在运行时下载到 `filesDir/downloaded/`；三个词库是中文候选的唯一来源，`aegis_lm.bin`
 负责重排。解码并不强依赖 `aegis_lm.bin`，但缺它的包会被判为不完整，应用会再次给出下载入口。
 
+APK 内确有一份 Aegis 自建的生成表 `aegis_tgh.bin`：派生自国家规范《通用规范汉字表》（8105 字，分
+一 / 二 / 三级）的汉字分级表，用于判定哪些单字候选算作生僻。它以 Java 资源形式打进包内路径
+`com/aegis/ime/dict/aegis_tgh.bin`，不是 Android `assets/` 条目，因此单元测试从 classpath 读到的与
+应用运行时读到的是同一份字节。它由构建过程从签入的源表
+`app/src/main/assets-src/tongyong-guifan-hanzi-8105.tsv` 生成，生成的二进制文件不入库。表内只有码位
+与级别，不派生自任何词库，也不随词库包更新而变化。打包的 `assets/` 不会因此多出任何条目，里面仍然
+只有 Android Gradle 插件为 release 构建加入的 `dexopt` 基线配置文件。
+
 需要真实词表的解码测试从 `AEGIS_FULLDICT_DIR` 指向的目录读取；`python3 tools/fetch_test_dict.py`
 会下载已发布的词库包并解到 `app/src/main/assets/`，这些文件既不进 APK 也不进 git。
 
