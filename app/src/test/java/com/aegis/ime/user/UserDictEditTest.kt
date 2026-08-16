@@ -225,6 +225,111 @@ class UserDictEditTest {
         assertEquals("the entry survives a removal that never reached the disk", listOf("测试"), UserDictEdit.list(db).map { it.word })
     }
 
+    @Test fun a_batch_removal_drops_every_chosen_word_and_keeps_the_rest() {
+        val db = File(tmp.newFolder("userdict-batch"), "userdb.txt")
+        UserDictEdit.add(db, "测试", "ceshi", 1)
+        UserDictEdit.add(db, "北京", "beijing", 2)
+        UserDictEdit.add(db, "留下", "liuxia", 3)
+
+        assertTrue(
+            UserDictEdit.removeAll(
+                db,
+                listOf(UserModel.Entry("ceshi", "测试", 1), UserModel.Entry("beijing", "北京", 1)),
+            ),
+        )
+
+        assertEquals("only the word left unticked survives", listOf("留下"), UserDictEdit.list(db).map { it.word })
+        val m = UserModel().apply { load(db) }
+        assertEquals("the first chosen word is gone", null, m.readingSnapshot()["ceshi"])
+        assertEquals("the second chosen word is gone", null, m.readingSnapshot()["beijing"])
+    }
+
+    @Test fun a_batch_removal_scrubs_the_learning_file_for_every_chosen_word() {
+        val dir = tmp.newFolder("userdict-batch-learning")
+        val db = File(dir, "userdb.txt")
+        val now = System.currentTimeMillis()
+        UserModel().apply {
+            addManualWord("nihao", "你好", now)
+            addManualWord("zaijian", "再见", now)
+            addManualWord("liuxia", "留下", now)
+        }.save(db)
+        val userLearn = File(dir, "userlearn.txt")
+        UserLearning { now }.apply {
+            for (steps in listOf(
+                listOf("你" to "ni", "好" to "hao"),
+                listOf("再" to "zai", "见" to "jian"),
+                listOf("留" to "liu", "下" to "xia"),
+            )) repeat(3) {
+                var prev: String? = null
+                for ((word, reading) in steps) {
+                    observeCommit(prev, word, reading, now)
+                    prev = word
+                }
+                observeBreak()
+            }
+            save(userLearn)
+        }
+
+        assertTrue(
+            UserDictEdit.removeAll(
+                db,
+                listOf(UserModel.Entry("nihao", "你好", 1), UserModel.Entry("zaijian", "再见", 1)),
+            ),
+        )
+
+        assertEquals("only the word left unticked survives", listOf("留下"), UserDictEdit.list(db).map { it.word })
+        val reloaded = UserLearning { now }.apply { load(userLearn) }
+        assertTrue("the learning file no longer recalls the first word", reloaded.formedWordsFor("nihao").isEmpty())
+        assertTrue("the learning file no longer recalls the second word", reloaded.formedWordsFor("zaijian").isEmpty())
+        assertEquals(
+            "the glued word left unticked survives in the learning file",
+            listOf("留下"),
+            reloaded.formedWordsFor("liuxia"),
+        )
+    }
+
+    @Test fun a_batch_removal_that_cannot_be_written_keeps_every_entry() {
+        val db = File(tmp.newFolder("userdict-batch-refused"), "userdb.txt")
+        UserDictEdit.add(db, "测试", "ceshi", 1)
+        UserDictEdit.add(db, "北京", "beijing", 2)
+        blockTheWriteTo(db)
+
+        assertFalse(
+            "the user must be told the words are still there",
+            UserDictEdit.removeAll(
+                db,
+                listOf(UserModel.Entry("ceshi", "测试", 1), UserModel.Entry("beijing", "北京", 1)),
+            ),
+        )
+
+        assertEquals(
+            "every entry survives a removal that never reached the disk",
+            listOf("北京", "测试"),
+            UserDictEdit.list(db).map { it.word }.sorted(),
+        )
+    }
+
+    @Test fun an_empty_batch_removal_touches_nothing_and_creates_no_file() {
+        val missingDb = File(tmp.root, "no-userdb.txt")
+        val missingLearn = File(tmp.root, "no-userlearn.txt")
+
+        assertTrue(UserDictEdit.removeAll(missingDb, emptyList()))
+        assertTrue(UserLearnEdit.removeAll(missingLearn, emptyList()))
+
+        assertFalse("no word list is created for a no-op edit", missingDb.exists())
+        assertFalse("no learning file is created for a no-op edit", missingLearn.exists())
+    }
+
+    @Test fun a_learning_batch_removal_that_cannot_be_written_keeps_the_data() {
+        val userLearn = File(tmp.newFolder("userlearn-batch"), "userlearn.txt")
+        seedLearning(userLearn)
+        blockTheWriteTo(userLearn)
+
+        assertFalse(UserLearnEdit.removeAll(userLearn, listOf(UserLearning.Formed("你好", "nihao"))))
+
+        assertTrue("nothing may be dropped by a removal that failed", UserLearnEdit.hasData(userLearn))
+    }
+
     @Test fun a_learning_removal_that_cannot_be_written_is_reported_and_keeps_the_data() {
         val userLearn = File(tmp.newFolder("userlearn-remove"), "userlearn.txt")
         seedLearning(userLearn)

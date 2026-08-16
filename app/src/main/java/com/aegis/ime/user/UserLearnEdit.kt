@@ -52,9 +52,31 @@ object UserLearnEdit {
         }.getOrDefault(false)
     }
 
+    fun removeAll(userLearn: File, entries: List<UserLearning.Formed>): Boolean {
+        if (entries.isEmpty()) return true
+        UserDictHot.host?.let { host ->
+            return entries.map { host.removeLearned(it.word, it.reading) }.all { it }
+        }
+        return runCatching {
+            val learning = loaded(userLearn)
+            if (!learning.readable) return false
+            for (entry in entries) learning.removeFormed(entry.word, entry.reading)
+            if (!learning.dirty) return true
+            if (runCatching { learning.save(userLearn) }.isSuccess) return true
+            oweAll(File(userLearn.absoluteFile.parentFile, "userdb.txt"), entries)
+            false
+        }.getOrDefault(false)
+    }
+
     private fun owe(userDb: File, word: String, reading: String): Boolean = runCatching {
         val m = UserModel().apply { if (userDb.exists()) load(userDb, sweepStale = false) }
         m.addTombstone(word, reading) && runCatching { m.save(userDb) }.isSuccess
+    }.getOrDefault(false)
+
+    private fun oweAll(userDb: File, entries: List<UserLearning.Formed>): Boolean = runCatching {
+        val m = UserModel().apply { if (userDb.exists()) load(userDb, sweepStale = false) }
+        entries.map { m.addTombstone(it.word, it.reading) }.all { it } &&
+            runCatching { m.save(userDb) }.isSuccess
     }.getOrDefault(false)
 
     fun clear(userLearn: File): Boolean {

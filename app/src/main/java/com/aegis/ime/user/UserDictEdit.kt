@@ -48,6 +48,26 @@ object UserDictEdit {
         }.getOrDefault(false)
     }
 
+    fun removeAll(userDb: File, entries: List<UserModel.Entry>): Boolean {
+        if (entries.isEmpty()) return true
+        UserDictHot.host?.let { host ->
+            return entries.map { host.removeWord(it.reading, it.word) }.all { it }
+        }
+        return runCatching {
+            val userLearn = File(userDb.absoluteFile.parentFile, "userlearn.txt")
+            val learning = UserLearning().apply { if (userLearn.exists()) load(userLearn) }
+            if (!learning.readable) return false
+            val m = UserModel().apply { if (userDb.exists()) load(userDb) }
+            for (entry in entries) m.removeWord(entry.reading, entry.word)
+            m.save(userDb)
+            for (entry in entries) learning.removeWord(entry.word)
+            if (!learning.dirty) return true
+            if (runCatching { learning.save(userLearn) }.isSuccess) return true
+            entries.map { m.addTombstone(it.word, "") }.all { it } &&
+                runCatching { m.save(userDb) }.isSuccess
+        }.getOrDefault(false)
+    }
+
     fun applyImport(userDb: File, importFile: File, merge: Boolean, now: Long): Boolean {
         UserDictHot.host?.let { return it.importUserDict(importFile, merge, now) }
         return UserDictImport.apply(importFile, userDb, merge, now)

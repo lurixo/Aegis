@@ -147,6 +147,70 @@ class AutoLearnManagementTest {
         assertTrue("a reload sees an empty store", UserLearning().apply { load(file) }.isEmpty())
     }
 
+    @Test fun the_settings_path_deletes_several_learned_words_in_one_stroke() {
+        val file = File(tmp.root, "userlearn.txt")
+        val now = System.currentTimeMillis()
+        val learning = UserLearning { now }
+        for (steps in listOf(
+            arrayOf("张" to "zhang", "伟" to "wei"),
+            arrayOf("李" to "li", "雷" to "lei"),
+            arrayOf("韩" to "han", "梅" to "mei"),
+        )) repeat(3) {
+            var prev: String? = null
+            for ((word, reading) in steps) {
+                learning.observeCommit(prev, word, reading, now)
+                prev = word
+            }
+            learning.observeBreak()
+        }
+        learning.save(file)
+        assertEquals("precondition: three glued words are on file", 3, UserLearnEdit.list(file).size)
+
+        assertTrue(
+            UserLearnEdit.removeAll(
+                file,
+                listOf(UserLearning.Formed("张伟", "zhangwei"), UserLearning.Formed("李雷", "lilei")),
+            ),
+        )
+
+        assertEquals("only the word left unticked survives", listOf("韩梅"), UserLearnEdit.list(file).map { it.word })
+        assertEquals(
+            "a reload sees the removals too",
+            listOf("韩梅"),
+            UserLearning().apply { load(file) }.formedEntries().map { it.word },
+        )
+    }
+
+    @Test fun a_batch_removal_reaches_the_live_store_for_both_kinds_of_words() {
+        val db = File(tmp.root, "userdb.txt")
+        val learnFile = File(tmp.root, "userlearn.txt")
+        val learning = chain("你" to "ni", "呢" to "ne", "嗯" to "n")
+        val model = UserModel { clock }.apply {
+            addManualWord("nihao", "你好", clock)
+            addManualWord("zaijian", "再见", clock)
+        }
+        UserDictHot.host = liveHost(model, db, learning, learnFile)
+
+        assertTrue(
+            UserDictEdit.removeAll(
+                db,
+                listOf(UserModel.Entry("nihao", "你好", 1), UserModel.Entry("zaijian", "再见", 1)),
+            ),
+        )
+        assertTrue(UserLearnEdit.removeAll(learnFile, listOf(UserLearning.Formed("你呢嗯", "ninen"))))
+
+        assertTrue("the live model dropped both words", model.userWordEntries().isEmpty())
+        assertTrue("the live learning store dropped the glued word", learning.formedEntries().isEmpty())
+        assertTrue(
+            "the removals reached the word list file",
+            UserModel().apply { load(db) }.userWordEntries().isEmpty(),
+        )
+        assertTrue(
+            "the removals reached the learning file",
+            UserLearning().apply { if (learnFile.exists()) load(learnFile) }.formedEntries().isEmpty(),
+        )
+    }
+
     @Test fun turning_auto_learning_off_records_nothing_new() {
         val learning = UserLearning { clock }
         learning.enabled = false
