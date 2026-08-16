@@ -118,6 +118,11 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
         selected = if (key in selected) selected - key else selected + key
     }
 
+    fun search(next: String) {
+        query = next
+        selected = emptySet()
+    }
+
     fun edit(success: String, failure: String, done: (Boolean) -> Unit = {}, work: () -> Boolean) {
         UserStoreEdits.submit {
             val landed = runCatching(work).getOrDefault(false)
@@ -259,7 +264,7 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
         SettingsPageHeader(stringResource(R.string.settings_group_userdict_title), onBack)
         OutlinedTextField(
             value = query,
-            onValueChange = { query = it },
+            onValueChange = { search(it) },
             label = { Text(stringResource(R.string.user_dict_search_hint)) },
             singleLine = true,
             modifier = Modifier

@@ -21,6 +21,7 @@ import android.net.Uri
 import android.os.Looper
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.hasTestTag
@@ -455,7 +456,50 @@ class UserDictPageTest {
         compose.onNodeWithText(ctx.getString(R.string.user_dict_batch_delete_dialog_body, 3)).assertExists()
     }
 
-    @Test fun select_all_replaces_the_earlier_selection_rather_than_adding_to_it() {
+    @Test fun changing_the_search_term_drops_every_tick_including_the_rows_it_hides() {
+        seed(0, "nihao" to "你好", "ceshi" to "测试", "liuxia" to "留下")
+        seedLearned("你" to "ni", "呢" to "ne", "嗯" to "n")
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_select").performClick()
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(row("你好", "nihao")))
+        compose.onNodeWithText(row("你好", "nihao")).performClick()
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(row("你呢嗯", "ninen")))
+        compose.onNodeWithText(row("你呢嗯", "ninen")).performClick()
+
+        compose.onNodeWithTag("user_dict_search").performTextInput("ceshi")
+        compose.waitForIdle()
+        compose.onNodeWithText(row("测试", "ceshi")).assertIsOff()
+        compose.onNodeWithTag("user_dict_delete_selected").assertIsNotEnabled()
+
+        compose.onNodeWithTag("user_dict_search").performTextClearance()
+        compose.waitForIdle()
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(row("你好", "nihao")))
+        compose.onNodeWithText(row("你好", "nihao")).assertIsOff()
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(row("你呢嗯", "ninen")))
+        compose.onNodeWithText(row("你呢嗯", "ninen")).assertIsOff()
+        compose.onNodeWithTag("user_dict_delete_selected").assertIsNotEnabled()
+
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(row("测试", "ceshi")))
+        compose.onNodeWithText(row("测试", "ceshi")).performClick()
+        compose.onNodeWithTag("user_dict_delete_selected").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_batch_delete_dialog_body, 1)).assertExists()
+        compose.onNodeWithTag("user_dict_batch_delete_confirm").performClick()
+        assertEquals(s(R.string.user_dict_toast_batch_deleted), reported())
+
+        assertEquals(
+            "a tick from before the search changed must not be carried along",
+            listOf("你好", "留下"),
+            UserDictEdit.list(db).map { it.word }.sorted(),
+        )
+        assertTrue(
+            "and neither may a learned tick the later search had hidden",
+            UserLearnEdit.list(learn).any { it.word == "你呢嗯" },
+        )
+    }
+
+    @Test fun a_selection_from_an_earlier_search_never_reaches_the_deletion() {
         seed(0, "nihao" to "你好", "ceshi" to "测试", "liuxia" to "留下")
         openUserDictPage()
 
