@@ -845,28 +845,18 @@ class PinyinDecoder(
         val seen = HashSet<String>(out.size * 2)
         for (c in out) seen.add(c.word)
         val entries = ArrayList<Entry>()
+        val entryAt = HashMap<String, Int>()
+        fun record(word: String, cov: Int, frequency: Double) {
+            entryAt[word] = entries.size
+            entries.add(Entry(word, cov, wordModelScore(word, frequency, ctxId, ctx, condMemo), frequency))
+        }
         for (q in span downTo 1) {
             for (wf in preferredExact(dict, input.substring(0, q))) {
                 if (isSingleChar(wf.word) || !seen.add(wf.word)) continue
-                entries.add(
-                    Entry(
-                        wf.word,
-                        q,
-                        wordModelScore(wf.word, wf.freq, ctxId, ctx, condMemo),
-                        frequency = wf.freq.toDouble(),
-                    ),
-                )
+                record(wf.word, q, wf.freq.toDouble())
             }
             if (q in lensSet) {
-                for ((w, f) in homophoneFreqs(input.substring(0, q))) if (seen.add(w))
-                    entries.add(
-                        Entry(
-                            w,
-                            q,
-                            wordModelScore(w, f, ctxId, ctx, condMemo),
-                            frequency = f,
-                        ),
-                    )
+                for ((w, f) in homophoneFreqs(input.substring(0, q))) if (seen.add(w)) record(w, q, f)
             }
         }
         if (lens.firstOrNull() != input.length) for (k in lens) {
@@ -878,15 +868,15 @@ class PinyinDecoder(
             val present = HashSet<String>()
             for (c in out) if (c.coveredLen == k) present.add(c.word)
             for (e in entries) if (e.cov == k) present.add(e.word)
-            for ((w, f) in homophoneFreqs(input.substring(0, k))) if (present.add(w))
-                entries.add(
-                    Entry(
-                        w,
-                        k,
-                        wordModelScore(w, f, ctxId, ctx, condMemo),
-                        frequency = f,
-                    ),
-                )
+            for ((w, f) in homophoneFreqs(input.substring(0, k))) {
+                if (!present.add(w)) continue
+                val at = entryAt[w]
+                if (at == null) {
+                    record(w, k, f)
+                } else if (f > entries[at].frequency) {
+                    entries[at] = Entry(w, k, wordModelScore(w, f, ctxId, ctx, condMemo), f)
+                }
+            }
         }
         val classTotal = HashMap<Int, Double>()
         for (e in entries) classTotal[e.cov] = (classTotal[e.cov] ?: 0.0) + e.frequency
