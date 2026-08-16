@@ -306,7 +306,7 @@ class LockedReadingHighlightParityTest {
         val (c, iv, kb) = nineSession(syllabic, "6443")
         c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
         c.onPickReadingIndex(c.expandedReadings().indexOf("he"))
-        c.onPickReadingIndex(0)
+        c.onPickReadingIndex(c.expandedReadings().indexOf("he"))
 
         assertEquals("precondition: the first syllable is the drilled one", 0, c.drilledSyllableForTest())
         assertEquals("the shared source follows the drilled syllable, not the last lock", "ni", c.lockedHighlightReading())

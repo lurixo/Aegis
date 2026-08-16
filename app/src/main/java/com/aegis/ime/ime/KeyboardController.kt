@@ -1061,6 +1061,13 @@ class KeyboardController(
         return readingKeys(visible, highlight)
     }
 
+    private fun readingAlternatives(reading: String): List<String> =
+        if (layoutId == LayoutId.NINE) {
+            T9Pinyin.leftColumnReadings(inputForReading(reading), NINE_LEFT_MAX)
+        } else {
+            T9Pinyin.leftColumnLetterReadings(inputForReading(reading), NINE_LEFT_MAX)
+        }
+
     private fun readingKeys(readings: List<String>, highlight: String?): List<Key> {
         val marked = highlight?.let(readings::indexOf) ?: -1
         return readings.mapIndexed { i, r ->
@@ -1090,7 +1097,28 @@ class KeyboardController(
 
     internal fun shiftStateName(): String = shiftState.name
 
-    internal fun expandedReadings(): List<String> = when {
+    private fun expandedFocusIndex(): Int {
+        val drilled = drillChoices.isNotEmpty() && drillSyllable >= 0
+        val consumed = mode() == Mode.PINYIN && composing.isNotEmpty() &&
+            lockedReadings.isNotEmpty() && activeInput().isEmpty()
+        if (!drilled && !consumed) return -1
+        val index = if (drillSyllable >= 0) drillSyllable else lockedReadings.lastIndex
+        if (index !in lockedReadings.indices) return -1
+        if (drillSyllable >= 0 &&
+            currentSyllables().getOrNull(drillSyllable)?.reading != lockedReadings[index]
+        ) {
+            return -1
+        }
+        return index
+    }
+
+    internal fun expandedReadings(): List<String> {
+        val focus = expandedFocusIndex()
+        if (focus >= 0) return readingAlternatives(lockedReadings[focus])
+        return expandedReadingsWithoutFocus()
+    }
+
+    private fun expandedReadingsWithoutFocus(): List<String> = when {
         drillChoices.isNotEmpty() && drillSyllable >= 0 ->
             currentSyllables().getOrNull(drillSyllable)?.reading?.let(::listOf) ?: emptyList()
         mode() == Mode.PINYIN && composing.isNotEmpty() &&
@@ -1149,23 +1177,48 @@ class KeyboardController(
         val reading = readings[index]
         if (drillSyllable >= 0 && reading == currentSyllables().getOrNull(drillSyllable)?.reading) return
         expirePreeditChoiceUndo()
+        val focus = expandedFocusIndex()
         val recentLockedReading = lockedReadings.lastOrNull()
         val lockedIndex = recentLockedReading?.let(readings::indexOf) ?: -1
-        if (mode() == Mode.PINYIN && composing.isNotEmpty() &&
-            index == lockedIndex && recentLockedReading == reading
-        ) {
-            drillSyllable = if (activeInput().isEmpty()) {
-                lockedReadings.indices.firstOrNull { !drillChoices.containsKey(it) } ?: lockedReadings.lastIndex
-            } else {
-                lockedReadings.lastIndex
+        when {
+            focus >= 0 && reading != lockedReadings[focus] -> relockReadingAt(focus, reading)
+            mode() == Mode.PINYIN && composing.isNotEmpty() &&
+                index == lockedIndex && recentLockedReading == reading -> {
+                drillSyllable = if (activeInput().isEmpty()) {
+                    lockedReadings.indices.firstOrNull { !drillChoices.containsKey(it) } ?: lockedReadings.lastIndex
+                } else {
+                    lockedReadings.lastIndex
+                }
             }
-        } else {
-            drillSyllable = -1
-            drillChoices.clear()
-            handlePickReading(Key(reading, output = reading, action = KeyAction.PICK_READING))
+            else -> {
+                drillSyllable = -1
+                drillChoices.clear()
+                handlePickReading(Key(reading, output = reading, action = KeyAction.PICK_READING))
+            }
         }
         refreshCandidates()
         render()
+    }
+
+    private fun relockReadingAt(index: Int, reading: String) {
+        if (index !in lockedReadings.indices) return
+        val input = inputForReading(reading)
+        val previous = inputForReading(lockedReadings[index])
+        if (!previous.startsWith(input)) return
+        val leading = (lockedInputLengths[index] - previous.length).coerceAtLeast(0)
+        lockedReadings[index] = reading
+        lockedInputLengths[index] = leading + input.length
+        if (input.length < previous.length) {
+            while (lockedReadings.size > index + 1) {
+                lockedReadings.removeAt(lockedReadings.lastIndex)
+                lockedInputLengths.removeAt(lockedInputLengths.lastIndex)
+            }
+            drillSyllable = -1
+            drillChoices.clear()
+            rebuildHistory()
+            repeat(lockedReadings.size) { history.addLast(StepKind.LOCK) }
+        }
+        activeStart = lockedInputLengths.sum().coerceAtMost(composing.length)
     }
 
     fun onPanelBackspace() {
