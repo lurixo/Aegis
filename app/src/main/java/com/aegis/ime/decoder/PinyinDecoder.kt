@@ -835,6 +835,12 @@ class PinyinDecoder(
         for (e in entries) if (emitted.add(e.word)) out.add(Cand(e.word, e.cov))
     }
 
+    private fun frequencyClass(frequency: Double): Int = when {
+        frequency >= ORDERING_COMMON_FREQ -> 1
+        frequency <= ORDERING_RARE_FREQ -> -1
+        else -> 0
+    }
+
     private fun <T> enforceRareAfterCommon(
         entries: MutableList<T>,
         word: (T) -> String,
@@ -842,12 +848,7 @@ class PinyinDecoder(
     ) {
         fun classification(entry: T): Int {
             if ((userModel?.wordBoost(word(entry)) ?: 0.0) > 0.0) return 0
-            val freq = frequency(entry)
-            return when {
-                freq >= ORDERING_COMMON_FREQ -> 1
-                freq <= ORDERING_RARE_FREQ -> -1
-                else -> 0
-            }
+            return frequencyClass(frequency(entry))
         }
         val lastCommon = entries.indexOfLast { classification(it) > 0 }
         if (lastCommon <= 0 || entries.subList(0, lastCommon).none { classification(it) < 0 }) return
@@ -934,7 +935,28 @@ class PinyinDecoder(
         return homophonesOf(clean.substring(s.start, s.end))
     }
 
-    private fun homophonesOf(key: String): List<String> = homophoneFreqs(key).map { it.first }
+    internal fun homophonesOf(key: String): List<String> =
+        homophoneFreqs(key).sortedBy { homophoneLayer(it.first, it.second) }.map { it.first }
+
+    private fun homophoneLayer(word: String, frequency: Double): Int {
+        if ((userModel?.wordBoost(word) ?: 0.0) > 0.0) return LAYER_COMMON
+        if (frequency <= ORDERING_INJECTED_FREQ) return LAYER_INJECTED
+        val byCommonness = when (frequencyClass(characterCommonness(word, frequency))) {
+            1 -> LAYER_COMMON
+            0 -> LAYER_UNCOMMON
+            else -> LAYER_RARE
+        }
+        return if (isCoreIdeograph(word)) byCommonness else maxOf(byCommonness, LAYER_UNCOMMON)
+    }
+
+    private fun isCoreIdeograph(word: String): Boolean =
+        isSingleChar(word) && word.codePointAt(0) in CORE_IDEOGRAPHS
+
+    private fun characterCommonness(word: String, frequency: Double): Double {
+        if (!isSingleChar(word)) return frequency
+        val count = lm?.unigramCount(word.codePointAt(0)) ?: return frequency
+        return if (count > 0L) count.toDouble() else frequency
+    }
 
     internal fun homophoneFreqs(key: String): List<Pair<String, Double>> {
         val out = ArrayList<Pair<String, Double>>()
@@ -1085,6 +1107,12 @@ class PinyinDecoder(
         const val EXACT_TIE_LOOKAHEAD = 16
         const val ORDERING_RARE_FREQ = 100.0
         const val ORDERING_COMMON_FREQ = 1000.0
+        const val ORDERING_INJECTED_FREQ = 1.0
+        const val LAYER_COMMON = 0
+        const val LAYER_UNCOMMON = 1
+        const val LAYER_RARE = 2
+        const val LAYER_INJECTED = 3
+        val CORE_IDEOGRAPHS = 0x4E00..0x9FFF
         val ALIAS_FREQ_DISCOUNT = exp(-ALIAS_PENALTY)
         const val DEFAULT_CONTEXT_WEIGHT = 1.0
         fun completionCap(limit: Int): Int = maxOf(1, (limit.toLong() * 2 / 3).toInt())
