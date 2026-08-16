@@ -719,23 +719,35 @@ class ExhaustiveDecodeAuditExtTest {
         )
     }
 
-    private fun lockedDigit(
+    private fun lockedNineKey(
         d: PinyinDecoder,
         context: String,
         s1: String,
         vararg rest: String,
         userBoost: (String) -> Boolean = { false },
     ): List<String> {
-        val syls = listOf(s1, *rest).map { T9Pinyin.toT9(it) }
-        val input = syls.joinToString("")
+        val syls = listOf(s1, *rest)
+        val head = syls.dropLast(1)
+        val tail = T9Pinyin.preedit(T9Pinyin.toT9(syls.last()))
+        val letters = head.joinToString("") + tail.replace("'", "")
         val cuts = HashSet<Int>(); var acc = 0
-        for (k in 0 until syls.size - 1) { acc += syls[k].length; cuts.add(acc) }
+        for (r in head) { acc += r.length; if (acc < letters.length) cuts.add(acc) }
+        val sylKeys = head + tail.split("'").filter { it.isNotEmpty() }
         return lockedOrderViolations(
-            t9Dict, d, syls, d.decodeCoveredAtomic(input, 30, cuts, context),
-            checkLossless = T9Pinyin.segment(syls[0])?.size == 1,
-            context = context, layout = "9-key", userBoost = userBoost,
+            dict, d, sylKeys, d.decodeCoveredAtomic(letters, 30, cuts, context),
+            checkLossless = true, context = context, layout = "9-key", userBoost = userBoost,
         )
     }
+
+    private fun lockedWholeReading(
+        d: PinyinDecoder,
+        context: String,
+        s: String,
+        userBoost: (String) -> Boolean = { false },
+    ): List<String> = lockedOrderViolations(
+        dict, d, listOf(s), d.decodeCoveredAtomic(s, 30, emptySet(), context),
+        checkLossless = true, context = context, layout = "26-key/noCuts", userBoost = userBoost,
+    )
 
     private fun writeLeadReport(covered: String) {
         File(outDir(), "ext_e7_lead.tsv").bufferedWriter().use { w ->
@@ -768,15 +780,19 @@ class ExhaustiveDecodeAuditExtTest {
         assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
         val syls = runtimeSyllables()
         val dL = e6Decoder(letters = true)
-        val dT = e6Decoder(letters = false)
         val rows = ArrayList<String>()
         var pairsChecked = 0L
         var done = 0
+        var wholeChecked = 0L
+        for (s in syls) for (context in LOCKED_CONTEXTS) {
+            rows.addAll(lockedWholeReading(dL, context, s))
+            wholeChecked++
+        }
         for (s1 in syls) {
             for (s2 in syls) {
                 for (context in LOCKED_CONTEXTS) {
                     rows.addAll(lockedLetter(dL, context, s1, s2))
-                    rows.addAll(lockedDigit(dT, context, s1, s2))
+                    rows.addAll(lockedNineKey(dL, context, s1, s2))
                 }
                 pairsChecked++
             }
@@ -788,11 +804,12 @@ class ExhaustiveDecodeAuditExtTest {
         for (s1 in syls) for ((a, b) in tails) {
             for (context in LOCKED_CONTEXTS) {
                 rows.addAll(lockedLetter(dL, context, s1, a, b))
-                rows.addAll(lockedDigit(dT, context, s1, a, b))
+                rows.addAll(lockedNineKey(dL, context, s1, a, b))
             }
             triplesChecked++
         }
-        val covered = "pairs (both keyspaces): $pairsChecked; triples: $triplesChecked; " +
+        val covered = "pairs (both routes): $pairsChecked; triples: $triplesChecked; " +
+            "whole-reading locks (no cuts): $wholeChecked; " +
             "contexts: ${LOCKED_CONTEXTS.size} (${LOCKED_CONTEXTS.joinToString(",") { it.ifEmpty { "none" } }})"
         writeTsv(File(outDir(), "ext_e7.tsv"), rows.map { r ->
             val p = r.split("\t"); Fail(p.getOrElse(0) { "" }, "locked", p.getOrElse(1) { "" }, "", "", p.getOrElse(2) { "" })
@@ -808,7 +825,6 @@ class ExhaustiveDecodeAuditExtTest {
     @Test fun e7b_lockedOrderingInvariant_representative_alwaysOn() {
         assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
         val dL = e6Decoder(letters = true)
-        val dT = e6Decoder(letters = false)
         val firstSyllables = listOf(
             "ce", "ci", "chai", "shi", "xian", "ni", "wo", "bu", "de", "hao", "ma", "zhong", "guo",
             "fo", "den", "chua", "rua", "nou", "kei", "cen", "m", "die", "liang", "en", "jiu",
@@ -817,13 +833,16 @@ class ExhaustiveDecodeAuditExtTest {
         val rows = ArrayList<String>()
         for (s1 in firstSyllables) for (s2 in tails) for (context in LOCKED_CONTEXTS) {
             rows.addAll(lockedLetter(dL, context, s1, s2))
-            rows.addAll(lockedDigit(dT, context, s1, s2))
+            rows.addAll(lockedNineKey(dL, context, s1, s2))
         }
         for ((s1, a, b) in listOf(Triple("mu", "de", "shi"), Triple("yin", "shi", "jian"))) {
             for (context in LOCKED_CONTEXTS) {
                 rows.addAll(lockedLetter(dL, context, s1, a, b))
-                rows.addAll(lockedDigit(dT, context, s1, a, b))
+                rows.addAll(lockedNineKey(dL, context, s1, a, b))
             }
+        }
+        for (s in firstSyllables) for (context in LOCKED_CONTEXTS) {
+            rows.addAll(lockedWholeReading(dL, context, s))
         }
         assertTrue("E7b locked ordering violations must be zero (${rows.size}): ${rows.take(8)}", rows.isEmpty())
     }
@@ -907,14 +926,13 @@ class ExhaustiveDecodeAuditExtTest {
     private fun runLockedOrdering(words: List<GenWord>): List<String> {
         val um = populatedModel(words)
         val dL = userDecoder(letters = true, um)
-        val dT = userDecoder(letters = false, um)
         val rows = ArrayList<String>()
         val boosted: (String) -> Boolean = { um.wordBoost(it) > 0.0 }
         for (gw in words) {
             val s = gw.syllables
             for (context in LOCKED_CONTEXTS) {
                 rows.addAll(lockedLetter(dL, context, s[0], *s.drop(1).toTypedArray(), userBoost = boosted))
-                rows.addAll(lockedDigit(dT, context, s[0], *s.drop(1).toTypedArray(), userBoost = boosted))
+                rows.addAll(lockedNineKey(dL, context, s[0], *s.drop(1).toTypedArray(), userBoost = boosted))
             }
         }
         return rows

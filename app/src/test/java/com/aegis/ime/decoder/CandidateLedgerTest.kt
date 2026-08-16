@@ -69,25 +69,27 @@ class CandidateLedgerTest {
         val decoder: PinyinDecoder,
         val source: BinaryDict,
         val t9: Boolean,
+        val lockedDecoder: PinyinDecoder,
     )
+
+    private fun lockedView(arm: Arm): Arm =
+        Arm(arm.name, arm.lockedDecoder, dict, t9 = false, lockedDecoder = arm.lockedDecoder)
 
     private fun arms(): List<Arm> {
         val um = taught()
         val ul = chained()
+        val plainLetters = PinyinDecoder(dict, lm, initialsDict = jianpinDict)
+        val userLetters = PinyinDecoder(dict, lm, userModel = um, initialsDict = jianpinDict, userLearning = ul)
         return listOf(
-            Arm("26key", PinyinDecoder(dict, lm, initialsDict = jianpinDict), dict, t9 = false),
-            Arm("9key", PinyinDecoder(t9Dict, lm, aliasDict = dict), t9Dict, t9 = true),
-            Arm(
-                "26key+user",
-                PinyinDecoder(dict, lm, userModel = um, initialsDict = jianpinDict, userLearning = ul),
-                dict,
-                t9 = false,
-            ),
+            Arm("26key", plainLetters, dict, t9 = false, lockedDecoder = plainLetters),
+            Arm("9key", PinyinDecoder(t9Dict, lm, aliasDict = dict), t9Dict, t9 = true, lockedDecoder = plainLetters),
+            Arm("26key+user", userLetters, dict, t9 = false, lockedDecoder = userLetters),
             Arm(
                 "9key+user",
                 PinyinDecoder(t9Dict, lm, userModel = um, aliasDict = dict, userLearning = ul),
                 t9Dict,
                 t9 = true,
+                lockedDecoder = userLetters,
             ),
         )
     }
@@ -147,14 +149,6 @@ class CandidateLedgerTest {
         return out
     }
 
-    private fun pinnedWords(arm: Arm, key: String, path: String): Set<String> {
-        if (path != "lockedFree") return emptySet()
-        if (arm.decoder.syllables(key).size < 2) return emptySet()
-        val out = LinkedHashSet<String>()
-        for (wf in arm.source.exact(key)) if (!isSingleChar(wf.word)) out += wf.word
-        return out
-    }
-
     private class Ledger {
         var probes = 0
         var candidates = 0L
@@ -173,41 +167,44 @@ class CandidateLedgerTest {
             for (raw in letterKeys()) {
                 val key = if (arm.t9) T9Pinyin.toT9(raw) else raw
                 val cuts = cutsOf(arm, key)
-                val runs = ArrayList<Pair<String, List<Cand>>>(5)
-                runs += "free" to arm.decoder.decodeCovered(key, limit)
-                runs += "freeCtx" to arm.decoder.decodeCovered(key, limit, emptySet(), committedTail)
-                runs += "cut" to arm.decoder.decodeCovered(key, limit, cuts)
-                runs += "locked" to arm.decoder.decodeCoveredAtomic(key, limit, cuts)
-                if (cuts.isNotEmpty()) runs += "lockedFree" to arm.decoder.decodeCoveredAtomic(key, limit)
-                for ((path, cands) in runs) {
+                val locked = lockedView(arm)
+                val lockedCuts = cutsOf(locked, raw)
+                val runs = ArrayList<Triple<String, List<Cand>, Pair<Arm, String>>>(5)
+                runs += Triple("free", arm.decoder.decodeCovered(key, limit), arm to key)
+                runs += Triple("freeCtx", arm.decoder.decodeCovered(key, limit, emptySet(), committedTail), arm to key)
+                runs += Triple("cut", arm.decoder.decodeCovered(key, limit, cuts), arm to key)
+                runs += Triple(
+                    "locked",
+                    locked.decoder.decodeCoveredAtomic(raw, limit, lockedCuts),
+                    locked to raw,
+                )
+                for ((path, cands, view) in runs) {
+                    val probeArm = view.first
+                    val probeKey = view.second
+                    val probeCuts = if (path == "locked") lockedCuts else cuts
                     out.probes++
                     out.candidates += cands.size
                     val counts = HashMap<String, Int>(cands.size * 2)
                     for (c in cands) counts[c.word] = (counts[c.word] ?: 0) + 1
                     val repeated = counts.filterValues { it > 1 }
                     if (repeated.isNotEmpty()) {
-                        out.repeats += "${arm.name}/$path/$key repeats " +
+                        out.repeats += "${arm.name}/$path/$probeKey repeats " +
                             repeated.entries.take(6).joinToString(" ") { (w, n) ->
                                 "$w x$n(cov=${cands.filter { it.word == w }.joinToString("/") { c -> c.coveredLen.toString() }})"
                             }
                     }
-                    val pinned = pinnedCharacters(arm, key, path, cuts)
+                    val pinned = pinnedCharacters(probeArm, probeKey, path, probeCuts)
                     out.pinned += pinned.size
                     val missing = pinned.filterNot { counts.containsKey(it) }
                     if (missing.isNotEmpty()) {
-                        out.dropped += "${arm.name}/$path/$key drops ${missing.size} of ${pinned.size}: ${sample(missing, 6)}"
+                        out.dropped +=
+                            "${arm.name}/$path/$probeKey drops ${missing.size} of ${pinned.size}: ${sample(missing, 6)}"
                     }
-                    val pinnedWords = pinnedWords(arm, key, path)
-                    val lostWords = pinnedWords.filterNot { counts.containsKey(it) }
-                    if (lostWords.isNotEmpty()) {
-                        out.dropped += "${arm.name}/$path/$key drops ${lostWords.size} of " +
-                            "${pinnedWords.size} words: ${sample(lostWords, 6)}"
-                    }
-                    out.pinned += pinnedWords.size
-                    val declared = declaredSingleSources(arm, key)
+                    val declared = declaredSingleSources(probeArm, probeKey)
                     val strays = cands.map { it.word }.filter { isSingleChar(it) && it !in declared }.distinct()
                     if (strays.isNotEmpty()) {
-                        out.unaccounted += "${arm.name}/$path/$key lists ${strays.size} unaccounted: ${sample(strays, 6)}"
+                        out.unaccounted +=
+                            "${arm.name}/$path/$probeKey lists ${strays.size} unaccounted: ${sample(strays, 6)}"
                     }
                 }
             }

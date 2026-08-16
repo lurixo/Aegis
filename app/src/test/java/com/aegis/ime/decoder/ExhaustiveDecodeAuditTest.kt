@@ -76,12 +76,11 @@ class ExhaustiveDecodeAuditTest {
 
     private fun leadingLoss(
         dLetters: PinyinDecoder, dDigits: PinyinDecoder,
-        letters: String, digits: String, letterCuts: Set<Int>, digitCuts: Set<Int>,
+        letters: String, digits: String, letterCuts: Set<Int>,
     ): List<Fail> {
         val freeLetterKey = leadingKey(dLetters, letters, emptySet())
         val freeDigitKey = leadingKey(dDigits, digits, emptySet())
         val atomLetterKey = leadingKey(dLetters, letters, letterCuts)
-        val atomDigitKey = leadingKey(dDigits, digits, digitCuts)
         return listOfNotNull(
             lossFail(
                 letters, "26key", "decodeCovered", freeLetterKey, dictSingles(freeLetterKey),
@@ -95,10 +94,14 @@ class ExhaustiveDecodeAuditTest {
                 digits, "9key", "decodeCovered", freeDigitKey, t9Singles(freeDigitKey),
                 allSingles(dDigits.decodeCovered(digits, 30)),
             ),
-            lossFail(
-                digits, "9key", "decodeCoveredAtomic", atomDigitKey, t9Singles(atomDigitKey),
-                allSingles(dDigits.decodeCoveredAtomic(digits, 30, digitCuts)),
-            ),
+            if (letterCuts.isEmpty()) {
+                lossFail(
+                    letters, "26key", "decodeCoveredAtomic(noCuts)", atomLetterKey, dictSingles(atomLetterKey),
+                    allSingles(dLetters.decodeCoveredAtomic(letters, 30)),
+                )
+            } else {
+                null
+            },
         )
     }
 
@@ -264,14 +267,13 @@ class ExhaustiveDecodeAuditTest {
                 val letters = rest.joinToString("")
                 val digits = rest.joinToString("") { T9Pinyin.toT9(it) }
                 val letterCuts = HashSet<Int>()
-                val digitCuts = HashSet<Int>()
                 var la = 0
                 var da = 0
                 for (j in 0 until rest.size - 1) {
                     la += rest[j].length; letterCuts.add(la)
-                    da += T9Pinyin.toT9(rest[j]).length; digitCuts.add(da)
+                    da += T9Pinyin.toT9(rest[j]).length
                 }
-                fails += leadingLoss(d, t9, letters, digits, letterCuts, digitCuts)
+                fails += leadingLoss(d, t9, letters, digits, letterCuts)
             }
         }
         return fails
@@ -367,7 +369,7 @@ class ExhaustiveDecodeAuditTest {
                 }
             }
 
-            fails += leadingLoss(d, t9, s, digits, emptySet(), emptySet())
+            fails += leadingLoss(d, t9, s, digits, emptySet())
         }
         return fails
     }
