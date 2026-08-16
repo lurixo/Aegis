@@ -88,6 +88,7 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
     val exportEmptyToast = stringResource(R.string.user_dict_toast_export_empty)
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
     var pendingAutoClear by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf<PendingDelete?>(null) }
 
     var learnedView by remember { mutableStateOf(UserLearnEdit.view(userLearn)) }
     val learned = learnedView.entries
@@ -195,8 +196,12 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
         edit(deletedToast, writeFailedToast) { UserDictEdit.remove(userDb, reading, word) }
     }
 
-    fun deleteLearned(entry: UserLearning.Formed) {
-        edit(deletedToast, writeFailedToast) { UserLearnEdit.remove(userLearn, entry.word, entry.reading) }
+    fun deleteLearned(word: String, reading: String) {
+        edit(deletedToast, writeFailedToast) { UserLearnEdit.remove(userLearn, word, reading) }
+    }
+
+    fun confirmDelete(target: PendingDelete) {
+        if (target.learned) deleteLearned(target.word, target.reading) else deleteWord(target.reading, target.word)
     }
 
     fun clearLearned() {
@@ -333,7 +338,10 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
                 }
             }
             items(filtered, key = { "${it.reading}\t${it.word}" }) { entry ->
-                UserDictEntryRow(entry, onDelete = { deleteWord(entry.reading, entry.word) })
+                UserDictEntryRow(
+                    entry,
+                    onDelete = { pendingDelete = PendingDelete(entry.word, entry.reading, learned = false) },
+                )
             }
             if (query.isNotBlank() && filteredLearned.isNotEmpty()) {
                 item(key = "auto_learn_header") {
@@ -344,7 +352,10 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
                     )
                 }
                 items(filteredLearned, key = { "auto\t${it.word}\t${it.reading}" }) { entry ->
-                    LearnedEntryRow(entry, onDelete = { deleteLearned(entry) })
+                    LearnedEntryRow(
+                        entry,
+                        onDelete = { pendingDelete = PendingDelete(entry.word, entry.reading, learned = true) },
+                    )
                 }
             }
             if (query.isBlank()) {
@@ -406,11 +417,46 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
                     }
                 } else {
                     items(learned, key = { "auto\t${it.word}\t${it.reading}" }) { entry ->
-                        LearnedEntryRow(entry, onDelete = { deleteLearned(entry) })
+                        LearnedEntryRow(
+                            entry,
+                            onDelete = { pendingDelete = PendingDelete(entry.word, entry.reading, learned = true) },
+                        )
                     }
                 }
             }
         }
+    }
+
+    val rowDelete = pendingDelete
+    if (rowDelete != null) {
+        AegisAlertDialog(
+            onDismissRequest = { pendingDelete = null },
+            title = { Text(stringResource(R.string.user_dict_delete_dialog_title)) },
+            text = {
+                Text(
+                    stringResource(
+                        R.string.user_dict_delete_dialog_body,
+                        stringResource(R.string.user_dict_entry_format, rowDelete.word, rowDelete.reading),
+                    ),
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { confirmDelete(rowDelete); pendingDelete = null },
+                    modifier = Modifier.testTag("user_dict_delete_confirm"),
+                ) {
+                    Text(stringResource(R.string.user_dict_delete_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { pendingDelete = null },
+                    modifier = Modifier.testTag("user_dict_delete_cancel"),
+                ) {
+                    Text(stringResource(R.string.user_dict_delete_cancel))
+                }
+            },
+        )
     }
 
     if (pendingAutoClear) {
@@ -454,6 +500,8 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
         )
     }
 }
+
+private class PendingDelete(val word: String, val reading: String, val learned: Boolean)
 
 internal fun Modifier.userDictPageInsets(
     bottomInsets: WindowInsets,

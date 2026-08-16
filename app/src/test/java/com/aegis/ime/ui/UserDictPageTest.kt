@@ -234,10 +234,53 @@ class UserDictPageTest {
         compose.onNodeWithTag("user_dict_search").performTextInput("shanchu")
         compose.onNodeWithText(row("删除词", "shanchu")).assertExists()
         compose.onNodeWithText(s(R.string.user_dict_delete_button)).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(s(R.string.user_dict_delete_dialog_title)).assertExists()
+        assertTrue("nothing is deleted before the confirmation", UserDictEdit.list(db).any { it.word == "删除词" })
+        compose.onNodeWithTag("user_dict_delete_confirm").performClick()
         assertEquals(s(R.string.user_dict_toast_deleted), reported())
         compose.onNodeWithText(s(R.string.user_dict_search_no_match)).assertExists()
         compose.onNodeWithText(ctx.getString(R.string.user_dict_count_format, 30)).assertExists()
         assertTrue(UserDictEdit.list(db).none { it.word == "删除词" })
+    }
+
+    @Test fun deleting_a_word_asks_first_and_cancelling_keeps_it() {
+        seed(0, "nihao" to "你好")
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_search").performTextInput("nihao")
+        compose.onNodeWithText(s(R.string.user_dict_delete_button)).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(
+            ctx.getString(R.string.user_dict_delete_dialog_body, row("你好", "nihao")),
+        ).assertExists()
+        assertTrue("nothing is deleted before the confirmation", UserDictEdit.list(db).any { it.word == "你好" })
+
+        compose.onNodeWithTag("user_dict_delete_cancel").performClick()
+        compose.waitForIdle()
+
+        assertTrue("cancelling keeps the word", UserDictEdit.list(db).any { it.word == "你好" })
+        compose.onNodeWithText(row("你好", "nihao")).assertExists()
+        assertNull("nothing may be reported when nothing was done", ShadowToast.getTextOfLatestToast())
+    }
+
+    @Test fun deleting_a_learned_word_asks_first_and_cancelling_keeps_it() {
+        seed(0)
+        seedLearned("你" to "ni", "呢" to "ne", "嗯" to "n")
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(row("你呢嗯", "ninen")))
+        compose.onNodeWithText(s(R.string.user_dict_delete_button)).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(
+            ctx.getString(R.string.user_dict_delete_dialog_body, row("你呢嗯", "ninen")),
+        ).assertExists()
+
+        compose.onNodeWithTag("user_dict_delete_cancel").performClick()
+        compose.waitForIdle()
+
+        assertTrue("cancelling keeps the learned word", UserLearnEdit.list(learn).any { it.word == "你呢嗯" })
+        compose.onNodeWithText(row("你呢嗯", "ninen")).assertExists()
     }
 
     @Test fun the_auto_learning_section_lists_a_glued_word_and_deletes_it_on_its_own() {
@@ -251,6 +294,9 @@ class UserDictPageTest {
         compose.onNodeWithText(row("你呢嗯", "ninen")).assertExists()
 
         compose.onNodeWithText(s(R.string.user_dict_delete_button)).performClick()
+        compose.waitForIdle()
+        assertTrue("nothing is deleted before the confirmation", UserLearnEdit.list(learn).isNotEmpty())
+        compose.onNodeWithTag("user_dict_delete_confirm").performClick()
         assertEquals(s(R.string.user_dict_toast_deleted), reported())
 
         assertTrue("the learned word is gone from the store", UserLearnEdit.list(learn).isEmpty())
@@ -495,6 +541,8 @@ class UserDictPageTest {
         ShadowToast.reset()
 
         compose.onNodeWithText(s(R.string.user_dict_delete_button)).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("user_dict_delete_confirm").performClick()
 
         assertFalse("the tap must come back before the store has been touched", reached.get())
         assertNull("and nothing may be reported before there is anything to report", ShadowToast.getTextOfLatestToast())
@@ -599,6 +647,8 @@ class UserDictPageTest {
         ShadowToast.reset()
         compose.onNodeWithTag("user_dict_search").performTextInput("shanchu")
         compose.onNodeWithText(s(R.string.user_dict_delete_button)).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("user_dict_delete_confirm").performClick()
         assertEquals(s(R.string.user_dict_toast_write_failed), reported())
 
         ShadowToast.reset()
@@ -606,6 +656,8 @@ class UserDictPageTest {
         compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(row("你呢嗯", "ninen")))
         compose.onNodeWithText(row("你呢嗯", "ninen")).assertExists()
         compose.onAllNodesWithText(s(R.string.user_dict_delete_button)).onLast().performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("user_dict_delete_confirm").performClick()
         assertEquals(s(R.string.user_dict_toast_write_failed), reported())
     }
 
