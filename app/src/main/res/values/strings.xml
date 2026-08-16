@@ -286,6 +286,8 @@
     <string name="license_opencc_note">Traditional-to-simplified tables applied at dictionary build time. Curated for the build; data only.</string>
     <string name="license_emoji_name">Unicode / CLDR emoji data</string>
     <string name="license_emoji_note">Emoji glyphs, names and ordering. A subset mapped to Chinese keywords; data only.</string>
+    <string name="license_tgh_name">通用规范汉字表 character grading</string>
+    <string name="license_tgh_note">The character grading table packaged in the APK, from the national standard. Characters and serial numbers transcribed unchanged, levels taken from the standard\'s serial ranges; an unofficial transcription.</string>
     <string name="license_androidx_name">AndroidX · Compose · Material 3 · Kotlin</string>
     <string name="license_androidx_note">The app UI toolkit and the Kotlin standard library, linked as unmodified dependencies.</string>
 

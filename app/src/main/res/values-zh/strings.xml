@@ -285,6 +285,8 @@
     <string name="license_opencc_note">词库构建时应用的繁转简映射表。已为构建校订；仅作数据使用。</string>
     <string name="license_emoji_name">Unicode / CLDR 表情数据</string>
     <string name="license_emoji_note">表情符号字形、名称与排序。截取子集并映射中文关键词；仅作数据使用。</string>
+    <string name="license_tgh_name">《通用规范汉字表》汉字分级</string>
+    <string name="license_tgh_note">随 APK 打包的汉字分级表，取自国家规范。字与序号照原样转录，级别按规范自身的序号区间划出；属非官方转录。</string>
     <string name="license_androidx_name">AndroidX · Compose · Material 3 · Kotlin</string>
     <string name="license_androidx_note">应用 UI 框架与 Kotlin 标准库，按未修改的依赖链接。</string>
 

@@ -45,6 +45,7 @@ private val LICENSE_ITEMS = listOf(
     LicenseItem(R.string.license_octagram_name, "amzxyz", "CC BY 4.0", "https://github.com/amzxyz/RIME-LMDG", R.string.license_octagram_note, modified = false),
     LicenseItem(R.string.license_opencc_name, "BYVoid", "Apache-2.0", "https://github.com/BYVoid/OpenCC", R.string.license_opencc_note, modified = true),
     LicenseItem(R.string.license_emoji_name, "Unicode, Inc.", "Unicode License", "https://www.unicode.org/license.txt", R.string.license_emoji_note, modified = true),
+    LicenseItem(R.string.license_tgh_name, "PRC State Council", "National standard", "https://www.gov.cn/zwgk/2013-08/19/content_2469793.htm", R.string.license_tgh_note, modified = true),
     LicenseItem(R.string.license_androidx_name, "AOSP · JetBrains", "Apache-2.0", "https://developer.android.com/jetpack/androidx", R.string.license_androidx_note, modified = false),
 )
 
