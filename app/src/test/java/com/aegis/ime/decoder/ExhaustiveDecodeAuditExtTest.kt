@@ -408,19 +408,21 @@ class ExhaustiveDecodeAuditExtTest {
         assertTrue("E5 advisory written", File(outDir(), "ext_e5_advisory.tsv").exists())
     }
 
+    private val lm: CharBigramLM by lazy { CharBigramLM.fromFile(lmFile) }
+
     private fun e6Decoder(letters: Boolean): PinyinDecoder =
         if (letters) PinyinDecoder(
-            dict, CharBigramLM.fromFile(lmFile),
+            dict, lm,
             initialsDict = BinaryDict.fromFile(jianpinFile),
         )
-        else PinyinDecoder(t9Dict, CharBigramLM.fromFile(lmFile), aliasDict = dict)
+        else PinyinDecoder(t9Dict, lm, aliasDict = dict)
 
     private val E6_RARE = 100
     private val E6_COMMON = 1000
 
-    private val RANKED_LEAD_WORDS = 1
-
     private val HEAVY_USE = 256
+
+    private val LOCKED_CONTEXTS = listOf("", "我", "我们")
 
     private class E6View(val exact: Map<String, Int>, val alias: Map<String, Int>, val prefix: Map<String, Int>) {
         val entries = exact.size + alias.size + prefix.size
@@ -571,8 +573,34 @@ class ExhaustiveDecodeAuditExtTest {
     private fun homophoneFreqsOf(source: BinaryDict, decoder: PinyinDecoder, key: String): Map<String, Double> =
         homophoneFreqMap.getOrPut((if (source === dict) "L:" else "D:") + key) { decoder.homophoneFreqs(key).toMap() }
 
-    private fun contiguous(positions: List<Int>) =
-        positions.isEmpty() || positions.last() - positions.first() + 1 == positions.size
+    private fun rareByLayer(frequencies: Map<String, Double>, word: String, boosted: Boolean = false): Boolean {
+        if (!isSingleChar(word) || boosted) return false
+        val frequency = frequencies[word] ?: return false
+        if (frequency <= PinyinDecoder.ORDERING_INJECTED_FREQ) return true
+        val count = lm.unigramCount(word.codePointAt(0))
+        val commonness = if (count > 0L) count.toDouble() else frequency
+        return commonness <= PinyinDecoder.ORDERING_RARE_FREQ
+    }
+
+    private fun multiCharExactOf(source: BinaryDict, key: String): Set<String> =
+        source.exact(key).filterNot { isSingleChar(it.word) }.mapTo(HashSet()) { it.word }
+
+    private class LeadRow(
+        val layout: String,
+        val input: String,
+        val context: String,
+        val firstSingle: Int,
+        val firstCommon: Int,
+        val realWords: Int,
+        val head: String,
+    )
+
+    private val LEAD_ROW_CAP = 20_000
+    private val leadRows = ArrayList<LeadRow>()
+    private val leadHistogram = HashMap<Int, Int>()
+    private var leadProbes = 0L
+    private var leadPastSlots = 0L
+    private var leadSingleless = 0L
 
     private fun lockedOrderViolations(
         source: BinaryDict,
@@ -580,12 +608,16 @@ class ExhaustiveDecodeAuditExtTest {
         sylKeys: List<String>,
         cands: List<Cand>,
         checkLossless: Boolean,
+        context: String,
+        layout: String,
+        userBoost: (String) -> Boolean,
     ): List<String> {
         val rows = ArrayList<String>()
         val cum = IntArray(sylKeys.size + 1)
         for (i in sylKeys.indices) cum[i + 1] = cum[i] + sylKeys[i].length
         fun coveredSyls(cov: Int): Int { for (j in sylKeys.indices) if (cum[j + 1] == cov) return j + 1; return -1 }
-        val tag = sylKeys.joinToString("+")
+        val input = sylKeys.joinToString("")
+        val tag = sylKeys.joinToString("+") + if (context.isEmpty()) "" else "|$context"
         val heads = homophoneFreqsOf(source, decoder, sylKeys[0])
         val leadingPositions = ArrayList<Int>()
         val closingPositions = ArrayList<Int>()
@@ -596,29 +628,26 @@ class ExhaustiveDecodeAuditExtTest {
             val ncp = c.word.codePointCount(0, c.word.length)
             val ks = coveredSyls(c.coveredLen)
             if (ncp >= 2) continue
-            val rare = decoder.rareSingle(c.word, heads)
+            val rare = rareByLayer(heads, c.word, userBoost(c.word))
+            if (rare != decoder.rareSingle(c.word, heads)) {
+                rows.add("$tag\tP\t${c.word} is layered $rare by the audit and ${!rare} by the decoder")
+            }
             if (rare) closingPositions.add(pos) else leadingPositions.add(pos)
             if (ks != 1) continue
             emittedFirstSingles.add(c.word)
             val native = nativeSingleFreq(source, sylKeys[0], c.word) ?: continue
             if (rare) closingBucket.add(c.word to native) else leadingBucket.add(c.word to native)
         }
-        if (!contiguous(closingPositions)) {
-            rows.add(
-                "$tag\tW\tmulti-char candidates split the closing rare run between " +
-                    "${closingPositions.first()} and ${closingPositions.last()}",
-            )
-        }
         if (closingPositions.isNotEmpty()) {
             if (closingPositions.last() != cands.size - 1) {
                 rows.add("$tag\tW\tthe closing rare run stops at ${closingPositions.last()} of ${cands.size}")
             }
+            val closingSet = closingPositions.toHashSet()
+            var bandStart = cands.size
+            while (bandStart > 0 && bandStart - 1 in closingSet) bandStart--
             val lastWord = cands.indexOfLast { it.word.codePointCount(0, it.word.length) >= 2 }
-            if (lastWord > closingPositions.first()) {
-                rows.add(
-                    "$tag\tW\t${cands[lastWord].word} sits at $lastWord after the rare run " +
-                        "at ${closingPositions.first()}",
-                )
+            if (lastWord >= bandStart) {
+                rows.add("$tag\tW\t${cands[lastWord].word} sits at $lastWord inside the closing band at $bandStart")
             }
         }
         if (leadingPositions.isNotEmpty()) {
@@ -626,14 +655,41 @@ class ExhaustiveDecodeAuditExtTest {
             if (cands.subList(0, start).any { it.word.codePointCount(0, it.word.length) < 2 }) {
                 rows.add("$tag\tS\ta rare single precedes the common singles at $start")
             }
-            if (start > PinyinDecoder.STAGED_REAL_WORD_SLOTS + RANKED_LEAD_WORDS) {
-                rows.add("$tag\tS\tthe single segment starts at $start, past the real word slots")
-            }
         }
-        if (leadingPositions.isEmpty() && nativeSinglesOf(source, sylKeys[0]).keys.any { !decoder.rareSingle(it, heads) }) {
+        if (leadingPositions.isEmpty() &&
+            nativeSinglesOf(source, sylKeys[0]).keys.any { !rareByLayer(heads, it, userBoost(it)) }
+        ) {
             rows.add("$tag\tS\tno common single of ${sylKeys[0]} reaches the first screen")
         }
-        for (bucket in listOf(leadingBucket, closingBucket)) {
+        val firstSingleAt = cands.indexOfFirst { isSingleChar(it.word) }
+        val firstSingle = if (firstSingleAt < 0) cands.size else firstSingleAt
+        var realWords = 0
+        if (firstSingleAt > PinyinDecoder.STAGED_REAL_WORD_SLOTS) {
+            val boundaryWords = HashMap<Int, Set<String>>()
+            for (i in 0 until firstSingle) {
+                val c = cands[i]
+                if (coveredSyls(c.coveredLen) < 2) continue
+                val words = boundaryWords.getOrPut(c.coveredLen) {
+                    multiCharExactOf(source, input.substring(0, c.coveredLen))
+                }
+                if (c.word in words) realWords++
+            }
+        }
+        leadProbes++
+        if (firstSingleAt < 0) leadSingleless++ else leadHistogram.merge(firstSingleAt, 1, Int::plus)
+        if (firstSingleAt > PinyinDecoder.STAGED_REAL_WORD_SLOTS) {
+            leadPastSlots++
+            if (leadRows.size < LEAD_ROW_CAP) {
+                leadRows.add(
+                    LeadRow(
+                        layout, input, context, firstSingle,
+                        leadingPositions.firstOrNull() ?: -1, realWords,
+                        cands.take(14).joinToString(" ") { it.word },
+                    ),
+                )
+            }
+        }
+        if (context.isEmpty()) for (bucket in listOf(leadingBucket, closingBucket)) {
             var prev = Int.MAX_VALUE
             for ((w, f) in bucket) {
                 if (f > prev) rows.add("$tag\tO1\t$w@$f after a lower-freq same-reading single")
@@ -646,23 +702,65 @@ class ExhaustiveDecodeAuditExtTest {
         return rows
     }
 
-    private fun lockedLetter(d: PinyinDecoder, s1: String, vararg rest: String): List<String> {
+    private fun lockedLetter(
+        d: PinyinDecoder,
+        context: String,
+        s1: String,
+        vararg rest: String,
+        userBoost: (String) -> Boolean = { false },
+    ): List<String> {
         val syls = listOf(s1, *rest)
         val input = syls.joinToString("")
         val cuts = HashSet<Int>(); var acc = 0
         for (k in 0 until syls.size - 1) { acc += syls[k].length; cuts.add(acc) }
-        return lockedOrderViolations(dict, d, syls, d.decodeCoveredAtomic(input, 30, cuts), checkLossless = true)
+        return lockedOrderViolations(
+            dict, d, syls, d.decodeCoveredAtomic(input, 30, cuts, context),
+            checkLossless = true, context = context, layout = "26-key", userBoost = userBoost,
+        )
     }
 
-    private fun lockedDigit(d: PinyinDecoder, s1: String, vararg rest: String): List<String> {
+    private fun lockedDigit(
+        d: PinyinDecoder,
+        context: String,
+        s1: String,
+        vararg rest: String,
+        userBoost: (String) -> Boolean = { false },
+    ): List<String> {
         val syls = listOf(s1, *rest).map { T9Pinyin.toT9(it) }
         val input = syls.joinToString("")
         val cuts = HashSet<Int>(); var acc = 0
         for (k in 0 until syls.size - 1) { acc += syls[k].length; cuts.add(acc) }
         return lockedOrderViolations(
-            t9Dict, d, syls, d.decodeCoveredAtomic(input, 30, cuts),
+            t9Dict, d, syls, d.decodeCoveredAtomic(input, 30, cuts, context),
             checkLossless = T9Pinyin.segment(syls[0])?.size == 1,
+            context = context, layout = "9-key", userBoost = userBoost,
         )
+    }
+
+    private fun writeLeadReport(covered: String) {
+        File(outDir(), "ext_e7_lead.tsv").bufferedWriter().use { w ->
+            w.write("# $runStamp\n")
+            w.write("layout\tinput\tcontext\tfirstSingle\tfirstCommonSingle\tdictWordsAhead\thead\n")
+            for (r in leadRows.sortedWith(compareByDescending<LeadRow> { it.firstSingle }.thenBy { it.input })) {
+                w.write(
+                    "${r.layout}\t${r.input}\t${r.context}\t${r.firstSingle}\t" +
+                        "${r.firstCommon}\t${r.realWords}\t${r.head}\n",
+                )
+            }
+        }
+        File(outDir(), "ext_e7_lead_summary.txt").writeText(buildString {
+            appendLine("# $runStamp")
+            appendLine("E7 lead — where the first single lands under the locked readings (report only)")
+            appendLine(covered)
+            appendLine("probes: $leadProbes; probes with no single at all: $leadSingleless")
+            appendLine("probes with the first single past ${PinyinDecoder.STAGED_REAL_WORD_SLOTS}: $leadPastSlots")
+            appendLine("rows written (cap $LEAD_ROW_CAP): ${leadRows.size}")
+            appendLine("distinct inputs past the slots: ${leadRows.map { it.layout + it.input }.toSet().size}")
+            appendLine("max first-single position: ${leadHistogram.keys.maxOrNull() ?: -1}")
+            appendLine("max dictionary words ahead of the singles: ${leadRows.maxOfOrNull { it.realWords } ?: 0}")
+            appendLine("first-single position histogram:")
+            leadHistogram.toSortedMap().forEach { (k, v) -> appendLine("  $k: $v") }
+        })
     }
 
     @Test fun e7_lockedOrderingInvariant_allPairs_bothKeyspaces() {
@@ -676,8 +774,10 @@ class ExhaustiveDecodeAuditExtTest {
         var done = 0
         for (s1 in syls) {
             for (s2 in syls) {
-                rows.addAll(lockedLetter(dL, s1, s2))
-                rows.addAll(lockedDigit(dT, s1, s2))
+                for (context in LOCKED_CONTEXTS) {
+                    rows.addAll(lockedLetter(dL, context, s1, s2))
+                    rows.addAll(lockedDigit(dT, context, s1, s2))
+                }
                 pairsChecked++
             }
             done += syls.size
@@ -686,16 +786,22 @@ class ExhaustiveDecodeAuditExtTest {
         var triplesChecked = 0L
         val tails = listOf("shi" to "jian", "de" to "shi", "hao" to "de", "zhong" to "guo")
         for (s1 in syls) for ((a, b) in tails) {
-            rows.addAll(lockedLetter(dL, s1, a, b))
-            rows.addAll(lockedDigit(dT, s1, a, b))
+            for (context in LOCKED_CONTEXTS) {
+                rows.addAll(lockedLetter(dL, context, s1, a, b))
+                rows.addAll(lockedDigit(dT, context, s1, a, b))
+            }
             triplesChecked++
         }
+        val covered = "pairs (both keyspaces): $pairsChecked; triples: $triplesChecked; " +
+            "contexts: ${LOCKED_CONTEXTS.size} (${LOCKED_CONTEXTS.joinToString(",") { it.ifEmpty { "none" } }})"
         writeTsv(File(outDir(), "ext_e7.tsv"), rows.map { r ->
             val p = r.split("\t"); Fail(p.getOrElse(0) { "" }, "locked", p.getOrElse(1) { "" }, "", "", p.getOrElse(2) { "" })
         })
-        summary(File(outDir(), "ext_e7_summary.txt"), "E7 — locked/atomic ordering invariant (O1+O2+W, hard gate)",
-            "pairs (both keyspaces): $pairsChecked; triples: $triplesChecked",
-            rows.map { r -> val p = r.split("\t"); Fail(p.getOrElse(0) { "" }, "locked", p.getOrElse(1) { "" }, "", "", p.getOrElse(2) { "" }) })
+        summary(File(outDir(), "ext_e7_summary.txt"), "E7 — locked/atomic ordering invariant (L+O1+P+S+W, hard gate)",
+            covered,
+            rows.map { r -> val p = r.split("\t"); Fail(p.getOrElse(0) { "" }, "locked", p.getOrElse(1) { "" }, "", "", p.getOrElse(2) { "" })
+        })
+        writeLeadReport(covered)
         assertTrue("E7 locked ordering violations must be zero (${rows.size}): ${rows.take(8)}", rows.isEmpty())
     }
 
@@ -709,9 +815,15 @@ class ExhaustiveDecodeAuditExtTest {
         )
         val tails = listOf("shi", "de", "hao", "jian")
         val rows = ArrayList<String>()
-        for (s1 in firstSyllables) for (s2 in tails) {
-            rows.addAll(lockedLetter(dL, s1, s2))
-            rows.addAll(lockedDigit(dT, s1, s2))
+        for (s1 in firstSyllables) for (s2 in tails) for (context in LOCKED_CONTEXTS) {
+            rows.addAll(lockedLetter(dL, context, s1, s2))
+            rows.addAll(lockedDigit(dT, context, s1, s2))
+        }
+        for ((s1, a, b) in listOf(Triple("mu", "de", "shi"), Triple("yin", "shi", "jian"))) {
+            for (context in LOCKED_CONTEXTS) {
+                rows.addAll(lockedLetter(dL, context, s1, a, b))
+                rows.addAll(lockedDigit(dT, context, s1, a, b))
+            }
         }
         assertTrue("E7b locked ordering violations must be zero (${rows.size}): ${rows.take(8)}", rows.isEmpty())
     }
@@ -797,10 +909,13 @@ class ExhaustiveDecodeAuditExtTest {
         val dL = userDecoder(letters = true, um)
         val dT = userDecoder(letters = false, um)
         val rows = ArrayList<String>()
+        val boosted: (String) -> Boolean = { um.wordBoost(it) > 0.0 }
         for (gw in words) {
             val s = gw.syllables
-            rows.addAll(lockedLetter(dL, s[0], *s.drop(1).toTypedArray()))
-            rows.addAll(lockedDigit(dT, s[0], *s.drop(1).toTypedArray()))
+            for (context in LOCKED_CONTEXTS) {
+                rows.addAll(lockedLetter(dL, context, s[0], *s.drop(1).toTypedArray(), userBoost = boosted))
+                rows.addAll(lockedDigit(dT, context, s[0], *s.drop(1).toTypedArray(), userBoost = boosted))
+            }
         }
         return rows
     }
