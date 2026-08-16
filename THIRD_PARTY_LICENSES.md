@@ -57,7 +57,33 @@ an independent project not affiliated with the RIME project.
 - **Used in:** the emoji catalogue glyphs, names and ordering.
 - **Modifications:** a subset was selected and mapped to Chinese keywords; used as data only.
 
-## 5. AndroidX / Jetpack Compose / Material 3 / Kotlin standard library — Apache-2.0
+## 5. 通用规范汉字表 character grading — PRC national language standard
+
+- **Copyright:** none asserted. The table is the content of a national standard promulgated by the
+  State Council of the PRC. Article 5 of the PRC Copyright Law places documents of a legislative,
+  administrative or judicial nature issued by state organs, and general tables, outside copyright;
+  which character carries which serial number and which level is a fact fixed by the standard, not
+  an authored arrangement.
+- **License:** no licence terms attach to the table, and Aegis claims no copyright in its
+  transcription either. It is attributed here because Aegis redistributes it.
+- **Source:** 通用规范汉字表 (Table of General Standard Chinese Characters), promulgated by the State
+  Council of the PRC on 2013-06-05 as 国发〔2013〕23号 —
+  <https://www.gov.cn/zwgk/2013-08/19/content_2469793.htm>; compiled by the Ministry of Education and
+  the State Language Commission. The checked-in machine-readable table was transcribed from
+  GF 0023-2020 《通用规范汉字笔顺规范》 (MOE / SCLW), which carries the same 8105 characters with
+  their official serial numbers and code points.
+- **Used in:** `app/src/main/assets-src/tongyong-guifan-hanzi-8105.tsv`, checked in as the build
+  input, and `aegis_tgh.bin`, which the build generates from it and packages in the APK as the Java
+  resource `com/aegis/ime/dict/aegis_tgh.bin`. It decides which single-character candidates rank as
+  rare.
+- **Modifications:** the characters, their official serial numbers and their code points are
+  transcribed unchanged, and no character is added or dropped. The level column is derived from the
+  standard's own serial ranges (1–3500 level 1, 3501–6500 level 2, 6501–8105 level 3), giving
+  3500 / 3000 / 1605. The build re-encodes the result into Aegis's binary format (delta-coded code
+  points plus two-bit levels) and keeps nothing else. The transcription is unofficial; the published
+  standard governs.
+
+## 6. AndroidX / Jetpack Compose / Material 3 / Kotlin standard library — Apache-2.0
 
 - **Copyright:** © The Android Open Source Project; © JetBrains s.r.o. and the Kotlin contributors
 - **License:** Apache License 2.0 (full text in Appendix A)
