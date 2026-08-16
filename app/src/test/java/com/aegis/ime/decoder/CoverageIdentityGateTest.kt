@@ -278,6 +278,23 @@ class CoverageIdentityGateTest {
         })
     }
 
+    @Test fun writeCoverageDigestWhenAsked() {
+        val target = System.getenv("AEGIS_COVERAGE_DIGEST_DUMP")?.takeIf { it.isNotBlank() }
+        assumeTrue("set AEGIS_COVERAGE_DIGEST_DUMP to write the reference digest", target != null)
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
+        val assets = actualAssetHashes()
+        val probes = probeDigests()
+        val file = File(target!!)
+        assertTrue("coverage export never overwrites an existing file", !file.exists())
+        file.parentFile?.mkdirs()
+        file.bufferedWriter().use { writer ->
+            for (line in header(probes.size, assets)) writer.appendLine(line)
+            for (probe in probes) writer.appendLine(probe.line())
+        }
+        assertTrue("coverage digest written", file.length() > 0)
+        println("Coverage identity baseline generated: probes=${probes.size}, bytes=${file.length()}")
+    }
+
     @Test fun everyCandidateKeepsTheKeyCountItAteInTheBaseline() {
         assumeTrue(
             "coverage identity gate runs only in the dictionary-release verification",
