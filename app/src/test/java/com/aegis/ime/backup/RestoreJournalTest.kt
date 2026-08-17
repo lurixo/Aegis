@@ -44,6 +44,7 @@ class RestoreJournalTest {
     private lateinit var prefs: SharedPreferences
 
     @Before fun setUp() {
+        SymbolUsageStore.flushPendingWrites()
         val context: Context = RuntimeEnvironment.getApplication()
         filesDir = context.filesDir
         prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
@@ -75,6 +76,7 @@ class RestoreJournalTest {
         }
         SymbolUsageStore(filesDir).apply { load(); record("★", "本地") }
         SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).apply { load(); record("😀", "smileys") }
+        SymbolUsageStore.flushPendingWrites()
         prefs.edit().putString("cn_layout", "本机布局").putInt("some_int", 7).commit()
     }
 
