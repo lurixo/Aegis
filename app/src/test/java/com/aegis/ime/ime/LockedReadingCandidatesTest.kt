@@ -50,6 +50,29 @@ class LockedReadingCandidatesTest {
             listOf(Cand("你的", letters.length), Cand("你", 2), Cand("拟", 2), Cand("泥", 2))
     }
 
+    private val rowRich = object : CandidateEngine {
+        private fun rowCandidates(covered: Int): List<Cand> =
+            List(22) { Cand("词${('A'.code + it).toChar()}", covered) } +
+                List(24) { Cand((0x4e00 + it).toChar().toString(), 2) } +
+                listOf(Cand("𰻞", 2), Cand("❤️", 2))
+
+        override fun candidates(composing: String, t9: Boolean): List<String> =
+            candidatesCovered(composing, t9).map { it.word }
+
+        override fun candidatesCovered(
+            composing: String,
+            t9: Boolean,
+            cuts: Set<Int>,
+            context: CharSequence,
+        ): List<Cand> = if (composing.isEmpty()) emptyList() else rowCandidates(composing.length)
+
+        override fun candidatesForLockedReadingCovered(
+            letters: String,
+            cuts: Set<Int>,
+            context: CharSequence,
+        ): List<Cand> = rowCandidates(letters.length)
+    }
+
     private fun out(s: String) = Key(s, output = s)
     private fun pick(reading: String) = Key(reading, output = reading, action = KeyAction.PICK_READING)
 
@@ -118,5 +141,45 @@ class LockedReadingCandidatesTest {
         c.onPickCandidate(full)
         assertEquals(listOf("你的"), host.commits)
         assertTrue("buffer fully consumed", c.candidateWords().isEmpty())
+    }
+
+    @Test fun ni_shuo_de_dui_uses_the_three_row_phrase_policy_in_every_layout_and_lock_state() {
+        data class Case(val layout: KeyAction, val input: String, val lockFirstReading: Boolean)
+        val cases = listOf(
+            Case(KeyAction.SWITCH_NINE, "64748633384", lockFirstReading = false),
+            Case(KeyAction.SWITCH_NINE, "64748633384", lockFirstReading = true),
+            Case(KeyAction.SWITCH_ALPHA, "nishuodedui", lockFirstReading = false),
+            Case(KeyAction.SWITCH_ALPHA, "nishuodedui", lockFirstReading = true),
+        )
+        for ((layout, input, lockFirstReading) in cases) {
+            val iv = InputView(ctx)
+            val c = KeyboardController(RecordingHost(), rowRich)
+            c.attachView(iv)
+            c.onKey(Key("", action = layout))
+            input.forEach { c.onKey(out(it.toString())) }
+            if (lockFirstReading) c.onKey(pick("ni"))
+            iv.showExpandedCandidates()
+
+            val source = c.candidateWords()
+            val grid = iv.expandedGridForTest()
+            val rendered = grid.renderedCandidateTextsForTest()
+            val caseLabel = "$layout lock=$lockFirstReading"
+            assertTrue("the controller keeps the complete list for $caseLabel", source.size > rendered.size)
+            assertEquals(
+                "every single item stays reachable for $caseLabel",
+                source.filter { GraphemeText.clusterCount(it) == 1 },
+                rendered.filter { GraphemeText.clusterCount(it) == 1 },
+            )
+            assertTrue(
+                "rows after the third contain only single items for $caseLabel",
+                grid.rowTextsForTest().drop(CandidateProjectionPolicy.PINYIN.maxPhraseRows).flatten()
+                    .all { GraphemeText.clusterCount(it) == 1 },
+            )
+            assertTrue(
+                "phrases precede single items for $caseLabel",
+                rendered.dropWhile { GraphemeText.clusterCount(it) > 1 }
+                    .all { GraphemeText.clusterCount(it) == 1 },
+            )
+        }
     }
 }

@@ -77,6 +77,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private val body = SurfaceContainer(context)
     private val bodySlot = CompactDock(context) { resolveDockWidth(it) }.apply { addDockedView(body) }
     private var lastCandidates: List<String> = emptyList()
+    private var lastCandidateProjection: CandidateProjectionPolicy? = null
     private var lastReadings: List<String> = emptyList()
     private var lastSelectedReading = -1
     private var pendingGridBind: Any? = null
@@ -377,8 +378,10 @@ class InputView(context: Context) : LinearLayout(context) {
         selectedReading: Int = -1,
         gate: Boolean = false,
         restoreTrouble: RestoreTrouble? = null,
+        candidateProjection: CandidateProjectionPolicy? = null,
     ) {
         lastCandidates = candidates
+        lastCandidateProjection = candidateProjection
         lastReadings = readings
         lastSelectedReading = selectedReading
         preeditView.setText(preedit)
@@ -486,11 +489,11 @@ class InputView(context: Context) : LinearLayout(context) {
     private fun bindExpandedCandidates(animateContentChange: Boolean = false) {
         if (currentPanel !== gridView) return
         val swap = {
-            gridView.setCandidates(lastCandidates)
+            gridView.setCandidates(lastCandidates, lastCandidateProjection)
             gridView.setReadings(lastReadings, lastSelectedReading)
             gridView.setSelectionContentVisible(true)
         }
-        if (animateContentChange && gridView.candidatesWouldChange(lastCandidates)) {
+        if (animateContentChange && gridView.candidatesWouldChange(lastCandidates, lastCandidateProjection)) {
             Motion.coverThrough(gridView, palette.keyboardBg, swap)
         } else {
             swap()

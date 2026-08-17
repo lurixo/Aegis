@@ -51,6 +51,16 @@ import com.aegis.ime.layout.Layouts
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+data class CandidateProjectionPolicy(val maxPhraseRows: Int) {
+    init {
+        require(maxPhraseRows >= 0)
+    }
+
+    companion object {
+        val PINYIN = CandidateProjectionPolicy(maxPhraseRows = 3)
+    }
+}
+
 class CandidateGridView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar {
 
     var onPick: (Int) -> Unit = {}
@@ -77,7 +87,10 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private val collapseGlyph = IconDrawable(density, 9f * (1.64f / 1.40f) / 22f) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = false) }
     private val measurePaint = Paint()
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+    private var sourceCandidates: List<String>? = null
+    private var sourceCandidateProjection: CandidateProjectionPolicy? = null
     private var renderedCandidates: List<String>? = null
+    private var renderedSourceIndices: List<Int> = emptyList()
     private var renderedCandidateWidth = 0
     private var renderedReadings: List<String>? = null
     private var renderedSelected = Int.MIN_VALUE
@@ -238,9 +251,9 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         if (incomingWidth > 0) updateSideColumns(incomingWidth)
         if (incomingWidth > 0 && incomingWidth != lastMeasuredWidth) {
             lastMeasuredWidth = incomingWidth
-            renderedCandidates?.let {
+            sourceCandidates?.let {
                 measuringWidthOverride = incomingWidth
-                setCandidates(it)
+                setCandidates(it, sourceCandidateProjection)
                 measuringWidthOverride = 0
             }
         }
@@ -406,50 +419,84 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         }
     }
 
-    fun setCandidates(candidates: List<String>) {
+    private fun candidateRowStarts(candidates: List<String>, tableW: Int): List<Int> {
+        val starts = ArrayList<Int>()
+        var start = 0
+        var count = 0
+        var rowMaxLen = 0
+        for (i in candidates.indices) {
+            val len = GraphemeText.clusterCount(candidates[i])
+            val newMax = maxOf(rowMaxLen, len)
+            if (count + 1 > capFor(newMax, tableW)) {
+                starts.add(start)
+                start = i
+                count = 1
+                rowMaxLen = len
+            } else {
+                count++
+                rowMaxLen = newMax
+            }
+        }
+        if (count > 0) starts.add(start)
+        return starts
+    }
+
+    private fun projectedCandidateIndices(
+        candidates: List<String>,
+        tableW: Int,
+        policy: CandidateProjectionPolicy,
+    ): List<Int> {
+        val phraseIndices = ArrayList<Int>()
+        val singleIndices = ArrayList<Int>()
+        for (i in candidates.indices) {
+            if (GraphemeText.clusterCount(candidates[i]) == 1) singleIndices.add(i) else phraseIndices.add(i)
+        }
+        val phrases = phraseIndices.map(candidates::get)
+        val starts = candidateRowStarts(phrases, tableW)
+        val phraseCount = if (starts.size > policy.maxPhraseRows) starts[policy.maxPhraseRows] else phrases.size
+        return ArrayList<Int>(phraseCount + singleIndices.size).apply {
+            addAll(phraseIndices.subList(0, phraseCount))
+            addAll(singleIndices)
+        }
+    }
+
+    fun setCandidates(candidates: List<String>, projection: CandidateProjectionPolicy? = null) {
         val configuredWidth = resources.configuration.screenWidthDp
             .takeIf { it > 0 }
             ?.let { (it * density).toInt() }
             ?: resources.displayMetrics.widthPixels
         val liveWidth = measuringWidthOverride.takeIf { it > 0 } ?: width.takeIf { it > 0 } ?: configuredWidth
         val tableW = (liveWidth - sideSpan(liveWidth) - actionSpan(liveWidth) - dp(4 + 4)).coerceAtLeast(dp(46))
-        if (candidates == renderedCandidates && tableW == renderedCandidateWidth) return
-        val contentChanged = candidates != renderedCandidates
-        renderedCandidates = candidates.toList()
+        val sourceUnchanged = candidates == sourceCandidates
+        val nextSourceIndices = projection?.let { projectedCandidateIndices(candidates, tableW, it) }
+            ?: candidates.indices.toList()
+        if (sourceUnchanged && nextSourceIndices == renderedSourceIndices && tableW == renderedCandidateWidth) {
+            sourceCandidateProjection = projection
+            return
+        }
+        val contentChanged = !sourceUnchanged || nextSourceIndices != renderedSourceIndices
+        sourceCandidates = candidates.toList()
+        sourceCandidateProjection = projection
+        renderedSourceIndices = nextSourceIndices
+        renderedCandidates = renderedSourceIndices.map(candidates::get)
         renderedCandidateWidth = tableW
         candidateRebuilds++
         chipWidths.clear()
         chipTextSizes.clear()
-        repeat(candidates.size) {
+        val visible = renderedCandidates.orEmpty()
+        repeat(visible.size) {
             chipWidths.add(0)
             chipTextSizes.add(ImeType.title)
         }
-        val lens = IntArray(candidates.size)
         rowStarts.clear()
         rowCounts.clear()
-        var start = 0
-        var count = 0
-        var rowMaxLen = 0
-        for (i in candidates.indices) {
-            lens[i] = GraphemeText.clusterCount(candidates[i])
-            val newMax = maxOf(rowMaxLen, lens[i])
-            if (count + 1 > capFor(newMax, tableW)) {
-                rowStarts.add(start)
-                start = i
-                count = 1
-                rowMaxLen = lens[i]
-            } else {
-                count++
-                rowMaxLen = newMax
-            }
-        }
-        if (count > 0) rowStarts.add(start)
+        rowStarts.addAll(candidateRowStarts(visible, tableW))
         for (r in rowStarts.indices) {
             val from = rowStarts[r]
-            val to = if (r + 1 < rowStarts.size) rowStarts[r + 1] else candidates.size
+            val to = if (r + 1 < rowStarts.size) rowStarts[r + 1] else visible.size
             val n = to - from
             rowCounts.add(n)
-            val size = rowTextSize(candidates, from, to, tableW / n)
+            val size = rowTextSize(visible, from, to, tableW / n)
             for (k in 0 until n) {
                 val i = from + k
                 chipWidths[i] = tableW * (k + 1) / n - tableW * k / n
@@ -523,7 +570,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
                     val index = start + k
                     chip.visibility = View.VISIBLE
                     chip.text = renderedCandidates?.get(index).orEmpty()
-                    chip.tag = index
+                    chip.tag = renderedSourceIndices[index]
                     chip.setTextColor(palette.candidateText)
                     retintRipple(chip, palette.candidateText)
                     applyCell(chip, index)
@@ -541,7 +588,18 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun chipsAllocatedForTest(): Int = chipsAllocated
     internal fun needsPoolGrowth(candidateCount: Int, readingCount: Int): Boolean =
         (candidateCount > 0 && table.childCount == 0) || readingCount > readingPool.size
-    internal fun candidatesWouldChange(candidates: List<String>): Boolean = candidates != renderedCandidates
+    internal fun candidatesWouldChange(
+        candidates: List<String>,
+        projection: CandidateProjectionPolicy? = null,
+    ): Boolean {
+        if (candidates != sourceCandidates) return true
+        if (projection == sourceCandidateProjection) return false
+        if (renderedCandidateWidth <= 0) return true
+        val nextSourceIndices = projection?.let {
+            projectedCandidateIndices(candidates, renderedCandidateWidth, it)
+        } ?: candidates.indices.toList()
+        return nextSourceIndices != renderedSourceIndices
+    }
     internal fun setSelectionContentVisible(visible: Boolean) {
         val target = if (visible) View.VISIBLE else View.INVISIBLE
         readingScroll.visibility = target
@@ -552,6 +610,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun selectionContentVisibleForTest(): Boolean =
         readingScroll.visibility == View.VISIBLE && gridScroll.visibility == View.VISIBLE
     internal fun renderedCandidateTextsForTest(): List<String> = renderedCandidates.orEmpty()
+    internal fun renderedSourceIndicesForTest(): List<Int> = renderedSourceIndices
     internal fun rowTextsForTest(): List<List<String>> {
         val out = ArrayList<List<String>>()
         val candidates = renderedCandidates.orEmpty()
@@ -611,7 +670,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
     internal fun tapCandidateForTest(flat: Int): Boolean {
         if (flat !in renderedCandidates.orEmpty().indices) return false
-        onPick(flat)
+        onPick(renderedSourceIndices[flat])
         return true
     }
     internal fun tapReadingForTest(index: Int): Boolean =

@@ -1092,6 +1092,9 @@ class KeyboardController(
             selectedExpandedReadingIndex(readings, highlight),
             chineseGateActive(),
             restoreNotice(),
+            candidateProjection = CandidateProjectionPolicy.PINYIN.takeIf {
+                mode() == Mode.PINYIN && composing.isNotEmpty()
+            },
         )
     }
 
