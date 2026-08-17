@@ -847,6 +847,209 @@ class ExhaustiveDecodeAuditExtTest {
         assertTrue("E7b locked ordering violations must be zero (${rows.size}): ${rows.take(8)}", rows.isEmpty())
     }
 
+    private val assemblyFrequencyMethod by lazy {
+        PinyinDecoder::class.java.getDeclaredMethod(
+            "assemblyFrequency",
+            String::class.java,
+            Double::class.javaPrimitiveType,
+            Double::class.javaPrimitiveType,
+            Double::class.javaPrimitiveType,
+        ).apply { isAccessible = true }
+    }
+
+    private fun assemblyEstimate(
+        decoder: PinyinDecoder,
+        word: String,
+        headFrequency: Double,
+        readingMass: Double,
+        classMass: Double,
+    ): Double = assemblyFrequencyMethod.invoke(decoder, word, headFrequency, readingMass, classMass) as Double
+
+    private var e10Probes = 0L
+    private var e10Assembled = 0L
+    private var e10Scaled = 0L
+    private var e10Escaped = 0L
+    private var e10HeadPairs = 0L
+    private var e10DampedPairs = 0L
+
+    private fun e10Check(
+        source: BinaryDict,
+        decoder: PinyinDecoder,
+        input: String,
+        sylKeys: List<String>,
+        cands: List<Cand>,
+        context: String,
+        layout: String,
+    ): List<String> {
+        if (cands.isEmpty()) return emptyList()
+        e10Probes++
+        val rows = ArrayList<String>()
+        val tag = "$layout:$input" + if (context.isEmpty()) "" else "|$context"
+        val frequencies = decoder.homophoneFreqs(sylKeys[0])
+        val heads = frequencies.toMap()
+        var readingMass = 0.0
+        for ((_, f) in frequencies) readingMass += f
+        val position = HashMap<String, Int>()
+        for ((i, c) in cands.withIndex()) position.putIfAbsent(c.word, i)
+        var classMass = 0.0
+        val assembled = ArrayList<Int>()
+        for ((i, c) in cands.withIndex()) {
+            if (isSingleChar(c.word) || c.coveredLen != input.length) continue
+            val exact = source.exactWordFreq(input, c.word)
+            if (exact != null) classMass += exact.toDouble() else assembled.add(i)
+        }
+        if (classMass > 0.0) e10Scaled++ else e10Escaped++
+        val firstSingle = cands.indexOfFirst { isSingleChar(it.word) }
+        val stagedEnd =
+            if (firstSingle < 0) PinyinDecoder.STAGED_REAL_WORD_SLOTS
+            else minOf(PinyinDecoder.STAGED_REAL_WORD_SLOTS, firstSingle)
+        for (i in assembled) {
+            val word = cands[i].word
+            val head = String(Character.toChars(word.codePointAt(0)))
+            val headFrequency = heads[head] ?: continue
+            e10Assembled++
+            val saturated = assemblyEstimate(decoder, word, headFrequency, readingMass, readingMass)
+            val actual = assemblyEstimate(decoder, word, headFrequency, readingMass, classMass)
+            if (!actual.isFinite() || actual <= 0.0) {
+                rows.add("$tag\tM1\t$word is estimated at $actual with class mass $classMass of reading mass $readingMass")
+            }
+            if (saturated.isFinite() && actual.isFinite() && actual > saturated) {
+                rows.add("$tag\tM2\t$word is raised from $saturated to $actual by class mass $classMass")
+            }
+            if (classMass > 0.0 && classMass < readingMass) {
+                e10DampedPairs++
+                if (!(actual < saturated)) {
+                    rows.add("$tag\tM3\t$word holds $actual although class mass $classMass is under reading mass $readingMass")
+                }
+            }
+            if (classMass <= 0.0 || i < stagedEnd) continue
+            if (headFrequency < 1.0 || decoder.rareSingle(head, heads)) continue
+            val at = position[head] ?: continue
+            e10HeadPairs++
+            if (i < at) {
+                rows.add("$tag\tH\t$word sits at $i ahead of its own head single $head at $at")
+            }
+        }
+        return rows
+    }
+
+    private fun e10Letter(
+        decoder: PinyinDecoder,
+        context: String,
+        s1: String,
+        vararg rest: String,
+    ): List<String> {
+        val syls = listOf(s1, *rest)
+        val input = syls.joinToString("")
+        val cuts = HashSet<Int>()
+        var acc = 0
+        for (k in 0 until syls.size - 1) { acc += syls[k].length; cuts.add(acc) }
+        return e10Check(
+            dict, decoder, input, syls,
+            decoder.decodeCoveredAtomic(input, 30, cuts, context), context, "26-key",
+        )
+    }
+
+    private fun e10NineKey(
+        decoder: PinyinDecoder,
+        context: String,
+        s1: String,
+        vararg rest: String,
+    ): List<String> {
+        val syls = listOf(s1, *rest)
+        val head = syls.dropLast(1)
+        val tail = T9Pinyin.preedit(T9Pinyin.toT9(syls.last()))
+        val letters = head.joinToString("") + tail.replace("'", "")
+        val cuts = HashSet<Int>()
+        var acc = 0
+        for (r in head) { acc += r.length; if (acc < letters.length) cuts.add(acc) }
+        val sylKeys = head + tail.split("'").filter { it.isNotEmpty() }
+        return e10Check(
+            dict, decoder, letters, sylKeys,
+            decoder.decodeCoveredAtomic(letters, 30, cuts, context), context, "9-key",
+        )
+    }
+
+    private fun e10Summary(covered: String, rows: List<String>): String = buildString {
+        appendLine("# $runStamp")
+        appendLine("E10 — assembled-candidate mass invariant (M1+M2+M3+H, hard gate)")
+        appendLine("M1 an assembled candidate carries a finite positive frequency at the mass its own decode measured")
+        appendLine("M2 measuring class mass may only lower that frequency, never raise it")
+        appendLine("M3 a class whose measured mass is under the reading mass must lower it strictly")
+        appendLine("H  outside the staged first screen an assembled candidate ranks below its own head single,")
+        appendLine("   which follows from M2+M3 because both then share the first-syllable reading mass as denominator")
+        appendLine(covered)
+        appendLine(
+            "probes: $e10Probes; with measured class mass: $e10Scaled; without: $e10Escaped; " +
+                "assembled candidates: $e10Assembled; damped pairs: $e10DampedPairs; head pairs: $e10HeadPairs",
+        )
+        appendLine("violations: ${rows.size}")
+        rows.groupingBy { it.split("\t").getOrElse(1) { "?" } }.eachCount().toSortedMap()
+            .forEach { (k, v) -> appendLine("  $k: $v") }
+    }
+
+    @Test fun e10_assembledMassInvariant_allPairs_bothKeyspaces() {
+        assumeTrue("full sweep gated: set AEGIS_AUDIT_FULL=1", fullEnabled())
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
+        val syls = runtimeSyllables()
+        val dL = e6Decoder(letters = true)
+        val rows = ArrayList<String>()
+        var pairsChecked = 0L
+        var done = 0
+        for (s1 in syls) {
+            for (s2 in syls) {
+                rows.addAll(e10Letter(dL, "", s1, s2))
+                rows.addAll(e10NineKey(dL, "", s1, s2))
+                pairsChecked++
+            }
+            done += syls.size
+            if (done % (syls.size * 50) == 0) println("[E10] ~$done/${syls.size * syls.size}")
+        }
+        var triplesChecked = 0L
+        for (s1 in syls) for ((a, b) in listOf("shi" to "jian", "de" to "shi", "hao" to "de")) {
+            for (context in LOCKED_CONTEXTS) {
+                rows.addAll(e10Letter(dL, context, s1, a, b))
+                rows.addAll(e10NineKey(dL, context, s1, a, b))
+            }
+            triplesChecked++
+        }
+        for (s1 in syls) for (s2 in listOf("shi", "de", "hao", "jian")) {
+            for (context in LOCKED_CONTEXTS.drop(1)) {
+                rows.addAll(e10Letter(dL, context, s1, s2))
+                rows.addAll(e10NineKey(dL, context, s1, s2))
+            }
+        }
+        val covered = "pairs (both routes, no context): $pairsChecked; triples: $triplesChecked; " +
+            "contexts: ${LOCKED_CONTEXTS.size} (${LOCKED_CONTEXTS.joinToString(",") { it.ifEmpty { "none" } }})"
+        writeTsv(File(outDir(), "ext_e10.tsv"), rows.map { r ->
+            val p = r.split("\t"); Fail(p.getOrElse(0) { "" }, "assembled", p.getOrElse(1) { "" }, "", "", p.getOrElse(2) { "" })
+        })
+        File(outDir(), "ext_e10_summary.txt").writeText(e10Summary(covered, rows))
+        assertTrue("E10 assembled mass violations must be zero (${rows.size}): ${rows.take(8)}", rows.isEmpty())
+    }
+
+    @Test fun e10b_assembledMassInvariant_representative_alwaysOn() {
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
+        val dL = e6Decoder(letters = true)
+        val firstSyllables = listOf(
+            "a", "ba", "ce", "ci", "chai", "shi", "xian", "ni", "wo", "bu", "de", "hao", "ma", "zhong",
+            "guo", "fo", "den", "chua", "rua", "nou", "kei", "cen", "m", "die", "liang", "en", "jiu",
+            "ang", "beng", "biao", "he", "kuai", "pi", "xie",
+        )
+        val tails = listOf("shi", "de", "hao", "jian")
+        val rows = ArrayList<String>()
+        for (s1 in firstSyllables) for (s2 in tails) for (context in LOCKED_CONTEXTS) {
+            rows.addAll(e10Letter(dL, context, s1, s2))
+            rows.addAll(e10NineKey(dL, context, s1, s2))
+        }
+        for ((s1, a, b) in listOf(Triple("mu", "de", "shi"), Triple("yin", "shi", "jian"))) {
+            for (context in LOCKED_CONTEXTS) {
+                rows.addAll(e10Letter(dL, context, s1, a, b))
+                rows.addAll(e10NineKey(dL, context, s1, a, b))
+            }
+        }
+        assertTrue("E10b assembled mass violations must be zero (${rows.size}): ${rows.take(8)}", rows.isEmpty())
+    }
 
     private data class GenWord(val syllables: List<String>, val word: String) {
         val reading: String get() = syllables.joinToString("")
