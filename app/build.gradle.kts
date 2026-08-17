@@ -1,4 +1,9 @@
+import org.gradle.process.ExecOperations
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import javax.inject.Inject
 
 plugins {
     alias(libs.plugins.android.application)
@@ -55,6 +60,109 @@ android {
         unitTests {
             isIncludeAndroidResources = true
         }
+    }
+}
+
+abstract class GenerateTghGrading : DefaultTask() {
+    @get:InputFile
+    abstract val authority: RegularFileProperty
+
+    @get:InputFile
+    abstract val generator: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @get:Inject
+    abstract val execOps: ExecOperations
+
+    @TaskAction
+    fun generate() {
+        val root = outputDir.get().asFile
+        root.deleteRecursively()
+        val target = root.resolve("com/aegis/ime/dict/aegis_tgh.bin")
+        check(target.parentFile.mkdirs()) { "could not create ${target.parentFile}" }
+        execOps.exec {
+            commandLine(
+                "python3",
+                generator.get().asFile.absolutePath,
+                "--authority",
+                authority.get().asFile.absolutePath,
+                "--out",
+                target.absolutePath,
+            )
+        }
+        verify(target)
+    }
+
+    private fun verify(target: File) {
+        check(target.isFile) { "the grading generator did not write ${target.absolutePath}" }
+        val bytes = target.readBytes()
+        check(bytes.size > HEADER_LEN) { "the grading resource is ${bytes.size} bytes" }
+        check(
+            bytes[0] == 'A'.code.toByte() && bytes[1] == 'E'.code.toByte() &&
+                bytes[2] == 'G'.code.toByte() && bytes[3] == 'T'.code.toByte(),
+        ) { "the grading resource carries a bad magic" }
+        val header = ByteBuffer.wrap(bytes, 0, HEADER_LEN).order(ByteOrder.LITTLE_ENDIAN)
+        check(header.getInt(4) == VERSION) { "the grading resource is version ${header.getInt(4)}" }
+        val count = header.getInt(8)
+        check(count == ENTRY_COUNT) { "the grading resource holds $count entries, expected $ENTRY_COUNT" }
+        var pos = HEADER_LEN
+        var previous = 0
+        for (i in 0 until count) {
+            var shift = 0
+            var delta = 0
+            while (true) {
+                check(pos < bytes.size) { "the grading resource runs out of bytes at entry $i" }
+                check(shift <= MAX_VARINT_SHIFT) { "the grading resource has an over-wide delta at entry $i" }
+                val b = bytes[pos++].toInt()
+                delta = delta or ((b and 0x7F) shl shift)
+                if (b and 0x80 == 0) break
+                shift += 7
+            }
+            check(delta > 0) { "the grading resource is not ascending at entry $i" }
+            previous += delta
+            check(Character.isValidCodePoint(previous)) { "the grading resource has a bad code point at entry $i" }
+        }
+        val packedLen = (count + 3) / 4
+        check(pos + packedLen == bytes.size) {
+            "the grading resource is ${bytes.size} bytes, expected ${pos + packedLen}"
+        }
+        val counts = IntArray(3)
+        for (i in 0 until count) {
+            val level = ((bytes[pos + (i shr 2)].toInt() ushr (2 * (i and 3))) and 0x3) + 1
+            check(level in 1..3) { "the grading resource holds level $level at entry $i" }
+            counts[level - 1]++
+        }
+        check(counts[0] == LEVEL1_COUNT && counts[1] == LEVEL2_COUNT && counts[2] == LEVEL3_COUNT) {
+            "the grading resource counts ${counts[0]}/${counts[1]}/${counts[2]}, " +
+                "expected $LEVEL1_COUNT/$LEVEL2_COUNT/$LEVEL3_COUNT"
+        }
+        logger.lifecycle("grading resource verified ${bytes.size} bytes ${counts[0]}/${counts[1]}/${counts[2]}")
+    }
+
+    private companion object {
+        const val VERSION = 1
+        const val HEADER_LEN = 12
+        const val MAX_VARINT_SHIFT = 14
+        const val ENTRY_COUNT = 8105
+        const val LEVEL1_COUNT = 3500
+        const val LEVEL2_COUNT = 3000
+        const val LEVEL3_COUNT = 1605
+    }
+}
+
+val generateTghGrading = tasks.register<GenerateTghGrading>("generateTghGrading") {
+    authority.set(layout.projectDirectory.file("src/main/assets-src/tongyong-guifan-hanzi-8105.tsv"))
+    generator.set(layout.projectDirectory.file("../tools/release/build_tgh_asset.py"))
+}
+
+androidComponents {
+    onVariants { variant ->
+        variant.sources.resources?.addGeneratedSourceDirectory(
+            generateTghGrading,
+            GenerateTghGrading::outputDir,
+        )
     }
 }
 
