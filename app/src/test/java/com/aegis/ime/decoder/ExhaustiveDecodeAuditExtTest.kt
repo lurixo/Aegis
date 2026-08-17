@@ -18,6 +18,7 @@ package com.aegis.ime.decoder
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.Fuzzy
+import com.aegis.ime.dict.TghGrading
 import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
@@ -573,13 +574,25 @@ class ExhaustiveDecodeAuditExtTest {
     private fun homophoneFreqsOf(source: BinaryDict, decoder: PinyinDecoder, key: String): Map<String, Double> =
         homophoneFreqMap.getOrPut((if (source === dict) "L:" else "D:") + key) { decoder.homophoneFreqs(key).toMap() }
 
+    private val grading: TghGrading = TghGrading.bundled
+
     private fun rareByLayer(frequencies: Map<String, Double>, word: String, boosted: Boolean = false): Boolean {
         if (!isSingleChar(word) || boosted) return false
         val frequency = frequencies[word] ?: return false
         if (frequency <= PinyinDecoder.ORDERING_INJECTED_FREQ) return true
-        val count = lm.unigramCount(word.codePointAt(0))
-        val commonness = if (count > 0L) count.toDouble() else frequency
-        return commonness <= PinyinDecoder.ORDERING_RARE_FREQ
+        val codePoint = word.codePointAt(0)
+        val band = when (grading.level(codePoint)) {
+            1 -> PinyinDecoder.LAYER_COMMON
+            2 -> PinyinDecoder.LAYER_UNCOMMON
+            3 -> PinyinDecoder.LAYER_SPECIALIZED
+            else ->
+                if (codePoint >= PinyinDecoder.EXTENSION_B_FLOOR) PinyinDecoder.LAYER_RARE_EXTENSION
+                else PinyinDecoder.LAYER_RARE
+        }
+        if (band < PinyinDecoder.LAYER_RARE) return false
+        val lifted =
+            if (lm.unigramRank(codePoint) <= PinyinDecoder.GENERAL_USE_CARDINALITY) band - 1 else band
+        return lifted >= PinyinDecoder.LAYER_RARE
     }
 
     private fun multiCharExactOf(source: BinaryDict, key: String): Set<String> =
