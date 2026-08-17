@@ -884,6 +884,9 @@ class KeyboardController(
             candidates.map { it.word },
             preedit,
             readings,
+            candidateProjection = CandidateProjectionPolicy.PINYIN.takeIf {
+                mode() == Mode.PINYIN && composing.isNotEmpty()
+            },
         )
     }
 
