@@ -18,6 +18,7 @@ package com.aegis.ime.decoder
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.Fuzzy
+import com.aegis.ime.dict.TghGrading
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
 import kotlin.math.exp
@@ -40,6 +41,7 @@ class PinyinDecoder(
     private val aliasDict: BinaryDict? = null,
     private val userLearning: UserLearning? = null,
 ) {
+    private val grading = TghGrading.bundled
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
     private var edgeN =
         if (lm != null || fuzzyRules.isNotEmpty() || initialsDict != null || octagram != null) EDGE_N else 1
@@ -1014,27 +1016,42 @@ class PinyinDecoder(
         return homophonesOf(clean.substring(s.start, s.end))
     }
 
+    private class Homophone(val word: String, val layer: Int, val band: Int)
+
     internal fun homophonesOf(key: String): List<String> =
-        homophoneFreqs(key).sortedBy { homophoneLayer(it.first, it.second) }.map { it.first }
+        homophoneFreqs(key)
+            .map { Homophone(it.first, homophoneLayer(it.first, it.second), corpusBand(it.first)) }
+            .sortedWith(compareBy<Homophone> { it.layer }.thenBy { it.band })
+            .map { it.word }
+
+    internal fun corpusBand(word: String): Int {
+        if (!isSingleChar(word)) return CORPUS_BAND_OUT
+        val rank = lm?.unigramRank(word.codePointAt(0)) ?: return CORPUS_BAND_OUT
+        return when {
+            rank <= TghGrading.LEVEL1_COUNT -> 0
+            rank <= GENERAL_USE_CARDINALITY -> 1
+            rank <= TghGrading.ENTRY_COUNT -> 2
+            else -> CORPUS_BAND_OUT
+        }
+    }
 
     internal fun homophoneLayer(word: String, frequency: Double): Int {
         if ((userModel?.wordBoost(word) ?: 0.0) > 0.0) return LAYER_COMMON
         if (frequency <= ORDERING_INJECTED_FREQ) return LAYER_INJECTED
-        val byCommonness = when (frequencyClass(characterCommonness(word, frequency))) {
-            1 -> LAYER_COMMON
-            0 -> LAYER_UNCOMMON
-            else -> LAYER_RARE
-        }
-        return if (isCoreIdeograph(word)) byCommonness else maxOf(byCommonness, LAYER_UNCOMMON)
+        if (!isSingleChar(word)) return LAYER_UNCOMMON
+        return characterLayer(word.codePointAt(0))
     }
 
-    private fun isCoreIdeograph(word: String): Boolean =
-        isSingleChar(word) && word.codePointAt(0) in CORE_IDEOGRAPHS
-
-    private fun characterCommonness(word: String, frequency: Double): Double {
-        if (!isSingleChar(word)) return frequency
-        val count = lm?.unigramCount(word.codePointAt(0)) ?: return frequency
-        return if (count > 0L) count.toDouble() else frequency
+    private fun characterLayer(codePoint: Int): Int {
+        val band = when (grading.level(codePoint)) {
+            1 -> LAYER_COMMON
+            2 -> LAYER_UNCOMMON
+            3 -> LAYER_SPECIALIZED
+            else -> if (codePoint >= EXTENSION_B_FLOOR) LAYER_RARE_EXTENSION else LAYER_RARE
+        }
+        if (band < LAYER_RARE) return band
+        val rank = lm?.unigramRank(codePoint) ?: return band
+        return if (rank <= GENERAL_USE_CARDINALITY) band - 1 else band
     }
 
     internal fun homophoneFreqs(key: String): List<Pair<String, Double>> {
@@ -1189,9 +1206,13 @@ class PinyinDecoder(
         const val ORDERING_INJECTED_FREQ = 1.0
         const val LAYER_COMMON = 0
         const val LAYER_UNCOMMON = 1
-        const val LAYER_RARE = 2
-        const val LAYER_INJECTED = 3
-        val CORE_IDEOGRAPHS = 0x4E00..0x9FFF
+        const val LAYER_SPECIALIZED = 2
+        const val LAYER_RARE = 3
+        const val LAYER_RARE_EXTENSION = 4
+        const val LAYER_INJECTED = 5
+        const val EXTENSION_B_FLOOR = 0x20000
+        const val GENERAL_USE_CARDINALITY = TghGrading.LEVEL1_COUNT + TghGrading.LEVEL2_COUNT
+        const val CORPUS_BAND_OUT = 3
         val ALIAS_FREQ_DISCOUNT = exp(-ALIAS_PENALTY)
         const val DEFAULT_CONTEXT_WEIGHT = 1.0
         fun completionCap(limit: Int): Int = maxOf(1, (limit.toLong() * 2 / 3).toInt())

@@ -95,6 +95,23 @@ class CharBigramLM private constructor(private val buf: ByteBuffer) {
         return if (id < 0) 0L else buf.getLong(uniCountOff + id * 8)
     }
 
+    private val ascendingCounts: LongArray by lazy {
+        LongArray(numChars) { buf.getLong(uniCountOff + it * 8) }.apply { sort() }
+    }
+
+    fun unigramRank(cp: Int): Int {
+        val count = unigramCount(cp)
+        if (count <= 0L) return Int.MAX_VALUE
+        val counts = ascendingCounts
+        var lo = 0
+        var hi = counts.size
+        while (lo < hi) {
+            val mid = (lo + hi) ushr 1
+            if (counts[mid] < count) lo = mid + 1 else hi = mid
+        }
+        return counts.size - lo
+    }
+
     fun logCond(prevCp: Int, curCp: Int): Double = logCondById(charId(prevCp), charId(curCp))
 
     fun logCondById(id1: Int, id2: Int): Double {
