@@ -50,6 +50,7 @@ class LicensesTest {
         R.string.license_octagram_name,
         R.string.license_opencc_name,
         R.string.license_emoji_name,
+        R.string.license_tgh_name,
         R.string.license_androidx_name,
     )
 
@@ -73,6 +74,7 @@ class LicensesTest {
             "v17.3.0", "296f90d1", "character-bigram",
             "RIME-LMDG", "OpenCC", "BYVoid", "Apache-2.0",
             "Unicode", "unicode.org/license",
+            "通用规范汉字表", "State Council", "gov.cn/zwgk/2013-08/19/content_2469793", "aegis_tgh.bin",
             "AndroidX", "Compose", "Material 3", "Kotlin",
             "Apache License", "Version 2.0",
             "TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION",
@@ -117,6 +119,7 @@ class LicensesTest {
             "license_octagram_name", "license_octagram_note",
             "license_opencc_name", "license_opencc_note",
             "license_emoji_name", "license_emoji_note",
+            "license_tgh_name", "license_tgh_note",
             "license_androidx_name", "license_androidx_note",
         )) {
             assertTrue("EN strings.xml must define '$key'", en.contains("name=\"$key\""))
@@ -142,6 +145,7 @@ class LicensesTest {
         R.string.license_octagram_name to "https://github.com/amzxyz/RIME-LMDG",
         R.string.license_opencc_name to "https://github.com/BYVoid/OpenCC",
         R.string.license_emoji_name to "https://www.unicode.org/license.txt",
+        R.string.license_tgh_name to "https://www.gov.cn/zwgk/2013-08/19/content_2469793.htm",
         R.string.license_androidx_name to "https://developer.android.com/jetpack/androidx",
     )
 
