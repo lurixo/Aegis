@@ -52,12 +52,21 @@ class ClipboardFailureNoticeTest {
         return found!!.groupValues[1]
     }
 
-    private fun enString(name: String): String {
-        val found = Regex("<string name=\"$name\">(.*?)</string>")
-            .find(File("src/main/res/values/strings.xml").readText())
-        assertTrue("values must define $name", found != null)
-        return found!!.groupValues[1]
+    private fun pluralItem(valuesDir: String, name: String, quantity: String): String {
+        val block = Regex(
+            "<plurals name=\"$name\">(.*?)</plurals>",
+            RegexOption.DOT_MATCHES_ALL,
+        ).find(File("src/main/res/$valuesDir/strings.xml").readText())
+        assertTrue("$valuesDir must define plurals $name", block != null)
+        val item = Regex("<item quantity=\"$quantity\">(.*?)</item>", RegexOption.DOT_MATCHES_ALL)
+            .find(block!!.groupValues[1])
+        assertTrue("$valuesDir plurals $name must define $quantity", item != null)
+        return item!!.groupValues[1]
     }
+
+    private fun enPlural(name: String, quantity: String) = pluralItem("values", name, quantity)
+
+    private fun zhPlural(name: String, quantity: String) = pluralItem("values-zh", name, quantity)
 
     private fun layout(v: View, w: Int = 480, h: Int = 700) {
         v.measure(
@@ -366,7 +375,7 @@ class ClipboardFailureNoticeTest {
     @Test fun an_add_that_reached_the_list_but_not_the_file_is_never_read_as_one_that_landed() {
         assertEquals(
             "a count above zero must not be read before the write it belongs to",
-            ctx.getString(R.string.clip_phrases_not_saved, 2),
+            ctx.resources.getQuantityString(R.plurals.clip_phrases_not_saved, 2, 2),
             notice(PhraseEdit.ADD, 2, 3, saved = false),
         )
     }
@@ -375,22 +384,32 @@ class ClipboardFailureNoticeTest {
         assertEquals(ctx.getString(R.string.clip_phrases_saved, 2), notice(PhraseEdit.ADD, 2, 2, saved = true))
         assertEquals(
             "a write that landed leaves nothing unsaved, so its shortfall is what was already there",
-            ctx.getString(R.string.clip_phrases_saved_existing, 1, 1),
+            ctx.resources.getQuantityString(R.plurals.clip_phrases_saved_existing, 1, 1, 1),
             notice(PhraseEdit.ADD, 1, 2, saved = true),
         )
-        assertEquals(ctx.getString(R.string.clip_phrases_exist, 3), notice(PhraseEdit.ADD, 0, 3, saved = true))
-        assertEquals(ctx.getString(R.string.clip_phrases_not_saved, 3), notice(PhraseEdit.ADD, 0, 3, saved = false))
+        assertEquals(
+            ctx.resources.getQuantityString(R.plurals.clip_phrases_exist, 3, 3),
+            notice(PhraseEdit.ADD, 0, 3, saved = true),
+        )
+        assertEquals(
+            ctx.resources.getQuantityString(R.plurals.clip_phrases_not_saved, 3, 3),
+            notice(PhraseEdit.ADD, 0, 3, saved = false),
+        )
     }
 
     @Test fun a_landed_add_names_its_shortfall_as_entries_that_were_already_there() {
         assertEquals(
             "a write that landed left nothing unsaved, so its shortfall must read as entries found in place",
-            "Saved %1\$d, %2\$d were already in this category",
-            enString("clip_phrases_saved_existing"),
+            "Saved %1\$d; %2\$d phrase was already in this category",
+            enPlural("clip_phrases_saved_existing", "one"),
+        )
+        assertEquals(
+            "Saved %1\$d; %2\$d phrases were already in this category",
+            enPlural("clip_phrases_saved_existing", "other"),
         )
         assertEquals(
             "已存 %1\$d 条，%2\$d 条已在该分类中",
-            zhString("clip_phrases_saved_existing"),
+            zhPlural("clip_phrases_saved_existing", "other"),
         )
         assertFalse(
             "the wording a landed add uses for its shortfall must not be the wording for a write that failed",
@@ -401,11 +420,11 @@ class ClipboardFailureNoticeTest {
     @Test fun a_move_counts_only_the_entries_it_really_carried_across() {
         assertEquals(
             "the entries that stayed put were never moved, so they cannot come back",
-            ctx.getString(R.string.clip_phrases_not_moved, 1),
+            ctx.resources.getQuantityString(R.plurals.clip_phrases_not_moved, 1, 1),
             notice(PhraseEdit.MOVE, 1, 3, saved = false),
         )
         assertEquals(
-            ctx.getString(R.string.clip_phrases_moved_partial, 1, 2),
+            ctx.resources.getQuantityString(R.plurals.clip_phrases_moved_partial, 2, 1, 2),
             notice(PhraseEdit.MOVE, 1, 3, saved = true),
         )
         assertEquals("", notice(PhraseEdit.MOVE, 3, 3, saved = true))

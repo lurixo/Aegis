@@ -189,7 +189,7 @@ class LayoutPanelTest {
         assertHighlighted(f.panel, LayoutChoice.EN_ALPHA)
         f.input.showPanel(null)
         f.controller.onKey(Key("", action = KeyAction.TOGGLE_LANG))
-        f.controller.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        f.controller.switchTextLayoutForTest(nine = false)
         f.open()
         assertHighlighted(f.panel, LayoutChoice.CN_ALPHA)
     }

@@ -44,7 +44,7 @@ class FastTypingMistouchTest {
     }
 
     private fun nineView(): KeyboardView = laidOut(KeyboardView(context).apply {
-        setLayout(Layouts.nine(Lang.CN, Layouts.ninePunctuation(), composing = false), false, false, Lang.CN)
+        setLayout(Layouts.nine(Layouts.ninePunctuation(), composing = false), false, false, Lang.CN)
     })
 
     private fun alphaView(): KeyboardView = laidOut(KeyboardView(context).apply {

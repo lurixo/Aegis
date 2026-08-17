@@ -23,7 +23,6 @@ import com.aegis.ime.R
 import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.Key
-import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.RestoreTrouble
 import org.junit.After
@@ -118,7 +117,7 @@ class RestoreNoticeBarTest {
     @Test fun typing_takes_the_bar_back_from_the_notice() {
         LiveUserData.restoreTrouble = RestoreTrouble.ROLLBACK_FAILED
         val (controller, view) = attached()
-        controller.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        controller.switchTextLayoutForTest(nine = false)
 
         "ni".forEach { controller.onKey(Key(it.toString(), output = it.toString())) }
 

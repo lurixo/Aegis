@@ -49,7 +49,7 @@ class KeyboardMultiTouchTest {
     })
 
     private fun nineView(): KeyboardView = laidOut(KeyboardView(context).apply {
-        setLayout(Layouts.nine(Lang.CN, Layouts.ninePunctuation(), composing = false), false, false, Lang.CN)
+        setLayout(Layouts.nine(Layouts.ninePunctuation(), composing = false), false, false, Lang.CN)
     })
 
     private fun KeyboardView.dispatch(action: Int, t: Long, ids: IntArray, xs: FloatArray, ys: FloatArray): Boolean {

@@ -17,12 +17,37 @@ package com.aegis.ime.decoder
 
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
+import java.security.MessageDigest
 
 class CoverageIdentityGateTest {
+
+    private companion object {
+        const val BASELINE_RESOURCE = "/coverage-identity-7907381b.tsv"
+        const val BASELINE_COMMIT = "7907381b7eda9e11c48bd08a5b5ad532df11d71c"
+        const val DICTIONARY_PACK_SHA256 = "00985ca708cf016f8c03a943536c38663dae2b2e1f38637c409c641469e9f047"
+        val ASSET_SHA256 = linkedMapOf(
+            "aegis_dict.bin" to "c73daad8c7d7ddd81f2049191eecdba0e870b75c0255a179769e89dabce1e5c1",
+            "aegis_t9.bin" to "7bcbb3acd35b4a187c5ffb5292edafdf59397fd5c58ed57a711e29b17969bf6e",
+            "aegis_jianpin.bin" to "99f330ba45d8ac0e850b5c3e563cdf4a3a9069fdb75127760bd637515399ff1c",
+            "aegis_lm.bin" to "eddb4e0aac0598bd8084db6061a81d4736391854fadcfdf6d44bf57c14c57929",
+        )
+        const val CANONICAL =
+            "last coveredLen per word; words sorted by UTF-16; SHA-256 over BE32 UTF-8-length, UTF-8 word, BE32 coveredLen"
+    }
+
+    private data class ProbeDigest(
+        val ordinal: Int,
+        val head: String,
+        val uniqueCandidates: Int,
+        val sha256: String,
+    ) {
+        fun line(): String = "$ordinal\t$head\t$uniqueCandidates\t$sha256"
+    }
 
     private val dictFile = FullDictTestAssets.file(FullDictTestAssets.DICT)
     private val t9File = FullDictTestAssets.file(FullDictTestAssets.T9)
@@ -95,69 +120,173 @@ class CoverageIdentityGateTest {
         }
     }
 
-    private fun rowsOf(): Sequence<String> = sequence {
-        for ((head, cands) in groupsOf()) for (c in cands) yield("$head\t${c.word}\t${c.coveredLen}")
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        file.inputStream().buffered().use { input ->
+            val buffer = ByteArray(1 shl 16)
+            while (true) {
+                val read = input.read(buffer)
+                if (read < 0) break
+                digest.update(buffer, 0, read)
+            }
+        }
+        return digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
     }
 
-    private fun dumpPath(): String? = System.getenv("AEGIS_COVERAGE_DUMP")
-
-    private fun referencePath(): String? = System.getenv("AEGIS_COVERAGE_BASELINE")
-
-    @Test fun writeCoverageDumpWhenAsked() {
-        val target = dumpPath()
-        assumeTrue("set AEGIS_COVERAGE_DUMP to write the reference dump", target != null)
-        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
-        File(target!!).bufferedWriter().use { w ->
-            for (row in rowsOf()) { w.write(row); w.write("\n") }
+    private fun verifyAssetIdentity() {
+        for ((name, expected) in ASSET_SHA256) {
+            val file = FullDictTestAssets.file(name)
+            assertTrue("coverage baseline asset exists: $name", file.isFile)
+            assertEquals("coverage baseline asset SHA-256: $name", expected, sha256(file))
         }
-        assertTrue("coverage dump written", File(target).length() > 0)
+    }
+
+    private fun digest(cands: List<Cand>): Pair<Int, String> {
+        val byWord = HashMap<String, Int>()
+        for (cand in cands) {
+            val previous = byWord.put(cand.word, cand.coveredLen)
+            check(previous == null || previous == cand.coveredLen) {
+                "candidate ${cand.word} carries conflicting covered lengths $previous and ${cand.coveredLen}"
+            }
+        }
+        val digest = MessageDigest.getInstance("SHA-256")
+        fun updateInt(value: Int) {
+            digest.update(
+                byteArrayOf(
+                    (value ushr 24).toByte(),
+                    (value ushr 16).toByte(),
+                    (value ushr 8).toByte(),
+                    value.toByte(),
+                ),
+            )
+        }
+        for ((word, coveredLen) in byWord.toSortedMap()) {
+            val bytes = word.toByteArray(Charsets.UTF_8)
+            updateInt(bytes.size)
+            digest.update(bytes)
+            updateInt(coveredLen)
+        }
+        val encoded = digest.digest().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+        return byWord.size to encoded
+    }
+
+    private fun probeDigests(): List<ProbeDigest> = groupsOf().mapIndexed { ordinal, (head, cands) ->
+        val (count, digest) = digest(cands)
+        ProbeDigest(ordinal, head, count, digest)
+    }.toList()
+
+    private fun header(probes: Int): List<String> = buildList {
+        add("# coverage-identity-per-probe-sha256-v1")
+        add("# baseline-commit=$BASELINE_COMMIT")
+        add("# dictionary-pack-sha256=$DICTIONARY_PACK_SHA256")
+        ASSET_SHA256.forEach { (name, digest) -> add("# asset-sha256=$name:$digest") }
+        add("# canonical=$CANONICAL")
+        add("# probes=$probes")
+        add("ordinal\tlayout\tmode\tinput\tcontext\tuniqueCandidates\tsha256")
+    }
+
+    private fun baselineLines(): List<String> {
+        val configured = System.getenv("AEGIS_COVERAGE_DIGEST_BASELINE")?.takeIf { it.isNotBlank() }
+        if (configured != null) {
+            val file = File(configured)
+            assertTrue("AEGIS_COVERAGE_DIGEST_BASELINE points to a file: $configured", file.isFile)
+            return file.readLines()
+        }
+        return requireNotNull(javaClass.getResourceAsStream(BASELINE_RESOURCE)) {
+            "missing $BASELINE_RESOURCE"
+        }.bufferedReader().use { it.readLines() }
+    }
+
+    private fun baselineDigests(): List<ProbeDigest> {
+        val lines = baselineLines()
+        val probeLine = lines.getOrNull(8)
+        assertTrue("coverage baseline carries a probe count", probeLine?.startsWith("# probes=") == true)
+        val declared = probeLine!!.substringAfter('=').toIntOrNull()
+        assertTrue("coverage baseline probe count is numeric", declared != null)
+        assertEquals("coverage baseline provenance and schema", header(declared!!), lines.take(10))
+        val rows = lines.drop(10)
+        assertEquals("coverage baseline row count", declared, rows.size)
+        return rows.mapIndexed { expectedOrdinal, line ->
+            val fields = line.split('\t')
+            assertEquals("coverage baseline row ${expectedOrdinal + 11} field count", 7, fields.size)
+            val ordinal = fields[0].toIntOrNull()
+            assertEquals("coverage baseline row ${expectedOrdinal + 11} ordinal", expectedOrdinal, ordinal)
+            val count = fields[5].toIntOrNull()
+            assertTrue("coverage baseline row ${expectedOrdinal + 11} candidate count", count != null && count >= 0)
+            assertTrue(
+                "coverage baseline row ${expectedOrdinal + 11} digest",
+                fields[6].matches(Regex("[0-9a-f]{64}")),
+            )
+            ProbeDigest(
+                expectedOrdinal,
+                fields.subList(1, 5).joinToString("\t"),
+                count!!,
+                fields[6],
+            )
+        }
+    }
+
+    @Test fun writeCoverageDigestWhenAsked() {
+        val target = System.getenv("AEGIS_COVERAGE_DIGEST_DUMP")?.takeIf { it.isNotBlank() }
+        assumeTrue("set AEGIS_COVERAGE_DIGEST_DUMP to write the reference digest", target != null)
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
+        verifyAssetIdentity()
+        val probes = probeDigests()
+        val file = File(target!!)
+        file.parentFile?.mkdirs()
+        file.bufferedWriter().use { writer ->
+            for (line in header(probes.size)) writer.appendLine(line)
+            for (probe in probes) writer.appendLine(probe.line())
+        }
+        assertTrue("coverage digest written", file.length() > 0)
+        println("Coverage identity baseline generated: probes=${probes.size}, bytes=${file.length()}")
     }
 
     @Test fun everyCandidateKeepsTheKeyCountItAteInTheBaseline() {
-        val reference = referencePath()
-        assumeTrue("set AEGIS_COVERAGE_BASELINE to the 7907381b dump", reference != null)
         assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
+        verifyAssetIdentity()
+        val baseline = baselineDigests()
+        val current = probeDigests()
         val drifted = ArrayList<String>()
         val added = ArrayList<String>()
         val dropped = ArrayList<String>()
-        var probesRead = 0
-        File(reference!!).bufferedReader().use { reader ->
-            var pending: String? = reader.readLine()
-            for ((head, cands) in groupsOf()) {
-                val was = HashMap<String, String>()
-                while (pending != null && pending!!.startsWith("$head\t")) {
-                    val row = pending!!
-                    val at = row.lastIndexOf('\t')
-                    was[row.substring(row.lastIndexOf('\t', at - 1) + 1, at)] = row.substring(at + 1)
-                    pending = reader.readLine()
-                }
-                if (was.isEmpty()) continue
-                probesRead++
-                val here = HashSet<String>()
-                for (c in cands) {
-                    here.add(c.word)
-                    val before = was[c.word]
-                    when {
-                        before == null -> added.add("$head\t${c.word}@${c.coveredLen}")
-                        before != c.coveredLen.toString() ->
-                            drifted.add("$head\t${c.word} covers ${c.coveredLen}, baseline $before")
-                    }
-                }
-                for (word in was.keys) if (word !in here) dropped.add("$head\t$word")
+        val shared = minOf(baseline.size, current.size)
+        for (index in 0 until shared) {
+            val before = baseline[index]
+            val here = current[index]
+            if (before.head != here.head) {
+                dropped += "#$index ${before.head}"
+                added += "#$index ${here.head}"
+            } else if (before.uniqueCandidates < here.uniqueCandidates) {
+                added += "#$index ${here.head}: ${before.uniqueCandidates} -> ${here.uniqueCandidates}"
+            } else if (before.uniqueCandidates > here.uniqueCandidates) {
+                dropped += "#$index ${here.head}: ${before.uniqueCandidates} -> ${here.uniqueCandidates}"
+            } else if (before.sha256 != here.sha256) {
+                drifted += "#$index ${here.head}: ${before.sha256} -> ${here.sha256}"
             }
         }
-        assertTrue("baseline dump lines up with the sweep, matched $probesRead probes", probesRead > 1000)
+        for (index in shared until baseline.size) dropped += "#$index ${baseline[index].head}"
+        for (index in shared until current.size) added += "#$index ${current[index].head}"
+        assertTrue("baseline digest covers a non-trivial sweep: ${baseline.size}", baseline.size > 1000)
         val out = File(System.getenv("AEGIS_AUDIT_DIR") ?: "build/decode-audit").apply { mkdirs() }
         File(out, "coverage_identity.tsv").writeText(
             buildString {
+                appendLine(
+                    "summary\tbaseline=${baseline.size}\tcurrent=${current.size}\t" +
+                        "drift=${drifted.size}\tadded=${added.size}\tdropped=${dropped.size}",
+                )
                 appendLine("kind\tdetail")
                 drifted.forEach { appendLine("drift\t$it") }
                 added.forEach { appendLine("added\t$it") }
                 dropped.forEach { appendLine("dropped\t$it") }
             },
         )
+        println(
+            "Coverage identity gate: baseline=${baseline.size}, current=${current.size}, " +
+                "drift=${drifted.size}, added=${added.size}, dropped=${dropped.size}",
+        )
         assertTrue(
-            "candidates must keep the baseline (word, coveredLen) pairs: " +
+            "candidate groups must keep the 7907381b per-probe (word, coveredLen) digest: " +
                 "${drifted.size} drifted, ${added.size} added, ${dropped.size} dropped; " +
                 "first: ${drifted.take(4)} ${added.take(4)} ${dropped.take(4)}",
             drifted.isEmpty() && added.isEmpty() && dropped.isEmpty(),

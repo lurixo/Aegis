@@ -18,8 +18,6 @@ package com.aegis.ime.ime
 import android.content.Context
 import android.view.View
 import com.aegis.ime.engine.CandidateEngine
-import com.aegis.ime.layout.KeyAction
-import com.aegis.ime.layout.Key
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -49,7 +47,7 @@ class PanelHeightPolicyTest {
         val iv = InputView(ctx)
         val c = KeyboardController(host, engine)
         c.attachView(iv)
-        if (switchToNine) c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        if (switchToNine) c.switchTextLayoutForTest(nine = true)
         val w = View.MeasureSpec.makeMeasureSpec((1080 * density).toInt() / 3, View.MeasureSpec.EXACTLY)
         val h = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
         iv.measure(w, h)

@@ -111,17 +111,17 @@ class ExpandedReadingColumnTest {
     private fun out(s: String) = Key(s, output = s)
     private fun act(a: KeyAction) = Key("", action = a)
 
-    private fun typed(layout: KeyAction, input: String): Pair<RecordingHost, KeyboardController> {
+    private fun typed(nine: Boolean, input: String): Pair<RecordingHost, KeyboardController> {
         val host = RecordingHost()
         val c = KeyboardController(host, engine)
-        c.onKey(act(layout))
+        c.switchTextLayoutForTest(nine)
         input.forEach { c.onKey(out(it.toString())) }
         return host to c
     }
 
-    private fun nine(digits: String) = typed(KeyAction.SWITCH_NINE, digits)
+    private fun nine(digits: String) = typed(nine = true, digits)
 
-    private fun alpha(letters: String) = typed(KeyAction.SWITCH_ALPHA, letters)
+    private fun alpha(letters: String) = typed(nine = false, letters)
 
     private fun expanded(c: KeyboardController): InputView {
         val iv = InputView(ctx).apply { applyPalette(palette) }

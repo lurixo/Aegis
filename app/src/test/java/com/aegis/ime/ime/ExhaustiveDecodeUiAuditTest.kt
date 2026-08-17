@@ -85,7 +85,7 @@ class ExhaustiveDecodeUiAuditTest {
     @Test fun deng_26key_readingLabelStartsWithDeng_afterFix() {
         assumeTrue(assetsPresent())
         val c = controller(realEngine())
-        c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         type(c, "deng")
         val shown = c.expandedReadings()
         assertEquals("26-key deng reading labels start with 'deng'", "deng", shown.firstOrNull())
@@ -100,7 +100,7 @@ class ExhaustiveDecodeUiAuditTest {
     @Test fun deng_9key_lockDeng_yieldsDengChars_afterFix() {
         assumeTrue(assetsPresent())
         val c = controller(realEngine())
-        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         type(c, T9Pinyin.toT9("deng"))
         assertTrue("9-key left column offers the reading 'deng'", "deng" in c.expandedReadings())
         pick(c, "deng")
@@ -120,7 +120,7 @@ class ExhaustiveDecodeUiAuditTest {
         val fails = ArrayList<String>()
         for (s in syls) {
             val c = controller(realEngine())
-            c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+            c.switchTextLayoutForTest(nine = false)
             type(c, s)
             val shown = c.expandedReadings()
             val expected = T9Pinyin.leftColumnLetterReadings(s, 24)
@@ -149,7 +149,7 @@ class ExhaustiveDecodeUiAuditTest {
         val fails = ArrayList<String>()
         for ((s1, pfx) in prefixOf) for (s2 in seconds) {
             val c = controller(realEngine())
-            c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+            c.switchTextLayoutForTest(nine = true)
             type(c, T9Pinyin.toT9(s1))
             pick(c, s1)
             val singles = c.candidateWords().filter { isSingleChar(it) }.toSet()

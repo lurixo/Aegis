@@ -48,13 +48,10 @@ class Debug12FixATest {
 
     private fun digit(d: Char) = Key(d.toString(), output = d.toString())
     private fun pick(reading: String) = Key(reading, output = reading, action = KeyAction.PICK_READING)
-    private fun nine() = Key("", action = KeyAction.SWITCH_NINE)
-
-
     @Test fun f1_an_off_boundary_candidate_does_not_over_commit_and_wipe_the_buffer() {
         val host = RecordingHost()
         val c = KeyboardController(host, ProbeEngine())
-        c.onKey(nine())
+        c.switchTextLayoutForTest(nine = true)
         "42633".forEach { c.onKey(digit(it)) }
         c.onKey(pick("hao"))
 
@@ -70,7 +67,7 @@ class Debug12FixATest {
     @Test fun f6_a_forced_cut_in_the_active_tail_is_forwarded_to_the_locked_decode() {
         val probe = ProbeEngine()
         val c = KeyboardController(RecordingHost(), probe)
-        c.onKey(nine())
+        c.switchTextLayoutForTest(nine = true)
         "6433".forEach { c.onKey(digit(it)) }
         c.onKey(Key("", action = KeyAction.SEGMENT))
         "426".forEach { c.onKey(digit(it)) }
@@ -84,13 +81,13 @@ class Debug12FixATest {
 
     @Test fun f6_a_forced_cut_after_a_lock_suppresses_a_word_spanning_it() {
         val noCut = KeyboardController(RecordingHost(), ProbeEngine())
-        noCut.onKey(nine())
+        noCut.switchTextLayoutForTest(nine = true)
         "6433426".forEach { noCut.onKey(digit(it)) }
         noCut.onKey(pick("ni"))
         assertTrue("without a forced cut the spanning sentence is offered", "好的" in noCut.candidateWords())
 
         val withCut = KeyboardController(RecordingHost(), ProbeEngine())
-        withCut.onKey(nine())
+        withCut.switchTextLayoutForTest(nine = true)
         "6433".forEach { withCut.onKey(digit(it)) }
         withCut.onKey(Key("", action = KeyAction.SEGMENT))
         "426".forEach { withCut.onKey(digit(it)) }
@@ -120,7 +117,7 @@ class Debug12FixATest {
             c.onShowLayout = recordOpen
             c.onShowSettings = recordOpen
 
-            c.onKey(nine())
+            c.switchTextLayoutForTest(nine = true)
             "42633".forEach { c.onKey(digit(it)) }
             assertEquals("precondition: buffer is live for $f", false, c.preeditForTest().isEmpty())
 

@@ -1,6 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="brand_ink">#000000</color>
-    <color name="ic_launcher_background">#FFFFFF</color>
     <color name="settings_window_background">#FAF8FF</color>
 </resources>

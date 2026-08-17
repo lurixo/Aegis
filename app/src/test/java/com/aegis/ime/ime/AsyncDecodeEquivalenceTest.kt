@@ -86,7 +86,7 @@ class AsyncDecodeEquivalenceTest {
 
     private fun type(c: KeyboardController, s: String) =
         s.forEach { c.onKey(Key(it.toString(), output = it.toString())) }
-    private fun switchTo(c: KeyboardController, action: KeyAction) = c.onKey(Key("", action = action))
+    private fun switchTo(c: KeyboardController, nine: Boolean) = c.switchTextLayoutForTest(nine)
     private fun pick(c: KeyboardController, reading: String) =
         c.onKey(Key(reading, output = reading, action = KeyAction.PICK_READING))
 
@@ -104,9 +104,9 @@ class AsyncDecodeEquivalenceTest {
         assertTrue("runtime SYLLABLES ~415: ${syls.size}", syls.size in 400..430)
         val mismatches = ArrayList<String>()
         for (s in syls) {
-            val sync = syncController().also { switchTo(it, KeyAction.SWITCH_ALPHA); type(it, s) }
+            val sync = syncController().also { switchTo(it, false); type(it, s) }
             val lane = TestLane()
-            val async = asyncController(lane).also { switchTo(it, KeyAction.SWITCH_ALPHA); type(it, s); lane.drain() }
+            val async = asyncController(lane).also { switchTo(it, false); type(it, s); lane.drain() }
             if (sync.decodeStateForTest() != async.decodeStateForTest()) mismatches.add("26:$s")
         }
         assertTrue("26-key async≠sync for: ${mismatches.take(20)} (${mismatches.size})", mismatches.isEmpty())
@@ -119,9 +119,9 @@ class AsyncDecodeEquivalenceTest {
         for (s in syls) {
             val digits = T9Pinyin.toT9(s)
             if (digits.isEmpty()) continue
-            val sync = syncController().also { switchTo(it, KeyAction.SWITCH_NINE); type(it, digits) }
+            val sync = syncController().also { switchTo(it, true); type(it, digits) }
             val lane = TestLane()
-            val async = asyncController(lane).also { switchTo(it, KeyAction.SWITCH_NINE); type(it, digits); lane.drain() }
+            val async = asyncController(lane).also { switchTo(it, true); type(it, digits); lane.drain() }
             if (sync.decodeStateForTest() != async.decodeStateForTest()) mismatches.add("9:$s($digits)")
         }
         assertTrue("9-key async≠sync for: ${mismatches.take(20)} (${mismatches.size})", mismatches.isEmpty())
@@ -136,8 +136,8 @@ class AsyncDecodeEquivalenceTest {
         )
         val mismatches = ArrayList<String>()
         for (p in phrases) {
-            for (layout in listOf(KeyAction.SWITCH_ALPHA, KeyAction.SWITCH_NINE)) {
-                val is9 = layout == KeyAction.SWITCH_NINE
+            for (layout in listOf(false, true)) {
+                val is9 = layout == true
                 val input = if (is9) T9Pinyin.toT9(p) else p
                 val sync = syncController().also { switchTo(it, layout) }
                 val lane = TestLane()
@@ -156,9 +156,9 @@ class AsyncDecodeEquivalenceTest {
 
     @Test fun lockedReading_path_syncEqualsAsync() {
         assumeTrue(assetsPresent())
-        val sync = syncController().also { switchTo(it, KeyAction.SWITCH_NINE) }
+        val sync = syncController().also { switchTo(it, true) }
         val lane = TestLane()
-        val async = asyncController(lane).also { switchTo(it, KeyAction.SWITCH_NINE) }
+        val async = asyncController(lane).also { switchTo(it, true) }
         type(sync, "64"); type(async, "64"); lane.drain()
         pick(sync, "ni"); pick(async, "ni"); lane.drain()
         assertEquals("after lock", sync.decodeStateForTest(), async.decodeStateForTest())
@@ -169,9 +169,9 @@ class AsyncDecodeEquivalenceTest {
 
     @Test fun drill_path_syncEqualsAsync() {
         assumeTrue(assetsPresent())
-        val sync = syncController().also { switchTo(it, KeyAction.SWITCH_ALPHA); type(it, "nihao") }
+        val sync = syncController().also { switchTo(it, false); type(it, "nihao") }
         val lane = TestLane()
-        val async = asyncController(lane).also { switchTo(it, KeyAction.SWITCH_ALPHA); type(it, "nihao"); lane.drain() }
+        val async = asyncController(lane).also { switchTo(it, false); type(it, "nihao"); lane.drain() }
         sync.onPickReadingIndex(0)
         async.onPickReadingIndex(0); lane.drain()
         sync.onPickReadingIndex(sync.expandedReadings().indexOf("ni"))
@@ -229,7 +229,7 @@ class AsyncDecodeEquivalenceTest {
         var panelChanges = 0
         view.onPanelChanged = { panelChanges++ }
         controller.attachView(view)
-        switchTo(controller, KeyAction.SWITCH_ALPHA)
+        switchTo(controller, false)
         type(controller, "nihao")
         lane.drain()
         controller.onPickReadingIndex(0)
@@ -433,9 +433,9 @@ class AsyncDecodeEquivalenceTest {
         for (p in phrases) {
             val input = p.filter { it in 'a'..'z' }
             if (input.isEmpty()) continue
-            val sync = syncController().also { switchTo(it, KeyAction.SWITCH_ALPHA); type(it, input) }
+            val sync = syncController().also { switchTo(it, false); type(it, input) }
             val lane = TestLane()
-            val async = asyncController(lane).also { switchTo(it, KeyAction.SWITCH_ALPHA); type(it, input) }
+            val async = asyncController(lane).also { switchTo(it, false); type(it, input) }
             lane.drain()
             if (sync.decodeStateForTest() != async.decodeStateForTest()) mismatches.add(p)
         }
@@ -447,7 +447,7 @@ class AsyncDecodeEquivalenceTest {
         assumeTrue(assetsPresent())
         val lane = TestLane()
         val c = asyncController(lane)
-        switchTo(c, KeyAction.SWITCH_ALPHA)
+        switchTo(c, false)
         type(c, "ni"); lane.drain()
         assertTrue("precondition: candidates populated", c.candidateWords().isNotEmpty())
         type(c, "h")
@@ -460,7 +460,7 @@ class AsyncDecodeEquivalenceTest {
         assumeTrue(assetsPresent())
         val lane = TestLane()
         val c = asyncController(lane)
-        switchTo(c, KeyAction.SWITCH_ALPHA)
+        switchTo(c, false)
         type(c, "ni"); lane.drain()
         assertTrue(c.candidateWords().isNotEmpty())
         type(c, "h")
@@ -479,7 +479,7 @@ class AsyncDecodeEquivalenceTest {
         val sync = KeyboardController(syncHost, engine).apply { attachView(InputView(ctx)) }
         val lane = TestLane()
         val async = KeyboardController(asyncHost, engine, lane.lane).apply { attachView(InputView(ctx)) }
-        switchTo(sync, KeyAction.SWITCH_ALPHA); switchTo(async, KeyAction.SWITCH_ALPHA)
+        switchTo(sync, false); switchTo(async, false)
         type(sync, "nihao")
         type(async, "nihao")
         sync.onKey(Key("空格", output = " ", action = KeyAction.SPACE))

@@ -117,7 +117,7 @@ class KeyboardControllerTest {
     @Test fun nine_enter_commits_raw_pinyin_not_digits() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "6433".forEach { c.onKey(out(it.toString())) }
         c.onKey(act(KeyAction.ENTER))
         assertEquals(listOf("nide"), h.commits)
@@ -126,7 +126,7 @@ class KeyboardControllerTest {
     @Test fun clear_composing_drops_buffer_without_committing() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "6433".forEach { c.onKey(out(it.toString())) }
         c.onKey(act(KeyAction.CLEAR_COMPOSING))
         assertTrue("重输 must not commit text", h.commits.isEmpty())
@@ -138,7 +138,7 @@ class KeyboardControllerTest {
     @Test fun picking_a_reading_then_enter_commits_the_full_pinyin() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "6433".forEach { c.onKey(out(it.toString())) }
         c.onKey(Key("ni", output = "ni", action = KeyAction.PICK_READING))
         c.onKey(act(KeyAction.ENTER))
@@ -148,7 +148,7 @@ class KeyboardControllerTest {
     @Test fun left_column_advances_to_the_second_syllable_then_enter_commits_both() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "42633".forEach { c.onKey(out(it.toString())) }
         c.onKey(Key("hao", output = "hao", action = KeyAction.PICK_READING))
         c.onKey(Key("de", output = "de", action = KeyAction.PICK_READING))
@@ -164,7 +164,7 @@ class KeyboardControllerTest {
                 if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
         }
         val c = KeyboardController(h, partial)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
         assertTrue("a partial pick must NOT commit to the editor", h.commits.isEmpty())
@@ -182,7 +182,7 @@ class KeyboardControllerTest {
                 if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
         }
         val c = KeyboardController(h, partial)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
         assertEquals("你", c.composingPrefix())
@@ -204,7 +204,7 @@ class KeyboardControllerTest {
                 if (composing.isEmpty()) emptyList() else listOf(Cand(supplementaryHan, 2))
         }
         val c = KeyboardController(h, partial)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
         assertEquals(supplementaryHan, c.composingPrefix())
@@ -225,7 +225,7 @@ class KeyboardControllerTest {
                 if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
         }
         val c = KeyboardController(h, partial)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
         clearCandidateUndo(c)
@@ -242,7 +242,7 @@ class KeyboardControllerTest {
                 if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
         }
         val c = KeyboardController(h, partial)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
         assertEquals("你", c.composingPrefix())
@@ -251,7 +251,7 @@ class KeyboardControllerTest {
         c.reset()
         assertEquals("the pending prefix is dropped on field switch", "", c.composingPrefix())
 
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onKey(act(KeyAction.ENTER))
         assertEquals("no leaked 你 in the new field", listOf("nihao"), h.commits)
@@ -265,7 +265,7 @@ class KeyboardControllerTest {
                 if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
         }
         val c = KeyboardController(h, partial)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
         clearCandidateUndo(c)
@@ -277,7 +277,7 @@ class KeyboardControllerTest {
     @Test fun segment_forces_a_syllable_boundary() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "94".forEach { c.onKey(out(it.toString())) }
         c.onKey(act(KeyAction.SEGMENT))
         "26".forEach { c.onKey(out(it.toString())) }
@@ -289,7 +289,7 @@ class KeyboardControllerTest {
     @Test fun backspace_undoes_a_forced_cut_before_deleting_a_digit() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "94".forEach { c.onKey(out(it.toString())) }
         c.onKey(act(KeyAction.SEGMENT))
         c.onKey(act(KeyAction.BACKSPACE))
@@ -301,7 +301,7 @@ class KeyboardControllerTest {
     @Test fun direct_punctuation_flushes_pinyin_then_commits_directly() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "64".forEach { c.onKey(out(it.toString())) }
         c.onKey(Key("，", output = "，", direct = true))
         assertEquals(listOf("ni", "，"), h.commits)
@@ -380,7 +380,7 @@ class KeyboardControllerTest {
     @Test fun shift_is_inert_in_cn_full_pinyin_26_key() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
-        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         c.onKey(act(KeyAction.SHIFT))
         assertEquals("shift stays OFF in CN pinyin", "OFF", c.shiftStateName())
         c.onKey(act(KeyAction.SHIFT_LOCK))
@@ -394,7 +394,7 @@ class KeyboardControllerTest {
         assertEquals("LOCK", c.shiftStateName())
         c.onKey(act(KeyAction.SWITCH_NUMBERS))
         assertEquals("OFF", c.shiftStateName())
-        c.onKey(act(KeyAction.SWITCH_ALPHA)); c.onKey(act(KeyAction.SHIFT_LOCK))
+        c.switchTextLayoutForTest(nine = false); c.onKey(act(KeyAction.SHIFT_LOCK))
         assertEquals("LOCK", c.shiftStateName())
         c.onKey(act(KeyAction.TOGGLE_LANG))
         assertEquals("OFF", c.shiftStateName())
@@ -430,7 +430,7 @@ class KeyboardControllerTest {
     @Test fun english_letters_compose_until_space_commits_the_word() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         c.onKey(act(KeyAction.TOGGLE_LANG))
         c.onKey(out("a"))
         assertEquals(emptyList<String>(), h.commits)
@@ -443,7 +443,7 @@ class KeyboardControllerTest {
 
     private fun nineColumnFor(digits: String): List<Key> {
         val c = KeyboardController(FakeHost(), engine)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         digits.forEach { c.onKey(out(it.toString())) }
         return c.nineLeftColumn()
     }
@@ -458,7 +458,7 @@ class KeyboardControllerTest {
 
     @Test fun nine_left_column_is_punctuation_only_when_idle() {
         val c = KeyboardController(FakeHost(), engine)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         assertEquals(
             com.aegis.ime.layout.Layouts.ninePunctuation().map { it.label },
             c.nineLeftColumn().map { it.label },
@@ -472,7 +472,7 @@ class KeyboardControllerTest {
     @Test fun custom_symbol_key_opens_the_panel() {
         var opened = false
         val c = KeyboardController(FakeHost(), engine).apply { onShowCustomSymbols = { opened = true } }
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         c.onKey(Key("自定义", action = KeyAction.CUSTOM_SYMBOL))
         assertTrue("自定义 tap opens the custom-symbol panel", opened)
     }
@@ -496,7 +496,7 @@ class KeyboardControllerTest {
 
     @Test fun set_custom_symbols_surfaces_them_in_the_idle_column_before_自定义() {
         val c = KeyboardController(FakeHost(), engine)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         c.setCustomSymbols(listOf("、", "《"))
         val col = c.nineLeftColumn()
         val labels = col.map { it.label }
@@ -517,7 +517,7 @@ class KeyboardControllerTest {
 
     @Test fun expanded_readings_empty_at_rest_combos_while_composing() {
         val c = KeyboardController(FakeHost(), engine)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         assertTrue("no combos at rest", c.expandedReadings().isEmpty())
         "426".forEach { c.onKey(out(it.toString())) }
         assertTrue("hao among combos while composing, was ${c.expandedReadings()}", "hao" in c.expandedReadings())
@@ -526,7 +526,7 @@ class KeyboardControllerTest {
     @Test fun panel_pick_reading_advances_syllables_and_commits_both() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "42633".forEach { c.onKey(out(it.toString())) }
         c.onPickReadingIndex(c.expandedReadings().indexOf("hao"))
         c.onPickReadingIndex(c.expandedReadings().indexOf("de"))
@@ -536,7 +536,7 @@ class KeyboardControllerTest {
 
     @Test fun panel_backspace_removes_one_unit() {
         val c = KeyboardController(FakeHost(), engine)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "426".forEach { c.onKey(out(it.toString())) }
         assertTrue("hao present before backspace", "hao" in c.expandedReadings())
         c.onPanelBackspace()
@@ -587,7 +587,7 @@ class KeyboardControllerTest {
     @Test fun panel_clear_drops_composing() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "426".forEach { c.onKey(out(it.toString())) }
         c.onPanelClear()
         assertTrue("combos gone after 重输", c.expandedReadings().isEmpty())
@@ -603,7 +603,7 @@ class KeyboardControllerTest {
                 if (composing.isEmpty()) emptyList() else listOf(Cand("你好", composing.length))
         }
         val c = KeyboardController(FakeHost(), full)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
         assertTrue("no candidates linger after commit (no ghost)", c.candidateWords().isEmpty())
@@ -616,13 +616,13 @@ class KeyboardControllerTest {
                 if (composing.isEmpty()) emptyList() else listOf(Cand("你好", composing.length))
         }
         val c = KeyboardController(FakeHost(), full)
-        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         "nihao".forEach { c.onKey(out(it.toString())) }
         assertEquals("the typed string is not echoed as a candidate", listOf("你好"), c.candidateWords())
 
         val h = FakeHost()
         val bare = KeyboardController(h, engine)
-        bare.onKey(act(KeyAction.SWITCH_ALPHA))
+        bare.switchTextLayoutForTest(nine = false)
         "nihao".forEach { bare.onKey(out(it.toString())) }
         assertTrue("an empty decode shows no raw echo either", bare.candidateWords().isEmpty())
         bare.onKey(act(KeyAction.ENTER))
@@ -637,7 +637,7 @@ class KeyboardControllerTest {
                 if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
         }
         val c = KeyboardController(h, partial)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
         assertEquals("你hao", c.preeditForTest())
@@ -653,7 +653,7 @@ class KeyboardControllerTest {
     @Test fun backspace_after_a_partial_space_pick_restores_the_previous_preedit() {
         val h = FakeHost()
         val c = KeyboardController(h, stagedNiHaoEngine())
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "64426".forEach { c.onKey(out(it.toString())) }
         val originalPreedit = c.preeditForTest()
         assertEquals("ni'hao", originalPreedit)
@@ -683,7 +683,7 @@ class KeyboardControllerTest {
                 if (composing.isEmpty()) emptyList() else listOf(Cand("你好", composing.length))
         }
         val c = KeyboardController(h, full)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
         assertEquals(listOf("你好"), h.commits)
@@ -724,7 +724,7 @@ class KeyboardControllerTest {
             }
         }
         val c = KeyboardController(h, shuru)
-        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         "shuru".forEach { c.onKey(out(it.toString())) }
         assertEquals("shu'ru", c.preeditForTest())
         assertEquals("shu", c.expandedReadings().first())
@@ -771,7 +771,7 @@ class KeyboardControllerTest {
             }
         }
         val c = KeyboardController(h, shuru)
-        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         "shu'ru".forEach { c.onKey(out(it.toString())) }
         assertEquals("shu'ru", c.preeditForTest())
         assertEquals("shu", c.expandedReadings().first())
@@ -800,7 +800,7 @@ class KeyboardControllerTest {
                 if (composing.isEmpty()) emptyList() else listOf(Cand("你好", composing.length))
         }
         val c = KeyboardController(h, full)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
         assertEquals("你好", h.text.toString())
@@ -816,7 +816,7 @@ class KeyboardControllerTest {
     @Test fun full_candidate_commit_expires_older_partial_candidate_snapshots() {
         val h = FakeHost()
         val c = KeyboardController(h, stagedNiHaoEngine())
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
         assertEquals("你hao", c.preeditForTest())
@@ -836,7 +836,7 @@ class KeyboardControllerTest {
     @Test fun external_editor_mutation_expiry_prevents_candidate_undo_on_next_backspace() {
         val h = FakeHost()
         val c = KeyboardController(h, stagedNiHaoEngine())
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
         c.onPickCandidate(0)
@@ -855,7 +855,7 @@ class KeyboardControllerTest {
         val c = KeyboardController(h, stagedNiHaoEngine())
         var emojiPanelOpens = 0
         c.onShowEmoji = { emojiPanelOpens++ }
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
         c.onPickCandidate(0)
@@ -898,7 +898,7 @@ class KeyboardControllerTest {
         val c = KeyboardController(FakeHost(), stagedLetterLearningEngine())
         c.userLearning = learning
         repeat(3) {
-            c.onKey(act(KeyAction.SWITCH_ALPHA))
+            c.switchTextLayoutForTest(nine = false)
             "nihao".forEach { c.onKey(out(it.toString())) }
             c.onPickCandidate(0)
             c.onPickCandidate(0)
@@ -913,7 +913,7 @@ class KeyboardControllerTest {
         val learning = UserLearning { 1_000L }
         c.userLearning = learning
         c.setLearningBlocked(true)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
         assertTrue("a blocked field must never learn the committed word", learned.isEmpty())
@@ -923,7 +923,7 @@ class KeyboardControllerTest {
     @Test fun ordinary_field_commit_is_learned_no_regression() {
         val learned = mutableListOf<String>()
         val c = KeyboardController(FakeHost(), learnSpyEngine(learned))
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
         assertEquals(listOf("密码"), learned)
@@ -932,7 +932,7 @@ class KeyboardControllerTest {
 
     @Test fun backspace_steps_back_a_locked_reading_not_the_whole_syllable() {
         val c = KeyboardController(FakeHost(), engine)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "426".forEach { c.onKey(out(it.toString())) }
         c.onKey(Key("hao", output = "hao", action = KeyAction.PICK_READING))
         c.onKey(act(KeyAction.BACKSPACE))
@@ -945,7 +945,7 @@ class KeyboardControllerTest {
     @Test fun backspace_after_two_locks_steps_back_each_pick_then_keeps_digits() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "42633".forEach { c.onKey(out(it.toString())) }
         c.onKey(Key("hao", output = "hao", action = KeyAction.PICK_READING))
         c.onKey(Key("de", output = "de", action = KeyAction.PICK_READING))
@@ -959,7 +959,7 @@ class KeyboardControllerTest {
 
     @Test fun backspace_without_a_pick_deletes_one_letter_only() {
         val c = KeyboardController(FakeHost(), engine)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "426".forEach { c.onKey(out(it.toString())) }
         c.onKey(act(KeyAction.BACKSPACE))
         assertTrue("hao gone (one letter removed)", "hao" !in c.expandedReadings())
@@ -1036,7 +1036,7 @@ class KeyboardControllerTest {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
         c.reset()
-        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         "ni".forEach { c.onKey(out(it.toString())) }
 
         c.setDefaultLang(Lang.EN)
@@ -1064,7 +1064,7 @@ class KeyboardControllerTest {
         val alphaHost = FakeHost()
         val alpha = KeyboardController(alphaHost, engine)
         alpha.reset()
-        alpha.onKey(act(KeyAction.SWITCH_ALPHA))
+        alpha.switchTextLayoutForTest(nine = false)
         alpha.onKey(act(KeyAction.SWITCH_SYMBOLS))
         alpha.restoreBaseKeyboard()
         assertEquals(LayoutId.ALPHA, alpha.activeLayoutId())
@@ -1090,7 +1090,7 @@ class KeyboardControllerTest {
         val host = FakeHost()
         val c = KeyboardController(host, engine)
         c.reset()
-        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         c.onKey(out("n"))
         val preedit = c.preeditForTest()
         assertTrue(preedit.isNotEmpty())
@@ -1114,7 +1114,7 @@ class KeyboardControllerTest {
     @Test fun lang_round_trip_preserves_a_manual_cn_26_key_choice() {
         val c = KeyboardController(FakeHost(), engine)
         c.reset()
-        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         assertEquals(LayoutId.ALPHA, c.activeLayoutId())
         c.onKey(act(KeyAction.TOGGLE_LANG))
         c.onKey(act(KeyAction.TOGGLE_LANG))
@@ -1192,7 +1192,7 @@ class KeyboardControllerTest {
     @Test fun qwerty_123_opens_the_nine_key_numpad_and_returns_to_qwerty() {
         val c = KeyboardController(FakeHost(), engine)
         c.reset()
-        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         val alphabet123 = Layouts.forId(LayoutId.ALPHA, Lang.CN).cells!!.first { it.key.label == "123" }.key
         c.onKey(alphabet123)
         assertEquals(LayoutId.NUMPAD, c.activeLayoutId())
@@ -1221,7 +1221,7 @@ class KeyboardControllerTest {
     @Test fun backspace_up_swipe_clears_pending_pinyin_in_any_layout() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "6433".forEach { c.onKey(out(it.toString())) }
         assertTrue("up-swipe must consume + clear the buffer", c.onBackspaceSwipe(true))
         c.onKey(act(KeyAction.ENTER))
@@ -1238,7 +1238,7 @@ class KeyboardControllerTest {
                 if (composing.isEmpty()) emptyList() else listOf(Cand("你", 2))
         }
         val c = KeyboardController(h, partial)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickCandidate(0)
         clearCandidateUndo(c)

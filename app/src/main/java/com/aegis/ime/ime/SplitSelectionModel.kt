@@ -30,8 +30,6 @@ internal class SplitSelectionModel private constructor(
         }
     }
 
-    fun isSelected(index: Int): Boolean = index in selected
-
     fun selectedIndices(): Set<Int> = selected.toSet()
 
     fun projection(): String =

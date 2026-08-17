@@ -1103,7 +1103,7 @@ def main(argv):
     parser.add_argument("--source-branch", default="wanxiang")
     parser.add_argument("--source-tag", help="Upstream release tag to pin (records source.tag and clones this tag instead of the branch HEAD). Prefer the latest stable tag that carries the dicts/ tables.")
     parser.add_argument("--lm-reproduction-source-dir", help="Optional clean checkout of the fixed Beta.31 LM upstream commit; otherwise the verifier fetches it from the official repository.")
-    parser.add_argument("--asset-name", help="Dictionary ZIP asset name. Defaults to the debug.13 naming pattern.")
+    parser.add_argument("--asset-name", help="Dictionary ZIP asset name. Defaults to a name derived from the release tag.")
     parser.add_argument("--grammar-release-api", default=GRAMMAR_RELEASE_API)
     parser.add_argument("--grammar-release-json")
     args = parser.parse_args(argv)

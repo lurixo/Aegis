@@ -51,7 +51,7 @@ class KeyboardViewInteractionTest {
 
     private fun nineView(left: List<Key>, composing: Boolean): KeyboardView {
         val v = KeyboardView(context)
-        v.setLayout(Layouts.nine(Lang.CN, left, composing), false, false, Lang.CN)
+        v.setLayout(Layouts.nine(left, composing), false, false, Lang.CN)
         v.measure(
             View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
@@ -279,7 +279,7 @@ class KeyboardViewInteractionTest {
         assertTrue("precondition: it scrolled away from the top", v.scrollOffsetForTest() > 0f)
 
         val other = (1..24).map { Key("q$it", output = "q$it", action = KeyAction.PICK_READING) }
-        v.setLayout(Layouts.nine(Lang.CN, other, composing = true), false, false, Lang.CN)
+        v.setLayout(Layouts.nine(other, composing = true), false, false, Lang.CN)
         assertFalse("the content-change reset cancels the fling", v.isFlingingForTest())
         assertEquals("the offset is reset to 0", 0f, v.scrollOffsetForTest(), 0f)
         v.computeScroll()
@@ -326,7 +326,7 @@ class KeyboardViewInteractionTest {
             )
             return v.measuredHeight
         }
-        val nineH = measuredH(Layouts.nine(Lang.CN, Layouts.ninePunctuation()))
+        val nineH = measuredH(Layouts.nine(Layouts.ninePunctuation()))
         assertEquals("numpad matches the 9-key (no 9-key⇄123 resize)", nineH, measuredH(Layouts.numpad()))
         assertEquals("number page matches", nineH, measuredH(Layouts.forId(com.aegis.ime.layout.LayoutId.NUMBER, Lang.CN)))
         assertEquals("symbol page matches", nineH, measuredH(Layouts.forId(com.aegis.ime.layout.LayoutId.SYMBOL, Lang.CN)))

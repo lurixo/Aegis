@@ -686,7 +686,7 @@ class RenderHarness {
         for ((t, pal) in themes) {
             val v = KeyboardView(ctx).apply {
                 applyPalette(pal)
-                setLayout(Layouts.nine(Lang.CN, readout, composing = true), false, false, Lang.CN)
+                setLayout(Layouts.nine(readout, composing = true), false, false, Lang.CN)
             }
             snap(v, h, "keyboard_nine_$t.png")
         }

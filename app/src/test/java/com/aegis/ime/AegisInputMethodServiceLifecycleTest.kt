@@ -635,7 +635,7 @@ class AegisInputMethodServiceLifecycleTest {
     @Test fun the_keyboard_and_the_edit_panel_share_one_backspace_swipe_snapshot() {
         val faces = listOf(
             Lang.EN to Layouts.forId(LayoutId.ALPHA, Lang.EN),
-            Lang.CN to Layouts.nine(Lang.CN, Layouts.ninePunctuation(), false),
+            Lang.CN to Layouts.nine(Layouts.ninePunctuation(), false),
         )
         for ((lang, layout) in faces) {
             val f = fixture()
@@ -675,7 +675,7 @@ class AegisInputMethodServiceLifecycleTest {
     @Test fun the_edit_panel_delete_tracks_the_key_haptics_toggle_on_both_faces() {
         val faces = listOf(
             Lang.EN to Layouts.forId(LayoutId.ALPHA, Lang.EN),
-            Lang.CN to Layouts.nine(Lang.CN, Layouts.ninePunctuation(), false),
+            Lang.CN to Layouts.nine(Layouts.ninePunctuation(), false),
         )
         for ((lang, layout) in faces) {
             val f = fixture()

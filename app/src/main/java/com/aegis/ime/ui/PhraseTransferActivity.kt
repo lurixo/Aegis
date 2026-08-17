@@ -104,7 +104,7 @@ class PhraseTransferActivity : ComponentActivity() {
                 Intent.FLAG_ACTIVITY_EXCLUDE_FROM_RECENTS or
                 Intent.FLAG_ACTIVITY_NO_ANIMATION
 
-        internal fun launchIntent(context: Context, export: Boolean, merge: Boolean = true): Intent =
+        internal fun launchIntent(context: Context, export: Boolean, merge: Boolean): Intent =
             Intent(context, PhraseTransferActivity::class.java)
                 .putExtra(EXTRA_EXPORT, export)
                 .putExtra(EXTRA_IMPORT_MERGE, merge)

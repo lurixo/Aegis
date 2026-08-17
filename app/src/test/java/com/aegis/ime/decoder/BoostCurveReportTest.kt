@@ -362,7 +362,9 @@ class BoostCurveReportTest {
 
     @Test fun s3_sentenceDefault_vsWord_riseCurve() {
         requireProductionAssets()
-        val syls = runtimeSyllables()
+        val syls = runtimeSyllables().let {
+            if (smoke) (it + listOf("a", "ru")).distinct().sorted() else it
+        }
         val sink = Sink(
             File(outDir(), "boost_s3_sentence.tsv"),
             "# $runStamp\nkey\tnSyl\tnaturalDefault\tB\tfreqB\tcDefault\tt9cDefault\tverified",
@@ -408,6 +410,9 @@ class BoostCurveReportTest {
         sink.close()
         File(outDir(), "boost_s3_summary.txt")
             .writeText("# $runStamp\nS3 sentence-default vs word (cases: ${sink.rows.get()})\n${sink.summary()}")
+        assertTrue("S3 must measure at least one sentence-default case", sink.rows.get() > 0)
+        assertTrue("S3 boundaries must all be verified: ${sink.unverified.get()}", sink.unverified.get() == 0)
+        assertTrue("S3 samples must not be censored: ${sink.censored.get()}", sink.censored.get() == 0)
         println("S3 done in ${System.currentTimeMillis() - t0}ms, rows=${sink.rows.get()}")
     }
 

@@ -16,3 +16,6 @@ build/
 /app/src/main/assets/aegis_t9.bin
 /app/src/main/assets/aegis_jianpin.bin
 /app/src/main/assets/aegis_lm.bin
+/app/src/main/assets/aegis_english.bin
+/app/src/main/assets/aegis_en_full.bin
+/app/src/main/assets/wanxiang-lts-zh-hans.gram

@@ -198,7 +198,7 @@ class SettingsInsetTest {
         assertEquals(0, resolveTopInsetPx(liveTop = 0, seedTop = 63, rootTop = 0))
     }
 
-    @Test fun synchronous_top_seed_prefers_visible_then_ignoring_visibility_then_maximum_then_resource() {
+    @Test fun synchronous_top_seed_prefers_visible_then_ignoring_visibility_then_maximum() {
         assertEquals(
             "visible status/cutout inset wins first",
             11,
@@ -206,7 +206,6 @@ class SettingsInsetTest {
                 visibleTop = 11,
                 ignoringVisibilityTop = 22,
                 maximumIgnoringVisibilityTop = 33,
-                statusBarHeightTop = 44,
                 isAttachedToDisplayTop = true,
             ),
         )
@@ -217,42 +216,38 @@ class SettingsInsetTest {
                 visibleTop = 0,
                 ignoringVisibilityTop = 22,
                 maximumIgnoringVisibilityTop = 33,
-                statusBarHeightTop = 44,
                 isAttachedToDisplayTop = true,
             ),
         )
         assertEquals(
-            "maximum metrics fallback is used before the resource height",
+            "maximum metrics are the last public top-inset fallback",
             33,
             synchronousTopInsetPx(
                 visibleTop = 0,
                 ignoringVisibilityTop = 0,
                 maximumIgnoringVisibilityTop = 33,
-                statusBarHeightTop = 44,
                 isAttachedToDisplayTop = true,
             ),
         )
         assertEquals(
-            "status_bar_height is the last top-attached fallback",
-            44,
+            "missing public inset information stays at zero until root insets arrive",
+            0,
             synchronousTopInsetPx(
                 visibleTop = 0,
                 ignoringVisibilityTop = 0,
                 maximumIgnoringVisibilityTop = 0,
-                statusBarHeightTop = 44,
                 isAttachedToDisplayTop = true,
             ),
         )
     }
 
-    @Test fun synchronous_top_seed_skips_maximum_and_resource_fallbacks_when_not_top_attached() {
+    @Test fun synchronous_top_seed_skips_maximum_fallback_when_not_top_attached() {
         assertEquals(
             0,
             synchronousTopInsetPx(
                 visibleTop = 0,
                 ignoringVisibilityTop = 0,
                 maximumIgnoringVisibilityTop = 33,
-                statusBarHeightTop = 44,
                 isAttachedToDisplayTop = false,
             ),
         )
@@ -262,7 +257,6 @@ class SettingsInsetTest {
                 visibleTop = 0,
                 ignoringVisibilityTop = 22,
                 maximumIgnoringVisibilityTop = 33,
-                statusBarHeightTop = 44,
                 isAttachedToDisplayTop = false,
             ),
         )

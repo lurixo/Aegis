@@ -81,7 +81,7 @@ class Debug12InputCoreTest {
         val iv = InputView(ctx)
         val c = KeyboardController(host, eng!!)
         c.attachView(iv)
-        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         digits.forEach { c.onKey(digit(it)) }
 
         val unlocked = iv.shownCandidateCount()
@@ -110,7 +110,7 @@ class Debug12InputCoreTest {
         val eng = engine(); assumeTrue("dict assets present", eng != null)
         val host = Host()
         val c = KeyboardController(host, eng!!)
-        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         digits.forEach { c.onKey(digit(it)) }
 
         val partialIdx = c.candidateWords().indexOfFirst { isSingleChar(it) }

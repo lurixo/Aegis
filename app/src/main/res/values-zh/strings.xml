@@ -4,7 +4,6 @@
     <string name="ime_label">Aegis 输入法</string>
     <string name="subtype_zh">Aegis 输入法</string>
     <string name="subtype_en">Aegis English</string>
-    <string name="phrase_manager_title">常用语管理</string>
 
     <string name="setup_title">Aegis 输入法</string>
     <string name="setup_summary">中文 / 英文输入法。自建拼音引擎（全拼 + 九宫格 T9），模糊拼音、简拼、中英混输、离线自学习；可选下载万象大模型增强。中文词库在安装后下载；下载完成后全程离线，输入不联网。</string>
@@ -126,7 +125,6 @@
     <string name="layout_en">英文26键</string>
     <string name="layout_panel_title">键盘布局</string>
 
-    <string name="user_dict_title">学习词库</string>
     <string name="user_dict_description">Aegis 会离线学习你常用的词与下一个词，存为【学习词库】（只存本机）。这与你下载的【主词库】（拼音大词库）是两份独立的库 —— 这里的导入/覆盖只动学习词库，绝不影响主词库。导入立即生效。</string>
     <string name="user_dict_default_path_format">默认词库：%1$s（应用私有目录，文件管理器不可见 → 用“导出”取出副本，默认文件名 aegis-userdb.txt）。</string>
     <string name="user_dict_export_button">导出学习词库</string>
@@ -183,7 +181,9 @@
     <string name="user_dict_select_cancel_button">取消</string>
     <string name="user_dict_delete_selected_button">删除所选</string>
     <string name="user_dict_batch_delete_dialog_title">删除所选的词</string>
-    <string name="user_dict_batch_delete_dialog_body">将删除所选的 %1$d 个词。此操作不可撤销。</string>
+    <plurals name="user_dict_batch_delete_dialog_body">
+        <item quantity="other">将删除所选的 %1$d 个词。此操作不可撤销。</item>
+    </plurals>
     <string name="user_dict_toast_batch_deleted">已删除所选的词</string>
     <string name="auto_learn_title">自动学习</string>
     <string name="auto_learn_description">把你逐字拼出的词记下来并作为候选。同一个词逐字拼出三次才会记住，重复输入不会增加条数。关闭后不再记录，已学到的词也不再进候选；数据仍保留，直到你清空。</string>
@@ -392,7 +392,9 @@
     <string name="clip_select_all">全选</string>
     <string name="clip_edit_phrases">批量管理常用语</string>
     <string name="clip_edit_clipboard">批量管理剪贴板</string>
-    <string name="clip_selected_count">已选择 %1$d 项</string>
+    <plurals name="clip_selected_count">
+        <item quantity="other">已选择 %1$d 项</item>
+    </plurals>
     <string name="clip_move_to_category">移动到分类</string>
     <string name="clip_no_other_categories">没有其它分类</string>
     <string name="clip_delete_category">删除分类</string>
@@ -423,11 +425,21 @@
     <string name="clip_entry_unreadable_body">这条剪贴的内容还在此设备上，但读不出来</string>
     <string name="clip_entries_unreadable_count">选中的内容里有 %1$d 条读不出来，已略过</string>
     <string name="clip_phrases_saved">已存 %1$d 条到常用语</string>
-    <string name="clip_phrases_saved_existing">已存 %1$d 条，%2$d 条已在该分类中</string>
-    <string name="clip_phrases_exist">这 %1$d 条都已在该分类中</string>
-    <string name="clip_phrases_not_saved">%1$d 条没能写进常用语</string>
-    <string name="clip_phrases_moved_partial">已移动 %1$d 条，%2$d 条未移动</string>
-    <string name="clip_phrases_not_moved">%1$d 条移动了，但没能写进常用语，稍后会恢复原样</string>
+    <plurals name="clip_phrases_saved_existing">
+        <item quantity="other">已存 %1$d 条，%2$d 条已在该分类中</item>
+    </plurals>
+    <plurals name="clip_phrases_exist">
+        <item quantity="other">这 %1$d 条都已在该分类中</item>
+    </plurals>
+    <plurals name="clip_phrases_not_saved">
+        <item quantity="other">%1$d 条没能写进常用语</item>
+    </plurals>
+    <plurals name="clip_phrases_moved_partial">
+        <item quantity="other">已移动 %1$d 条，%2$d 条未移动</item>
+    </plurals>
+    <plurals name="clip_phrases_not_moved">
+        <item quantity="other">%1$d 条移动了，但没能写进常用语，稍后会恢复原样</item>
+    </plurals>
     <string name="clip_category_not_saved">这个分类没能写进常用语，稍后会恢复原样</string>
     <string name="clip_phrase_edit_not_saved">这次改动没有存进常用语</string>
 </resources>

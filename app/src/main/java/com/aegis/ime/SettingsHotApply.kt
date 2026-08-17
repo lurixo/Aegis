@@ -28,10 +28,10 @@ internal class SettingsHotApply(
     private val onAutoLearn: (Boolean) -> Unit,
     private val onFuzzyRules: (Set<String>) -> Unit,
     private val onEngineAssetsChanged: () -> Unit,
-    private val onKeyHaptics: (Boolean) -> Unit = {},
-    private val onKeyPreviewNine: (Boolean) -> Unit = {},
-    private val onKeyPreviewAlpha: (Boolean) -> Unit = {},
-    private val onLetterCase: (com.aegis.ime.ui.LetterCase) -> Unit = {},
+    private val onKeyHaptics: (Boolean) -> Unit,
+    private val onKeyPreviewNine: (Boolean) -> Unit,
+    private val onKeyPreviewAlpha: (Boolean) -> Unit,
+    private val onLetterCase: (com.aegis.ime.ui.LetterCase) -> Unit,
 ) : SharedPreferences.OnSharedPreferenceChangeListener {
 
     override fun onSharedPreferenceChanged(prefs: SharedPreferences, key: String?) {

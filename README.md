@@ -242,14 +242,25 @@ tools/release/build_dictionary_pack.py --release-tag dict-latest
 
 The command clones `amzxyz/rime-wanxiang` — the `wanxiang` branch by default, `--source-tag` to pin
 a release tag instead, `--source-dir` to use an existing checkout — builds the 14 verified tables
-with `tools/DictBuilder` at `--min-freq 1` and no per-key cap, and writes the pack ZIP,
-`aegis-build-info.json`, and `aegis-dictionary-update.json` under `build/release-dictionary/`.
-Upload those generated files to the rolling `dict-latest` release, not to versioned app releases.
+with `tools/DictBuilder` at `--min-freq 1` and no per-key cap. It writes an **intermediate** pack ZIP,
+`aegis-build-info.json`, and `aegis-dictionary-update.json` under `build/release-dictionary/`. The
+intermediate pack contains four runtime components — three Chinese dictionaries and the character
+language model — and **must not be published**.
+
+The separately controlled dictionary workflow applies the reading gate and pinned GB 18030
+pinyin-reachability overlay while the pack is still intermediate, verifies that result, and runs
+this builder's `finalize` step. It then builds the English table from the same pinned upstream commit and attaches
+`aegis_en_full.bin`. Only that resulting five-runtime-component ZIP, together with its matching
+final build-info and update manifest, is a publication candidate for `dict-latest`; raw files from
+the command above are not. The five runtime components are `aegis_dict_full.bin`,
+`aegis_t9_full.bin`, `aegis_jianpin_full.bin`, `aegis_lm.bin`, and `aegis_en_full.bin`.
+
 The checked-in `aegis-build-info.json` records the trail of the pack it was generated from (source
-tag & commit, per-table input hashes, build parameters, output-bin hashes, and physical asset URL)
-and its remaining provenance gaps; regenerate it whenever the rolling dictionary pack is
-republished. A dictionary pack is not a fully reproducible public supply-chain artifact until the
-release also carries the exact input hashes, a deterministic recipe, and a signature or attestation.
+tag and commit, per-table input hashes, build parameters, component hashes, and physical asset URL)
+and its remaining provenance gaps. It must be regenerated from the final five-component candidate
+whenever the rolling pack is republished. A dictionary pack is not a fully reproducible public
+supply-chain artifact until the release also carries the exact input hashes, a deterministic recipe,
+and a signature or attestation.
 
 ## Architecture
 

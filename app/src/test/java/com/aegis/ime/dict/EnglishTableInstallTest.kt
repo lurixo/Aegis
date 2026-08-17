@@ -21,6 +21,7 @@ import java.util.zip.ZipOutputStream
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 class EnglishTableInstallTest {
@@ -47,6 +48,23 @@ class EnglishTableInstallTest {
         ModelDownload.LM_NAME to "lm".toByteArray(),
         ModelDownload.EN_PACK_ENTRY to "english".toByteArray(),
     )
+
+    @Test
+    fun the_current_external_english_table_is_parseable() {
+        val configured = System.getenv("AEGIS_ENGLISH")?.takeIf { it.isNotBlank() }
+        assumeTrue("AEGIS_ENGLISH set for the real-table gate", configured != null)
+        val file = File(configured!!)
+        assertTrue("AEGIS_ENGLISH points to a non-trivial file", file.isFile && file.length() > 1024)
+
+        val table = BinaryDict.fromFile(file)
+
+        assertTrue("the real English table has positive total frequency", table.totalFreq > 0L)
+        assertTrue(
+            "the real English table carries the known word key",
+            table.exact("word").any { it.word == "word" && it.freq > 0 },
+        )
+        assertTrue("the real English table serves prefix completions", table.prefixByFreq("hel", 16).isNotEmpty())
+    }
 
     @Test
     fun the_english_entry_installs_under_its_own_runtime_name() {

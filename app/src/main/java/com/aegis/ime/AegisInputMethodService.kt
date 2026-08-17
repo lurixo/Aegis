@@ -687,7 +687,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val lc = lastCopy
         if (inputView?.isComposing() == true) {
             inputView?.hideCopyBar()
-        } else if (com.aegis.ime.user.ClipboardPolicy.shouldRestoreCopyBar(lc, secureField)) {
+        } else if (com.aegis.ime.user.ClipboardPolicy.shouldRestoreCopyBar(lc)) {
             if (restorablePanel == RestorablePanel.EDIT) inputView?.stageCopyBar(lc!!)
             else inputView?.showCopyBar(lc!!)
         } else {
@@ -721,8 +721,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         backCallback?.let { inputView?.findOnBackInvokedDispatcher()?.unregisterOnBackInvokedCallback(it) }
         backRegistered = false
     }
-
-    internal fun backCallbackRegisteredForTest(): Boolean = backRegistered
 
     override fun onComputeInsets(outInsets: Insets) {
         super.onComputeInsets(outInsets)

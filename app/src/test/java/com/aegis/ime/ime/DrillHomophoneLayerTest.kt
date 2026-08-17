@@ -22,7 +22,6 @@ import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.layout.Key
-import com.aegis.ime.layout.KeyAction
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -66,22 +65,22 @@ class DrillHomophoneLayerTest {
     private fun controller() =
         KeyboardController(Host(), engine()).apply { attachView(InputView(ctx)) }
 
-    private fun drilled(layout: KeyAction, reading: String): List<String> {
+    private fun drilled(nine: Boolean, reading: String): List<String> {
         val c = controller()
-        c.onKey(Key("", action = layout))
-        val typed = if (layout == KeyAction.SWITCH_NINE) T9Pinyin.toT9(reading) else reading
+        c.switchTextLayoutForTest(nine)
+        val typed = if (nine) T9Pinyin.toT9(reading) else reading
         typed.forEach { c.onKey(Key(it.toString(), output = it.toString())) }
         val index = c.expandedReadings().indexOf(reading)
-        assertTrue("$reading must be lockable on $layout, was ${c.expandedReadings()}", index >= 0)
+        assertTrue("$reading must be lockable on ${if (nine) "9-key" else "26-key"}, was ${c.expandedReadings()}", index >= 0)
         c.onPickReadingIndex(index)
         c.onPickReadingIndex(c.expandedReadings().indexOf(reading))
-        assertTrue("$layout $reading must open the drill grid", c.drilledSyllableForTest() >= 0)
+        assertTrue("${if (nine) "9-key" else "26-key"} $reading must open the drill grid", c.drilledSyllableForTest() >= 0)
         return c.candidateWords()
     }
 
     private fun bothKeyboards(reading: String): List<Pair<String, List<String>>> {
-        val nine = drilled(KeyAction.SWITCH_NINE, reading)
-        val alpha = drilled(KeyAction.SWITCH_ALPHA, reading)
+        val nine = drilled(nine = true, reading)
+        val alpha = drilled(nine = false, reading)
         assertEquals("both keyboards must drill the same $reading grid", alpha, nine)
         return listOf("9-key" to nine, "26-key" to alpha)
     }

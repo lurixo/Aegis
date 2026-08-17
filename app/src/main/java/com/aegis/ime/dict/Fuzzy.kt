@@ -32,8 +32,6 @@ object Fuzzy {
         Rule("k_g", "k", "g", initial = true),
     )
 
-    private val ALL_KEYS: Set<String> = RULES.mapTo(LinkedHashSet()) { it.key }
-
     private val FINAL_KEYS: Set<String> = RULES.filter { !it.initial }.mapTo(LinkedHashSet()) { it.key }
 
     fun prefKey(ruleKey: String): String = "fuzzy_$ruleKey"

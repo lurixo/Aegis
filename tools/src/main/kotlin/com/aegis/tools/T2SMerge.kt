@@ -23,7 +23,7 @@ enum class T2SReject {
     INCOMPATIBLE_TARGET_READING,
 }
 
-data class T2SConversion(val word: String?, val rejection: T2SReject?)
+data class T2SConversion(val word: String?)
 
 class T2SMerge private constructor(
     private val tsChar: Map<String, String>,
@@ -56,7 +56,7 @@ class T2SMerge private constructor(
             if (rejection != null) return reject(rejection)
             phraseHits++
             if (target != word) convertedWords++
-            return T2SConversion(target, null)
+            return T2SConversion(target)
         }
         val targets = ArrayList<String>(source.size)
         var localCharHits = 0L
@@ -92,7 +92,7 @@ class T2SMerge private constructor(
         charHits += localCharHits
         overrideHits += localOverrideHits
         if (targetWord != word) convertedWords++
-        return T2SConversion(targetWord, null)
+        return T2SConversion(targetWord)
     }
 
     private fun validateChangedMappings(
@@ -115,7 +115,7 @@ class T2SMerge private constructor(
             T2SReject.MISSING_TARGET_READING -> rejectedMissingReading++
             T2SReject.INCOMPATIBLE_TARGET_READING -> rejectedIncompatibleReading++
         }
-        return T2SConversion(null, reason)
+        return T2SConversion(null)
     }
 
     private fun codePoints(text: String): List<String> {

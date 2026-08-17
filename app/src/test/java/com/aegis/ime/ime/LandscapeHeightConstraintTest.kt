@@ -122,7 +122,7 @@ class LandscapeHeight388ConstraintTest {
         val picked = mutableListOf<Int>()
         var confirms = 0
         val iv = InputView(ctx).apply {
-            showKeyboard(Layouts.nine(Lang.CN, Layouts.ninePunctuation(), composing = true), false, false, Lang.CN)
+            showKeyboard(Layouts.nine(Layouts.ninePunctuation(), composing = true), false, false, Lang.CN)
             showCandidates(listOf("你", "泥", "逆"), "ni", listOf("ni"))
             showEditBar(true)
             onKey = emitted::add
@@ -207,7 +207,7 @@ class LandscapeHeight388ConstraintTest {
         val editActions = mutableListOf<EditAction>()
         val pickedPanelText = mutableListOf<String>()
         val iv = InputView(ctx).apply {
-            showKeyboard(Layouts.nine(Lang.CN, Layouts.ninePunctuation(), composing = true), false, false, Lang.CN)
+            showKeyboard(Layouts.nine(Layouts.ninePunctuation(), composing = true), false, false, Lang.CN)
             showCandidates((1..40).map { "候选$it" }, "nihao", (1..12).map { "reading$it" })
             showEditBar(true)
             onPanelBackspace = { expandedBackspaces++ }
@@ -303,7 +303,7 @@ class LandscapeHeight388ConstraintTest {
         var picked = 0
         var confirmed = 0
         val iv = InputView(ctx).apply {
-            showKeyboard(Layouts.nine(Lang.CN, Layouts.ninePunctuation(), composing = true), false, false, Lang.CN)
+            showKeyboard(Layouts.nine(Layouts.ninePunctuation(), composing = true), false, false, Lang.CN)
             showCandidates((1..30).map { "候选$it" }, "nihao", (1..8).map { "reading$it" })
             showEditBar(true)
             onKey = emitted::add
@@ -379,7 +379,7 @@ class LandscapeHeight388ConstraintTest {
         var picked = 0
         var confirmed = 0
         val iv = InputView(controller.get()).apply {
-            showKeyboard(Layouts.nine(Lang.CN, Layouts.ninePunctuation(), composing = true), false, false, Lang.CN)
+            showKeyboard(Layouts.nine(Layouts.ninePunctuation(), composing = true), false, false, Lang.CN)
             showCandidates((1..20).map { "候选$it" }, "nihao", listOf("ni", "hao"))
             showEditBar(true)
             onKey = emitted::add
@@ -577,7 +577,7 @@ class MinimumHeight291ConstraintTest {
         assertTrue(iv.tapKeyboardLabelForTest("q"))
         assertTrue(iv.tapKeyboardActionForTest(KeyAction.ENTER))
 
-        iv.showKeyboard(Layouts.nine(Lang.CN, Layouts.ninePunctuation()), false, false, Lang.CN)
+        iv.showKeyboard(Layouts.nine(Layouts.ninePunctuation()), false, false, Lang.CN)
         layoutAtMost(iv, 640, 291)
         assertEquals(291, iv.measuredHeight)
         assertEquals(291, iv.dockSurfaceBottomPx())
@@ -611,7 +611,7 @@ class DensityHeight360ConstraintTest {
 
         for (layout in listOf(
             Layouts.forId(LayoutId.ALPHA, Lang.CN),
-            Layouts.nine(Lang.CN, Layouts.ninePunctuation()),
+            Layouts.nine(Layouts.ninePunctuation()),
         )) {
             iv.showKeyboard(layout, false, false, Lang.CN)
             layoutAtMost(iv, width, height)

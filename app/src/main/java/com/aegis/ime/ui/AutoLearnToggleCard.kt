@@ -53,7 +53,7 @@ internal const val PREF_AUTO_LEARN_ON = "pref_auto_learn_on"
 internal const val AUTO_LEARN_DEFAULT_ON = true
 
 @Composable
-internal fun AutoLearnToggleCard(resumeSignal: Int = 0) {
+internal fun AutoLearnToggleCard(resumeSignal: Int) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
     val userLearn = File(context.filesDir, "userlearn.txt")

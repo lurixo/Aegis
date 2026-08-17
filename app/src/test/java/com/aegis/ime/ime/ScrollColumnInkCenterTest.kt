@@ -101,7 +101,7 @@ class ScrollColumnInkCenterTest {
 
     private fun nineCustom(labels: List<String>): KeyboardView {
         val col = labels.map { Key(it, output = it, action = KeyAction.PICK_READING) }
-        return KeyboardView(ctx).apply { setLayout(Layouts.nine(Lang.CN, col, composing = true), false, false, Lang.CN) }
+        return KeyboardView(ctx).apply { setLayout(Layouts.nine(col, composing = true), false, false, Lang.CN) }
     }
 
     @Test fun discriminating_latin_glyphs_are_ink_centred_on_both_axes() {
@@ -119,7 +119,7 @@ class ScrollColumnInkCenterTest {
     @Test fun pinyin_punctuation_column_marks_are_ink_centred() {
         val labels = Layouts.ninePunctuation().map { it.label }
         val v = KeyboardView(ctx).apply {
-            setLayout(Layouts.nine(Lang.CN, Layouts.ninePunctuation(), composing = false), false, false, Lang.CN)
+            setLayout(Layouts.nine(Layouts.ninePunctuation(), composing = false), false, false, Lang.CN)
         }
         val cells = measureColumn(v, labels, (230 * density).toInt(), 0.75f)
         assertTrue("punctuation cells rendered ink (${cells.size})", cells.size >= 3)

@@ -21,7 +21,7 @@ import org.junit.Test
 
 class LayoutsTest {
 
-    private val nine = Layouts.nine(Lang.CN, Layouts.ninePunctuation())
+    private val nine = Layouts.nine(Layouts.ninePunctuation())
     private val qwerty = Layouts.forId(LayoutId.ALPHA, Lang.CN)
     private val qwertyEn = Layouts.forId(LayoutId.ALPHA, Lang.EN)
 
@@ -153,7 +153,7 @@ class LayoutsTest {
     }
 
     @Test fun nine_composing_top_left_is_the_segment_key() {
-        val composing = Layouts.nine(Lang.CN, Layouts.ninePunctuation(), composing = true)
+        val composing = Layouts.nine(Layouts.ninePunctuation(), composing = true)
         assertTrue(
             "composing 9-key top-left must be the 分词 key",
             composing.cells!!.any { it.key.labelRes == com.aegis.ime.R.string.kbd_split && it.key.action == KeyAction.SEGMENT },
@@ -162,7 +162,7 @@ class LayoutsTest {
 
     @Test fun nine_left_column_is_a_scroll_column_not_fixed_cells() {
         val longList = (1..20).map { Key("r$it", action = KeyAction.PICK_READING) }
-        val l = Layouts.nine(Lang.CN, longList, composing = true)
+        val l = Layouts.nine(longList, composing = true)
         val sc = l.scrollColumn!!
         val cells = l.cells!!
         assertEquals("scroll column carries the full list", longList.map { it.label }, sc.items.map { it.label })
@@ -173,7 +173,7 @@ class LayoutsTest {
     }
 
     @Test fun nine_resting_left_column_is_the_full_punctuation_list() {
-        val sc = Layouts.nine(Lang.CN, Layouts.ninePunctuation()).scrollColumn!!
+        val sc = Layouts.nine(Layouts.ninePunctuation()).scrollColumn!!
         assertEquals(
             listOf("，", "。", "？", "！", "…", "：", "；", "~", ".", "-", "@"),
             sc.items.dropLast(1).map { it.label },
@@ -183,7 +183,7 @@ class LayoutsTest {
     }
 
     @Test fun nine_punctuation_inserts_custom_marks_before_the_自定义_entry() {
-        val sc = Layouts.nine(Lang.CN, Layouts.ninePunctuation(listOf("、", "《"))).scrollColumn!!
+        val sc = Layouts.nine(Layouts.ninePunctuation(listOf("、", "《"))).scrollColumn!!
         assertEquals(
             listOf("，", "。", "？", "！", "…", "：", "；", "~", ".", "-", "@", "、", "《"),
             sc.items.dropLast(1).map { it.label },
@@ -222,9 +222,8 @@ class LayoutsTest {
         assertTrue("operator column is the leftmost strip", np.scrollColumn.x <= 1e-4f)
     }
 
-    @Test fun qwerty_has_no_nine_switch_key_and_pen_opens_symbols() {
+    @Test fun qwerty_pen_opens_symbols() {
         val actions = keysOf(qwerty).map { it.action }
-        assertTrue("9-key switch is via the startup setting, not a key", KeyAction.SWITCH_NINE !in actions)
         assertTrue("pen / symbols entry present", KeyAction.SHOW_SYMBOLS in actions)
         val pen = keysOf(qwerty).first { it.action == KeyAction.SHOW_SYMBOLS }
         assertEquals(com.aegis.ime.R.string.kbd_symbols, pen.labelRes)
@@ -259,7 +258,7 @@ class LayoutsTest {
             rails(nine).map { it.action }.toSet(),
         )
         assertEquals(5, rails(nine).size)
-        val composing = Layouts.nine(Lang.CN, Layouts.ninePunctuation(), composing = true)
+        val composing = Layouts.nine(Layouts.ninePunctuation(), composing = true)
         assertEquals(rails(nine).map { it.action }.toSet(), rails(composing).map { it.action }.toSet())
         val numpad = Layouts.forId(LayoutId.NUMPAD, Lang.CN)
         assertEquals(

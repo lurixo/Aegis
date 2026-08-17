@@ -185,7 +185,6 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
     private var dragFrom = -1
     private var dragCurrent = -1
-    private var dragVisualIndex = -1
     private var dragTouchOffsetY = 0f
     private var dragLastRawY = 0f
     private var dragView: View? = null
@@ -1068,7 +1067,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         if (!expanded) {
             headerFrame.addView(
                 swipeActionStrip(text, category, phrase, header, headerFrame, revealWidthDp),
-                FrameLayout.LayoutParams(dp(revealWidthDp), MP, Gravity.RIGHT),
+                FrameLayout.LayoutParams(
+                    dp(revealWidthDp),
+                    MP,
+                    Gravity.getAbsoluteGravity(Gravity.END, View.LAYOUT_DIRECTION_LTR),
+                ),
             )
         }
         headerFrame.addView(header, FrameLayout.LayoutParams(MP, WC))
@@ -1094,7 +1097,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun swipeActionStrip(text: String, category: String, phrase: Boolean, header: View, frame: View, revealWidthDp: Int): LinearLayout = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         layoutDirection = View.LAYOUT_DIRECTION_LTR
-        gravity = Gravity.CENTER_VERTICAL or Gravity.RIGHT
+        gravity = Gravity.CENTER_VERTICAL or Gravity.END
         fun addSwipeAction(action: View, asset: Any? = null) {
             action.apply {
                 background = rounded(CARD, ImeShapes.toolbarFeedbackRadiusDp)
@@ -1481,7 +1484,6 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun startDrag(index: Int, rawY: Float? = null) {
         dragKind = DragKind.PHRASE
         dragFrom = index; dragCurrent = index
-        dragVisualIndex = index
         dragView = listColumn.getChildAt(index)?.also {
             rawY?.let { y ->
                 val loc = IntArray(2)
@@ -1497,7 +1499,6 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun startCategoryDrag(index: Int, rawY: Float? = null) {
         dragKind = DragKind.CATEGORY
         dragFrom = index; dragCurrent = index
-        dragVisualIndex = index
         dragView = listColumn.getChildAt(index)?.also {
             rawY?.let { y ->
                 val loc = IntArray(2)
@@ -1515,7 +1516,6 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         if (index !in 0 until n) return
         val old = dragCurrent
         dragCurrent = index
-        dragVisualIndex = index
         if (dragView != null && index != old) {
             updateDragPreviewTranslations()
             rawY?.let { updateDraggedTranslation(it) }
@@ -1586,7 +1586,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             if (kind == DragKind.CATEGORY) onReorderCategory(from, to) else onReorderPhrase(currentCategory(), from, to)
         }
         if (reordered && lifted != null && lifted.isAttachedToWindow && Motion.enabled()) {
-            dragFrom = -1; dragCurrent = -1; dragVisualIndex = -1; dragTouchOffsetY = 0f; dragLastRawY = 0f; dragKind = DragKind.NONE
+            dragFrom = -1; dragCurrent = -1; dragTouchOffsetY = 0f; dragLastRawY = 0f; dragKind = DragKind.NONE
             settleLiftedThenReconcile(lifted, settleTarget, from, to)
         } else {
             resetDragState()
@@ -1635,7 +1635,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun resetDragState() {
         resetDragPreviewTranslations()
         dragView?.let { it.translationZ = 0f; it.alpha = 1f; it.translationY = 0f }
-        dragFrom = -1; dragCurrent = -1; dragVisualIndex = -1; dragTouchOffsetY = 0f; dragLastRawY = 0f; dragView = null; dragKind = DragKind.NONE
+        dragFrom = -1; dragCurrent = -1; dragTouchOffsetY = 0f; dragLastRawY = 0f; dragView = null; dragKind = DragKind.NONE
     }
 
     override fun onDetachedFromWindow() {
@@ -1645,7 +1645,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         resetDragPreviewTranslations()
         dragView?.let { it.translationZ = 0f; it.alpha = 1f }
         dragAutoScrollScheduled = false
-        dragFrom = -1; dragCurrent = -1; dragVisualIndex = -1; dragTouchOffsetY = 0f; dragLastRawY = 0f; dragView = null; dragKind = DragKind.NONE
+        dragFrom = -1; dragCurrent = -1; dragTouchOffsetY = 0f; dragLastRawY = 0f; dragView = null; dragKind = DragKind.NONE
         super.onDetachedFromWindow()
     }
 
@@ -1941,7 +1941,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
                     setTypeface(null, android.graphics.Typeface.BOLD)
                 }, ll(WC, MP))
                 countView = TextView(context).apply {
-                    text = context.getString(R.string.clip_selected_count, st.selected.size)
+                    text = context.resources.getQuantityString(
+                        R.plurals.clip_selected_count,
+                        st.selected.size,
+                        st.selected.size,
+                    )
                     gravity = Gravity.CENTER
                     maxLines = 1
                     ellipsize = android.text.TextUtils.TruncateAt.END
@@ -1992,7 +1996,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         applySelectionState = {
             val nowAll = st.isAllSelected(all)
             selectAll.setCompoundDrawablesWithIntrinsicBounds(glyphIcon(if (nowAll) ACCENT else TEXT_DARK, 22) { c, p, x, y, s -> Glyphs.drawRadio(c, p, x, y, s, nowAll) }, null, null, null)
-            countView.text = context.getString(R.string.clip_selected_count, st.selected.size)
+            countView.text = context.resources.getQuantityString(
+                R.plurals.clip_selected_count,
+                st.selected.size,
+                st.selected.size,
+            )
             val nowHasSel = st.hasSelection()
             updateCompactActionEnabled(primaryAction, nowHasSel, primaryClick)
             updateCompactActionEnabled(deleteAction, nowHasSel, deleteClick)
@@ -2545,18 +2553,42 @@ internal fun phraseWriteNotice(context: Context, change: PhraseChange, leftOut: 
 
 private fun phraseWriteHead(context: Context, change: PhraseChange): String = when (change.edit) {
     PhraseEdit.ADD -> when {
-        !change.saved ->
-            context.getString(R.string.clip_phrases_not_saved, change.count.takeIf { it > 0 } ?: change.requested)
-        change.count == 0 -> context.getString(R.string.clip_phrases_exist, change.requested)
+        !change.saved -> {
+            val failed = change.count.takeIf { it > 0 } ?: change.requested
+            context.resources.getQuantityString(R.plurals.clip_phrases_not_saved, failed, failed)
+        }
+        change.count == 0 -> context.resources.getQuantityString(
+            R.plurals.clip_phrases_exist,
+            change.requested,
+            change.requested,
+        )
         change.count == change.requested -> context.getString(R.string.clip_phrases_saved, change.count)
-        else ->
-            context.getString(R.string.clip_phrases_saved_existing, change.count, change.requested - change.count)
+        else -> {
+            val existing = change.requested - change.count
+            context.resources.getQuantityString(
+                R.plurals.clip_phrases_saved_existing,
+                existing,
+                change.count,
+                existing,
+            )
+        }
     }
     PhraseEdit.MOVE -> when {
-        change.saved && change.count < change.requested ->
-            context.getString(R.string.clip_phrases_moved_partial, change.count, change.requested - change.count)
+        change.saved && change.count < change.requested -> {
+            val notMoved = change.requested - change.count
+            context.resources.getQuantityString(
+                R.plurals.clip_phrases_moved_partial,
+                notMoved,
+                change.count,
+                notMoved,
+            )
+        }
         change.saved -> ""
-        change.count > 0 -> context.getString(R.string.clip_phrases_not_moved, change.count)
+        change.count > 0 -> context.resources.getQuantityString(
+            R.plurals.clip_phrases_not_moved,
+            change.count,
+            change.count,
+        )
         else -> context.getString(R.string.clip_phrase_change_not_saved)
     }
     PhraseEdit.TEXT -> if (change.saved) "" else context.getString(R.string.clip_phrase_edit_not_saved)

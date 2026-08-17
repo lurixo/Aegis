@@ -35,7 +35,7 @@ object Layouts {
 
     fun forId(id: LayoutId, lang: Lang, composing: Boolean = false): KeyboardLayout = when (id) {
         LayoutId.ALPHA -> qwerty(lang, composing)
-        LayoutId.NINE -> nine(lang, ninePunctuation())
+        LayoutId.NINE -> nine(ninePunctuation())
         LayoutId.NUMBER -> number()
         LayoutId.SYMBOL -> symbol()
         LayoutId.NUMPAD -> numpad()
@@ -112,7 +112,7 @@ object Layouts {
 
     private fun t9key(letters: String, digit: String) = Key(letters, output = digit)
 
-    fun nine(lang: Lang, left: List<Key>, composing: Boolean = false): KeyboardLayout {
+    fun nine(left: List<Key>, composing: Boolean = false): KeyboardLayout {
         val u = 1f / NINE_TOTAL_U
         val xL = 0f; val wL = NINE_LEFT_U * u
         val x1 = NINE_LEFT_U * u; val x2 = (NINE_LEFT_U + 1f) * u; val x3 = (NINE_LEFT_U + 2f) * u; val wM = NINE_MAIN_U * u

@@ -52,4 +52,46 @@ class ReleaseDictionaryBuildToolTest {
         assertFalse(script.contains("GITHUB_TOKEN"))
         assertFalse(script.contains("GH_TOKEN"))
     }
+
+    @Test
+    fun retiredDictionaryBuildersStayOutsideTheToolDistribution() {
+        val tools = File("../tools/src/main/kotlin/com/aegis/tools")
+        val entrypoint = File(tools, "DictBuilder.kt").readText()
+        val pinyin = File(tools, "Pinyin.kt").readText()
+        val t2s = File(tools, "T2SMerge.kt").readText()
+
+        assertFalse(File(tools, "PrefixIndexBuilder.kt").exists())
+        assertFalse(File(tools, "EnBuilder.kt").exists())
+        assertFalse(File("../tools/wanxiang-coverage.txt").exists())
+        assertFalse(entrypoint.contains("prefix-index"))
+        assertFalse(entrypoint.contains("EnBuilder"))
+        assertFalse(pinyin.contains("fuzzyNormalize"))
+        assertFalse(t2s.contains("val rejection: T2SReject?"))
+    }
+
+    @Test
+    fun readmesRejectTheIntermediatePackAndNameTheFivePublishedComponents() {
+        val english = File("../README.md").readText()
+        val chinese = File("../README.zh-CN.md").readText()
+
+        assertTrue(english.contains("must not be published"))
+        assertTrue(english.contains("pinyin-reachability overlay"))
+        assertTrue(english.contains("`finalize`"))
+        assertTrue(english.contains("five-runtime-component"))
+        assertFalse(english.contains("Upload those generated files"))
+        assertTrue(chinese.contains("绝对不得直接发布"))
+        assertTrue(chinese.contains("读音门禁"))
+        assertTrue(chinese.contains("拼音可达性"))
+        assertTrue(chinese.contains("最终五运行时组件"))
+        listOf(
+            "aegis_dict_full.bin",
+            "aegis_t9_full.bin",
+            "aegis_jianpin_full.bin",
+            "aegis_lm.bin",
+            "aegis_en_full.bin",
+        ).forEach { component ->
+            assertTrue("English README missing $component", english.contains(component))
+            assertTrue("Chinese README missing $component", chinese.contains(component))
+        }
+    }
 }

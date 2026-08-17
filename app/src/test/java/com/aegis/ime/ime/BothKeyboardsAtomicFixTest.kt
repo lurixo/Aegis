@@ -50,14 +50,14 @@ class BothKeyboardsAtomicFixTest {
 
     private fun nineKeyLocked(readings: List<String>): List<String> {
         val c = controller()
-        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         for (r in readings) { c.type(t9(r)); c.pick(r) }
         return c.candidateWords()
     }
 
     private fun nineKeyPartialLocked(locked: String, activeTail: String): Pair<String, List<String>> {
         val c = controller()
-        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         c.type(t9(locked)); c.pick(locked)
         c.type(t9(activeTail))
         return c.preeditForTest() to c.candidateWords()
@@ -65,7 +65,7 @@ class BothKeyboardsAtomicFixTest {
 
     private fun alphaSeparated(readings: List<String>): List<String> {
         val c = controller()
-        c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         readings.forEachIndexed { i, r -> if (i > 0) c.onKey(Key("'", output = "'")); c.type(r) }
         return c.candidateWords()
     }
@@ -91,7 +91,7 @@ class BothKeyboardsAtomicFixTest {
 
     private fun alphaDrilled(reading: String): List<String> {
         val c = controller()
-        c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         c.type(reading)
         c.onPickReadingIndex(0)
         return c.candidateWords()

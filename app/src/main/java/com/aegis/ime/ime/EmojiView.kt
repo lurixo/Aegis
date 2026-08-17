@@ -91,7 +91,6 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
             Gravity.CENTER_HORIZONTAL or Gravity.TOP,
         ).apply { topMargin = dp(10) })
     }
-    private var variantBase = ""
     private var variantGenderForm = ""
     private var variantOwnsPointer = false
     private var locked = false
@@ -336,7 +335,6 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
 
 
     private fun openVariants(base: String) {
-        variantBase = base
         variantGenderForm = base
         styleVariantCard()
         buildGenderRow(base)

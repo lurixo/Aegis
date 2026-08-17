@@ -82,7 +82,7 @@ class StagedFirstScreenKeyboardTest {
 
     private fun alphaLocked(readings: List<String>, engine: CandidateEngine = realEngine()): List<String> {
         val c = controller(engine)
-        c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         type(c, readings.joinToString(""))
         readings.forEach { pick(c, it) }
         assertEquals("every reading is locked", readings.joinToString("'"), c.preeditForTest())
@@ -108,7 +108,7 @@ class StagedFirstScreenKeyboardTest {
 
     private fun nineKeyLocked(readings: List<String>, engine: CandidateEngine = realEngine()): List<String> {
         val c = controller(engine)
-        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         type(c, readings.joinToString("") { T9Pinyin.toT9(it) })
         readings.forEach { pick(c, it) }
         assertEquals("every reading is locked", readings.joinToString("'"), c.preeditForTest())
@@ -117,7 +117,7 @@ class StagedFirstScreenKeyboardTest {
 
     private fun alphaSeparated(readings: List<String>): List<String> {
         val c = controller(realEngine())
-        c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         readings.forEachIndexed { index, reading ->
             if (index > 0) c.onKey(Key("'", output = "'"))
             type(c, reading)

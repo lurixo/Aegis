@@ -378,6 +378,8 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
         iconOnStart: Boolean = false,
         repeatable: Boolean = false,
     ): TextView = object : TextView(context) {
+        private val textBounds = Rect()
+
         override fun onTouchEvent(event: MotionEvent): Boolean {
             if (!repeatable) return super.onTouchEvent(event)
             if (backspaceTouch(this, event)) performClick()
@@ -397,7 +399,6 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
                 setTextSize(TypedValue.COMPLEX_UNIT_PX, fitted)
             }
             if (iconOnStart) {
-                val textBounds = Rect()
                 paint.getTextBounds(label, 0, label.length, textBounds)
                 val textWidth = paint.measureText(label)
                 val slack = MeasureSpec.getSize(widthMeasureSpec) -

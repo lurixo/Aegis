@@ -4,7 +4,6 @@
     <string name="ime_label">Aegis IME</string>
     <string name="subtype_zh">Aegis Chinese</string>
     <string name="subtype_en">Aegis English</string>
-    <string name="phrase_manager_title">Phrase Manager</string>
 
     <string name="setup_title">Aegis IME</string>
     <string name="setup_summary">Chinese / English input method. Self-built Pinyin engine (full Pinyin and T9), fuzzy Pinyin, abbreviated Pinyin, mixed Chinese/English input, offline self-learning, and optional Wanxiang model enhancement. The Chinese dictionary is downloaded after install; once installed, all input runs offline.</string>
@@ -126,7 +125,6 @@
     <string name="layout_en">English 26-key</string>
     <string name="layout_panel_title">Keyboard layout</string>
 
-    <string name="user_dict_title">Learning dictionary</string>
     <string name="user_dict_description">Aegis learns your frequent words and next-word pairs offline and stores them as the learning dictionary on this device. This is separate from the downloaded main dictionary: import/overwrite here only changes the learning dictionary and never changes the main dictionary. Imports take effect immediately.</string>
     <string name="user_dict_default_path_format">Default dictionary: %1$s (app-private directory, hidden from file managers; use Export to copy it out. Default file name: aegis-userdb.txt).</string>
     <string name="user_dict_export_button">Export learning dictionary</string>
@@ -183,7 +181,10 @@
     <string name="user_dict_select_cancel_button">Cancel</string>
     <string name="user_dict_delete_selected_button">Delete selected</string>
     <string name="user_dict_batch_delete_dialog_title">Delete selected words</string>
-    <string name="user_dict_batch_delete_dialog_body">This deletes the %1$d selected word(s) from this device. This cannot be undone.</string>
+    <plurals name="user_dict_batch_delete_dialog_body">
+        <item quantity="one">This deletes the %1$d selected word from this device. This cannot be undone.</item>
+        <item quantity="other">This deletes the %1$d selected words from this device. This cannot be undone.</item>
+    </plurals>
     <string name="user_dict_toast_batch_deleted">Selected words deleted</string>
     <string name="auto_learn_title">Auto learning</string>
     <string name="auto_learn_description">Learn the words you assemble character by character and offer them as candidates. A word is kept once you have assembled it three times; typing it again does not add another entry. Off stops new learning and keeps learned words out of the candidate bar; what was learned already is kept until you clear it.</string>
@@ -394,7 +395,10 @@
     <string name="clip_select_all">Select all</string>
     <string name="clip_edit_phrases">Batch phrases</string>
     <string name="clip_edit_clipboard">Batch clipboard</string>
-    <string name="clip_selected_count">%1$d selected</string>
+    <plurals name="clip_selected_count">
+        <item quantity="one">%1$d selected</item>
+        <item quantity="other">%1$d selected</item>
+    </plurals>
     <string name="clip_move_to_category">Move to category</string>
     <string name="clip_no_other_categories">No other categories</string>
     <string name="clip_delete_category">Delete category</string>
@@ -425,11 +429,26 @@
     <string name="clip_entry_unreadable_body">This clip is still on this device but could not be read</string>
     <string name="clip_entries_unreadable_count">%1$d of the selected clips could not be read and were left out</string>
     <string name="clip_phrases_saved">Saved %1$d to your phrases</string>
-    <string name="clip_phrases_saved_existing">Saved %1$d, %2$d were already in this category</string>
-    <string name="clip_phrases_exist">All %1$d are already in this category</string>
-    <string name="clip_phrases_not_saved">%1$d could not be written to your saved phrases</string>
-    <string name="clip_phrases_moved_partial">Moved %1$d, %2$d not moved</string>
-    <string name="clip_phrases_not_moved">%1$d were moved but could not be written to your saved phrases, so they will come back</string>
+    <plurals name="clip_phrases_saved_existing">
+        <item quantity="one">Saved %1$d; %2$d phrase was already in this category</item>
+        <item quantity="other">Saved %1$d; %2$d phrases were already in this category</item>
+    </plurals>
+    <plurals name="clip_phrases_exist">
+        <item quantity="one">%1$d phrase is already in this category</item>
+        <item quantity="other">All %1$d phrases are already in this category</item>
+    </plurals>
+    <plurals name="clip_phrases_not_saved">
+        <item quantity="one">%1$d phrase could not be written to your saved phrases</item>
+        <item quantity="other">%1$d phrases could not be written to your saved phrases</item>
+    </plurals>
+    <plurals name="clip_phrases_moved_partial">
+        <item quantity="one">Moved %1$d; %2$d phrase was not moved</item>
+        <item quantity="other">Moved %1$d; %2$d phrases were not moved</item>
+    </plurals>
+    <plurals name="clip_phrases_not_moved">
+        <item quantity="one">1 phrase was moved but could not be written to your saved phrases, so it will come back</item>
+        <item quantity="other">%1$d phrases were moved but could not be written to your saved phrases, so they will come back</item>
+    </plurals>
     <string name="clip_category_not_saved">This category could not be written to your saved phrases, so it will come back</string>
     <string name="clip_phrase_edit_not_saved">This change was not saved to your phrases</string>
 </resources>

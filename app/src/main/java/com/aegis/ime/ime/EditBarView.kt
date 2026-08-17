@@ -102,7 +102,7 @@ class EditBarView(context: Context) : LinearLayout(context) {
     fun setTitle(t: String) { title.text = t }
 
     fun setText(t: String) {
-        field.text = "$t▏"
+        field.text = android.text.SpannableStringBuilder(t).append('▏')
         field.post {
             val l = field.layout ?: return@post
             val overflow = l.height - (field.height - field.paddingTop - field.paddingBottom)
@@ -110,6 +110,5 @@ class EditBarView(context: Context) : LinearLayout(context) {
         }
     }
 
-    internal fun cancelButtonForTest(): TextView = cancel
     internal fun confirmButtonForTest(): TextView = confirm
 }

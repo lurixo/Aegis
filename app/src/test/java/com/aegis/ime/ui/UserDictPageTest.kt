@@ -388,7 +388,9 @@ class UserDictPageTest {
         compose.onNodeWithTag("user_dict_select_all").performClick()
         compose.onNodeWithTag("user_dict_delete_selected").performClick()
         compose.waitForIdle()
-        compose.onNodeWithText(ctx.getString(R.string.user_dict_batch_delete_dialog_body, 3)).assertExists()
+        compose.onNodeWithText(
+            ctx.resources.getQuantityString(R.plurals.user_dict_batch_delete_dialog_body, 3, 3),
+        ).assertExists()
         assertEquals("nothing is deleted before the confirmation", 2, UserDictEdit.list(db).size)
         assertEquals("nothing is deleted before the confirmation", 1, UserLearnEdit.list(learn).size)
 
@@ -421,7 +423,9 @@ class UserDictPageTest {
 
         compose.onNodeWithTag("user_dict_delete_selected").performClick()
         compose.waitForIdle()
-        compose.onNodeWithText(ctx.getString(R.string.user_dict_batch_delete_dialog_body, 1)).assertExists()
+        compose.onNodeWithText(
+            ctx.resources.getQuantityString(R.plurals.user_dict_batch_delete_dialog_body, 1, 1),
+        ).assertExists()
         compose.onNodeWithTag("user_dict_batch_delete_confirm").performClick()
         assertEquals(s(R.string.user_dict_toast_batch_deleted), reported())
 
@@ -453,7 +457,9 @@ class UserDictPageTest {
 
         compose.onNodeWithTag("user_dict_delete_selected").performClick()
         compose.waitForIdle()
-        compose.onNodeWithText(ctx.getString(R.string.user_dict_batch_delete_dialog_body, 3)).assertExists()
+        compose.onNodeWithText(
+            ctx.resources.getQuantityString(R.plurals.user_dict_batch_delete_dialog_body, 3, 3),
+        ).assertExists()
     }
 
     @Test fun changing_the_search_term_drops_every_tick_including_the_rows_it_hides() {
@@ -484,7 +490,9 @@ class UserDictPageTest {
         compose.onNodeWithText(row("测试", "ceshi")).performClick()
         compose.onNodeWithTag("user_dict_delete_selected").performClick()
         compose.waitForIdle()
-        compose.onNodeWithText(ctx.getString(R.string.user_dict_batch_delete_dialog_body, 1)).assertExists()
+        compose.onNodeWithText(
+            ctx.resources.getQuantityString(R.plurals.user_dict_batch_delete_dialog_body, 1, 1),
+        ).assertExists()
         compose.onNodeWithTag("user_dict_batch_delete_confirm").performClick()
         assertEquals(s(R.string.user_dict_toast_batch_deleted), reported())
 
@@ -516,7 +524,9 @@ class UserDictPageTest {
 
         compose.onNodeWithTag("user_dict_delete_selected").performClick()
         compose.waitForIdle()
-        compose.onNodeWithText(ctx.getString(R.string.user_dict_batch_delete_dialog_body, 1)).assertExists()
+        compose.onNodeWithText(
+            ctx.resources.getQuantityString(R.plurals.user_dict_batch_delete_dialog_body, 1, 1),
+        ).assertExists()
         compose.onNodeWithTag("user_dict_batch_delete_confirm").performClick()
         assertEquals(s(R.string.user_dict_toast_batch_deleted), reported())
 
@@ -540,7 +550,9 @@ class UserDictPageTest {
 
         compose.onNodeWithTag("user_dict_delete_selected").performClick()
         compose.waitForIdle()
-        compose.onNodeWithText(ctx.getString(R.string.user_dict_batch_delete_dialog_body, 2)).assertExists()
+        compose.onNodeWithText(
+            ctx.resources.getQuantityString(R.plurals.user_dict_batch_delete_dialog_body, 2, 2),
+        ).assertExists()
         compose.onNodeWithTag("user_dict_batch_delete_confirm").performClick()
         assertEquals(s(R.string.user_dict_toast_batch_deleted), reported())
 
@@ -565,7 +577,9 @@ class UserDictPageTest {
         ShadowToast.reset()
         compose.onNodeWithTag("user_dict_delete_selected").performClick()
         compose.waitForIdle()
-        compose.onNodeWithText(ctx.getString(R.string.user_dict_batch_delete_dialog_body, 2)).assertExists()
+        compose.onNodeWithText(
+            ctx.resources.getQuantityString(R.plurals.user_dict_batch_delete_dialog_body, 2, 2),
+        ).assertExists()
         compose.onNodeWithTag("user_dict_batch_delete_confirm").performClick()
 
         assertEquals(s(R.string.user_dict_toast_write_failed), reported())

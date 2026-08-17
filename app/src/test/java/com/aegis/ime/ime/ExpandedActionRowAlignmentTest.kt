@@ -176,7 +176,7 @@ class ExpandedActionRowAlignmentTest {
         activity.setContentView(root)
         val readout = listOf("ni", "nu", "ne").map { Key(it, output = it, action = KeyAction.PICK_READING) }
         val layout =
-            if (nine) Layouts.nine(Lang.CN, readout, composing = true)
+            if (nine) Layouts.nine(readout, composing = true)
             else Layouts.forId(LayoutId.ALPHA, Lang.CN)
         iv.showKeyboard(layout, false, false, Lang.CN)
         iv.showCandidates(List(60) { "候选$it" }, "ni'hao", listOf("ni", "hao"), 0)

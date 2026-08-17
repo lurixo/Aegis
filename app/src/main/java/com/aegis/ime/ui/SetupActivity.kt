@@ -47,7 +47,7 @@ import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -489,7 +489,7 @@ private fun SetupStepButton(
     label: String,
     labelBlockWidthPx: Int,
     labelTag: String,
-    modifier: Modifier = Modifier,
+    modifier: Modifier,
     onClick: () -> Unit,
 ) {
     val density = LocalDensity.current
@@ -530,7 +530,7 @@ internal fun Modifier.settingsScrollInsets(
 @Composable
 internal fun settingsTopInset(): WindowInsets {
     val density = LocalDensity.current
-    val liveTop = WindowInsets.statusBars.union(WindowInsets.displayCutout).getTop(density)
+    val liveTop = WindowInsets.systemBars.union(WindowInsets.displayCutout).getTop(density)
     val view = LocalView.current
     val rootTop = rememberRootTopInsetPx(view)
     val context = LocalContext.current
@@ -572,13 +572,13 @@ private fun rememberRootTopInsetPx(view: View): Int? {
 
 private fun rootTopInsetPx(view: View): Int? {
     val insets = ViewCompat.getRootWindowInsets(view) ?: return null
-    val types = WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.displayCutout()
+    val types = WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
     return insets.getInsets(types).top
 }
 
 private fun synchronousTopInsetPx(context: Context): Int {
     val wm = context.getSystemService(WindowManager::class.java) ?: return 0
-    val types = AndroidWindowInsets.Type.statusBars() or AndroidWindowInsets.Type.displayCutout()
+    val types = AndroidWindowInsets.Type.systemBars() or AndroidWindowInsets.Type.displayCutout()
     val currentMetrics = wm.currentWindowMetrics
     val currentInsets = currentMetrics.windowInsets
     val visibleTop = currentInsets.getInsets(types).top
@@ -594,7 +594,6 @@ private fun synchronousTopInsetPx(context: Context): Int {
         visibleTop = visibleTop,
         ignoringVisibilityTop = ignoringVisibilityTop,
         maximumIgnoringVisibilityTop = maximumIgnoringVisibilityTop,
-        statusBarHeightTop = context.statusBarHeightPx(),
         isAttachedToDisplayTop = isAttachedToDisplayTop,
     )
 }
@@ -603,19 +602,13 @@ internal fun synchronousTopInsetPx(
     visibleTop: Int,
     ignoringVisibilityTop: Int,
     maximumIgnoringVisibilityTop: Int,
-    statusBarHeightTop: Int,
     isAttachedToDisplayTop: Boolean,
 ): Int = when {
     visibleTop > 0 -> visibleTop
     ignoringVisibilityTop > 0 -> ignoringVisibilityTop
     !isAttachedToDisplayTop -> 0
     maximumIgnoringVisibilityTop > 0 -> maximumIgnoringVisibilityTop
-    else -> statusBarHeightTop.coerceAtLeast(0)
-}
-
-private fun Context.statusBarHeightPx(): Int {
-    val id = resources.getIdentifier("status_bar_height", "dimen", "android")
-    return if (id != 0) resources.getDimensionPixelSize(id) else 0
+    else -> 0
 }
 
 private val IME_SHOW_RETRY_DELAYS_MS = longArrayOf(

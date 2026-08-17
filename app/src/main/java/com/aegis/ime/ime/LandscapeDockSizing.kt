@@ -72,7 +72,7 @@ internal object LandscapeDockSizing {
         density: Float,
         rowCount: Int,
         preferredKeyboardHeight: Int,
-        fractionalRows: Boolean = false,
+        fractionalRows: Boolean,
         editBarVisible: Boolean,
         navBottom: Int,
     ): HeightSpec {
@@ -152,7 +152,7 @@ internal object LandscapeDockSizing {
         keyboardHeight: Int,
         rowCount: Int,
         density: Float,
-        fractionalRows: Boolean = false,
+        fractionalRows: Boolean,
     ): Float {
         val height = keyboardHeight.coerceAtLeast(0).toFloat()
         val rows = rowCount.coerceAtLeast(1)

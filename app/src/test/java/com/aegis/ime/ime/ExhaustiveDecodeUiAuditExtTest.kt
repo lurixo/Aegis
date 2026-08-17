@@ -132,7 +132,7 @@ class ExhaustiveDecodeUiAuditExtTest {
         val classified = ArrayList<String>()
         for (s1 in pool) for (s2 in pool) {
             val c = controller()
-            c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+            c.switchTextLayoutForTest(nine = true)
             type(c, T9Pinyin.toT9(s1))
             if (s1 !in c.expandedReadings()) { fails.add("$s1+$s2\toption-S1\t${c.expandedReadings().take(8)}"); continue }
             pick(c, s1)
@@ -192,7 +192,7 @@ class ExhaustiveDecodeUiAuditExtTest {
         val fails = ArrayList<String>()
         for ((s1, s2) in cases.distinct()) {
             val c = controller()
-            c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+            c.switchTextLayoutForTest(nine = false)
             type(c, s1 + s2)
             val firstReadings = c.expandedReadings()
             val expectedFirstReadings = T9Pinyin.leftColumnLetterReadings(s1 + s2, 24)

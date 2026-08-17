@@ -161,7 +161,7 @@ class MathOperatorAvailabilityTest {
     }
 
     @Test fun both_keyboards_reach_a_numpad_that_keeps_one_key_per_default_operator() {
-        for (base in listOf(KeyAction.SWITCH_NINE, KeyAction.SWITCH_ALPHA)) {
+        for (nine in listOf(true, false)) {
             clearStores()
             val (service, controller, view) = startedService()
             val panel = openOperatorPanel(service)
@@ -169,11 +169,12 @@ class MathOperatorAvailabilityTest {
             panel.refresh()
             requireNotNull(panel.paletteChipForTest("×")).performClick()
 
-            controller.onKey(Key("", action = base))
+            controller.switchTextLayoutForTest(nine)
             controller.onKey(Key("", action = KeyAction.SWITCH_NUMPAD))
             assertEquals(LayoutId.NUMPAD, controller.activeLayoutId())
 
             val rendered = renderedNumpadOperators(view)
+            val base = if (nine) "9-key" else "26-key"
             assertTrue("$base 必须把自定义运算符接到小键盘: $rendered", "≠" in rendered)
             for (builtIn in Layouts.defaultNumpadOperators) {
                 assertEquals("$base 下 $builtIn 只出现一次: $rendered", 1, rendered.count { it == builtIn })

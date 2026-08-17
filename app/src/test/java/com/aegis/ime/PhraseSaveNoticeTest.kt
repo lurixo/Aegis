@@ -156,6 +156,9 @@ class PhraseSaveNoticeTest {
 
     private fun label(id: Int, vararg args: Any) = app.getString(id, *args)
 
+    private fun quantityLabel(id: Int, quantity: Int, vararg args: Any) =
+        app.resources.getQuantityString(id, quantity, *args)
+
     @Test fun a_phrase_the_panel_could_not_save_is_not_reported_as_one_that_already_exists() {
         sealPhrases()
         val service = started()
@@ -166,9 +169,9 @@ class PhraseSaveNoticeTest {
 
         assertTrue(
             "a phrase that was never written must not look to the user like one that was already there",
-            label(R.string.clip_phrases_not_saved, 1) in labels(panel),
+            quantityLabel(R.plurals.clip_phrases_not_saved, 1, 1) in labels(panel),
         )
-        assertFalse(label(R.string.clip_phrases_exist, 1) in labels(panel))
+        assertFalse(quantityLabel(R.plurals.clip_phrases_exist, 1, 1) in labels(panel))
     }
 
     @Test fun a_phrase_the_panel_really_did_save_is_reported_only_once_the_write_landed() {
@@ -196,7 +199,10 @@ class PhraseSaveNoticeTest {
         panel.onSaveAsPhrasesTo(ClipboardStore.DEFAULT_CATEGORY_ID, listOf("要存的常用语"))
         settle(service)
 
-        assertEquals(label(R.string.clip_phrases_exist, 1), ShadowToast.getTextOfLatestToast())
+        assertEquals(
+            quantityLabel(R.plurals.clip_phrases_exist, 1, 1),
+            ShadowToast.getTextOfLatestToast(),
+        )
     }
 
     @Test fun a_batch_the_panel_only_partly_saved_says_how_much_of_it_was_saved() {
@@ -210,7 +216,7 @@ class PhraseSaveNoticeTest {
 
         assertEquals(
             "the clip that was already in the category is not one the write left out",
-            label(R.string.clip_phrases_saved_existing, 1, 1),
+            quantityLabel(R.plurals.clip_phrases_saved_existing, 1, 1, 1),
             ShadowToast.getTextOfLatestToast(),
         )
     }
@@ -225,7 +231,7 @@ class PhraseSaveNoticeTest {
 
         assertTrue(
             "a phrase that was never written must not look to the user like one that was already there",
-            label(R.string.clip_phrases_not_saved, 1) in labels(panel),
+            quantityLabel(R.plurals.clip_phrases_not_saved, 1, 1) in labels(panel),
         )
     }
 
@@ -240,7 +246,7 @@ class PhraseSaveNoticeTest {
 
             assertTrue(
                 "a phrase that only reached the list must not be reported as one that was saved",
-                label(R.string.clip_phrases_not_saved, 1) in labels(panel),
+                quantityLabel(R.plurals.clip_phrases_not_saved, 1, 1) in labels(panel),
             )
             assertNull(ShadowToast.getTextOfLatestToast())
         } finally {
@@ -267,7 +273,10 @@ class PhraseSaveNoticeTest {
         addInline(service, "手打的常用语")
         settle(service)
 
-        assertEquals(label(R.string.clip_phrases_exist, 1), ShadowToast.getTextOfLatestToast())
+        assertEquals(
+            quantityLabel(R.plurals.clip_phrases_exist, 1, 1),
+            ShadowToast.getTextOfLatestToast(),
+        )
     }
 
     @Test fun a_write_that_came_back_after_the_panel_closed_is_carried_by_the_candidate_bar() {
@@ -285,7 +294,7 @@ class PhraseSaveNoticeTest {
 
             assertEquals(
                 "a failure the panel is no longer there to show must still reach the user",
-                label(R.string.clip_phrases_not_saved, 1),
+                quantityLabel(R.plurals.clip_phrases_not_saved, 1, 1),
                 view.candidateRestoreNoticeForTest(),
             )
         } finally {
@@ -325,7 +334,7 @@ class PhraseSaveNoticeTest {
     @Test fun opening_the_clipboard_panel_again_takes_the_bar_notice_down() {
         val service = started()
         val view = inputView(service)
-        view.showPhraseNotice(label(R.string.clip_phrases_not_saved, 1))
+        view.showPhraseNotice(quantityLabel(R.plurals.clip_phrases_not_saved, 1, 1))
 
         clipboard(service)
 

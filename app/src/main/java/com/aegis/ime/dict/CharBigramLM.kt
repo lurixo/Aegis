@@ -15,7 +15,6 @@
 
 package com.aegis.ime.dict
 
-import android.content.Context
 import java.io.File
 import java.io.InputStream
 import java.io.RandomAccessFile
@@ -189,11 +188,6 @@ class CharBigramLM private constructor(private val buf: ByteBuffer) {
                 val ch = raf.channel
                 CharBigramLM(ch.map(FileChannel.MapMode.READ_ONLY, 0, ch.size()))
             }
-
-        fun fromAssets(context: Context, assetName: String): CharBigramLM {
-            val expected = context.assets.open("$assetName.sha256").bufferedReader().use { it.readText().trim() }
-            return fromAsset(context.filesDir, assetName, expected) { context.assets.open(assetName) }
-        }
 
         @Synchronized
         internal fun fromAsset(

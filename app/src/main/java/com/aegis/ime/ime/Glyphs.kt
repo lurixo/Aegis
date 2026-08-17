@@ -265,17 +265,6 @@ object Glyphs {
         c.drawLine(cx - w, cy + g, cx + w, cy + g, paint)
     }
 
-    fun drawGear(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
-        val rIn = s * 0.5f; val rOut = s * 0.82f
-        c.drawCircle(cx, cy, rIn, paint)
-        for (i in 0 until 8) {
-            val a = Math.toRadians(45.0 * i).toFloat()
-            val ca = kotlin.math.cos(a); val sa = kotlin.math.sin(a)
-            c.drawLine(cx + rIn * ca, cy + rIn * sa, cx + rOut * ca, cy + rOut * sa, paint)
-        }
-        c.drawCircle(cx, cy, s * 0.2f, paint)
-    }
-
     fun drawTrash(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val w = s * 0.56f; val top = cy - s * 0.46f; val bot = cy + s * 0.8f
         c.drawLine(cx - w, top, cx - w * 0.8f, bot, paint)

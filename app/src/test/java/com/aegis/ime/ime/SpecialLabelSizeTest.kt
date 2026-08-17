@@ -54,7 +54,7 @@ class SpecialLabelSizeTest {
     }
 
     private fun nine(lang: Lang): KeyboardView = KeyboardView(ctx).apply {
-        setLayout(Layouts.nine(lang, Layouts.ninePunctuation()), false, false, lang)
+        setLayout(Layouts.nine(Layouts.ninePunctuation()), false, false, lang)
     }
 
     private fun laidOut(view: KeyboardView): KeyboardView {

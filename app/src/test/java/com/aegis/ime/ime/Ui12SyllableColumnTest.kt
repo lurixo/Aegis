@@ -65,7 +65,7 @@ class Ui12SyllableColumnTest {
     private fun nineWithBuffer(digits: String): Pair<RecordingHost, KeyboardController> {
         val host = RecordingHost()
         val c = KeyboardController(host, empty)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         digits.forEach { c.onKey(out(it.toString())) }
         return host to c
     }
@@ -94,7 +94,7 @@ class Ui12SyllableColumnTest {
         nine.onPickReadingIndex(nine.expandedReadings().indexOf("he"))
         val alphaHost = RecordingHost()
         val alpha = KeyboardController(alphaHost, empty)
-        alpha.onKey(act(KeyAction.SWITCH_ALPHA))
+        alpha.switchTextLayoutForTest(nine = false)
         "nihe".forEach { alpha.onKey(out(it.toString())) }
         alpha.onPickReadingIndex(alpha.expandedReadings().indexOf("ni"))
         alpha.onPickReadingIndex(alpha.expandedReadings().indexOf("he"))
@@ -217,7 +217,7 @@ class Ui12SyllableColumnTest {
     private fun alphaWithBuffer(letters: String): Pair<RecordingHost, KeyboardController> {
         val host = RecordingHost()
         val c = KeyboardController(host, syllabic)
-        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         letters.forEach { c.onKey(out(it.toString())) }
         return host to c
     }
@@ -317,7 +317,7 @@ class Ui12SyllableColumnTest {
     @Test fun nine_key_multi_lock_homophone_choice_advances_to_the_missing_prefix() {
         val host = RecordingHost()
         val c = KeyboardController(host, syllabic)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "64426".forEach { c.onKey(out(it.toString())) }
         c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
         c.onPickReadingIndex(c.expandedReadings().indexOf("hao"))
@@ -379,7 +379,7 @@ class Ui12SyllableColumnTest {
     @Test fun deferred_choices_consume_literal_separator_input_bounds() {
         val host = RecordingHost()
         val c = KeyboardController(host, syllabic)
-        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         "ni'hao".forEach { c.onKey(out(it.toString())) }
         c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
         c.onPickReadingIndex(c.expandedReadings().indexOf("hao"))
@@ -409,7 +409,7 @@ class Ui12SyllableColumnTest {
         iv.onPickCandidate = { i -> c.onPickCandidate(i) }
         iv.onExpandClosed = { c.clearDrill() }
         c.attachView(iv)
-        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         "nihao".forEach { c.onKey(out(it.toString())) }
 
         iv.showExpandedCandidates()
@@ -428,7 +428,7 @@ class Ui12SyllableColumnTest {
         iv.onPickCandidate = { i -> c.onPickCandidate(i) }
         iv.onExpandClosed = { c.clearDrill() }
         c.attachView(iv)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "64".forEach { c.onKey(out(it.toString())) }
         iv.showExpandedCandidates()
 
@@ -545,7 +545,7 @@ class Ui12SyllableColumnTest {
         val learns = mutableListOf<Pair<String?, String>>()
         val host = RecordingHost()
         val c = KeyboardController(host, learningSyllabic(learns))
-        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         "nihao".forEach { c.onKey(out(it.toString())) }
 
         lockAndDrillFirst(c)
@@ -601,7 +601,7 @@ class Ui12SyllableColumnTest {
         iv.onPickCandidate = { i -> c.onPickCandidate(i) }
         iv.onExpandClosed = { c.clearDrill() }
         c.attachView(iv)
-        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         "nihao".forEach { c.onKey(out(it.toString())) }
 
         iv.showExpandedCandidates()
@@ -620,7 +620,7 @@ class Ui12SyllableColumnTest {
 
     @Test fun nine_key_keeps_the_locked_reading_beside_the_next_reading_for_drill() {
         val c = KeyboardController(RecordingHost(), syllabic)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         T9Pinyin.toT9("nihao").forEach { c.onKey(out(it.toString())) }
         c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
 
@@ -647,7 +647,7 @@ class Ui12SyllableColumnTest {
         val eng = realEngine(); assumeTrue("dict assets present", eng != null)
         for (letters in listOf("niniu", "guguo")) {
             val c = KeyboardController(RecordingHost(), eng!!)
-            c.onKey(act(KeyAction.SWITCH_ALPHA))
+            c.switchTextLayoutForTest(nine = false)
             letters.forEach { c.onKey(out(it.toString())) }
             val whole = letters.substring(0, 2)
             val tail = letters.substring(2)
@@ -675,7 +675,7 @@ class Ui12SyllableColumnTest {
         assumeTrue("dict has a meaningful he set", heSet.size > 8)
 
         val c = KeyboardController(RecordingHost(), eng!!)
-        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         "heshui".forEach { c.onKey(out(it.toString())) }
         assertEquals("26-key starts with the first unresolved syllable", "he", c.expandedReadings().first())
 
@@ -692,7 +692,7 @@ class Ui12SyllableColumnTest {
         val engine = eng!!
         val rare = biangChar()
         val alpha = KeyboardController(RecordingHost(), engine)
-        alpha.onKey(act(KeyAction.SWITCH_ALPHA))
+        alpha.switchTextLayoutForTest(nine = false)
         "biang".forEach { alpha.onKey(out(it.toString())) }
 
         assertEquals("26-key exposes biang as the leading selectable reading", "biang", alpha.expandedReadings().first())
@@ -700,7 +700,7 @@ class Ui12SyllableColumnTest {
         assertTrue("26-key biang drill includes the rare character", rare in alpha.candidateWords())
 
         val nine = KeyboardController(RecordingHost(), engine)
-        nine.onKey(act(KeyAction.SWITCH_NINE))
+        nine.switchTextLayoutForTest(nine = true)
         T9Pinyin.toT9("biang").forEach { nine.onKey(out(it.toString())) }
         val readings = nine.expandedReadings()
         val biang = readings.indexOf("biang")
@@ -712,7 +712,7 @@ class Ui12SyllableColumnTest {
     @Test fun real_dict_jiangzhi_expand_and_reset_track_the_current_reading() {
         val eng = realEngine(); assumeTrue("dict assets present", eng != null)
         val c = KeyboardController(RecordingHost(), eng!!)
-        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         "jiangzhi".forEach { c.onKey(out(it.toString())) }
 
         assertEquals("continuous input exposes jiang as the first unresolved syllable", "jiang", c.expandedReadings().first())

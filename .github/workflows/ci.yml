@@ -29,14 +29,21 @@ jobs:
     env:
       AEGIS_FULLDICT_DIR: ${{ github.workspace }}/app/src/main/assets
       AEGIS_LOCKED_BASELINE: ${{ github.workspace }}/app/src/test/resources/locked-sequence-7907381b.tsv
+      AEGIS_COVERAGE_DIGEST_BASELINE: ${{ github.workspace }}/app/src/test/resources/coverage-identity-7907381b.tsv
+      AEGIS_ENGLISH: ${{ github.workspace }}/build/test-models/aegis_english.bin
+      AEGIS_GRAM: ${{ github.workspace }}/build/test-model-cache/wanxiang-lts-zh-hans.gram
       AEGIS_AUDIT_FULL: "1"
       AEGIS_AUDIT_HEAVY: ${{ (github.event_name == 'schedule' || github.event.inputs.heavy == 'true') && '1' || '0' }}
+      AEGIS_BOOST_REPORT: "1"
+      AEGIS_BOOST_SMOKE: "1"
     steps:
       - name: Check out the repository
         uses: actions/checkout@v7
 
-      - name: Run the dictionary pack builder tests
-        run: python3 tools/release/test_build_dictionary_pack.py
+      - name: Run the dictionary tooling tests
+        run: |
+          python3 tools/release/test_build_dictionary_pack.py
+          python3 tools/release/test_build_tgh_asset.py
 
       - name: Set up JDK 25
         uses: actions/setup-java@v5
@@ -57,26 +64,65 @@ jobs:
         uses: gradle/actions/setup-gradle@v6.3.0
 
       - name: Resolve the dictionary pack sha256
-        id: dictpack
+        id: models
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          sha256="$(python3 tools/fetch_test_dict.py --print-sha)"
-          if [[ ! "$sha256" =~ ^[0-9a-f]{64}$ ]]; then
-            echo "the dictionary pack sha256 is not a 64-hex digest: '$sha256'" >&2
+          dict_sha256="$(python3 tools/fetch_test_dict.py --print-sha)"
+          grammar_sha256="$(python3 tools/fetch_test_dict.py --print-grammar-sha)"
+          if [[ ! "$dict_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "the dictionary pack sha256 is not a 64-hex digest: '$dict_sha256'" >&2
             exit 1
           fi
-          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+          if [[ ! "$grammar_sha256" =~ ^[0-9a-f]{64}$ ]]; then
+            echo "the grammar sha256 is not a 64-hex digest: '$grammar_sha256'" >&2
+            exit 1
+          fi
+          echo "dict_sha256=$dict_sha256" >> "$GITHUB_OUTPUT"
+          echo "grammar_sha256=$grammar_sha256" >> "$GITHUB_OUTPUT"
 
       - name: Cache the full dictionary pack
         uses: actions/cache@v6
         with:
           path: build/test-dict-cache
-          key: aegis-test-dict-${{ steps.dictpack.outputs.sha256 }}
+          key: aegis-test-dict-${{ steps.models.outputs.dict_sha256 }}
 
-      - name: Fetch the full dictionary pack for the decode tests
-        run: python3 tools/fetch_test_dict.py
+      - name: Cache the real grammar model
+        uses: actions/cache@v6
+        with:
+          path: build/test-model-cache
+          key: aegis-test-grammar-${{ steps.models.outputs.grammar_sha256 }}
 
-      - name: Build, test & lint
-        run: ./gradlew :app:testDebugUnitTest :app:lintDebug assembleDebug --stacktrace
+      - name: Fetch and verify the real test models
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 tools/fetch_test_dict.py --with-grammar
+
+      - name: Check the rare-character criterion
+        run: |
+          python3 tools/release/check_rare_criterion_gate.py \
+            --lm app/src/main/assets/aegis_lm.bin \
+            --authority app/src/main/assets-src/tongyong-guifan-hanzi-8105.tsv \
+            --json build/rare-criterion-gate.json
+
+      - name: Run unit tests with the real models and build debug
+        run: ./gradlew :app:testDebugUnitTest :app:assembleDebug --rerun-tasks --no-build-cache --stacktrace
+
+      - name: Run fresh Android Lint
+        run: ./gradlew :app:lintDebug --rerun-tasks --no-build-cache --stacktrace
+
+      - name: Build release with fresh R8
+        run: ./gradlew :app:assembleRelease --rerun-tasks --no-build-cache --stacktrace
+
+      - name: Verify external models stay out of APKs
+        run: ./gradlew :app:verifyExternalModelsNotPackaged --no-build-cache --stacktrace
+
+      - name: Verify release shrinker reports
+        run: |
+          test -s app/build/outputs/mapping/release/configuration.txt
+          test -s app/build/outputs/mapping/release/mapping.txt
+          test -s app/build/outputs/mapping/release/seeds.txt
+          test -s app/build/outputs/mapping/release/usage.txt
 
       - name: Upload test & lint reports
         if: ${{ !cancelled() }}
@@ -86,5 +132,7 @@ jobs:
           path: |
             app/build/reports/
             app/build/test-results/
+            app/build/outputs/mapping/release/
+            build/rare-criterion-gate.json
           if-no-files-found: ignore
           retention-days: 14

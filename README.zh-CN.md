@@ -163,9 +163,18 @@ tools/release/build_dictionary_pack.py --release-tag dict-latest
 ```
 
 该命令克隆 `amzxyz/rime-wanxiang`（默认取 `wanxiang` 分支，用 `--source-tag` 改为固定到某个
-release tag，或用 `--source-dir` 指定已有的本地目录），用 `tools/DictBuilder` 以 `--min-freq 1`、无每键上限构建 14 张已核验表，并在
-`build/release-dictionary/` 下写出词库包 ZIP、`aegis-build-info.json` 与
-`aegis-dictionary-update.json`。把这些生成文件上传到滚动的 `dict-latest` release，不要上传到带版本号的应用 release。已签入的 `aegis-build-info.json` 记录**它生成时**所依据的那一版词库包的溯源链（来源 tag 与 commit、逐表输入哈希、构建参数、输出 bin 哈希和物理附件 URL）及其尚存的溯源缺口；滚动词库包重新发布时需要重新生成它。在 release 同时携带确切输入哈希、可确定复现的配方以及签名或证明之前，词库包还不是完全可复现的公共供应链产物。
+release tag，或用 `--source-dir` 指定已有的本地目录），用 `tools/DictBuilder` 以 `--min-freq 1`、无每键上限构建 14 张已核验表。它在
+`build/release-dictionary/` 下写出**中间态**词库包 ZIP、`aegis-build-info.json` 与
+`aegis-dictionary-update.json`。该中间包包含三个中文词库与字级语言模型共四个运行时组件，**绝对不得直接发布**。
+
+独立受控的词库工作流先在中间态上应用读音门禁与固定的 GB 18030 拼音可达性
+overlay，核验结果后执行本构建器的 `finalize`。随后，工作流从同一个固定上游 commit
+构建英文表并附加 `aegis_en_full.bin`。只有这份最终五运行时组件 ZIP，以及与它匹配的最终
+build-info 和更新 manifest，才能成为 `dict-latest` 的发布候选；上述命令的原始产物不能上传。五个运行时组件为
+`aegis_dict_full.bin`、`aegis_t9_full.bin`、`aegis_jianpin_full.bin`、`aegis_lm.bin` 和
+`aegis_en_full.bin`。
+
+已签入的 `aegis-build-info.json` 记录产物的溯源链（来源 tag 与 commit、逐表输入哈希、构建参数、组件哈希和物理附件 URL）及其尚存的溯源缺口；每次重新发布滚动词库包时，必须从最终五组件候选重新生成它。在 release 同时携带确切输入哈希、可确定复现的配方以及签名或证明之前，词库包还不是完全可复现的公共供应链产物。
 
 ## 架构
 

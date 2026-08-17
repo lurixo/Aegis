@@ -50,7 +50,7 @@ class KeyboardMistouchTest {
     }
 
     private fun nineView(): KeyboardView = laidOut(KeyboardView(context).apply {
-        setLayout(Layouts.nine(Lang.CN, Layouts.ninePunctuation(), composing = false), false, false, Lang.CN)
+        setLayout(Layouts.nine(Layouts.ninePunctuation(), composing = false), false, false, Lang.CN)
     })
 
     private fun KeyboardView.send(action: Int, x: Float, y: Float, t: Long = 0) =

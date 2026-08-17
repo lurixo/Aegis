@@ -118,7 +118,7 @@ class SecureLayoutPersistenceTest {
     @Test fun secure_restart_clears_composition_and_shift_but_keeps_the_manual_layout() {
         val password = editor(fieldId = 5, inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
         val f = fixture(password)
-        f.controller.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        f.controller.switchTextLayoutForTest(nine = false)
         f.controller.onKey(Key("n", output = "n"))
         f.controller.onKey(Key("i", output = "i"))
         assertEquals(LayoutId.ALPHA, f.controller.activeLayoutId())
@@ -154,7 +154,7 @@ class SecureLayoutPersistenceTest {
         f.service.onStartInputView(next, false)
         assertEquals(LayoutId.NINE, f.controller.activeLayoutId())
 
-        f.controller.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        f.controller.switchTextLayoutForTest(nine = false)
         assertEquals(LayoutId.ALPHA, f.controller.activeLayoutId())
         f.service.onFinishInputView(false)
         f.service.onWindowHidden()

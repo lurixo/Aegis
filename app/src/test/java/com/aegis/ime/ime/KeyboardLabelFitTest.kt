@@ -88,7 +88,7 @@ class KeyboardLabelFitTest {
     }
 
     private fun nineView(lang: Lang, case: LetterCase): KeyboardView = KeyboardView(ctx).apply {
-        setLayout(Layouts.nine(lang, Layouts.ninePunctuation()), false, false, lang)
+        setLayout(Layouts.nine(Layouts.ninePunctuation()), false, false, lang)
         caseMode = case
     }
 

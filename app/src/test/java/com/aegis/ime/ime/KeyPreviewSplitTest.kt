@@ -54,7 +54,7 @@ class KeyPreviewSplitTest {
 
     private fun nineView(composing: Boolean): KeyboardView =
         laidOut(KeyboardView(context).apply {
-            setLayout(Layouts.nine(Lang.CN, Layouts.ninePunctuation(), composing), false, false, Lang.CN)
+            setLayout(Layouts.nine(Layouts.ninePunctuation(), composing), false, false, Lang.CN)
         })
 
     private fun KeyboardView.down(x: Float, y: Float) = dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, x, y, 0))

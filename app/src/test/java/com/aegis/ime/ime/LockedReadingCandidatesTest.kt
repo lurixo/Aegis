@@ -85,7 +85,7 @@ class LockedReadingCandidatesTest {
 
     @Test fun locking_a_left_column_reading_keeps_the_full_candidate_grid() {
         val (iv, c) = attached()
-        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "6433".forEach { c.onKey(out(it.toString())) }
         assertTrue("grid populated before any lock", iv.shownCandidateCount() >= 2)
 
@@ -101,7 +101,7 @@ class LockedReadingCandidatesTest {
     @Test fun a_prefix_word_picked_after_locking_builds_a_prefix_not_a_per_syllable_commit() {
         val host = RecordingHost()
         val (_, c) = attached(host)
-        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "6433".forEach { c.onKey(out(it.toString())) }
         c.onKey(pick("ni"))
 
@@ -117,7 +117,7 @@ class LockedReadingCandidatesTest {
 
     @Test fun the_left_column_keeps_offering_the_next_syllable_after_a_lock() {
         val (_, c) = attached()
-        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "42633".forEach { c.onKey(out(it.toString())) }
         assertTrue("hao offered before any lock", "hao" in c.expandedReadings())
 
@@ -134,7 +134,7 @@ class LockedReadingCandidatesTest {
     @Test fun picking_the_full_sentence_after_locking_commits_everything() {
         val host = RecordingHost()
         val (_, c) = attached(host)
-        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "6433".forEach { c.onKey(out(it.toString())) }
         c.onKey(pick("ni"))
         val full = c.candidateWords().indexOf("你的")
@@ -144,18 +144,18 @@ class LockedReadingCandidatesTest {
     }
 
     @Test fun ni_shuo_de_dui_uses_the_three_row_phrase_policy_in_every_layout_and_lock_state() {
-        data class Case(val layout: KeyAction, val input: String, val lockFirstReading: Boolean)
+        data class Case(val nine: Boolean, val input: String, val lockFirstReading: Boolean)
         val cases = listOf(
-            Case(KeyAction.SWITCH_NINE, "64748633384", lockFirstReading = false),
-            Case(KeyAction.SWITCH_NINE, "64748633384", lockFirstReading = true),
-            Case(KeyAction.SWITCH_ALPHA, "nishuodedui", lockFirstReading = false),
-            Case(KeyAction.SWITCH_ALPHA, "nishuodedui", lockFirstReading = true),
+            Case(nine = true, "64748633384", lockFirstReading = false),
+            Case(nine = true, "64748633384", lockFirstReading = true),
+            Case(nine = false, "nishuodedui", lockFirstReading = false),
+            Case(nine = false, "nishuodedui", lockFirstReading = true),
         )
-        for ((layout, input, lockFirstReading) in cases) {
+        for ((nine, input, lockFirstReading) in cases) {
             val iv = InputView(ctx)
             val c = KeyboardController(RecordingHost(), rowRich)
             c.attachView(iv)
-            c.onKey(Key("", action = layout))
+            c.switchTextLayoutForTest(nine)
             input.forEach { c.onKey(out(it.toString())) }
             if (lockFirstReading) c.onKey(pick("ni"))
             iv.showExpandedCandidates()
@@ -163,7 +163,7 @@ class LockedReadingCandidatesTest {
             val source = c.candidateWords()
             val grid = iv.expandedGridForTest()
             val rendered = grid.renderedCandidateTextsForTest()
-            val caseLabel = "$layout lock=$lockFirstReading"
+            val caseLabel = "${if (nine) "9-key" else "26-key"} lock=$lockFirstReading"
             assertTrue("the controller keeps the complete list for $caseLabel", source.size > rendered.size)
             assertEquals(
                 "every single item stays reachable for $caseLabel",

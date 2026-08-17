@@ -56,6 +56,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
@@ -540,7 +541,15 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
         AegisAlertDialog(
             onDismissRequest = { pendingBatchDelete = false },
             title = { Text(stringResource(R.string.user_dict_batch_delete_dialog_title)) },
-            text = { Text(stringResource(R.string.user_dict_batch_delete_dialog_body, chosenCount)) },
+            text = {
+                Text(
+                    pluralStringResource(
+                        R.plurals.user_dict_batch_delete_dialog_body,
+                        chosenCount,
+                        chosenCount,
+                    ),
+                )
+            },
             confirmButton = {
                 TextButton(
                     onClick = { deleteSelected(); pendingBatchDelete = false },

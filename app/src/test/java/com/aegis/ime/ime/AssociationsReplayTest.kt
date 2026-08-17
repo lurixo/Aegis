@@ -91,7 +91,7 @@ class AssociationsReplayTest {
             val syllables = T9Pinyin.segmentLetters(key)
             assertTrue("'$key' must segment (validity is asserted in the data test)", syllables != null)
             val c = KeyboardController(RecordingHost(), EmptyEngine())
-            c.onKey(act(KeyAction.SWITCH_NINE))
+            c.switchTextLayoutForTest(nine = true)
             T9Pinyin.toT9(key).forEach { c.onKey(out(it.toString())) }
             for (syl in syllables!!) {
                 val idx = c.expandedReadings().indexOfLast { it == syl }

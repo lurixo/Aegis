@@ -1097,5 +1097,313 @@ class PackEntryRoutingTest(unittest.TestCase):
             )
 
 
+class ExternalEnglishExtractionTest(unittest.TestCase):
+    ENTRY_FOR_RUNTIME = {
+        "aegis_dict.bin": "aegis_dict_full.bin",
+        "aegis_t9.bin": "aegis_t9_full.bin",
+        "aegis_jianpin.bin": "aegis_jianpin_full.bin",
+        ftd.LM_NAME: ftd.LM_NAME,
+        ftd.EN_NAME: ftd.EN_PACK_NAME,
+    }
+
+    def write_pack(self, path, omit=(), extra=(), small=()):
+        with zipfile.ZipFile(path, "w") as archive:
+            for runtime, entry in self.ENTRY_FOR_RUNTIME.items():
+                if runtime not in omit:
+                    size = 32 if runtime in small else 2048
+                    archive.writestr(entry, runtime.encode("ascii").ljust(size, b"x"))
+            for entry, payload in extra:
+                archive.writestr(entry, payload)
+
+    def destinations(self, root):
+        assets = root / "assets"
+        english = root / "models" / ftd.EN_NAME
+        return assets, english
+
+    def seed_destinations(self, assets, english):
+        assets.mkdir(parents=True)
+        english.parent.mkdir(parents=True)
+        for name in ftd.RUNTIME_BINS:
+            (assets / name).write_bytes(b"existing-" + name.encode("ascii"))
+        english.write_bytes(b"existing-english")
+
+    def assert_seed_destinations_unchanged(self, assets, english):
+        for name in ftd.RUNTIME_BINS:
+            self.assertEqual(b"existing-" + name.encode("ascii"), (assets / name).read_bytes())
+            self.assertFalse((assets / (name + ".part")).exists())
+        self.assertEqual(b"existing-english", english.read_bytes())
+        self.assertFalse(english.with_name(english.name + ".part").exists())
+
+    def test_real_english_is_extracted_outside_app_assets(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "pack.zip"
+            assets, english = self.destinations(root)
+            self.write_pack(archive)
+
+            produced = ftd.extract_pack(archive, assets, english)
+
+            self.assertEqual(set(ftd.TEST_BINS), set(produced))
+            self.assertEqual(
+                sorted(ftd.RUNTIME_BINS), sorted(item.name for item in assets.iterdir())
+            )
+            self.assertNotIn(ftd.EN_NAME, [item.name for item in assets.iterdir()])
+            self.assertEqual(
+                ftd.EN_NAME.encode("ascii").ljust(2048, b"x"), english.read_bytes()
+            )
+            self.assertEqual(english, produced[ftd.EN_NAME][0])
+
+    def test_missing_english_fails_before_replacing_existing_tables(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "pack.zip"
+            assets, english = self.destinations(root)
+            self.seed_destinations(assets, english)
+            self.write_pack(archive, omit={ftd.EN_NAME})
+
+            with self.assertRaisesRegex(SystemExit, "missing expected tables: aegis_english.bin"):
+                ftd.extract_pack(archive, assets, english)
+
+            self.assert_seed_destinations_unchanged(assets, english)
+
+    def test_duplicate_runtime_route_fails_before_replacing_existing_tables(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "pack.zip"
+            assets, english = self.destinations(root)
+            self.seed_destinations(assets, english)
+            self.write_pack(archive, extra=[("nested/alternate_dict.bin", b"z" * 2048)])
+
+            with self.assertRaisesRegex(SystemExit, "more than one entry for aegis_dict.bin"):
+                ftd.extract_pack(archive, assets, english)
+
+            self.assert_seed_destinations_unchanged(assets, english)
+
+    def test_small_english_fails_without_replacing_existing_tables(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "pack.zip"
+            assets, english = self.destinations(root)
+            self.seed_destinations(assets, english)
+            self.write_pack(archive, small={ftd.EN_NAME})
+
+            with self.assertRaisesRegex(SystemExit, "implausibly small: aegis_english.bin"):
+                ftd.extract_pack(archive, assets, english)
+
+            self.assert_seed_destinations_unchanged(assets, english)
+
+    def test_copy_failure_leaves_no_partial_file_or_replaced_table(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            archive = root / "pack.zip"
+            assets, english = self.destinations(root)
+            self.seed_destinations(assets, english)
+            self.write_pack(archive)
+
+            def fail_during_copy(source, output, _length):
+                output.write(source.read(64))
+                raise OSError("copy interrupted")
+
+            with mock.patch.object(
+                ftd.shutil,
+                "copyfileobj",
+                side_effect=fail_during_copy,
+            ), self.assertRaisesRegex(OSError, "copy interrupted"):
+                ftd.extract_pack(archive, assets, english)
+
+            self.assert_seed_destinations_unchanged(assets, english)
+
+
+class GrammarAssetResolutionTest(unittest.TestCase):
+    DIGEST = "ab" * 32
+    API = "https://api.example.invalid/releases/tags/LTS"
+
+    def release(self, **asset_overrides):
+        asset = {
+            "name": ftd.GRAMMAR_NAME,
+            "browser_download_url": ftd.GRAMMAR_URL,
+            "digest": "sha256:" + self.DIGEST,
+            "size": 4096,
+        }
+        asset.update(asset_overrides)
+        return {"tag_name": ftd.GRAMMAR_TAG, "assets": [asset]}
+
+    def resolve(self, release):
+        payload = json.dumps(release).encode("utf-8")
+        with mock.patch.object(ftd, "http_get", return_value=io.BytesIO(payload)) as get:
+            result = ftd.resolve_grammar_asset(self.API)
+        get.assert_called_once_with(self.API, 60)
+        return result
+
+    def test_accepts_the_exact_lts_asset_and_normalizes_its_digest(self):
+        self.assertEqual(
+            (ftd.GRAMMAR_URL, self.DIGEST, ftd.GRAMMAR_NAME, 4096),
+            self.resolve(self.release()),
+        )
+
+    def test_rejects_a_grammar_asset_from_another_url(self):
+        with self.assertRaisesRegex(SystemExit, "expected LTS asset"):
+            self.resolve(self.release(browser_download_url="https://example.invalid/model.gram"))
+
+    def test_rejects_a_missing_or_malformed_grammar_digest(self):
+        for digest in (None, "sha256:not-a-digest", "ab" * 31):
+            with self.subTest(digest=digest), self.assertRaisesRegex(
+                SystemExit, "expected LTS asset"
+            ):
+                self.resolve(self.release(digest=digest))
+
+    def test_rejects_an_invalid_grammar_size(self):
+        for size in (None, "4096", 0, 1024):
+            with self.subTest(size=size), self.assertRaisesRegex(
+                SystemExit, "invalid asset size"
+            ):
+                self.resolve(self.release(size=size))
+
+    def test_rejects_an_unexpected_tag_or_asset_cardinality(self):
+        bad_releases = [
+            {"tag_name": "latest", "assets": self.release()["assets"]},
+            {"tag_name": ftd.GRAMMAR_TAG, "assets": []},
+            {
+                "tag_name": ftd.GRAMMAR_TAG,
+                "assets": self.release()["assets"] * 2,
+            },
+        ]
+        for release in bad_releases:
+            with self.subTest(release=release), self.assertRaises(SystemExit):
+                self.resolve(release)
+
+    def test_api_failure_does_not_produce_a_reference(self):
+        with mock.patch.object(ftd, "http_get", side_effect=OSError("offline")) as get:
+            with self.assertRaisesRegex(OSError, "offline"):
+                ftd.resolve_grammar_asset(self.API)
+        get.assert_called_once_with(self.API, 60)
+
+
+class GitHubApiAuthenticationBoundaryTest(unittest.TestCase):
+    def request_for(self, url, token="test-token"):
+        with mock.patch.dict(os.environ, {"GITHUB_TOKEN": token}, clear=False), mock.patch.object(
+            ftd.urllib.request,
+            "urlopen",
+            return_value=io.BytesIO(b"ok"),
+        ) as get:
+            ftd.http_get(url, 17)
+        request = get.call_args.args[0]
+        self.assertEqual(17, get.call_args.kwargs["timeout"])
+        return request
+
+    def test_token_is_sent_to_the_exact_https_api_host(self):
+        request = self.request_for("https://api.github.com/repos/example/project/releases")
+        self.assertEqual("Bearer test-token", request.get_header("Authorization"))
+
+    def test_token_is_not_sent_to_downloads_or_lookalike_hosts(self):
+        for url in [
+            "https://github.com/example/project/releases/download/LTS/model.gram",
+            "http://api.github.com/repos/example/project/releases",
+            "https://api.github.com.example.invalid/repos/example/project/releases",
+        ]:
+            with self.subTest(url=url):
+                self.assertIsNone(self.request_for(url).get_header("Authorization"))
+
+    def test_token_is_not_reused_after_any_redirect(self):
+        original = self.request_for("https://api.github.com/repos/example/project/releases")
+        statuses = [
+            (301, "Moved Permanently"),
+            (302, "Found"),
+            (303, "See Other"),
+            (307, "Temporary Redirect"),
+            (308, "Permanent Redirect"),
+        ]
+        urls = [
+            "https://api.github.com/repositories/1/releases",
+            "https://github.com/example/project/releases/download/LTS/model.gram",
+            "http://api.github.com/repos/example/project/releases",
+        ]
+        for code, message in statuses:
+            for url in urls:
+                with self.subTest(code=code, url=url):
+                    redirected = ftd.urllib.request.HTTPRedirectHandler().redirect_request(
+                        original,
+                        None,
+                        code,
+                        message,
+                        {},
+                        url,
+                    )
+                    self.assertIsNone(redirected.get_header("Authorization"))
+
+    def test_missing_token_keeps_the_request_anonymous(self):
+        with mock.patch.dict(os.environ, {}, clear=True), mock.patch.object(
+            ftd.urllib.request,
+            "urlopen",
+            return_value=io.BytesIO(b"ok"),
+        ) as get:
+            ftd.http_get("https://api.github.com/repos/example/project/releases", 19)
+        self.assertIsNone(get.call_args.args[0].get_header("Authorization"))
+
+
+class GrammarCacheTest(unittest.TestCase):
+    URL = "https://example.invalid/model.gram"
+
+    def test_valid_cache_is_reused_without_a_download(self):
+        payload = b"g" * 4096
+        digest = hashlib.sha256(payload).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory) / ftd.GRAMMAR_NAME
+            model.write_bytes(payload)
+            with mock.patch.object(ftd, "http_get") as get:
+                self.assertEqual(
+                    model,
+                    ftd.ensure_grammar(self.URL, digest, len(payload), model, 17),
+                )
+            get.assert_not_called()
+            self.assertEqual(payload, model.read_bytes())
+
+    def test_invalid_cache_is_replaced_by_a_verified_download(self):
+        payload = b"new-grammar" * 512
+        digest = hashlib.sha256(payload).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory) / ftd.GRAMMAR_NAME
+            model.write_bytes(b"stale")
+            with mock.patch.object(
+                ftd, "http_get", return_value=io.BytesIO(payload)
+            ) as get:
+                result = ftd.ensure_grammar(self.URL, digest, len(payload), model, 23)
+            get.assert_called_once_with(self.URL, 23)
+            self.assertEqual(model, result)
+            self.assertEqual(payload, model.read_bytes())
+            self.assertFalse(model.with_name(model.name + ".part").exists())
+
+    def test_bad_download_size_or_digest_leaves_no_cache_or_partial(self):
+        payload = b"download" * 512
+        cases = [
+            (hashlib.sha256(payload).hexdigest(), len(payload) + 1),
+            ("00" * 32, len(payload)),
+        ]
+        for digest, size in cases:
+            with self.subTest(digest=digest, size=size), tempfile.TemporaryDirectory() as directory:
+                model = Path(directory) / ftd.GRAMMAR_NAME
+                model.write_bytes(b"stale")
+                model.with_name(model.name + ".part").write_bytes(b"old-partial")
+                with mock.patch.object(
+                    ftd, "http_get", return_value=io.BytesIO(payload)
+                ):
+                    with self.assertRaisesRegex(SystemExit, "downloaded grammar mismatch"):
+                        ftd.ensure_grammar(self.URL, digest, size, model, 29)
+                self.assertFalse(model.exists())
+                self.assertFalse(model.with_name(model.name + ".part").exists())
+
+    def test_download_failure_leaves_no_invalid_cache_or_partial(self):
+        with tempfile.TemporaryDirectory() as directory:
+            model = Path(directory) / ftd.GRAMMAR_NAME
+            model.write_bytes(b"stale")
+            model.with_name(model.name + ".part").write_bytes(b"old-partial")
+            with mock.patch.object(ftd, "http_get", side_effect=OSError("offline")) as get:
+                with self.assertRaisesRegex(OSError, "offline"):
+                    ftd.ensure_grammar(self.URL, "11" * 32, 4096, model, 31)
+            get.assert_called_once_with(self.URL, 31)
+            self.assertFalse(model.exists())
+            self.assertFalse(model.with_name(model.name + ".part").exists())
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

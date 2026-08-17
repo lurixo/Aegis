@@ -69,8 +69,8 @@ class UserDictEndToEndTest {
         c.onPickCandidate(i)
     }
 
-    private fun switchAlpha(c: KeyboardController) = c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
-    private fun switchNine(c: KeyboardController) = c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+    private fun switchAlpha(c: KeyboardController) = c.switchTextLayoutForTest(nine = false)
+    private fun switchNine(c: KeyboardController) = c.switchTextLayoutForTest(nine = true)
     private fun clear(c: KeyboardController) = c.onKey(Key("", action = KeyAction.CLEAR_COMPOSING))
 
     @Test fun assemble_selfCreatedWord_on26key_thenRecall() {

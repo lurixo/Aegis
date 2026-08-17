@@ -95,7 +95,7 @@ class KeyboardLossMatrixTest {
     @Test fun fullPinyin26Key_chaiApostropheCi_surfacesChaiAndChaici() {
         assumeTrue(assetsPresent())
         val c = controller(realEngine())
-        c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         type(c, "chai"); c.onKey(Key("'", output = "'")); type(c, "ci")
         assertEquals("preedit keeps the 隔音符 the user typed", "chai'ci", c.preeditForTest())
         assertChaiReachableAndRanked(c.candidateWords())
@@ -105,7 +105,7 @@ class KeyboardLossMatrixTest {
     @Test fun nineKey_lockChaiThenCi_surfacesChaiAndChaici() {
         assumeTrue(assetsPresent())
         val c = controller(realEngine())
-        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         type(c, "2424"); pick(c, "chai")
         type(c, "24"); pick(c, "ci")
         assertEquals("preedit shows the locked chai'ci", "chai'ci", c.preeditForTest())
@@ -115,7 +115,7 @@ class KeyboardLossMatrixTest {
     @Test fun nineKey_singleSyllableStaysFine_control() {
         assumeTrue(assetsPresent())
         val c = controller(realEngine())
-        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         type(c, "2424"); pick(c, "chai")
         assertTrue("拆 reachable for a single locked chai", "拆" in c.candidateWords())
         val injected = com.aegis.ime.engine.InputAssociations.lookup("chai")
@@ -139,7 +139,7 @@ class KeyboardLossMatrixTest {
             }
         }
         val c = controller(recorder)
-        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         type(c, "2424"); pick(c, "chai")
         type(c, "24"); pick(c, "ci")
         assertEquals("decode runs over the combined full pinyin", "chaici", seenLetters)
@@ -157,7 +157,7 @@ class KeyboardLossMatrixTest {
             }
         }
         val c = controller(recorder)
-        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         type(c, "2424"); pick(c, "chai")
         type(c, "24")
         assertTrue("the locked-path decode ran", seenCuts != null)

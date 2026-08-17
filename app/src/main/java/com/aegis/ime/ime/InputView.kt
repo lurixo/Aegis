@@ -95,6 +95,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private var windowRightSystemInsetPx = 0
     private var measuredBottomExtraPx = dp(BOTTOM_RAISE_DP)
     private var lastDockHeightSpec: LandscapeDockSizing.HeightSpec? = null
+    private var cachedUnconstrainedHeightSpec: LandscapeDockSizing.HeightSpec? = null
     private var latestMeasuredSlotWidthPx = 0
 
     fun applyPalette(p: ImePalette) {
@@ -230,18 +231,7 @@ class InputView(context: Context) : LinearLayout(context) {
                 navBottom = windowNavBottomPx,
             )
         } else {
-            val editVisible = editBarView.visibility != GONE
-            LandscapeDockSizing.HeightSpec(
-                preeditHeight = dp(PREEDIT_HEIGHT_DP),
-                barHeight = dp(BAR_HEIGHT_DP),
-                keyboardHeight = preferredKeyboard,
-                bottomExtra = dp(BOTTOM_RAISE_DP),
-                navBottom = windowNavBottomPx,
-                rootHeight = dp(PREEDIT_HEIGHT_DP) + dp(BAR_HEIGHT_DP) * (if (editVisible) 2 else 1) +
-                    preferredKeyboard + windowNavBottomPx + dp(BOTTOM_RAISE_DP),
-                constrained = false,
-                emergency = false,
-            )
+            unconstrainedHeightSpec(preferredKeyboard, editBarView.visibility != GONE)
         }
         if (constrainedLandscape && heightMode == MeasureSpec.EXACTLY) {
             val exactHeight = MeasureSpec.getSize(heightMeasureSpec).coerceAtLeast(0)
@@ -256,6 +246,36 @@ class InputView(context: Context) : LinearLayout(context) {
         }
         applyHeightSpec(spec)
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+
+    private fun unconstrainedHeightSpec(
+        preferredKeyboard: Int,
+        editBarVisible: Boolean,
+    ): LandscapeDockSizing.HeightSpec {
+        val preeditHeight = dp(PREEDIT_HEIGHT_DP)
+        val barHeight = dp(BAR_HEIGHT_DP)
+        val bottomExtra = dp(BOTTOM_RAISE_DP)
+        val rootHeight = preeditHeight + barHeight * (if (editBarVisible) 2 else 1) +
+            preferredKeyboard + windowNavBottomPx + bottomExtra
+        cachedUnconstrainedHeightSpec?.let { cached ->
+            if (cached.preeditHeight == preeditHeight &&
+                cached.barHeight == barHeight &&
+                cached.keyboardHeight == preferredKeyboard &&
+                cached.bottomExtra == bottomExtra &&
+                cached.navBottom == windowNavBottomPx &&
+                cached.rootHeight == rootHeight
+            ) return cached
+        }
+        return LandscapeDockSizing.HeightSpec(
+            preeditHeight = preeditHeight,
+            barHeight = barHeight,
+            keyboardHeight = preferredKeyboard,
+            bottomExtra = bottomExtra,
+            navBottom = windowNavBottomPx,
+            rootHeight = rootHeight,
+            constrained = false,
+            emergency = false,
+        ).also { cachedUnconstrainedHeightSpec = it }
     }
 
     private fun applyHeightSpec(spec: LandscapeDockSizing.HeightSpec) {
@@ -672,11 +692,9 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun keyboardHeightPx(): Int = keyboardView.height
 
     internal fun keyboardVisualWidthPx(): Int = keyboardView.width
-    internal fun keyboardDockWidthPx(): Int = bodySlot.width
     internal fun keyboardVisualLeftPx(): Int = bodySlot.left + body.left + keyboardView.left
     internal fun keyboardVisualRightPx(): Int = keyboardVisualLeftPx() + keyboardView.width
     internal fun toolbarVisualWidthPx(): Int = candidateView.width
-    internal fun toolbarDockWidthPx(): Int = bodySlot.width
     internal fun toolbarVisualLeftPx(): Int = bodySlot.left + body.left + candidateView.left
     internal fun toolbarVisualRightPx(): Int = toolbarVisualLeftPx() + candidateView.width
     internal fun editBarVisualLeftPx(): Int = bodySlot.left + body.left + editBarView.left

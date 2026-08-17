@@ -106,7 +106,6 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private val rowStarts = ArrayList<Int>()
     private val rowCounts = ArrayList<Int>()
     private var chipsAllocated = 0
-    private var chipReparents = 0
     private var readingsAllocated = 0
     private var gridScrollOffsetForTest = 0
     private var firstChipForeground: Drawable? = null
@@ -156,7 +155,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             actionLp(backActionRow),
         )
         rightColumn.addView(
-            backspaceButton().apply {
+            createBackspaceButton().apply {
                 setCompoundDrawablesWithIntrinsicBounds(backspaceGlyph, null, null, null)
                 setPadding(0, 0, 0, 0)
                 backspaceGlyph.tint(palette.keyLabelSecondary)
@@ -281,14 +280,14 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             rightMargin = dp(3)
         }
         (rightColumn.layoutParams as LayoutParams).width = actions
-        returnButtonForTest().setPadding((actions - collapseGlyph.intrinsicWidth) / 2, 0, 0, 0)
-        backspaceButtonForTest().setPadding((actions - backspaceGlyph.intrinsicWidth) / 2, 0, 0, 0)
+        returnButton().setPadding((actions - collapseGlyph.intrinsicWidth) / 2, 0, 0, 0)
+        backspaceButton().setPadding((actions - backspaceGlyph.intrinsicWidth) / 2, 0, 0, 0)
     }
 
     private fun updateRightActionLayout(availableHeight: Int) {
-        val back = returnButtonForTest()
-        val delete = backspaceButtonForTest()
-        val clear = clearButtonForTest()
+        val back = returnButton()
+        val delete = backspaceButton()
+        val clear = clearButton()
         if (candidateBoundaryFits(availableHeight, clearActionBoundary)) {
             setActionFrame(back, rowHeightPx, Gravity.TOP, candidateRowTop(backActionRow))
             setActionFrame(delete, rowHeightPx, Gravity.TOP, candidateBoundaryTop(deleteActionBoundary))
@@ -318,7 +317,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         setOnClickListener { onClick() }
     }
 
-    private fun backspaceButton(): TextView {
+    private fun createBackspaceButton(): TextView {
         var downX = 0f
         var downY = 0f
         return funcButton("") { onBackspace() }.apply {
@@ -578,7 +577,6 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
                     chip.visibility = View.GONE
                 }
             }
-            chipReparents++
             return row
         }
     }
@@ -590,7 +588,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         (candidateCount > 0 && table.childCount == 0) || readingCount > readingPool.size
     internal fun candidatesWouldChange(
         candidates: List<String>,
-        projection: CandidateProjectionPolicy? = null,
+        projection: CandidateProjectionPolicy?,
     ): Boolean {
         if (candidates != sourceCandidates) return true
         if (projection == sourceCandidateProjection) return false
@@ -605,7 +603,6 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         readingScroll.visibility = target
         gridScroll.visibility = target
     }
-    internal fun chipReparentsForTest(): Int = chipReparents
     internal fun readingsAllocatedForTest(): Int = readingsAllocated
     internal fun selectionContentVisibleForTest(): Boolean =
         readingScroll.visibility == View.VISIBLE && gridScroll.visibility == View.VISIBLE
@@ -675,14 +672,15 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
     internal fun tapReadingForTest(index: Int): Boolean =
         (readingColumn.getChildAt(index) as? TextView)?.takeIf { it.visibility == View.VISIBLE }?.performClick() ?: false
-    internal fun readingTypefaceBoldForTest(index: Int): Boolean =
-        (readingColumn.getChildAt(index) as? TextView)?.typeface?.isBold ?: false
     internal fun firstChipForegroundForTest(): Drawable? = firstChipForeground
     internal fun activeReadingColorAnimatorsForTest(): Int =
         readingColorAnimators.values.count { it.isRunning }
-    internal fun returnButtonForTest(): TextView = rightColumn.getChildAt(0) as TextView
-    internal fun backspaceButtonForTest(): TextView = rightColumn.getChildAt(1) as TextView
-    internal fun clearButtonForTest(): TextView = rightColumn.getChildAt(2) as TextView
+    private fun returnButton(): TextView = rightColumn.getChildAt(0) as TextView
+    private fun backspaceButton(): TextView = rightColumn.getChildAt(1) as TextView
+    private fun clearButton(): TextView = rightColumn.getChildAt(2) as TextView
+    internal fun returnButtonForTest(): TextView = returnButton()
+    internal fun backspaceButtonForTest(): TextView = backspaceButton()
+    internal fun clearButtonForTest(): TextView = clearButton()
     internal fun collapseGlyphForTest(): Drawable = collapseGlyph
     internal fun backspaceGlyphForTest(): Drawable = backspaceGlyph
     internal fun gridScrollYForTest(): Int = gridScrollOffsetForTest

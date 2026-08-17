@@ -87,7 +87,7 @@ class NarrowLandscapeMultiWindowFallbackTest {
         assertEquals(KeyAction.ENTER, tapped[1].action)
 
         tapped.clear()
-        view.showKeyboard(Layouts.nine(Lang.CN, Layouts.ninePunctuation()), shifted = false, locked = false, lang = Lang.CN)
+        view.showKeyboard(Layouts.nine(Layouts.ninePunctuation()), shifted = false, locked = false, lang = Lang.CN)
         layoutWithRealWindowCap(view)
 
         assertFullWidthFallback(view)

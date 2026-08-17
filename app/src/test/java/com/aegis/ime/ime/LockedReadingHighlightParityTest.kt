@@ -121,7 +121,7 @@ class LockedReadingHighlightParityTest {
         theme: ImePalette = palette,
     ): Triple<KeyboardController, InputView, KeyboardView> {
         val (c, iv) = session(engine, theme)
-        c.onKey(act(KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         digits.forEach { c.onKey(out(it.toString())) }
         val kb = keyboardOf(iv)
         laidOut(kb)
@@ -216,7 +216,7 @@ class LockedReadingHighlightParityTest {
         val kb = laidOut(
             KeyboardView(ctx).apply {
                 applyPalette(palette)
-                setLayout(Layouts.nine(Lang.CN, column, composing = true), false, false, Lang.CN)
+                setLayout(Layouts.nine(column, composing = true), false, false, Lang.CN)
             },
         )
 
@@ -346,7 +346,7 @@ class LockedReadingHighlightParityTest {
 
     @Test fun a_drill_marks_its_own_syllable_at_every_reachable_position() {
         val first = session(syllabic)
-        first.first.onKey(act(KeyAction.SWITCH_ALPHA))
+        first.first.switchTextLayoutForTest(nine = false)
         "nihao".forEach { first.first.onKey(out(it.toString())) }
         first.first.onPickReadingIndex(first.first.expandedReadings().indexOf("ni"))
         first.first.onPickReadingIndex(first.first.expandedReadings().indexOf("ni"))
@@ -360,7 +360,7 @@ class LockedReadingHighlightParityTest {
         )
 
         val middle = session(syllabic)
-        middle.first.onKey(act(KeyAction.SWITCH_ALPHA))
+        middle.first.switchTextLayoutForTest(nine = false)
         "nihaoni".forEach { middle.first.onKey(out(it.toString())) }
         middle.first.onPickReadingIndex(middle.first.expandedReadings().indexOf("ni"))
         middle.first.onPickReadingIndex(middle.first.expandedReadings().indexOf("hao"))
@@ -408,7 +408,7 @@ class LockedReadingHighlightParityTest {
 
     @Test fun alpha_layout_keeps_the_expanded_locked_reading_highlight() {
         val (c, iv) = session(syllabic)
-        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         "nihao".forEach { c.onKey(out(it.toString())) }
         iv.showExpandedCandidates()
 
@@ -483,7 +483,7 @@ class LockedReadingHighlightParityTest {
             )
 
             val (twoSyllables, view) = session(syllabic, theme)
-            twoSyllables.onKey(act(KeyAction.SWITCH_ALPHA))
+            twoSyllables.switchTextLayoutForTest(nine = false)
             "nihao".forEach { twoSyllables.onKey(out(it.toString())) }
             twoSyllables.onPickReadingIndex(twoSyllables.expandedReadings().indexOf("ni"))
             view.showExpandedCandidates()
@@ -508,7 +508,7 @@ class LockedReadingHighlightParityTest {
         )
 
         val (c, iv) = session(syllabic)
-        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         "nihao".forEach { c.onKey(out(it.toString())) }
         c.onPickReadingIndex(c.expandedReadings().indexOf("ni"))
 

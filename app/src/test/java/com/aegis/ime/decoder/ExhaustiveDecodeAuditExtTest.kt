@@ -20,6 +20,7 @@ import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.dict.TghGrading
 import com.aegis.ime.user.UserModel
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -126,6 +127,37 @@ class ExhaustiveDecodeAuditExtTest {
 
     private fun heavyEnabled(): Boolean =
         (System.getenv("AEGIS_AUDIT_HEAVY") ?: System.getProperty("aegis.audit.heavy")) == "1"
+
+    private fun reviewedE3NonDictlessBaseline(): List<String> {
+        val name = "e3-reviewed-nondictless-baseline.tsv"
+        val lines = requireNotNull(javaClass.getResourceAsStream("/$name")) {
+            "missing $name"
+        }.bufferedReader().use { it.readLines() }
+        assertTrue("$name must carry source provenance", lines.firstOrNull()?.matches(
+            Regex(
+                "# source=dict-latest pack sha256=[0-9a-f]{64}; " +
+                    "observed-head=[0-9a-f]{40}; " +
+                    "gate=ExhaustiveDecodeAuditExtTest\\.e3_partialCommitContinue_allPairs",
+            ),
+        ) == true)
+        assertEquals("$name columns", "layout\tinput\tcheck", lines.getOrNull(1))
+        val keys = lines.drop(2)
+        assertTrue("$name must not contain blank rows", keys.none { it.isBlank() })
+        keys.forEachIndexed { index, key ->
+            val fields = key.split('\t')
+            assertEquals("$name row ${index + 3} field count", 3, fields.size)
+            val (layout, input, check) = fields
+            assertTrue("$name row ${index + 3} input", input.matches(Regex("[a-z]+")))
+            when (check) {
+                "E3-noentry-letters" -> assertEquals("$name row ${index + 3} layout", "26key", layout)
+                "E3-noentry-t9" -> assertEquals("$name row ${index + 3} layout", "9key", layout)
+                else -> throw AssertionError("$name row ${index + 3} has unsupported check $check")
+            }
+        }
+        assertEquals("$name must be sorted", keys.sorted(), keys)
+        assertEquals("$name must not contain duplicate keys", keys.size, keys.toSet().size)
+        return keys
+    }
 
     private fun writeTsv(file: File, fails: List<Fail>) {
         file.bufferedWriter().use { w ->
@@ -321,7 +353,22 @@ class ExhaustiveDecodeAuditExtTest {
         writeTsv(File(outDir(), "ext_e3.tsv"), fails)
         summary(File(outDir(), "ext_e3_summary.txt"), "E3 — partial commit then continue",
             "pairs covered: ${syls.size.toLong() * syls.size} on letters AND T9; remainder integrity per distinct S2 (${syls.size})", fails)
+        val dictlessFindings = fails.filter { it.check == "E3-noentry-dictless" }
+        val reviewedFindings = fails.filter {
+            it.check == "E3-noentry-letters" || it.check == "E3-noentry-t9"
+        }
+        val violations = fails - dictlessFindings.toSet() - reviewedFindings.toSet()
+        assertTrue("E3 unclassified violations: ${violations.take(8)}", violations.isEmpty())
+        assertEquals(
+            "E3 reviewed non-dictless baseline changed; review every added, removed, or reclassified finding",
+            reviewedE3NonDictlessBaseline(),
+            reviewedFindings.map { "${it.layout}\t${it.input}\t${it.check}" }.sorted(),
+        )
         assertTrue("E3 report written", File(outDir(), "ext_e3.tsv").exists())
+        println(
+            "E3 gate: ${dictlessFindings.size} dictionary-coverage findings reported; " +
+                "${reviewedFindings.size} exact reviewed non-dictless findings matched",
+        )
     }
 
     @Test fun e4_fuzzyOn_allSyllables_andRuleIsolation() {

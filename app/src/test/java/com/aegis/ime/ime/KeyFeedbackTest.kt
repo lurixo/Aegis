@@ -109,8 +109,8 @@ class KeyFeedbackTest {
         val cases = listOf(
             Triple(Layouts.forId(LayoutId.ALPHA, Lang.CN), false, false),
             Triple(Layouts.forId(LayoutId.ALPHA, Lang.EN), true, true),
-            Triple(Layouts.nine(Lang.CN, Layouts.ninePunctuation(), composing = false), false, false),
-            Triple(Layouts.nine(Lang.CN, listOf(Key("ci")), composing = true), false, false),
+            Triple(Layouts.nine(Layouts.ninePunctuation(), composing = false), false, false),
+            Triple(Layouts.nine(listOf(Key("ci")), composing = true), false, false),
             Triple(Layouts.forId(LayoutId.NUMBER, Lang.CN), false, false),
             Triple(Layouts.forId(LayoutId.SYMBOL, Lang.CN), false, false),
             Triple(Layouts.forId(LayoutId.NUMPAD, Lang.CN), false, false),
@@ -140,17 +140,17 @@ class KeyFeedbackTest {
                 override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
             },
         )
-        controller.onKey(Key(action = KeyAction.SWITCH_NINE))
+        controller.switchTextLayoutForTest(nine = true)
         "94".forEach { controller.onKey(Key(it.toString(), output = it.toString())) }
         controller.onKey(Key(action = KeyAction.SEGMENT))
-        val firstForcedCut = Layouts.nine(Lang.CN, controller.nineLeftColumn(), composing = true)
+        val firstForcedCut = Layouts.nine(controller.nineLeftColumn(), composing = true)
         "26".forEach { controller.onKey(Key(it.toString(), output = it.toString())) }
-        val secondForcedCut = Layouts.nine(Lang.CN, controller.nineLeftColumn(), composing = true)
+        val secondForcedCut = Layouts.nine(controller.nineLeftColumn(), composing = true)
         val states = listOf(
             Triple("26-key Chinese", Layouts.forId(LayoutId.ALPHA, Lang.CN), Lang.CN),
             Triple("26-key English", Layouts.forId(LayoutId.ALPHA, Lang.EN), Lang.EN),
-            Triple("nine-key resting", Layouts.nine(Lang.CN, Layouts.ninePunctuation(), composing = false), Lang.CN),
-            Triple("nine-key composing", Layouts.nine(Lang.CN, listOf(Key("ci", action = KeyAction.PICK_READING)), composing = true), Lang.CN),
+            Triple("nine-key resting", Layouts.nine(Layouts.ninePunctuation(), composing = false), Lang.CN),
+            Triple("nine-key composing", Layouts.nine(listOf(Key("ci", action = KeyAction.PICK_READING)), composing = true), Lang.CN),
             Triple("nine-key first forced-cut chunk", firstForcedCut, Lang.CN),
             Triple("nine-key second forced-cut chunk", secondForcedCut, Lang.CN),
             Triple("nine-key number page", Layouts.forId(LayoutId.NUMBER, Lang.CN), Lang.CN),

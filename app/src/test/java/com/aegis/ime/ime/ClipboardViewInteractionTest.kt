@@ -1111,9 +1111,12 @@ class ClipboardViewInteractionTest {
         val row0 = requireNotNull(v.listRowViewForTest(0))
         val delete = textViews(v).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_delete) }
         assertFalse("batch delete is disabled with an empty selection", delete.isClickable)
-        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_selected_count, 0) in labels(v))
+        assertTrue(ctx.resources.getQuantityString(com.aegis.ime.R.plurals.clip_selected_count, 0, 0) in labels(v))
         row0.performClick()
-        assertTrue("the tick updates the header count in place", ctx.getString(com.aegis.ime.R.string.clip_selected_count, 1) in labels(v))
+        assertTrue(
+            "the tick updates the header count in place",
+            ctx.resources.getQuantityString(com.aegis.ime.R.plurals.clip_selected_count, 1, 1) in labels(v),
+        )
         assertTrue("the tick enables the batch actions in place", delete.isClickable)
         assertTrue("the tapped row is mutated, not rebuilt", row0 === v.listRowViewForTest(0))
     }
@@ -1124,7 +1127,7 @@ class ClipboardViewInteractionTest {
         val row0 = requireNotNull(v.listRowViewForTest(0))
         val row2 = requireNotNull(v.listRowViewForTest(2))
         requireNotNull(v.selectAllActionForTest()).performClick()
-        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_selected_count, 3) in labels(v))
+        assertTrue(ctx.resources.getQuantityString(com.aegis.ime.R.plurals.clip_selected_count, 3, 3) in labels(v))
         assertTrue("select-all rebinds rows in place", row0 === v.listRowViewForTest(0) && row2 === v.listRowViewForTest(2))
         assertTrue(v.isSelectModeForTest())
     }

@@ -74,7 +74,7 @@ class KeyboardContentSwapTest {
             val modes = kv.modeSwitchesForTest()
             assertNotNull(kv.centerOfLabelForTest("a"))
 
-            kv.setLayout(Layouts.nine(Lang.CN, Layouts.ninePunctuation(), composing = false), false, false, Lang.CN)
+            kv.setLayout(Layouts.nine(Layouts.ninePunctuation(), composing = false), false, false, Lang.CN)
 
             assertEquals("the mode change is counted once", modes + 1, kv.modeSwitchesForTest())
             assertNotNull("touch targets are the new layout in the same call", kv.centerOfLabelForTest("ABC"))
@@ -193,13 +193,13 @@ class KeyboardContentSwapTest {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
             val kv = KeyboardView(ctx).apply {
-                setLayout(Layouts.nine(Lang.CN, Layouts.ninePunctuation(), composing = false), false, false, Lang.CN)
+                setLayout(Layouts.nine(Layouts.ninePunctuation(), composing = false), false, false, Lang.CN)
             }
             attach(controller.get(), kv)
             val applies = kv.layoutAppliesForTest()
             val modes = kv.modeSwitchesForTest()
 
-            kv.setLayout(Layouts.nine(Lang.CN, Layouts.ninePunctuation(listOf("→")), composing = true), false, false, Lang.CN)
+            kv.setLayout(Layouts.nine(Layouts.ninePunctuation(listOf("→")), composing = true), false, false, Lang.CN)
 
             assertEquals("a same-id readout update is a real apply", applies + 1, kv.layoutAppliesForTest())
             assertEquals("…but never a mode switch (no per-keystroke strobe)", modes, kv.modeSwitchesForTest())

@@ -195,7 +195,7 @@ class BilingualScreenshotTest {
         snap(
             KeyboardView(ctx).apply {
                 applyPalette(pal)
-                setLayout(Layouts.nine(lang, readout, composing = true), false, false, lang)
+                setLayout(Layouts.nine(readout, composing = true), false, false, lang)
             },
             (230 * density).toInt(), dir, "keyboard-t9.png",
         )

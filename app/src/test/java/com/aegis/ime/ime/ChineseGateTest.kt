@@ -63,7 +63,7 @@ class ChineseGateTest {
 
     @Test fun gate_locks_chinese_when_no_dict_and_pinyin_is_composing() {
         val (c, view) = controller(DictEngine(null, null, null))
-        c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         type(c, "ni")
         assertTrue("no Chinese dict + pinyin typed must gate", c.chineseGateActiveForTest())
         assertTrue("the strip must receive the gate flag", view.candidateGateActiveForTest())
@@ -71,7 +71,7 @@ class ChineseGateTest {
 
     @Test fun gate_locks_chinese_on_the_nine_key_keyboard_too() {
         val (c, view) = controller(DictEngine(null, null, null))
-        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         type(c, "64")
         assertTrue("no Chinese dict + 9-key digits typed must gate", c.chineseGateActiveForTest())
         assertTrue("the strip must receive the gate flag", view.candidateGateActiveForTest())
@@ -79,14 +79,14 @@ class ChineseGateTest {
 
     @Test fun gate_is_inactive_before_the_user_types() {
         val (c, view) = controller(DictEngine(null, null, null))
-        c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         assertFalse("empty composing must keep the functions toolbar", c.chineseGateActiveForTest())
         assertFalse(view.candidateGateActiveForTest())
     }
 
     @Test fun gate_is_inactive_in_english_layout() {
         val (c, view) = controller(DictEngine(null, null, null))
-        c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         c.onKey(Key("", action = KeyAction.TOGGLE_LANG))
         type(c, "ni")
         assertFalse("English typing must never gate", c.chineseGateActiveForTest())
@@ -95,7 +95,7 @@ class ChineseGateTest {
 
     @Test fun gate_is_inactive_when_a_chinese_capable_engine_is_set() {
         val (c, view) = controller(chineseCapableEngine())
-        c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         type(c, "ni")
         assertFalse("a Chinese-capable engine must never gate", c.chineseGateActiveForTest())
         assertFalse(view.candidateGateActiveForTest())
@@ -105,7 +105,7 @@ class ChineseGateTest {
         val host = Host()
         val view = InputView(ctx)
         val c = KeyboardController(host, DictEngine(null, null, null)).apply { attachView(view) }
-        c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         type(c, "ni")
         assertTrue(c.chineseGateActiveForTest())
         c.setEngine(chineseCapableEngine())
@@ -120,7 +120,7 @@ class ChineseGateTest {
         val host = Host()
         val view = InputView(ctx)
         val c = KeyboardController(host, DictEngine(null, null, null)).apply { attachView(view) }
-        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         type(c, "64")
         assertTrue(c.chineseGateActiveForTest())
         assertTrue("precondition: 9-key input is visible", c.preeditForTest().isNotEmpty())
@@ -136,7 +136,7 @@ class ChineseGateTest {
     @Test fun ordinary_chinese_engine_hot_swap_preserves_active_composition() {
         val host = Host()
         val c = KeyboardController(host, chineseCapableEngine())
-        c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         type(c, "ni")
         val preedit = c.preeditForTest()
         val candidates = c.candidateWords()
@@ -154,7 +154,7 @@ class ChineseGateTest {
         val lane = DecodeLane(Executor { workerQueue.addLast(it) }, Executor { mainQueue.addLast(it) })
         val host = Host()
         val c = KeyboardController(host, DictEngine(null, null, null), lane)
-        c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         type(c, "ni")
         assertTrue(c.chineseGateActiveForTest())
 

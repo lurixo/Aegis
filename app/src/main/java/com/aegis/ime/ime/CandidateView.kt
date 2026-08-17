@@ -274,7 +274,7 @@ class CandidateView(context: Context) : View(context) {
             when {
                 gateActive -> drawGate(canvas, baseline)
                 isRestoreNoticeMode() -> drawRestoreNotice(canvas, baseline)
-                isFunctionMode() -> drawFunctions(canvas, baseline)
+                isFunctionMode() -> drawFunctions(canvas)
             }
             return
         }
@@ -321,7 +321,7 @@ class CandidateView(context: Context) : View(context) {
 
     private fun restoreNoticeColor(): Int = palette.deletable
 
-    private fun drawFunctions(canvas: Canvas, baseline: Float) {
+    private fun drawFunctions(canvas: Canvas) {
         val capL = capMarginH
         val capR = width - capMarginH
         val capT = capMarginV

@@ -244,6 +244,15 @@ class KeyboardController(
 
     internal fun activeLayoutId(): LayoutId = layoutId
 
+    internal fun switchTextLayoutForTest(nine: Boolean) {
+        expirePreeditChoiceUndo()
+        drillSyllable = -1
+        drillChoices.clear()
+        switchLayout(if (nine) LayoutId.NINE else LayoutId.ALPHA)
+        refreshCandidates()
+        render()
+    }
+
     fun onKey(key: Key) {
         if (key.action != KeyAction.BACKSPACE) {
             expirePreeditChoiceUndo()
@@ -262,13 +271,10 @@ class KeyboardController(
             KeyAction.SHIFT_LOCK -> if (mode() == Mode.DIRECT) shiftState = ShiftState.LOCK
             KeyAction.SWITCH_SYMBOLS -> switchLayout(LayoutId.SYMBOL)
             KeyAction.SWITCH_NUMBERS -> switchLayout(LayoutId.NUMBER)
-            KeyAction.SWITCH_ALPHA -> switchLayout(LayoutId.ALPHA)
-            KeyAction.SWITCH_NINE -> switchLayout(LayoutId.NINE)
             KeyAction.SWITCH_TEXT -> switchLayout(if (lang == Lang.CN) cnLayout else LayoutId.ALPHA)
             KeyAction.SWITCH_NUMPAD -> switchLayout(LayoutId.NUMPAD)
             KeyAction.PICK_READING -> handlePickReading(key)
             KeyAction.SEGMENT -> handleSegment()
-            KeyAction.SHOW_EDIT -> onShowEdit()
             KeyAction.CUSTOM_SYMBOL -> onShowCustomSymbols()
             KeyAction.CUSTOM_OPERATOR -> onShowCustomOperators()
             KeyAction.SHOW_SYMBOLS -> { flushComposing(); onShowSymbols() }
@@ -1079,7 +1085,7 @@ class KeyboardController(
         val v = view ?: return
         val highlight = lockedHighlightReading()
         val layout = when (layoutId) {
-            LayoutId.NINE -> Layouts.nine(lang, nineLeftColumn(highlight), composing.isNotEmpty())
+            LayoutId.NINE -> Layouts.nine(nineLeftColumn(highlight), composing.isNotEmpty())
             LayoutId.NUMPAD -> Layouts.numpad(Layouts.numpadOperators(customOperators))
             else -> Layouts.forId(layoutId, lang, composing.isNotEmpty())
         }

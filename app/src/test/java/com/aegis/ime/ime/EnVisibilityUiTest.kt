@@ -68,13 +68,13 @@ class EnVisibilityUiTest {
         }
         run {
             val c = controller(dir, gram)
-            c.onKey(Key("", action = KeyAction.SWITCH_ALPHA))
+            c.switchTextLayoutForTest(nine = false)
             type(c, "en")
             check("$cfg 26k en", c.candidateWords())
         }
         run {
             val c = controller(dir, gram)
-            c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+            c.switchTextLayoutForTest(nine = true)
             type(c, "36")
             check("$cfg 9k 36", c.candidateWords())
             val col = c.expandedReadings()
@@ -83,14 +83,14 @@ class EnVisibilityUiTest {
         }
         run {
             val c = controller(dir, gram)
-            c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+            c.switchTextLayoutForTest(nine = true)
             type(c, "36")
             pick(c, "en")
             check("$cfg 9k lock(en)", c.candidateWords())
         }
         run {
             val c = controller(dir, gram)
-            c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+            c.switchTextLayoutForTest(nine = true)
             type(c, "64")
             check("$cfg 9k 64(ng)", c.candidateWords(), rankedAfter恩 = false)
         }

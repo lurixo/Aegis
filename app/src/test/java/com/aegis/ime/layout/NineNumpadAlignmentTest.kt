@@ -54,7 +54,7 @@ class NineNumpadAlignmentTest {
         assertEquals(T9Pinyin.SYLLABLES, displayed.toSet())
         assertEquals(6, displayed.maxOf(String::length))
         val readout = displayed.map { Key(it, output = it, action = KeyAction.PICK_READING) }
-        val layout = Layouts.nine(Lang.CN, readout, composing = true)
+        val layout = Layouts.nine(readout, composing = true)
         val sc = layout.scrollColumn!!
         assertEquals(0.85f / 4.7f, sc.w, 1e-5f)
         val view = actual(layout)
@@ -93,7 +93,7 @@ class NineNumpadAlignmentTest {
 
     @Test
     fun numpadSharesThePinyinNineKeyMetrics() {
-        val nine = Layouts.nine(Lang.CN, Layouts.ninePunctuation())
+        val nine = Layouts.nine(Layouts.ninePunctuation())
         val numpad = Layouts.numpad()
 
         val numpadScroll = numpad.scrollColumn!!
@@ -125,7 +125,7 @@ class NineNumpadAlignmentTest {
 
     @Test
     fun pinyinAndNumpadUseTheSameCompactActualGapsAndHitRectangles() {
-        val nine = actual(Layouts.nine(Lang.CN, Layouts.ninePunctuation()))
+        val nine = actual(Layouts.nine(Layouts.ninePunctuation()))
         val numpad = actual(Layouts.numpad())
         val nineFaces = nine.keyBoundsForTest().associate { it.first.label to it.second }
         val numpadFaces = numpad.keyBoundsForTest().associate { it.first.label to it.second }

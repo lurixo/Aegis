@@ -130,7 +130,7 @@ class AssociationsAndCalcTest {
     @Test fun space_on_a_first_position_injected_glyph_commits_it_without_learning() {
         val h = EditorHost()
         val c = KeyboardController(h, emptySpyEngine(h.learned))
-        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         "542".forEach { c.onKey(out(it.toString())) }
         c.onKey(Key("jia", output = "jia", action = KeyAction.PICK_READING))
         assertEquals("precondition: the glyph is the first (only) candidate", "+", c.candidateWords().firstOrNull())

@@ -94,7 +94,7 @@ class LeftToRightReachabilityTest {
         assumeTrue("the pack holds more ni characters than the candidate limit", ni.size > 30)
 
         val c = controller()
-        c.onKey(Key("", action = KeyAction.SWITCH_NINE))
+        c.switchTextLayoutForTest(nine = true)
         type(c, T9Pinyin.toT9("ni"))
         pickReading(c, "ni")
         type(c, T9Pinyin.toT9("hao"))

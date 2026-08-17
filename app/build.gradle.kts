@@ -3,6 +3,7 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.zip.ZipFile
 import javax.inject.Inject
 
 plugins {
@@ -53,6 +54,9 @@ android {
             "aegis_t9.bin",
             "aegis_jianpin.bin",
             "aegis_lm.bin",
+            "aegis_english.bin",
+            "aegis_en_full.bin",
+            "wanxiang-lts-zh-hans.gram",
         )
     }
 
@@ -190,6 +194,8 @@ tasks.withType<Test>().configureEach {
         .withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.files(
         layout.projectDirectory.file("../THIRD_PARTY_LICENSES.md"),
+        layout.projectDirectory.file("../README.md"),
+        layout.projectDirectory.file("../README.zh-CN.md"),
         layout.projectDirectory.file("../aegis-build-info.json"),
         layout.projectDirectory.file("../tools/release/build_dictionary_pack.py"),
         layout.projectDirectory.file("../tools/t2s-data/adjudications.tsv"),
@@ -204,6 +210,68 @@ tasks.withType<Test>().configureEach {
         .withPathSensitivity(PathSensitivity.RELATIVE)
     inputs.property("auditSweepGate", providers.environmentVariable("AEGIS_AUDIT_FULL").orElse(""))
     inputs.property("heavyAuditSweepGate", providers.environmentVariable("AEGIS_AUDIT_HEAVY").orElse(""))
+    inputs.property("boostReportGate", providers.environmentVariable("AEGIS_BOOST_REPORT").orElse(""))
+    inputs.property("boostSmokeGate", providers.environmentVariable("AEGIS_BOOST_SMOKE").orElse(""))
+    inputs.property("boostThreads", providers.environmentVariable("AEGIS_BOOST_THREADS").orElse(""))
+    inputs.property(
+        "coverageIdentityDigestDump",
+        providers.environmentVariable("AEGIS_COVERAGE_DIGEST_DUMP").orElse(""),
+    )
+    inputs.file(
+        providers.environmentVariable("AEGIS_COVERAGE_DIGEST_BASELINE")
+            .map(::file)
+            .orElse(layout.projectDirectory.file("src/test/resources/coverage-identity-7907381b.tsv").asFile),
+    ).withPropertyName("coverageIdentityDigestBaseline")
+        .withPathSensitivity(PathSensitivity.NONE)
+    inputs.file(providers.environmentVariable("AEGIS_GRAM").map(::file))
+        .optional()
+        .withPropertyName("externalGrammarModel")
+        .withPathSensitivity(PathSensitivity.NONE)
+    inputs.file(providers.environmentVariable("AEGIS_ENGLISH").map(::file))
+        .optional()
+        .withPropertyName("externalEnglishTable")
+        .withPathSensitivity(PathSensitivity.NONE)
+}
+
+tasks.register("verifyExternalModelsNotPackaged") {
+    val debugApk = layout.buildDirectory.file("outputs/apk/debug/app-debug.apk")
+    val releaseApk = layout.buildDirectory.file("outputs/apk/release/app-release-unsigned.apk")
+    dependsOn("assembleDebug", "assembleRelease")
+    inputs.files(debugApk, releaseApk)
+    doLast {
+        val exactForbidden = setOf(
+            "aegis_dict.bin",
+            "aegis_dict_full.bin",
+            "aegis_t9.bin",
+            "aegis_t9_full.bin",
+            "aegis_jianpin.bin",
+            "aegis_jianpin_full.bin",
+            "aegis_lm.bin",
+            "aegis_english.bin",
+            "aegis_en_full.bin",
+        )
+        for (apk in listOf(debugApk.get().asFile, releaseApk.get().asFile)) {
+            check(apk.isFile) { "missing APK ${apk.absolutePath}" }
+            val leaked = ArrayList<String>()
+            ZipFile(apk).use { zip ->
+                val entries = zip.entries()
+                while (entries.hasMoreElements()) {
+                    val name = entries.nextElement().name
+                    if (!name.startsWith("assets/")) continue
+                    val basename = name.substringAfterLast('/')
+                    if (
+                        basename in exactForbidden ||
+                        basename.endsWith(".gram") ||
+                        basename.startsWith("aegis_en")
+                    ) {
+                        leaked += name
+                    }
+                }
+            }
+            check(leaked.isEmpty()) { "external test models leaked into ${apk.name}: $leaked" }
+            logger.lifecycle("verified ${apk.name}: no external dictionary, English, or grammar model assets")
+        }
+    }
 }
 
 dependencies {

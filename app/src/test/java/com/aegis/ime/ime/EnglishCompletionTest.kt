@@ -299,7 +299,7 @@ class EnglishCompletionTest {
         c.onKey(act(KeyAction.SWITCH_SYMBOLS))
         assertEquals(listOf("or"), h.commits)
         assertEquals("", c.englishWordForTest())
-        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         assertEquals(emptyList<String>(), c.candidateWords())
     }
 
@@ -410,7 +410,7 @@ class EnglishCompletionTest {
         val h = FakeHost()
         val c = KeyboardController(h, dictionary)
         c.setAssociationsEnabled(true)
-        c.onKey(act(KeyAction.SWITCH_ALPHA))
+        c.switchTextLayoutForTest(nine = false)
         type(c, "or")
         assertEquals(emptyList<String>(), h.commits)
         assertEquals("o'r", c.preeditForTest())

@@ -58,14 +58,12 @@ class ClipboardPolicyTest {
     }
 
 
-    @Test fun copy_bar_restored_for_any_secure_status_when_a_clip_is_pending() {
-        assertTrue(ClipboardPolicy.shouldRestoreCopyBar("copied text", secureField = true))
-        assertTrue(ClipboardPolicy.shouldRestoreCopyBar("copied text", secureField = false))
+    @Test fun copy_bar_restored_when_a_clip_is_pending() {
+        assertTrue(ClipboardPolicy.shouldRestoreCopyBar("copied text"))
     }
 
     @Test fun copy_bar_not_restored_when_no_clip_pending() {
-        assertFalse(ClipboardPolicy.shouldRestoreCopyBar(null, secureField = false))
-        assertFalse(ClipboardPolicy.shouldRestoreCopyBar(null, secureField = true))
+        assertFalse(ClipboardPolicy.shouldRestoreCopyBar(null))
     }
 
     @Test fun password_fields_are_still_classified_sensitive_for_the_learning_gate() {
