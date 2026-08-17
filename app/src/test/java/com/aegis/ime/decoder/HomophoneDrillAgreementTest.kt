@@ -17,6 +17,7 @@ package com.aegis.ime.decoder
 
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.dict.TghGrading
 import java.io.File
 import kotlin.math.exp
 import org.junit.Assert.assertEquals
@@ -33,6 +34,7 @@ class HomophoneDrillAgreementTest {
     private val dict: BinaryDict by lazy { BinaryDict.fromFile(dictFile) }
     private val t9Dict: BinaryDict by lazy { BinaryDict.fromFile(t9File) }
     private val model: CharBigramLM by lazy { CharBigramLM.fromFile(lmFile) }
+    private val grading: TghGrading = TghGrading.bundled
     private val letter: PinyinDecoder by lazy { PinyinDecoder(dict, model) }
     private val t9: PinyinDecoder by lazy { PinyinDecoder(t9Dict, model, aliasDict = dict) }
 
@@ -51,15 +53,27 @@ class HomophoneDrillAgreementTest {
 
     private fun expectedLayer(word: String, value: Double): Int {
         if (value <= INJECTED_FREQ) return INJECTED_LAYER
-        val counted = model.unigramCount(word.codePointAt(0))
-        val commonness = if (counted > 0L) counted.toDouble() else value
-        val band = when {
-            commonness >= COMMON_FREQ -> COMMON_LAYER
-            commonness <= RARE_FREQ -> RARE_LAYER
-            else -> UNCOMMON_LAYER
+        if (!isSingle(word)) return UNCOMMON_LAYER
+        val codePoint = word.codePointAt(0)
+        val band = when (grading.level(codePoint)) {
+            1 -> COMMON_LAYER
+            2 -> UNCOMMON_LAYER
+            3 -> SPECIALIZED_LAYER
+            else -> if (codePoint >= EXTENSION_B_FLOOR) EXTENSION_LAYER else RARE_LAYER
         }
-        val core = isSingle(word) && word.codePointAt(0) in 0x4E00..0x9FFF
-        return if (core) band else maxOf(band, UNCOMMON_LAYER)
+        if (band < RARE_LAYER) return band
+        return if (model.unigramRank(codePoint) <= GENERAL_USE_CARDINALITY) band - 1 else band
+    }
+
+    private fun expectedInLayerKey(word: String): Int {
+        if (!isSingle(word)) return CORPUS_BAND_OUT
+        val rank = model.unigramRank(word.codePointAt(0))
+        return when {
+            rank <= LEVEL1_CARDINALITY -> 0
+            rank <= GENERAL_USE_CARDINALITY -> 1
+            rank <= TABLE_CARDINALITY -> 2
+            else -> CORPUS_BAND_OUT
+        }
     }
 
     private fun expectation(source: BinaryDict, key: String): List<String> {
@@ -76,7 +90,10 @@ class HomophoneDrillAgreementTest {
         }
         return supply
             .sortedWith(compareByDescending<Pair<String, Double>> { it.second }.thenBy { tieRank(it.first) })
-            .sortedBy { expectedLayer(it.first, it.second) }
+            .sortedWith(
+                compareBy<Pair<String, Double>> { expectedLayer(it.first, it.second) }
+                    .thenBy { expectedInLayerKey(it.first) },
+            )
             .map { it.first }
     }
 
@@ -184,13 +201,18 @@ class HomophoneDrillAgreementTest {
     }
 
     private companion object {
-        const val COMMON_FREQ = 1000.0
-        const val RARE_FREQ = 100.0
         const val INJECTED_FREQ = 1.0
         const val COMMON_LAYER = 0
         const val UNCOMMON_LAYER = 1
-        const val RARE_LAYER = 2
-        const val INJECTED_LAYER = 3
+        const val SPECIALIZED_LAYER = 2
+        const val RARE_LAYER = 3
+        const val EXTENSION_LAYER = 4
+        const val INJECTED_LAYER = 5
+        const val CORPUS_BAND_OUT = 3
+        const val EXTENSION_B_FLOOR = 0x20000
+        const val LEVEL1_CARDINALITY = 3500
+        const val GENERAL_USE_CARDINALITY = 6500
+        const val TABLE_CARDINALITY = 8105
         val ALIAS_DISCOUNT = exp(-3.5)
     }
 }
