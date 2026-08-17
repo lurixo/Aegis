@@ -426,6 +426,115 @@ class CandidateGridViewTest {
         assertEquals(words.indices.toList(), picked)
     }
 
+    @Test fun pinyin_projection_limits_phrases_to_three_rows_and_keeps_every_single_item() {
+        val phrases = List(22) { "词${('A'.code + it).toChar()}" }
+        val singles = List(18) { (0x4e00 + it).toChar().toString() } + listOf("𰻞", "❤️", "👨‍👩‍👧")
+        val source = ArrayList<String>().apply {
+            for (i in phrases.indices) {
+                add(phrases[i])
+                if (i in singles.indices) add(singles[i])
+            }
+        }
+        val v = measured()
+        val policy = CandidateProjectionPolicy.PINYIN
+
+        v.setCandidates(source, projection = policy)
+
+        val rows = v.rowTextsForTest()
+        val rendered = v.renderedCandidateTextsForTest()
+        val shownPhrases = rendered.filter { GraphemeText.clusterCount(it) > 1 }
+        assertEquals("the Pinyin product policy is three phrase rows", 3, policy.maxPhraseRows)
+        assertEquals(
+            "these two-grapheme phrases each take one track, so three rows hold twelve",
+            policy.maxPhraseRows * CandidateGridView.COLUMNS,
+            shownPhrases.size,
+        )
+        assertTrue("the source has enough content to exercise later rows", rows.size > policy.maxPhraseRows)
+        assertTrue(
+            "no phrase may appear after the policy boundary",
+            rows.drop(policy.maxPhraseRows).flatten().all { GraphemeText.clusterCount(it) == 1 },
+        )
+        assertEquals("every single item stays reachable and in engine order", singles, rendered.filter { GraphemeText.clusterCount(it) == 1 })
+        assertEquals("visible phrases keep their engine ranking", phrases.take(shownPhrases.size), shownPhrases)
+        assertTrue("excess phrases are removed from the expanded projection", shownPhrases.size < phrases.size)
+        assertTrue(
+            "phrases precede all single items in the projection",
+            rendered.dropWhile { GraphemeText.clusterCount(it) > 1 }.all { GraphemeText.clusterCount(it) == 1 },
+        )
+        assertEquals(rendered, v.renderedSourceIndicesForTest().map(source::get))
+    }
+
+    @Test fun pinyin_projection_places_single_items_immediately_after_underfilled_phrase_rows() {
+        val phrases = List(5) { "词${('A'.code + it).toChar()}" }
+        val singles = listOf("你", "泥", "拟", "𰻞", "❤️")
+        val v = measured()
+
+        v.setCandidates(singles.take(2) + phrases + singles.drop(2), projection = CandidateProjectionPolicy.PINYIN)
+
+        assertEquals(phrases.take(4), v.rowTextsForTest()[0])
+        assertEquals(phrases.drop(4) + singles.take(3), v.rowTextsForTest()[1])
+        assertEquals(singles, v.renderedCandidateTextsForTest().filter { GraphemeText.clusterCount(it) == 1 })
+    }
+
+    @Test fun pinyin_projection_picks_original_controller_indices_after_reordering() {
+        val source = listOf("你", "词A", "泥", "词B", "拟", "词C", "𰻞", "词D", "❤️")
+        val v = measured()
+        val picked = ArrayList<Int>()
+        v.onPick = picked::add
+
+        v.setCandidates(source, projection = CandidateProjectionPolicy.PINYIN)
+        for (i in v.renderedCandidateTextsForTest().indices) assertTrue(v.tapCandidateForTest(i))
+
+        assertEquals(v.renderedSourceIndicesForTest(), picked)
+        assertEquals(v.renderedCandidateTextsForTest(), picked.map(source::get))
+    }
+
+    @Test fun pinyin_projection_recomputes_from_the_complete_source_after_width_changes() {
+        val phrases = List(24) { "候选词组${('A'.code + it).toChar()}" }
+        val singles = List(16) { (0x4e20 + it).toChar().toString() }
+        val source = phrases + singles
+        val v = CandidateGridView(ctx)
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec(dp(240), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(dp(250), View.MeasureSpec.EXACTLY),
+        )
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+        v.setCandidates(source, projection = CandidateProjectionPolicy.PINYIN)
+        val narrowPhraseCount = v.renderedCandidateTextsForTest().count { GraphemeText.clusterCount(it) > 1 }
+
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec(dp(800), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(dp(250), View.MeasureSpec.EXACTLY),
+        )
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+        val widePhraseCount = v.renderedCandidateTextsForTest().count { GraphemeText.clusterCount(it) > 1 }
+
+        assertTrue(
+            "a wider table needs fewer tracks per phrase, so three rows carry more of them: " +
+                "$narrowPhraseCount then $widePhraseCount",
+            widePhraseCount > narrowPhraseCount,
+        )
+        assertEquals(singles, v.renderedCandidateTextsForTest().filter { GraphemeText.clusterCount(it) == 1 })
+        assertTrue(
+            v.rowTextsForTest().drop(CandidateProjectionPolicy.PINYIN.maxPhraseRows).flatten()
+                .all { GraphemeText.clusterCount(it) == 1 },
+        )
+    }
+
+    @Test fun removing_the_projection_restores_the_complete_engine_order() {
+        val source = listOf("你", "词A", "泥") + List(20) { "词${('B'.code + it).toChar()}" } + listOf("拟", "𰻞")
+        val v = measured()
+
+        v.setCandidates(source)
+        assertEquals(source, v.renderedCandidateTextsForTest())
+        v.setCandidates(source, projection = CandidateProjectionPolicy.PINYIN)
+        assertTrue(v.renderedCandidateTextsForTest() != source)
+        v.setCandidates(source, projection = null)
+
+        assertEquals(source, v.renderedCandidateTextsForTest())
+        assertEquals(source.indices.toList(), v.renderedSourceIndicesForTest())
+    }
+
     @Test fun spare_tracks_go_to_the_candidates_already_on_the_row() {
         val v = measured()
         var picked = -1
@@ -539,6 +648,32 @@ class CandidateGridViewTest {
         v.setCandidates(listOf("超".repeat(80)))
         assertEquals(10f, v.chipTextSizeSpForTest(0), 0.01f)
         assertEquals(TextUtils.TruncateAt.END, v.chipEllipsizeForTest(0))
+    }
+
+    @Test fun the_fourth_action_toggles_between_all_candidates_and_singles_only() {
+        val picked = ArrayList<Int>()
+        val v = measured(CandidateGridView(ctx).apply { onPick = { picked.add(it) } })
+        v.setCandidates(listOf("你好", "你", "泥", "你们", "拟"), projection = CandidateProjectionPolicy.PINYIN)
+        val toggle = v.singlesButtonForTest()
+
+        assertEquals(
+            "the key carries 全部 leading and 单字 trailing",
+            ctx.getString(R.string.panel_all) to ctx.getString(R.string.panel_singles),
+            v.singlesWordsForTest(),
+        )
+        assertFalse("the toggle opens on 全部", v.singlesOnlyForTest())
+        assertEquals(listOf("你好", "你们", "你", "泥", "拟"), v.renderedCandidateTextsForTest())
+
+        assertTrue(toggle.performClick())
+        assertTrue("the toggle now sits on 单字", v.singlesOnlyForTest())
+        assertEquals("only the single characters remain", listOf("你", "泥", "拟"), v.renderedCandidateTextsForTest())
+        assertEquals("each survivor keeps its engine index", listOf(1, 2, 4), v.renderedSourceIndicesForTest())
+        assertTrue(v.tapCandidateForTest(1))
+        assertEquals(listOf(2), picked)
+
+        assertTrue(toggle.performClick())
+        assertFalse(v.singlesOnlyForTest())
+        assertEquals(listOf("你好", "你们", "你", "泥", "拟"), v.renderedCandidateTextsForTest())
     }
 
     @Test fun the_singles_filter_follows_new_candidates_and_resets_when_the_panel_reopens() {

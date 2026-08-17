@@ -55,6 +55,16 @@ import com.aegis.ime.layout.Layouts
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+data class CandidateProjectionPolicy(val maxPhraseRows: Int) {
+    init {
+        require(maxPhraseRows >= 0)
+    }
+
+    companion object {
+        val PINYIN = CandidateProjectionPolicy(maxPhraseRows = 3)
+    }
+}
+
 class CandidateGridView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar, KeyHapticsAware {
 
     internal companion object {
@@ -107,6 +117,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private val backspaceGlyph = IconDrawable(density, Glyphs.backspaceInk)
     private val measurePaint = Paint()
     private var sourceCandidates: List<String>? = null
+    private var sourceCandidateProjection: CandidateProjectionPolicy? = null
     private var renderedCandidates: List<String>? = null
     private var renderedSourceIndices: List<Int> = emptyList()
     private var renderedCandidateWidth = 0
@@ -237,7 +248,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         if (on == singlesOnly) return
         singlesOnly = on
         singlesKey.invalidate()
-        sourceCandidates?.let { setCandidates(it) }
+        sourceCandidates?.let { setCandidates(it, sourceCandidateProjection) }
     }
 
     private fun resetViewportToStart() {
@@ -363,7 +374,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             lastMeasuredWidth = incomingWidth
             sourceCandidates?.let {
                 measuringWidthOverride = incomingWidth
-                setCandidates(it)
+                setCandidates(it, sourceCandidateProjection)
                 measuringWidthOverride = 0
             }
         }
@@ -508,15 +519,36 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         return starts
     }
 
+    private fun projectedCandidateIndices(
+        candidates: List<String>,
+        tableW: Int,
+        policy: CandidateProjectionPolicy,
+    ): List<Int> {
+        val phraseIndices = ArrayList<Int>()
+        val singleIndices = ArrayList<Int>()
+        for (i in candidates.indices) {
+            if (GraphemeText.clusterCount(candidates[i]) == 1) singleIndices.add(i) else phraseIndices.add(i)
+        }
+        val phrases = phraseIndices.map(candidates::get)
+        val starts = candidateRowStarts(candidateSpans(phrases, tableW))
+        val phraseCount = if (starts.size > policy.maxPhraseRows) starts[policy.maxPhraseRows] else phrases.size
+        return ArrayList<Int>(phraseCount + singleIndices.size).apply {
+            addAll(phraseIndices.subList(0, phraseCount))
+            addAll(singleIndices)
+        }
+    }
+
     private fun sourceIndicesFor(
         candidates: List<String>,
         tableW: Int,
+        projection: CandidateProjectionPolicy?,
     ): List<Int> {
-        val projected = candidates.indices.toList()
+        val projected = projection?.let { projectedCandidateIndices(candidates, tableW, it) }
+            ?: candidates.indices.toList()
         return if (singlesOnly) projected.filter { GraphemeText.clusterCount(candidates[it]) == 1 } else projected
     }
 
-    fun setCandidates(candidates: List<String>) {
+    fun setCandidates(candidates: List<String>, projection: CandidateProjectionPolicy? = null) {
         val configuredWidth = resources.configuration.screenWidthDp
             .takeIf { it > 0 }
             ?.let { (it * density).toInt() }
@@ -524,12 +556,14 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         val liveWidth = measuringWidthOverride.takeIf { it > 0 } ?: width.takeIf { it > 0 } ?: configuredWidth
         val tableW = (liveWidth - 2 * edgeInset - sideSpan(liveWidth) - actionSpan(liveWidth)).coerceAtLeast(dp(46))
         val sourceUnchanged = candidates == sourceCandidates
-        val nextSourceIndices = sourceIndicesFor(candidates, tableW)
+        val nextSourceIndices = sourceIndicesFor(candidates, tableW, projection)
         if (sourceUnchanged && nextSourceIndices == renderedSourceIndices && tableW == renderedCandidateWidth) {
+            sourceCandidateProjection = projection
             return
         }
         val contentChanged = !sourceUnchanged || nextSourceIndices != renderedSourceIndices
         sourceCandidates = candidates.toList()
+        sourceCandidateProjection = projection
         renderedSourceIndices = nextSourceIndices
         renderedCandidates = renderedSourceIndices.map(candidates::get)
         renderedCandidateWidth = tableW
@@ -657,6 +691,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun chipsAllocatedForTest(): Int = chipsAllocated
     internal fun readingsAllocatedForTest(): Int = readingsAllocated
     internal fun renderedCandidateTextsForTest(): List<String> = renderedCandidates.orEmpty()
+    internal fun renderedSourceIndicesForTest(): List<Int> = renderedSourceIndices
     internal fun rowTextsForTest(): List<List<String>> {
         val out = ArrayList<List<String>>()
         val candidates = renderedCandidates.orEmpty()
