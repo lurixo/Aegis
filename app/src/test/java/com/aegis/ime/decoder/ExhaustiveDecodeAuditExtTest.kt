@@ -495,14 +495,19 @@ class ExhaustiveDecodeAuditExtTest {
             }
             val readingFreq = source.exact(key).filter { isSingleChar(it.word) }.associate { it.word to it.freq }
             val heads = homophoneFreqsOf(source, decoder, key)
-            for (closing in listOf(false, true)) {
-                var prev = Int.MAX_VALUE
-                for ((w, _) in ws) {
-                    if (decoder.rareSingle(w, heads) != closing) continue
-                    val f = readingFreq[w] ?: continue
-                    if (f > prev) rows.add("$input\tcov$cov\tO1\t$w@$f after a lower-freq same-reading single")
-                    prev = f
+            val previousInBucket = HashMap<Long, Int>()
+            for ((w, _) in ws) {
+                val f = readingFreq[w] ?: continue
+                val frequency = heads[w] ?: continue
+                val bucket = orderingBucket(decoder.homophoneLayer(w, frequency), w)
+                val prev = previousInBucket[bucket]
+                if (prev != null && f > prev) {
+                    rows.add(
+                        "$input\tcov$cov\tO1\t$w@$f after a lower-freq same-reading single " +
+                            "in layer ${bucket / 8} band ${bucket % 8}",
+                    )
                 }
+                previousInBucket[bucket] = f
             }
         }
         val firstRare = cands.indexOfFirst { rare(it) }
@@ -576,10 +581,11 @@ class ExhaustiveDecodeAuditExtTest {
 
     private val grading: TghGrading = TghGrading.bundled
 
-    private fun rareByLayer(frequencies: Map<String, Double>, word: String, boosted: Boolean = false): Boolean {
-        if (!isSingleChar(word) || boosted) return false
-        val frequency = frequencies[word] ?: return false
-        if (frequency <= PinyinDecoder.ORDERING_INJECTED_FREQ) return true
+    private fun layerByGrading(frequencies: Map<String, Double>, word: String, boosted: Boolean = false): Int? {
+        if (!isSingleChar(word)) return null
+        if (boosted) return PinyinDecoder.LAYER_COMMON
+        val frequency = frequencies[word] ?: return null
+        if (frequency <= PinyinDecoder.ORDERING_INJECTED_FREQ) return PinyinDecoder.LAYER_INJECTED
         val codePoint = word.codePointAt(0)
         val band = when (grading.level(codePoint)) {
             1 -> PinyinDecoder.LAYER_COMMON
@@ -589,11 +595,27 @@ class ExhaustiveDecodeAuditExtTest {
                 if (codePoint >= PinyinDecoder.EXTENSION_B_FLOOR) PinyinDecoder.LAYER_RARE_EXTENSION
                 else PinyinDecoder.LAYER_RARE
         }
-        if (band < PinyinDecoder.LAYER_RARE) return false
-        val lifted =
-            if (lm.unigramRank(codePoint) <= PinyinDecoder.GENERAL_USE_CARDINALITY) band - 1 else band
-        return lifted >= PinyinDecoder.LAYER_RARE
+        if (band < PinyinDecoder.LAYER_RARE) return band
+        return if (lm.unigramRank(codePoint) <= PinyinDecoder.GENERAL_USE_CARDINALITY) band - 1 else band
     }
+
+    private fun rareByLayer(frequencies: Map<String, Double>, word: String, boosted: Boolean = false): Boolean {
+        val layer = layerByGrading(frequencies, word, boosted) ?: return false
+        return layer >= PinyinDecoder.LAYER_RARE
+    }
+
+    private fun corpusBand(word: String): Int {
+        val rank = lm.unigramRank(word.codePointAt(0))
+        return when {
+            rank <= TghGrading.LEVEL1_COUNT -> 0
+            rank <= TghGrading.LEVEL1_COUNT + TghGrading.LEVEL2_COUNT -> 1
+            rank <= TghGrading.ENTRY_COUNT -> 2
+            else -> 3
+        }
+    }
+
+    private fun orderingBucket(layer: Int, word: String): Long = layer.toLong() * 8L + corpusBand(word)
+
 
     private fun multiCharExactOf(source: BinaryDict, key: String): Set<String> =
         source.exact(key).filterNot { isSingleChar(it.word) }.mapTo(HashSet()) { it.word }
@@ -634,8 +656,7 @@ class ExhaustiveDecodeAuditExtTest {
         val heads = homophoneFreqsOf(source, decoder, sylKeys[0])
         val leadingPositions = ArrayList<Int>()
         val closingPositions = ArrayList<Int>()
-        val leadingBucket = ArrayList<Pair<String, Int>>()
-        val closingBucket = ArrayList<Pair<String, Int>>()
+        val orderingBuckets = LinkedHashMap<Long, ArrayList<Pair<String, Int>>>()
         val emittedFirstSingles = HashSet<String>()
         for ((pos, c) in cands.withIndex()) {
             val ncp = c.word.codePointCount(0, c.word.length)
@@ -649,7 +670,8 @@ class ExhaustiveDecodeAuditExtTest {
             if (ks != 1) continue
             emittedFirstSingles.add(c.word)
             val native = nativeSingleFreq(source, sylKeys[0], c.word) ?: continue
-            if (rare) closingBucket.add(c.word to native) else leadingBucket.add(c.word to native)
+            val layer = layerByGrading(heads, c.word, userBoost(c.word)) ?: continue
+            orderingBuckets.getOrPut(orderingBucket(layer, c.word)) { ArrayList() }.add(c.word to native)
         }
         if (closingPositions.isNotEmpty()) {
             if (closingPositions.last() != cands.size - 1) {
@@ -702,10 +724,15 @@ class ExhaustiveDecodeAuditExtTest {
                 )
             }
         }
-        if (context.isEmpty()) for (bucket in listOf(leadingBucket, closingBucket)) {
+        if (context.isEmpty()) for ((bucket, entries) in orderingBuckets) {
             var prev = Int.MAX_VALUE
-            for ((w, f) in bucket) {
-                if (f > prev) rows.add("$tag\tO1\t$w@$f after a lower-freq same-reading single")
+            for ((w, f) in entries) {
+                if (f > prev) {
+                    rows.add(
+                        "$tag\tO1\t$w@$f after a lower-freq same-reading single " +
+                            "in layer ${bucket / 8} band ${bucket % 8}",
+                    )
+                }
                 prev = f
             }
         }
