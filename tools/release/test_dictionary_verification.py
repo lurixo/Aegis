@@ -3,6 +3,9 @@
 # SPDX-License-Identifier: GPL-3.0-only
 
 import importlib.util
+import os
+import shutil
+import subprocess
 from pathlib import Path
 import tempfile
 import unittest
@@ -102,6 +105,76 @@ class JunitGateTest(unittest.TestCase):
             ET.SubElement(case, "skipped"); tree.write(path)
             with self.assertRaisesRegex(SystemExit, "build-info tests"):
                 verification.check_results(root)
+
+
+class ShellSdkTest(unittest.TestCase):
+    def fixture(self, root):
+        root = Path(root)
+        repository = root / "repository"
+        release = repository / "tools/release"
+        release.mkdir(parents=True)
+        script = release / "verify_dictionary_release.sh"
+        shutil.copyfile(Path(__file__).with_name(script.name), script)
+        commands = root / "commands"; commands.mkdir()
+        python = commands / "python3"
+        python.write_text("#!/bin/sh\nexit 0\n"); python.chmod(0o755)
+        gradle = repository / "gradlew"
+        gradle.write_text("#!/bin/sh\nexit 0\n"); gradle.chmod(0o755)
+        reports = repository / "app/build/outputs/mapping/release"
+        reports.mkdir(parents=True)
+        for name in ("configuration", "mapping", "seeds", "usage"):
+            (reports / (name + ".txt")).write_text("report")
+        inputs = []
+        for name in ("pack.zip", "manifest.json", "build-info.json", "coverage.tsv"):
+            path = root / name; path.write_text("input"); inputs.append(str(path))
+        sdk = root / "android-sdk"
+        manager = sdk / "cmdline-tools/latest/bin/sdkmanager"
+        manager.parent.mkdir(parents=True)
+        manager.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$SDK_TEST_ARGUMENTS"\nprintf "Installed packages\\n"\n')
+        manager.chmod(0o755)
+        environment = dict(os.environ, PATH=str(commands) + ":/usr/bin:/bin", SDK_TEST_ARGUMENTS=str(root / "sdk-arguments.txt"))
+        environment.pop("ANDROID_HOME", None); environment.pop("ANDROID_SDK_ROOT", None)
+        return script, inputs, sdk, manager, environment
+
+    def run_script(self, script, inputs, environment):
+        return subprocess.run(["bash", str(script), *inputs], env=environment, text=True,
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+    def test_sdk_cli_does_not_need_to_be_on_path_and_receives_the_selected_root(self):
+        for variable in ("ANDROID_HOME", "ANDROID_SDK_ROOT"):
+            with self.subTest(variable=variable), tempfile.TemporaryDirectory() as root:
+                script, inputs, sdk, manager, environment = self.fixture(root)
+                environment[variable] = str(sdk)
+                result = self.run_script(script, inputs, environment)
+                self.assertEqual(0, result.returncode, result.stdout)
+                self.assertEqual([f"--sdk_root={sdk}", "--list_installed"],
+                                 Path(environment["SDK_TEST_ARGUMENTS"]).read_text().splitlines())
+                self.assertEqual("Installed packages\n", (script.parents[2] / "build/android-sdk-packages.txt").read_text())
+
+    def test_symbolic_link_aliases_identify_the_same_sdk_root(self):
+        with tempfile.TemporaryDirectory() as root:
+            script, inputs, sdk, manager, environment = self.fixture(root)
+            alias = Path(root) / "sdk-alias"; alias.symlink_to(sdk, target_is_directory=True)
+            environment.update(ANDROID_HOME=str(alias), ANDROID_SDK_ROOT=str(sdk))
+            result = self.run_script(script, inputs, environment)
+            self.assertEqual(0, result.returncode, result.stdout)
+            self.assertIn(f"--sdk_root={sdk}", Path(environment["SDK_TEST_ARGUMENTS"]).read_text())
+
+    def test_missing_or_conflicting_sdk_inputs_fail_before_validation(self):
+        for failure in ("unset", "missing_root", "conflict", "missing_cli"):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as root:
+                script, inputs, sdk, manager, environment = self.fixture(root)
+                if failure == "missing_root": environment["ANDROID_HOME"] = str(Path(root) / "absent")
+                elif failure == "conflict":
+                    second = Path(root) / "other-sdk"; second.mkdir()
+                    environment.update(ANDROID_HOME=str(sdk), ANDROID_SDK_ROOT=str(second))
+                elif failure == "missing_cli":
+                    environment["ANDROID_HOME"] = str(sdk); manager.unlink()
+                result = self.run_script(script, inputs, environment)
+                self.assertEqual(69, result.returncode, result.stdout)
+                self.assertIn("SDK", result.stdout)
+                self.assertFalse((script.parents[2] / "build").exists())
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
