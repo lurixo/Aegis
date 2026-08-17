@@ -616,6 +616,92 @@ class ExhaustiveDecodeAuditExtTest {
 
     private fun orderingBucket(layer: Int, word: String): Long = layer.toLong() * 8L + corpusBand(word)
 
+    private class LockedBaseline(capacity: Int) {
+        private var mask = 1
+        init { while (mask < capacity * 2) mask = mask shl 1; mask -= 1 }
+        private val keys = LongArray(mask + 1)
+        private val values = LongArray(mask + 1)
+        private val taken = java.util.BitSet(mask + 1)
+        var size = 0
+            private set
+
+        private fun slot(key: Long): Int {
+            var i = (key xor (key ushr 32)).toInt() and mask
+            while (taken.get(i) && keys[i] != key) i = (i + 1) and mask
+            return i
+        }
+
+        fun put(key: Long, value: Long) {
+            val i = slot(key)
+            if (!taken.get(i)) { taken.set(i); size++ }
+            keys[i] = key
+            values[i] = value
+        }
+
+        fun matches(key: Long, value: Long): Boolean {
+            val i = slot(key)
+            return taken.get(i) && keys[i] == key && values[i] == value
+        }
+
+        fun conflicts(key: Long, value: Long): Boolean {
+            val i = slot(key)
+            return taken.get(i) && keys[i] == key && values[i] != value
+        }
+
+        fun holds(key: Long): Boolean {
+            val i = slot(key)
+            return taken.get(i) && keys[i] == key
+        }
+    }
+
+    private val lockedBaseline: LockedBaseline by lazy {
+        val override = System.getenv("AEGIS_LOCKED_BASELINE")
+        val bytes = if (override != null) {
+            val file = File(override)
+            assertTrue("AEGIS_LOCKED_BASELINE points at a readable dump: $override", file.isFile)
+            file.readBytes()
+        } else {
+            javaClass.getResourceAsStream(LockedOrderDigest.RESOURCE)?.use { it.readBytes() }
+                ?: error("bundled ${LockedOrderDigest.RESOURCE} missing from test resources")
+        }
+        val digest = LockedOrderDigest.sha256(bytes)
+        assertTrue(
+            "locked baseline digest is $digest, expected ${LockedOrderDigest.SHA256}",
+            digest == LockedOrderDigest.SHA256,
+        )
+        val lines = String(bytes, Charsets.UTF_8).lines().filterNot { it.startsWith("#") || it.isBlank() }
+        assertTrue(
+            "locked baseline holds ${lines.size} cells, expected ${LockedOrderDigest.CELLS}",
+            lines.size == LockedOrderDigest.CELLS,
+        )
+        val table = LockedBaseline(lines.size)
+        var conflicts = 0
+        for (line in lines) {
+            val at = line.indexOf('\t')
+            val key = java.lang.Long.parseUnsignedLong(line.substring(0, at), 16)
+            val value = java.lang.Long.parseUnsignedLong(line.substring(at + 1), 16)
+            if (table.conflicts(key, value)) conflicts++
+            table.put(key, value)
+        }
+        assertTrue(
+            "locked baseline maps each probe key to one sequence: $conflicts conflicting keys " +
+                "over ${lines.size} rows / ${table.size} distinct",
+            conflicts == 0,
+        )
+        table
+    }
+
+    private fun sequenceDigest(cands: List<Cand>): Long {
+        val sequence = StringBuilder()
+        for (c in cands) sequence.append(c.word).append('\u0001').append(c.coveredLen).append('\u0000')
+        return java.lang.Long.parseUnsignedLong(LockedOrderDigest.of(sequence.toString()), 16)
+    }
+
+    private fun lockedBaselineVerdict(layout: String, tag: String, cands: List<Cand>): Int {
+        val key = java.lang.Long.parseUnsignedLong(LockedOrderDigest.of("$layout|$tag"), 16)
+        if (!lockedBaseline.holds(key)) return BASELINE_ABSENT
+        return if (lockedBaseline.matches(key, sequenceDigest(cands))) BASELINE_SAME else BASELINE_MOVED
+    }
 
     private fun multiCharExactOf(source: BinaryDict, key: String): Set<String> =
         source.exact(key).filterNot { isSingleChar(it.word) }.mapTo(HashSet()) { it.word }
@@ -630,6 +716,12 @@ class ExhaustiveDecodeAuditExtTest {
         val head: String,
     )
 
+    private var lockedLabelExemptions = 0L
+    private var lockedLabelMoved = 0L
+    private var lockedLabelAbsent = 0L
+    private val BASELINE_ABSENT = 0
+    private val BASELINE_SAME = 1
+    private val BASELINE_MOVED = 2
     private val LEAD_ROW_CAP = 20_000
     private val leadRows = ArrayList<LeadRow>()
     private val leadHistogram = HashMap<Int, Int>()
@@ -738,6 +830,16 @@ class ExhaustiveDecodeAuditExtTest {
         }
         if (checkLossless) for (w in nativeSinglesOf(source, sylKeys[0]).keys) {
             if (w !in emittedFirstSingles) rows.add("$tag\tL\t$w native single of ${sylKeys[0]} dropped from the locked grid")
+        }
+        if (rows.any { it.split("\t").getOrNull(1) == "S" }) {
+            when (lockedBaselineVerdict(layout, tag, cands)) {
+                BASELINE_SAME -> {
+                    lockedLabelExemptions++
+                    rows.removeAll { it.split("\t").getOrNull(1) == "S" }
+                }
+                BASELINE_MOVED -> lockedLabelMoved++
+                else -> lockedLabelAbsent++
+            }
         }
         return rows
     }
@@ -850,7 +952,12 @@ class ExhaustiveDecodeAuditExtTest {
         }
         val covered = "pairs (both routes): $pairsChecked; triples: $triplesChecked; " +
             "whole-reading locks (no cuts): $wholeChecked; " +
-            "contexts: ${LOCKED_CONTEXTS.size} (${LOCKED_CONTEXTS.joinToString(",") { it.ifEmpty { "none" } }})"
+            "contexts: ${LOCKED_CONTEXTS.size} (${LOCKED_CONTEXTS.joinToString(",") { it.ifEmpty { "none" } }})\n" +
+            "S verdicts: exempted $lockedLabelExemptions (cell sequence identical to 7907381b); " +
+            "kept $lockedLabelMoved (cell is in the baseline but its sequence moved); " +
+            "kept $lockedLabelAbsent (cell is outside the baseline arm, so no exemption exists for it)\n" +
+            "baseline covers the whole-reading locked arm only: ${lockedBaseline.size} cells. " +
+            "Pair and triple cells are never exempted; an S row there is a real verdict, not a missing dump"
         writeTsv(File(outDir(), "ext_e7.tsv"), rows.map { r ->
             val p = r.split("\t"); Fail(p.getOrElse(0) { "" }, "locked", p.getOrElse(1) { "" }, "", "", p.getOrElse(2) { "" })
         })

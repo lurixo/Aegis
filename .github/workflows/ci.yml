@@ -28,6 +28,7 @@ jobs:
     timeout-minutes: 90
     env:
       AEGIS_FULLDICT_DIR: ${{ github.workspace }}/app/src/main/assets
+      AEGIS_LOCKED_BASELINE: ${{ github.workspace }}/app/src/test/resources/locked-sequence-7907381b.tsv
       AEGIS_AUDIT_FULL: "1"
       AEGIS_AUDIT_HEAVY: ${{ (github.event_name == 'schedule' || github.event.inputs.heavy == 'true') && '1' || '0' }}
     steps:
