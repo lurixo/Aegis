@@ -60,6 +60,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
+    private val surfaceMetrics = ImePanelSurfaceMetrics.resolve(density)
 
     private var palette = ImePalette.STATIC_LIGHT
     private var selected = 0
@@ -69,6 +70,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         columnCount = COLUMNS
         val p = dp(4); setPadding(p, p, p, p)
     }
+    private var gridCellWidthPx = surfaceMetrics.minimumGridCellWidthPx
     private val gridScroll = ScrollView(context).apply { addView(grid); isFillViewport = true }
     private val clearDialog = PanelConfirmationOverlay(context)
     private val gridFrame = FrameLayout(context)
@@ -267,28 +269,32 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val totalWidth = MeasureSpec.getSize(widthMeasureSpec)
         if (totalWidth > 0) {
-            val available = (totalWidth - dp(60) - grid.paddingLeft - grid.paddingRight).coerceAtLeast(1)
-            val columns = (available / dp(MIN_KEY_TARGET_DP)).coerceIn(1, COLUMNS)
-            updateGridColumns(columns)
+            updateGridMetrics(surfaceMetrics.fitGrid(totalWidth, COLUMNS))
         }
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }
 
-    private fun updateGridColumns(columns: Int) {
-        if (grid.columnCount == columns) return
+    private fun updateGridMetrics(metrics: ImePanelGridMetrics) {
+        if (grid.columnCount == metrics.columns && gridCellWidthPx == metrics.cellWidthPx) return
         val children = (0 until grid.childCount).map { grid.getChildAt(it) }
         grid.removeAllViews()
-        grid.columnCount = columns
-        for (child in children) {
-            val params = child.layoutParams as GridLayout.LayoutParams
+        grid.columnCount = metrics.columns
+        gridCellWidthPx = metrics.cellWidthPx
+        for (cell in emojiPool) {
+            val params = cell.layoutParams as GridLayout.LayoutParams
             params.rowSpec = GridLayout.spec(GridLayout.UNDEFINED)
-            params.columnSpec = if (child === emptyHintView) {
-                GridLayout.spec(0, columns, 1f)
-            } else {
-                GridLayout.spec(GridLayout.UNDEFINED, 1f)
-            }
-            grid.addView(child, params)
+            params.columnSpec = GridLayout.spec(GridLayout.UNDEFINED)
+            params.width = gridCellWidthPx
+            cell.layoutParams = params
         }
+        emptyHintView?.let { hint ->
+            val params = hint.layoutParams as GridLayout.LayoutParams
+            params.rowSpec = GridLayout.spec(GridLayout.UNDEFINED)
+            params.columnSpec = GridLayout.spec(0, metrics.columns, 1f)
+            params.width = 0
+            hint.layoutParams = params
+        }
+        for (child in children) grid.addView(child, child.layoutParams)
     }
 
     private fun showCategory(index: Int, animate: Boolean = true) {
@@ -333,7 +339,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         setPadding(dp(16), dp(40), dp(16), dp(16))
         layoutParams = GridLayout.LayoutParams().apply {
             width = 0
-            columnSpec = GridLayout.spec(0, COLUMNS, 1f)
+            columnSpec = GridLayout.spec(0, grid.columnCount, 1f)
             setGravity(Gravity.FILL_HORIZONTAL)
         }
     }.also { emptyHintView = it }
@@ -381,9 +387,9 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
             setOnClickListener(emojiClick)
             setOnLongClickListener(emojiLongClick)
             layoutParams = GridLayout.LayoutParams().apply {
-                width = 0
+                width = gridCellWidthPx
                 height = LayoutParams.WRAP_CONTENT
-                columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
+                columnSpec = GridLayout.spec(GridLayout.UNDEFINED)
                 setGravity(Gravity.FILL_HORIZONTAL)
             }
         }

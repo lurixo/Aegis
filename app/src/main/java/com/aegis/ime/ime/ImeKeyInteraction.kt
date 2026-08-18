@@ -31,6 +31,52 @@ interface KeyHapticsAware {
     var hapticEnabled: Boolean
 }
 
+internal data class ImePanelGridMetrics(
+    val columns: Int,
+    val cellWidthPx: Int,
+) {
+    companion object {
+        fun fit(availableWidthPx: Int, minimumCellWidthPx: Int, maximumColumns: Int): ImePanelGridMetrics {
+            val available = availableWidthPx.coerceAtLeast(1)
+            val minimum = minimumCellWidthPx.coerceAtLeast(1)
+            val maximum = maximumColumns.coerceAtLeast(1)
+            val columns = (available / minimum).coerceIn(1, maximum)
+            return ImePanelGridMetrics(columns, available / columns)
+        }
+    }
+}
+
+internal data class ImePanelSurfaceMetrics(
+    val railWidthPx: Int,
+    val gridSidePaddingPx: Int,
+    val minimumGridCellWidthPx: Int,
+) {
+    fun fitGrid(panelWidthPx: Int, maximumColumns: Int): ImePanelGridMetrics =
+        ImePanelGridMetrics.fit(
+            panelWidthPx - railWidthPx - gridSidePaddingPx * 2,
+            minimumGridCellWidthPx,
+            maximumColumns,
+        )
+
+    fun outerWidth(cellWidthPx: Int, span: Int = 1): Int =
+        cellWidthPx * span.coerceAtLeast(1)
+
+    companion object {
+        const val RAIL_WIDTH_DP = 60
+        const val GRID_SIDE_PADDING_DP = 4
+        const val MINIMUM_GRID_CELL_WIDTH_DP = 48
+
+        fun resolve(density: Float): ImePanelSurfaceMetrics {
+            fun dp(value: Int): Int = (value * density).toInt()
+            return ImePanelSurfaceMetrics(
+                railWidthPx = dp(RAIL_WIDTH_DP),
+                gridSidePaddingPx = dp(GRID_SIDE_PADDING_DP),
+                minimumGridCellWidthPx = dp(MINIMUM_GRID_CELL_WIDTH_DP),
+            )
+        }
+    }
+}
+
 internal interface ImeKeySurface {
     val faceColor: Int
 }

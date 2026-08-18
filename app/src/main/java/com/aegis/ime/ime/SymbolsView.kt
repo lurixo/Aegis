@@ -56,6 +56,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
+    private val surfaceMetrics = ImePanelSurfaceMetrics.resolve(density)
 
     private val cellHeightPx: Int = run {
         val displayPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, ImeType.display, resources.displayMetrics)
@@ -77,6 +78,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         columnCount = COLUMNS
         val p = dp(4); setPadding(p, p, p, p)
     }
+    private var gridCellWidthPx = surfaceMetrics.minimumGridCellWidthPx
     private val netBar = LinearLayout(context).apply { orientation = VERTICAL; visibility = View.GONE }
     private val gridHolder = LinearLayout(context).apply {
         orientation = VERTICAL
@@ -124,7 +126,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
 
     internal companion object {
         const val COLUMNS = 7
-        const val MIN_KEY_TARGET_DP = 48
+        const val MIN_KEY_TARGET_DP = ImePanelSurfaceMetrics.MINIMUM_GRID_CELL_WIDTH_DP
         const val WIDE_GLYPH_SCALE = 0.82f
         const val BADGE_CLEARANCE_DP = 6
 
@@ -310,8 +312,15 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
 
     private fun setTileSpan(tile: FrameLayout, span: Int) {
         tileSpans[tile] = span
+        applyTileSpan(tile)
+    }
+
+    private fun applyTileSpan(tile: FrameLayout) {
+        val span = (tileSpans[tile] ?: 1).coerceIn(1, grid.columnCount)
         val lp = tile.layoutParams as GridLayout.LayoutParams
-        lp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, span, GridLayout.FILL, span.toFloat())
+        lp.width = surfaceMetrics.outerWidth(gridCellWidthPx, span)
+        lp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, span)
+        lp.setGravity(Gravity.FILL)
         tile.layoutParams = lp
     }
 
@@ -354,9 +363,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val incomingWidth = MeasureSpec.getSize(widthMeasureSpec)
         if (incomingWidth > 0) {
-            val available = (incomingWidth - dp(60) - grid.paddingLeft - grid.paddingRight).coerceAtLeast(1)
-            val columns = (available / dp(MIN_KEY_TARGET_DP)).coerceIn(1, COLUMNS)
-            updateGridColumns(columns)
+            updateGridMetrics(surfaceMetrics.fitGrid(incomingWidth, COLUMNS))
         }
         if (incomingWidth > 0 && incomingWidth != lastFlowWidth) {
             lastFlowWidth = incomingWidth
@@ -369,22 +376,26 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }
 
-    private fun updateGridColumns(columns: Int) {
-        if (grid.columnCount == columns) return
+    private fun updateGridMetrics(metrics: ImePanelGridMetrics) {
+        if (grid.columnCount == metrics.columns && gridCellWidthPx == metrics.cellWidthPx) return
         val children = (0 until grid.childCount).map { grid.getChildAt(it) }
         grid.removeAllViews()
-        grid.columnCount = columns
-        for (child in children) {
-            val params = child.layoutParams as GridLayout.LayoutParams
+        grid.columnCount = metrics.columns
+        gridCellWidthPx = metrics.cellWidthPx
+        for (tile in tilePool) {
+            val params = tile.layoutParams as GridLayout.LayoutParams
             params.rowSpec = GridLayout.spec(GridLayout.UNDEFINED)
-            params.columnSpec = if (child === emptySpanView) {
-                GridLayout.spec(0, columns, 1f)
-            } else {
-                val span = (child as? FrameLayout)?.let { tileSpans[it] } ?: 1
-                GridLayout.spec(GridLayout.UNDEFINED, span, GridLayout.FILL, span.toFloat())
-            }
-            grid.addView(child, params)
+            tile.layoutParams = params
+            applyTileSpan(tile)
         }
+        emptySpanView?.let { empty ->
+            val params = empty.layoutParams as GridLayout.LayoutParams
+            params.rowSpec = GridLayout.spec(GridLayout.UNDEFINED)
+            params.columnSpec = GridLayout.spec(0, metrics.columns, 1f)
+            params.width = 0
+            empty.layoutParams = params
+        }
+        for (child in children) grid.addView(child, child.layoutParams)
     }
 
     private fun netRow(): LinearLayout = LinearLayout(context).apply {
@@ -466,9 +477,9 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
             isClickable = true
             setOnClickListener(symbolClick)
             layoutParams = GridLayout.LayoutParams().apply {
-                width = 0
+                width = gridCellWidthPx
                 height = cellHeightPx
-                columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
+                columnSpec = GridLayout.spec(GridLayout.UNDEFINED)
                 setGravity(Gravity.FILL)
                 setMargins(0, 0, 0, 0)
             }
@@ -542,7 +553,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         setPadding(dp(16), dp(40), dp(16), dp(16))
         layoutParams = GridLayout.LayoutParams().apply {
             width = 0
-            columnSpec = GridLayout.spec(0, COLUMNS, 1f)
+            columnSpec = GridLayout.spec(0, grid.columnCount, 1f)
             setGravity(Gravity.FILL_HORIZONTAL)
         }
     }
