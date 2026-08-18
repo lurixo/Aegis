@@ -75,13 +75,12 @@ class NetCategoryLayoutTest {
         assertTrue("every single cell is laid out", single.all { it > 0 })
         assertTrue("single-char columns line up (equal width): $single", single.max() - single.min() <= 2)
 
-        val gap = 2 * (3 * density).toInt()
         val col0 = sv.gridCellPixelWidthForTest("-")
         val col1 = sv.gridCellPixelWidthForTest("_")
         val urlW = sv.gridCellPixelWidthForTest("http://")
         assertEquals(
-            "a url key spans exactly two single cells plus the one inter-cell gap",
-            (col0 + col1 + gap).toFloat(),
+            "a url key owns exactly two adjacent logical hit cells while key-face insets provide the visual gap",
+            (col0 + col1).toFloat(),
             urlW.toFloat(),
             1.5f,
         )
@@ -96,6 +95,18 @@ class NetCategoryLayoutTest {
         assertTrue("net bar shown for the recents completion", sv.netBarVisibleForTest())
         assertTrue("https:// remains available as a full recents chip", "https://" in sv.netChipTextsForTest())
         assertEquals("the single glyphs stay in the grid", 2, sv.gridCellCountForTest())
+    }
+
+    @Test fun a_short_recent_completion_keeps_a_48dp_input_target() {
+        val sv = SymbolsView(ctx)
+        sv.recentProvider = { listOf("://") }
+        sv.applyPalette(light)
+        sv.openCategoryForTest(0)
+
+        assertEquals(listOf("://"), sv.netChipTextsForTest())
+        val minimum = (SymbolsView.MIN_KEY_TARGET_DP * density).toInt()
+        assertTrue(sv.netChipMeasuredWidthsForTest().single() >= minimum)
+        assertTrue(sv.netChipMeasuredHeightsForTest().single() >= minimum)
     }
 
     @Test fun non_net_tabs_keep_the_plain_grid_with_no_net_bar() {

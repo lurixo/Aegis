@@ -746,7 +746,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         candidatesStart: Int, candidatesEnd: Int,
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
-        editPanelView?.setHasSelection(newSelStart != newSelEnd)
+        if (newSelStart >= 0 && newSelEnd >= 0) {
+            editPanelView?.setHasSelection(newSelStart != newSelEnd)
+        }
     }
 
     private fun showEditPanel() {
@@ -760,7 +762,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         ep.applyPalette(imePalette)
         ep.setSelecting(false)
-        ep.setHasSelection(!currentInputConnection?.getSelectedText(0).isNullOrEmpty())
+        ep.setHasSelection(hasSelection() || !editorReportsNoSelection())
         iv.showPanel(ep)
     }
 
@@ -915,6 +917,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             }
             it.onClearRecents = { emojiUsageStore.clear() }
             it.onBackspace = { panelBackspace() }
+            it.onBackspaceSwipe = { up -> backspaceSwipe(up) }
             it.onBack = { inputView?.showPanel(null) }
             emojiView = it
         }
@@ -1038,6 +1041,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 commitExternalSymbol(s)
             }
             it.onBackspace = { panelBackspace() }
+            it.onBackspaceSwipe = { up -> backspaceSwipe(up) }
             it.onBack = { inputView?.showPanel(null) }
             symbolsView = it
         }

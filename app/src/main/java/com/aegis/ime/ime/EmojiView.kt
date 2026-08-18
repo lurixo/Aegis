@@ -46,13 +46,15 @@ import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.layout.EmojiCatalog
 import com.aegis.ime.layout.EmojiVariants
 
-class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar {
+class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar, KeyHapticsAware {
 
     var onEmoji: (String) -> Unit = {}
     var onClearRecents: () -> Unit = {}
     var onBackspace: () -> Unit = {}
+    var onBackspaceSwipe: (Boolean) -> Unit = {}
     var onBack: () -> Unit = {}
     var recentProvider: () -> List<String> = { emptyList() }
+    override var hapticEnabled = false
 
     private val titles: List<String> = listOf(context.getString(EmojiCatalog.RECENT_TITLE_RES)) + EmojiCatalog.categories.map { context.getString(it.titleRes) }
 
@@ -104,8 +106,21 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
     private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
     private val backspaceBtn = barButton("") { onBackspace() }
     private val bottomBarView = bottomBar()
+    private val backFeedback = ImeKeyFeedback(backBtn, palette.railBg, palette.keyLabelSecondary)
+    private val lockFeedback = ImeKeyFeedback(lockBtn, palette.railBg, palette.keyLabelSecondary)
+    private val clearFeedback = ImeKeyFeedback(clearBtn, palette.railBg, palette.keyLabelSecondary)
+    private val backspaceFeedback = ImeKeyFeedback(backspaceBtn, palette.railBg, palette.keyLabelSecondary)
+    private val backspaceTouch = ImeBackspaceTouch(
+        backspaceBtn,
+        backspaceFeedback,
+        density,
+        { hapticEnabled },
+        { onBackspace() },
+        { onBackspaceSwipe(it) },
+    )
 
     private val emojiPool = ArrayList<TextView>()
+    private val emojiFeedback = HashMap<TextView, ImeKeyFeedback>()
     private var emptyHintView: TextView? = null
     private val colorAnimators = HashMap<TextView, ValueAnimator>()
     private val emojiClick = View.OnClickListener { v ->
@@ -133,8 +148,12 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         clearBtn.contentDescription = context.getString(R.string.emoji_clear_recent)
         clearBtn.setCompoundDrawablesWithIntrinsicBounds(clearGlyph, null, null, null)
         clearGlyph.tint(palette.keyLabelSecondary)
+        backspaceBtn.contentDescription = context.getString(R.string.edit_delete)
         backspaceBtn.setCompoundDrawablesWithIntrinsicBounds(backspaceGlyph, null, null, null)
         backspaceGlyph.tint(palette.keyLabelSecondary)
+        backFeedback.bind { hapticEnabled }
+        lockFeedback.bind { hapticEnabled }
+        clearFeedback.bind { hapticEnabled }
         updateLockFace()
 
         for ((i, t) in titles.withIndex()) rail.addView(railTab(i, t))
@@ -152,7 +171,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         val panelColumn = LinearLayout(context).apply {
             orientation = VERTICAL
             addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
-            addView(bottomBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(46)))
+            addView(bottomBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(48)))
         }
         val panelFrame = FrameLayout(context).apply {
             addView(panelColumn, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
@@ -167,14 +186,17 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         setBackgroundColor(p.keyboardBg)
         railScroll.setBackgroundColor(p.keyboardBg)
         bottomBarView.setBackgroundColor(p.keyboardBg)
-        for (button in listOf(backBtn, clearBtn, backspaceBtn)) {
-            button.setTextColor(p.keyLabelSecondary)
-            Motion.applyTapFeedback(button, p.keyLabelSecondary)
-        }
+        for (button in listOf(backBtn, clearBtn, backspaceBtn)) button.setTextColor(p.keyLabelSecondary)
+        backFeedback.update(p.railBg, p.keyLabelSecondary)
+        clearFeedback.update(p.railBg, p.keyLabelSecondary)
+        backspaceFeedback.update(p.railBg, p.keyLabelSecondary)
         backGlyph.tint(p.keyLabelSecondary)
         clearGlyph.tint(p.keyLabelSecondary)
         backspaceGlyph.tint(p.keyLabelSecondary)
-        for (cell in emojiPool) retintRipple(cell, p.keyLabel)
+        for (cell in emojiPool) {
+            cell.setTextColor(p.keyLabel)
+            emojiFeedback[cell]?.update(p.keySurface, p.keyLabel)
+        }
         emptyHintView?.setTextColor(p.keyHint)
         updateLockFace()
         styleRail(-1)
@@ -192,6 +214,11 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         gridScroll.fling(0)
         railScroll.scrollTo(0, 0)
         railScroll.fling(0)
+        backspaceTouch.cancel()
+        backFeedback.reset()
+        lockFeedback.reset()
+        clearFeedback.reset()
+        for (feedback in emojiFeedback.values) feedback.reset()
     }
 
     fun resetLock() { locked = false; updateLockFace() }
@@ -205,7 +232,8 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         val tint = if (locked) palette.candidateFirst else palette.keyLabelSecondary
         lockGlyph.closed = locked
         lockGlyph.tint(tint)
-        Motion.applyTapFeedback(lockBtn, tint)
+        lockBtn.isSelected = locked
+        lockFeedback.update(palette.railBg, tint)
     }
 
     internal fun selectedCategoryForTest(): Int = selected
@@ -221,6 +249,9 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
     internal fun emojiCellsAllocatedForTest(): Int = emojiPool.size
     internal fun gridCellCountForTest(): Int = grid.childCount
     internal fun gridCellForTest(index: Int): TextView? = grid.getChildAt(index) as? TextView
+    internal fun gridCellFeedbackLevelForTest(index: Int): Float =
+        gridCellForTest(index)?.let { emojiFeedback[it]?.levelForTest() } ?: 0f
+    internal fun gridColumnCountForTest(): Int = grid.columnCount
     internal fun gridCellTextsForTest(): List<String> =
         (0 until grid.childCount).mapNotNull { (grid.getChildAt(it) as? TextView)?.text?.toString() }
     internal fun tapCellForTest(index: Int): Boolean = (grid.getChildAt(index) as? TextView)?.performClick() ?: false
@@ -232,6 +263,33 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
     internal fun dismissClearForTest(): Boolean = clearDialog.performClick()
 
     fun refresh() = showCategory(selected)
+
+    override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val totalWidth = MeasureSpec.getSize(widthMeasureSpec)
+        if (totalWidth > 0) {
+            val available = (totalWidth - dp(60) - grid.paddingLeft - grid.paddingRight).coerceAtLeast(1)
+            val columns = (available / dp(MIN_KEY_TARGET_DP)).coerceIn(1, COLUMNS)
+            updateGridColumns(columns)
+        }
+        super.onMeasure(widthMeasureSpec, heightMeasureSpec)
+    }
+
+    private fun updateGridColumns(columns: Int) {
+        if (grid.columnCount == columns) return
+        val children = (0 until grid.childCount).map { grid.getChildAt(it) }
+        grid.removeAllViews()
+        grid.columnCount = columns
+        for (child in children) {
+            val params = child.layoutParams as GridLayout.LayoutParams
+            params.rowSpec = GridLayout.spec(GridLayout.UNDEFINED)
+            params.columnSpec = if (child === emptyHintView) {
+                GridLayout.spec(0, columns, 1f)
+            } else {
+                GridLayout.spec(GridLayout.UNDEFINED, 1f)
+            }
+            grid.addView(child, params)
+        }
+    }
 
     private fun showCategory(index: Int, animate: Boolean = true) {
         dismissVariants()
@@ -317,9 +375,9 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.display)
             val p = dp(8)
             setPadding(0, p, 0, p)
+            minimumHeight = dp(48)
             isClickable = true
             isLongClickable = true
-            Motion.applyTapFeedback(this, palette.keyLabel)
             setOnClickListener(emojiClick)
             setOnLongClickListener(emojiLongClick)
             layoutParams = GridLayout.LayoutParams().apply {
@@ -328,6 +386,10 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
                 columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
                 setGravity(Gravity.FILL_HORIZONTAL)
             }
+        }
+        ImeKeyFeedback(tv, palette.keySurface, palette.keyLabel).also {
+            it.bind { hapticEnabled }
+            emojiFeedback[tv] = it
         }
         emojiPool.add(tv)
         return tv
@@ -453,6 +515,15 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         return true
     }
 
+    override fun onDetachedFromWindow() {
+        backspaceTouch.cancel()
+        backFeedback.reset()
+        lockFeedback.reset()
+        clearFeedback.reset()
+        for (feedback in emojiFeedback.values) feedback.reset()
+        super.onDetachedFromWindow()
+    }
+
     private fun showClearConfirmation() {
         clearDialog.show(
             context.getString(R.string.emoji_clear_recent_confirm),
@@ -475,13 +546,10 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         lockBtn.gravity = Gravity.CENTER; lockBtn.setPadding(0, 0, 0, 0)
         backspaceBtn.gravity = Gravity.CENTER; backspaceBtn.setPadding(0, 0, 0, 0)
         lockSlot.addView(lockBtn, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT, Gravity.CENTER))
-        addView(backBtn, LinearLayout.LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
-        addView(View(context), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(clearBtn, LinearLayout.LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
-        addView(View(context), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(lockSlot, LinearLayout.LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
-        addView(View(context), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(backspaceBtn, LinearLayout.LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
+        addView(backBtn, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addView(clearBtn, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addView(lockSlot, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addView(backspaceBtn, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
     }
 
     private fun barButton(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
@@ -490,7 +558,6 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setTextColor(palette.keyLabelSecondary)
         isClickable = true
-        Motion.applyTapFeedback(this, palette.keyLabelSecondary)
         setOnClickListener { onClick() }
     }
 
@@ -534,5 +601,6 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
 
     private companion object {
         const val COLUMNS = 7
+        const val MIN_KEY_TARGET_DP = 48
     }
 }

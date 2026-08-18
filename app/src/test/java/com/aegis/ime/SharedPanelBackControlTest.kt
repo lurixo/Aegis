@@ -16,14 +16,17 @@
 package com.aegis.ime
 
 import com.aegis.ime.user.clipEntries
+import android.app.Activity
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.drawable.Drawable
+import android.os.Looper
 import android.text.InputType
 import android.util.TypedValue
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
@@ -32,9 +35,12 @@ import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import com.aegis.ime.ime.ClipboardView
 import com.aegis.ime.ime.CustomSymbolPanel
+import com.aegis.ime.ime.EditAction
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.ime.LayoutPanelView
 import com.aegis.ime.ime.PanelBackButton
+import com.aegis.ime.ime.PanelHeaderBackControl
 import com.aegis.ime.ime.EditPanelView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeType
@@ -50,6 +56,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -187,8 +194,82 @@ class SharedPanelBackControlTest {
         assertNotEquals("each custom page names its own object", titles[0], titles[1])
     }
 
-    private fun topBarOf(clipboard: ClipboardView): HorizontalScrollView =
-        clipboard.fixedChromeViewsForTest().first() as HorizontalScrollView
+    @Test fun every_titled_panel_back_control_owns_the_physical_left_edge_and_accepts_a_real_drifting_gesture() {
+        class Fixture(
+            val name: String,
+            val root: View,
+            val hits: () -> Int,
+        )
+
+        var editHits = 0
+        val edit = EditPanelView(ctx).apply {
+            onAction = { if (it == EditAction.BACK) editHits++ }
+            applyPalette(ImePalette.STATIC_LIGHT)
+        }
+        var layoutHits = 0
+        val layoutPanel = LayoutPanelView(ctx).apply {
+            onBack = { layoutHits++ }
+            applyPalette(ImePalette.STATIC_LIGHT)
+        }
+        var customHits = 0
+        val custom = CustomSymbolPanel(ctx).apply {
+            onBack = { customHits++ }
+            refresh()
+        }
+        var clipboardHits = 0
+        val clipboard = clipboardView(phrase = false).apply { onBack = { clipboardHits++ } }
+        var phraseHits = 0
+        val phrases = clipboardView(phrase = true).apply { onBack = { phraseHits++ } }
+        val fixtures = listOf(
+            Fixture("edit", edit) { editHits },
+            Fixture("layout", layoutPanel) { layoutHits },
+            Fixture("custom", custom) { customHits },
+            Fixture("clipboard", clipboard) { clipboardHits },
+            Fixture("phrases", phrases) { phraseHits },
+        )
+
+        for (fixture in fixtures) {
+            val controller = Robolectric.buildActivity(Activity::class.java).setup()
+            try {
+                controller.get().setContentView(fixture.root)
+                fixture.root.layoutDirection = View.LAYOUT_DIRECTION_RTL
+                layout(fixture.root)
+                val back = backControls(fixture.root).single()
+                val bounds = boundsIn(fixture.root, back)
+                assertTrue("${fixture.name} must use the one header back class", back is PanelHeaderBackControl)
+                assertEquals("${fixture.name} back must begin at physical x=0 in RTL too", 0, bounds.left)
+                assertEquals("${fixture.name} back target height", dp(PanelBackButton.HIT_DP), bounds.height())
+                assertTrue("${fixture.name} back target width", bounds.width() >= dp(PanelBackButton.HIT_DP))
+                assertEquals("${fixture.name} shared leading content inset", dp(PanelBackButton.EDGE_DP), back.paddingLeft)
+                assertEquals("${fixture.name} shared trailing content inset", dp(PanelBackButton.EDGE_DP), back.paddingRight)
+                if (fixture.root is ClipboardView) {
+                    val scroll = topBarOf(fixture.root)
+                    val before = Rect(bounds)
+                    scroll.scrollTo(scroll.getChildAt(0).width, 0)
+                    assertFalse(
+                        "${fixture.name} back must not be a descendant of the horizontally scrolling toolbar",
+                        hasAncestor(back, HorizontalScrollView::class.java),
+                    )
+                    assertEquals("${fixture.name} back must stay fixed while actions scroll", before, boundsIn(fixture.root, back))
+                }
+                assertTrue("${fixture.name} root must handle DOWN-MOVE-UP from x=0", dispatchEdgeGesture(fixture.root, back))
+                assertEquals("${fixture.name} drifting edge gesture must click exactly once", 1, fixture.hits())
+            } finally {
+                controller.pause().stop().destroy()
+            }
+        }
+    }
+
+    private fun topBarOf(clipboard: ClipboardView): HorizontalScrollView {
+        fun find(view: View): HorizontalScrollView? {
+            if (view is HorizontalScrollView) return view
+            if (view is ViewGroup) {
+                for (i in 0 until view.childCount) find(view.getChildAt(i))?.let { return it }
+            }
+            return null
+        }
+        return requireNotNull(find(clipboard.fixedChromeViewsForTest().first()))
+    }
 
     private fun topBarSpacer(content: View): View =
         (0 until (content as ViewGroup).childCount)
@@ -224,6 +305,33 @@ class SharedPanelBackControlTest {
             current = parent
         }
         return rect
+    }
+
+    private fun hasAncestor(target: View, ancestorType: Class<out View>): Boolean {
+        var current = target.parent
+        while (current is View) {
+            if (ancestorType.isInstance(current)) return true
+            current = current.parent
+        }
+        return false
+    }
+
+    private fun dispatchEdgeGesture(root: View, target: View): Boolean {
+        val bounds = boundsIn(root, target)
+        val y = bounds.exactCenterY()
+        val events = listOf(
+            MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, 0f, y, 0),
+            MotionEvent.obtain(0, 12, MotionEvent.ACTION_MOVE, dp(3).toFloat(), y + dp(2), 0),
+            MotionEvent.obtain(0, 24, MotionEvent.ACTION_UP, dp(2).toFloat(), y + dp(1), 0),
+        )
+        return try {
+            var handled = true
+            for (event in events) handled = root.dispatchTouchEvent(event) && handled
+            shadowOf(Looper.getMainLooper()).idle()
+            handled
+        } finally {
+            events.forEach(MotionEvent::recycle)
+        }
     }
 
     private fun clipboardView(phrase: Boolean): ClipboardView = ClipboardView(ctx).apply {
@@ -276,19 +384,21 @@ class SharedPanelBackControlTest {
 
     @Test
     @Config(qualifiers = "w360dp-h780dp-xhdpi")
-    fun the_clipboard_top_bar_fits_without_scrolling_at_three_hundred_sixty_dp() {
+    fun the_clipboard_top_bar_keeps_every_target_reachable_at_three_hundred_sixty_dp() {
         assertTopBarTargetsStayReachable(360, phrase = false)
         assertTopBarTargetsStayReachable(360, phrase = true)
         val clipboard = clipboardView(phrase = true)
         layout(clipboard, width = dp(360), height = dp(400))
         val bar = topBarOf(clipboard)
-        assertFalse("360dp still fits the whole top bar", bar.canScrollHorizontally(1))
-        assertEquals("360dp top bar content fills the viewport", bar.width, bar.getChildAt(0).width)
+        val back = backControls(clipboard).single()
+        assertEquals("360dp keeps back fixed at the physical left edge", 0, boundsIn(clipboard, back).left)
+        assertFalse("360dp keeps back outside the scrolling actions", hasAncestor(back, HorizontalScrollView::class.java))
+        assertTrue("360dp leaves a non-empty viewport for every action", bar.width > 0)
     }
 
     @Test
     @Config(qualifiers = "w360dp-h780dp-xhdpi")
-    fun the_clipboard_top_bar_fits_without_scrolling_at_every_system_font_scale() {
+    fun the_clipboard_top_bar_keeps_every_target_reachable_at_every_system_font_scale() {
         try {
             for (locale in listOf("+en-rUS", "+zh-rCN")) {
                 RuntimeEnvironment.setQualifiers(locale)
@@ -308,26 +418,22 @@ class SharedPanelBackControlTest {
                         val content = bar.getChildAt(0)
                         val back = backControls(clipboard).single()
                         val viewport = boundsIn(clipboard, bar)
+                        val fixedBack = boundsIn(clipboard, back)
                         assertEquals("$name back label stays on one line", 1, back.lineCount)
-                        assertFalse("$name must fit the whole top bar", bar.canScrollHorizontally(1))
-                        assertEquals("$name top bar content fills the viewport", bar.width, content.width)
-                        for (target in topBarTargets(content)) {
-                            val box = boundsIn(clipboard, target)
-                            assertTrue(
-                                "$name leaves a target outside the viewport unscrolled: $box in $viewport",
-                                box.left >= viewport.left && box.right <= viewport.right,
-                            )
-                        }
+                        assertEquals("$name keeps back at the physical left edge", 0, fixedBack.left)
+                        assertFalse("$name keeps back outside the scrolling actions", hasAncestor(back, HorizontalScrollView::class.java))
                         val clear = ctx.getString(
                             if (phrase) R.string.clip_clear_category else R.string.clip_clear_history,
                         )
                         val destructive = topBarTargets(content)
                             .single { it.contentDescription?.toString() == clear }
+                        bar.scrollTo(content.width, 0)
                         val destructiveBox = boundsIn(clipboard, destructive)
                         assertTrue(
-                            "$name pushes '$clear' out of reach: $destructiveBox in $viewport",
+                            "$name keeps '$clear' reachable after scrolling: $destructiveBox in $viewport",
                             destructiveBox.left >= viewport.left && destructiveBox.right <= viewport.right,
                         )
+                        assertEquals("$name action scrolling must not move back", fixedBack, boundsIn(clipboard, back))
                         assertEquals(
                             "$name must keep the back label at 360dp",
                             ctx.getString(R.string.clip_back),
@@ -348,39 +454,40 @@ class SharedPanelBackControlTest {
 
     @Test
     @Config(qualifiers = "w320dp-h640dp-mdpi")
-    fun the_clipboard_top_bar_drops_the_back_label_before_it_pushes_a_target_off_screen() {
+    fun the_clipboard_keeps_back_fixed_and_named_while_only_the_remaining_toolbar_scrolls() {
         try {
             for (scale in listOf(1f, 2f)) {
                 RuntimeEnvironment.setFontScale(scale)
-                for (phrase in listOf(false, true)) {
-                    val clipboard = clipboardView(phrase)
-                    layout(clipboard, width = dp(320), height = dp(400))
-                    val name = "x$scale ${if (phrase) "phrases" else "clipboard"}"
-                    val bar = topBarOf(clipboard)
-                    val content = bar.getChildAt(0)
-                    val back = backControls(clipboard).single()
-                    assertEquals("$name yields the back label rather than the buttons", "", back.text.toString())
-                    assertTrue(
-                        "$name shrank the back control to ${back.width / density}dp," +
-                            " under the ${PanelBackButton.HIT_DP}dp touch target it must keep",
-                        back.width >= dp(PanelBackButton.HIT_DP),
-                    )
-                    assertEquals("$name flexible gap gives up its room first", 0, topBarSpacer(content).width)
-                    val last = topBarTargets(content).last()
-                    bar.scrollTo(content.width, 0)
-                    val visible = boundsIn(clipboard, last)
-                    val viewport = boundsIn(clipboard, bar)
-                    assertTrue(
-                        "$name last target must be reachable: $visible in $viewport",
-                        visible.left >= viewport.left && visible.right <= viewport.right,
-                    )
-                    assertEquals(
-                        "$name keeps naming the back control for accessibility",
-                        ctx.getString(R.string.clip_back),
-                        back.contentDescription.toString(),
-                    )
-                    assertTrue("$name keeps the back glyph", back.compoundDrawables[0] != null)
-                    assertTrue("$name keeps the back control tappable", back.hasOnClickListeners())
+                for (widthDp in listOf(320, 280)) {
+                    for (phrase in listOf(false, true)) {
+                        val clipboard = clipboardView(phrase)
+                        layout(clipboard, width = dp(widthDp), height = dp(400))
+                        val name = "${widthDp}dp x$scale ${if (phrase) "phrases" else "clipboard"}"
+                        val bar = topBarOf(clipboard)
+                        val content = bar.getChildAt(0)
+                        val back = backControls(clipboard).single()
+                        val fixedBounds = boundsIn(clipboard, back)
+                        assertEquals("$name keeps the visible back label", ctx.getString(R.string.clip_back), back.text.toString())
+                        assertEquals("$name back stays on the physical left edge", 0, fixedBounds.left)
+                        assertFalse(
+                            "$name back must stay outside the horizontal scroller",
+                            hasAncestor(back, HorizontalScrollView::class.java),
+                        )
+                        assertTrue("$name keeps the back glyph", back.compoundDrawables[0] != null)
+                        assertTrue("$name keeps the back control tappable", back.hasOnClickListeners())
+                        if (bar.canScrollHorizontally(1)) {
+                            assertEquals("$name flexible gap gives up its room before scrolling", 0, topBarSpacer(content).width)
+                        }
+                        val last = topBarTargets(content).last()
+                        bar.scrollTo(content.width, 0)
+                        val visible = boundsIn(clipboard, last)
+                        val viewport = boundsIn(clipboard, bar)
+                        assertTrue(
+                            "$name last scrolling target must be reachable: $visible in $viewport",
+                            visible.left >= viewport.left && visible.right <= viewport.right,
+                        )
+                        assertEquals("$name scrolling must not move back", fixedBounds, boundsIn(clipboard, back))
+                    }
                 }
             }
         } finally {
@@ -484,7 +591,7 @@ class SharedPanelBackControlTest {
         }
     }
 
-    @Test fun the_clipboard_top_bar_keeps_its_flexible_gap_when_the_window_is_wide() {
+    @Test fun the_clipboard_top_bar_keeps_a_flexible_gap_when_48dp_actions_fit_without_scrolling() {
         val clipboard = clipboardView(phrase = true)
         layout(clipboard, width = dp(411), height = dp(400))
         val bar = topBarOf(clipboard)
@@ -493,8 +600,8 @@ class SharedPanelBackControlTest {
         assertFalse("411dp needs no horizontal scrolling", bar.canScrollHorizontally(1))
         assertEquals("411dp top bar content fills the viewport", bar.width, content.width)
         assertTrue(
-            "411dp keeps a real flexible gap between back and the tab pills",
-            topBarSpacer(content).width >= dp(40),
+            "411dp keeps spacing between the fixed back control and the tab pills while preserving 48dp actions",
+            topBarSpacer(content).width >= dp(8),
         )
     }
 
@@ -505,11 +612,12 @@ class SharedPanelBackControlTest {
         assertTopBarTargetsStayReachable(320, phrase = true)
     }
 
-    @Test fun clipboard_and_phrase_pages_use_the_same_back_control_geometry() {
+    @Test fun clipboard_and_phrase_pages_use_the_same_header_back_geometry() {
         val clipboard = clipboardView(phrase = false)
         val custom = CustomSymbolPanel(ctx).apply { refresh() }
         layout(custom)
         val editBack = editPanelBack()
+        val layoutBack = LayoutPanelView(ctx).titleButtonForTest()
 
         for (phrase in listOf(false, true)) {
             if (phrase) clipboard.showPhraseTab("默认") else clipboard.refresh()
@@ -518,6 +626,7 @@ class SharedPanelBackControlTest {
             val button = backControls(clipboard).single()
             assertEquals("$name back hit height", dp(48), button.height)
             assertTrue("$name back hit width", button.width >= dp(48))
+            assertTrue("$name uses the one header back class", button is PanelHeaderBackControl)
             assertEquals("$name back text scale", editBack.textSize, button.textSize, 0.01f)
             assertEquals(
                 "$name back icon box",
@@ -537,10 +646,11 @@ class SharedPanelBackControlTest {
                 customBack.compoundDrawablePadding,
                 button.compoundDrawablePadding,
             )
+            assertEquals("$name back text scale matches the layout page", layoutBack.textSize, button.textSize, 0.01f)
             assertEquals(
-                "$name back keeps the shared left inset",
-                dp(8),
-                (button.parent as View).paddingLeft,
+                "$name back starts at the physical left edge",
+                0,
+                boundsIn(clipboard, button).left,
             )
         }
     }
@@ -607,10 +717,12 @@ class SharedPanelBackControlTest {
         layout(clipboard)
         val custom = CustomSymbolPanel(ctx).apply { refresh() }
         layout(custom)
+        val layout = LayoutPanelView(ctx)
         val glyphs = listOf(
             "clipboard" to backControls(clipboard).single().compoundDrawables[0]!!,
             "custom" to (custom.backButtonForTest() as TextView).compoundDrawables[0]!!,
             "edit" to editPanelBack().compoundDrawables[0]!!,
+            "layout" to layout.titleButtonForTest().compoundDrawables[0]!!,
         )
 
         for ((name, glyph) in glyphs) {

@@ -43,21 +43,23 @@ import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.layout.SymbolCatalog
 
-class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar {
+class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar, KeyHapticsAware {
 
     var onSymbol: (String, String?) -> Unit = { _, _ -> }
     var onClearRecents: () -> Unit = {}
     var onBackspace: () -> Unit = {}
+    var onBackspaceSwipe: (Boolean) -> Unit = {}
     var onBack: () -> Unit = {}
     var recentProvider: () -> List<String> = { emptyList() }
     var recentOriginOf: (String) -> String? = { null }
+    override var hapticEnabled = false
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
 
     private val cellHeightPx: Int = run {
         val displayPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, ImeType.display, resources.displayMetrics)
-        maxOf(dp(44), (displayPx * 1.35f).toInt() + dp(14))
+        maxOf(dp(48), (displayPx * 1.35f).toInt() + dp(14))
     }
 
     private val titles: List<String> =
@@ -93,6 +95,21 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
     private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
     private val backspaceBtn = barButton("") { onBackspace() }
     private val bottomBarView = bottomBar()
+    private val backFeedback = ImeKeyFeedback(backBtn, palette.railBg, palette.keyLabelSecondary)
+    private val lockFeedback = ImeKeyFeedback(lockBtn, palette.railBg, palette.keyLabelSecondary)
+    private val clearFeedback = ImeKeyFeedback(clearBtn, palette.railBg, palette.keyLabelSecondary)
+    private val backspaceFeedback = ImeKeyFeedback(backspaceBtn, palette.railBg, palette.keyLabelSecondary)
+    private val backspaceTouch = ImeBackspaceTouch(
+        backspaceBtn,
+        backspaceFeedback,
+        density,
+        { hapticEnabled },
+        { onBackspace() },
+        { onBackspaceSwipe(it) },
+    )
+    private val tileFeedback = HashMap<FrameLayout, ImeKeyFeedback>()
+    private val tileSpans = HashMap<FrameLayout, Int>()
+    private val netFeedback = HashMap<View, ImeKeyFeedback>()
 
     private val tilePool = ArrayList<FrameLayout>()
     private var emptySpanView: TextView? = null
@@ -107,6 +124,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
 
     internal companion object {
         const val COLUMNS = 7
+        const val MIN_KEY_TARGET_DP = 48
         const val WIDE_GLYPH_SCALE = 0.82f
         const val BADGE_CLEARANCE_DP = 6
 
@@ -155,8 +173,12 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         clearBtn.contentDescription = context.getString(R.string.symbols_clear_recent)
         clearBtn.setCompoundDrawablesWithIntrinsicBounds(clearGlyph, null, null, null)
         clearGlyph.tint(palette.keyLabelSecondary)
+        backspaceBtn.contentDescription = context.getString(R.string.edit_delete)
         backspaceBtn.setCompoundDrawablesWithIntrinsicBounds(backspaceGlyph, null, null, null)
         backspaceGlyph.tint(palette.keyLabelSecondary)
+        backFeedback.bind { hapticEnabled }
+        lockFeedback.bind { hapticEnabled }
+        clearFeedback.bind { hapticEnabled }
 
         for ((i, t) in titles.withIndex()) rail.addView(railTab(i, t))
 
@@ -169,7 +191,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         val panelColumn = LinearLayout(context).apply {
             orientation = VERTICAL
             addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
-            addView(bottomBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(46)))
+            addView(bottomBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(48)))
         }
         val panelFrame = FrameLayout(context).apply {
             addView(panelColumn, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
@@ -193,6 +215,12 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         gridScroll.fling(0)
         railScroll.scrollTo(0, 0)
         railScroll.fling(0)
+        backspaceTouch.cancel()
+        backFeedback.reset()
+        lockFeedback.reset()
+        clearFeedback.reset()
+        for (feedback in tileFeedback.values) feedback.reset()
+        for (feedback in netFeedback.values) feedback.reset()
     }
 
     fun applyPalette(p: ImePalette) {
@@ -200,18 +228,21 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         setBackgroundColor(p.keyboardBg)
         railScroll.setBackgroundColor(p.keyboardBg)
         bottomBarView.setBackgroundColor(p.keyboardBg)
-        for (button in listOf(backBtn, clearBtn, backspaceBtn)) {
-            button.setTextColor(p.keyLabelSecondary)
-            Motion.applyTapFeedback(button, p.keyLabelSecondary)
-        }
+        for (button in listOf(backBtn, clearBtn, backspaceBtn)) button.setTextColor(p.keyLabelSecondary)
+        backFeedback.update(p.railBg, p.keyLabelSecondary)
+        clearFeedback.update(p.railBg, p.keyLabelSecondary)
+        backspaceFeedback.update(p.railBg, p.keyLabelSecondary)
         backGlyph.tint(p.keyLabelSecondary)
         clearGlyph.tint(p.keyLabelSecondary)
         backspaceGlyph.tint(p.keyLabelSecondary)
         for (tile in tilePool) {
-            retintRipple(tile, p.keyLabel)
-            (tile.background as? GradientDrawable)?.setColor(p.keySurface)
+            tileFeedback[tile]?.update(p.keySurface, p.keyLabel)
             (tile.getChildAt(0) as TextView).setTextColor(p.keyLabel)
             (tile.getChildAt(1) as TextView).setTextColor(p.keyLabelSecondary)
+        }
+        for ((view, feedback) in netFeedback) {
+            (view as? TextView)?.setTextColor(p.keyLabel)
+            feedback.update(p.keySurface, p.keyLabel)
         }
         emptySpanView?.setTextColor(p.keyHint)
         updateLockFace()
@@ -242,6 +273,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
     private fun bindGrid(index: Int) {
         grid.removeAllViews()
         netBar.removeAllViews()
+        netFeedback.clear()
         val symbols = symbolsFor(index)
         if (symbols.isEmpty()) { netBar.visibility = View.GONE; grid.addView(obtainEmptySpan()); return }
         val isNet = index != 0 && SymbolCatalog.categories.getOrNull(index - 1)?.id == "net"
@@ -277,6 +309,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
     }
 
     private fun setTileSpan(tile: FrameLayout, span: Int) {
+        tileSpans[tile] = span
         val lp = tile.layoutParams as GridLayout.LayoutParams
         lp.columnSpec = GridLayout.spec(GridLayout.UNDEFINED, span, GridLayout.FILL, span.toFloat())
         tile.layoutParams = lp
@@ -320,6 +353,11 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val incomingWidth = MeasureSpec.getSize(widthMeasureSpec)
+        if (incomingWidth > 0) {
+            val available = (incomingWidth - dp(60) - grid.paddingLeft - grid.paddingRight).coerceAtLeast(1)
+            val columns = (available / dp(MIN_KEY_TARGET_DP)).coerceIn(1, COLUMNS)
+            updateGridColumns(columns)
+        }
         if (incomingWidth > 0 && incomingWidth != lastFlowWidth) {
             lastFlowWidth = incomingWidth
             if (showingUrlCompletions) {
@@ -331,6 +369,24 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }
 
+    private fun updateGridColumns(columns: Int) {
+        if (grid.columnCount == columns) return
+        val children = (0 until grid.childCount).map { grid.getChildAt(it) }
+        grid.removeAllViews()
+        grid.columnCount = columns
+        for (child in children) {
+            val params = child.layoutParams as GridLayout.LayoutParams
+            params.rowSpec = GridLayout.spec(GridLayout.UNDEFINED)
+            params.columnSpec = if (child === emptySpanView) {
+                GridLayout.spec(0, columns, 1f)
+            } else {
+                val span = (child as? FrameLayout)?.let { tileSpans[it] } ?: 1
+                GridLayout.spec(GridLayout.UNDEFINED, span, GridLayout.FILL, span.toFloat())
+            }
+            grid.addView(child, params)
+        }
+    }
+
     private fun netRow(): LinearLayout = LinearLayout(context).apply {
         orientation = HORIZONTAL
         setPadding(dp(4), 0, dp(4), 0)
@@ -340,15 +396,19 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         text = symbol
         maxLines = 1
         ellipsize = null
+        minimumWidth = dp(MIN_KEY_TARGET_DP)
         minimumHeight = cellHeightPx
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
         setTextColor(palette.keyLabel)
-        background = GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = ImeShapes.keyRadiusDp * density }
         val ph = dp(14); setPadding(ph, 0, ph, 0)
         isClickable = true
-        Motion.applyTapFeedback(this, palette.keyLabel)
         setOnClickListener { onSymbol(symbol, originForCurrent(symbol)); if (!locked) onBack() }
+        contentDescription = symbol
+        ImeKeyFeedback(this, palette.keySurface, palette.keyLabel).also {
+            it.bind { hapticEnabled }
+            netFeedback[this] = it
+        }
     }
 
     private fun measureW(v: View): Int {
@@ -403,25 +463,34 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         }
         val tile = FrameLayout(context).apply {
             minimumHeight = cellHeightPx
-            background = GradientDrawable().apply { setColor(palette.keySurface); cornerRadius = ImeShapes.keyRadiusDp * density }
             isClickable = true
-            Motion.applyTapFeedback(this, palette.keyLabel)
             setOnClickListener(symbolClick)
             layoutParams = GridLayout.LayoutParams().apply {
                 width = 0
                 height = cellHeightPx
                 columnSpec = GridLayout.spec(GridLayout.UNDEFINED, 1f)
                 setGravity(Gravity.FILL)
-                val m = dp(3); setMargins(m, m, m, m)
+                setMargins(0, 0, 0, 0)
             }
-            addView(glyph, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER))
+            addView(
+                glyph,
+                FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER).apply {
+                    val inset = dp(3)
+                    setMargins(inset, inset, inset, inset)
+                },
+            )
             addView(badge, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END))
+        }
+        ImeKeyFeedback(tile, palette.keySurface, palette.keyLabel).also {
+            it.bind { hapticEnabled }
+            tileFeedback[tile] = it
         }
         tilePool.add(tile)
         return tile
     }
 
     private fun bindTile(tile: FrameLayout, symbol: String, badge: String?) {
+        tile.contentDescription = symbol
         val glyph = tile.getChildAt(0) as TextView
         bindGlyph(glyph, symbol)
         inkCenterGlyph(glyph, symbol, badged = badge != null)
@@ -503,6 +572,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
     internal fun netBarVisibleForTest(): Boolean = showingUrlCompletions
     internal fun chipBarVisibleForTest(): Boolean = netBar.visibility == View.VISIBLE
     internal fun gridCellCountForTest(): Int = grid.childCount
+    internal fun gridColumnCountForTest(): Int = grid.columnCount
     internal fun gridCellTextsForTest(): List<String> {
         val out = ArrayList<String>()
         for (i in 0 until grid.childCount) {
@@ -539,6 +609,19 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         }
         return out
     }
+    internal fun netChipMeasuredWidthsForTest(): List<Int> {
+        val out = ArrayList<Int>()
+        val unspec = View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        for (i in 0 until netBar.childCount) {
+            val row = netBar.getChildAt(i) as? LinearLayout ?: continue
+            for (j in 0 until row.childCount) {
+                val chip = row.getChildAt(j)
+                chip.measure(unspec, unspec)
+                out.add(chip.measuredWidth)
+            }
+        }
+        return out
+    }
     private fun tileFor(symbol: String): android.view.ViewGroup? {
         for (i in 0 until grid.childCount) {
             val tile = grid.getChildAt(i) as? android.view.ViewGroup ?: continue
@@ -556,13 +639,17 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         }
     internal fun tapCellForTest(symbol: String): Boolean = tileFor(symbol)?.performClick() ?: false
     internal fun gridCellPixelWidthForTest(symbol: String): Int = tileFor(symbol)?.width ?: -1
+    internal fun gridCellForTest(symbol: String): View? = tileFor(symbol)
+    internal fun gridCellFeedbackLevelForTest(symbol: String): Float =
+        (tileFor(symbol) as? FrameLayout)?.let { tileFeedback[it]?.levelForTest() } ?: 0f
     internal fun tilesAllocatedForTest(): Int = tilePool.size
 
     private fun updateLockFace() {
         val tint = if (locked) palette.candidateFirst else palette.keyLabelSecondary
         lockGlyph.closed = locked
         lockGlyph.tint(tint)
-        Motion.applyTapFeedback(lockBtn, tint)
+        lockBtn.isSelected = locked
+        lockFeedback.update(palette.railBg, tint)
     }
 
     private fun showClearConfirmation() {
@@ -587,13 +674,10 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         lockBtn.gravity = Gravity.CENTER; lockBtn.setPadding(0, 0, 0, 0)
         backspaceBtn.gravity = Gravity.CENTER; backspaceBtn.setPadding(0, 0, 0, 0)
         lockSlot.addView(lockBtn, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT, Gravity.CENTER))
-        addView(backBtn, LinearLayout.LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
-        addView(View(context), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(clearBtn, LinearLayout.LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
-        addView(View(context), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(lockSlot, LinearLayout.LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
-        addView(View(context), LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(backspaceBtn, LinearLayout.LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
+        addView(backBtn, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addView(clearBtn, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addView(lockSlot, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        addView(backspaceBtn, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
     }
 
     private fun barButton(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
@@ -602,8 +686,17 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setTextColor(palette.keyLabelSecondary)
         isClickable = true
-        Motion.applyTapFeedback(this, palette.keyLabelSecondary)
         setOnClickListener { onClick() }
+    }
+
+    override fun onDetachedFromWindow() {
+        backspaceTouch.cancel()
+        backFeedback.reset()
+        lockFeedback.reset()
+        clearFeedback.reset()
+        for (feedback in tileFeedback.values) feedback.reset()
+        for (feedback in netFeedback.values) feedback.reset()
+        super.onDetachedFromWindow()
     }
 
     private class LockDrawable(private val density: Float) : Drawable() {

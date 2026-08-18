@@ -36,6 +36,7 @@ import com.aegis.ime.dict.ModelDownload
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.BackspaceGesture
 import com.aegis.ime.ime.BarFunction
+import com.aegis.ime.ime.CandidateGridView
 import com.aegis.ime.ime.ClipboardView
 import com.aegis.ime.ime.CustomSymbolPanel
 import com.aegis.ime.ime.DecodeLane
@@ -45,6 +46,7 @@ import com.aegis.ime.ime.EmojiView
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.ime.KeyboardView
+import com.aegis.ime.ime.KeyHapticsAware
 import com.aegis.ime.ime.LargeCommit
 import com.aegis.ime.ime.LayoutPanelView
 import com.aegis.ime.ime.Motion
@@ -701,6 +703,30 @@ class AegisInputMethodServiceLifecycleTest {
         }
     }
 
+    @Test fun every_panel_with_input_or_immediate_action_keys_tracks_the_live_haptics_toggle() {
+        val f = fixture()
+        val panels = listOf(
+            "expanded candidates" to CandidateGridView(f.service),
+            "text editing" to EditPanelView(f.service),
+            "emoji" to EmojiView(f.service),
+            "symbols" to SymbolsView(f.service),
+            "clipboard and phrases" to ClipboardView(f.service),
+        )
+
+        f.view.setKeyHaptics(true)
+        for ((name, panel) in panels) {
+            val aware = panel as KeyHapticsAware
+            f.view.showPanelImmediately(panel)
+            assertTrue("$name inherits the enabled toggle when opened", aware.hapticEnabled)
+
+            f.view.setKeyHaptics(false)
+            assertFalse("$name receives a live disable", aware.hapticEnabled)
+
+            f.view.setKeyHaptics(true)
+            assertTrue("$name receives a live enable", aware.hapticEnabled)
+        }
+    }
+
     @Test fun edit_delete_runs_the_keyboard_backspace_chain_instead_of_a_raw_key_event() {
         val f = fixture()
         val connection = RecordingInputConnection(FrameLayout(f.service))
@@ -811,6 +837,76 @@ class AegisInputMethodServiceLifecycleTest {
             "an editor that reports nothing still gets the copy",
             connection.contextMenuActions.contains(android.R.id.copy),
         )
+    }
+
+    @Test fun edit_panel_uses_the_extracted_selection_when_selected_text_is_hidden() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("before selected after", 1)
+        Selection.setSelection(connection.editable, 7, 15)
+        connection.hidesSelection = true
+
+        val panel = showEditPanel(f.service)
+
+        for (action in listOf(EditAction.COPY, EditAction.CUT)) {
+            val key = requireNotNull(panel.actionViewForTest(action))
+            assertTrue("$action is enabled for the extracted selection", key.isEnabled)
+            assertTrue("$action is clickable for the extracted selection", key.isClickable)
+        }
+    }
+
+    @Test fun edit_panel_keeps_copy_and_cut_available_when_selection_state_is_unknown() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("unknown selection state", 1)
+        connection.hidesExtractedText = true
+
+        val panel = showEditPanel(f.service)
+
+        for (action in listOf(EditAction.COPY, EditAction.CUT)) {
+            val key = requireNotNull(panel.actionViewForTest(action))
+            assertTrue("$action remains enabled when the editor reports no selection state", key.isEnabled)
+            assertTrue("$action remains clickable when the editor reports no selection state", key.isClickable)
+        }
+    }
+
+    @Test fun edit_panel_ignores_unknown_selection_updates_but_follows_reported_ranges() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("selection updates", 1)
+        connection.hidesExtractedText = true
+        val panel = showEditPanel(f.service)
+        val copy = requireNotNull(panel.actionViewForTest(EditAction.COPY))
+
+        f.service.onUpdateSelection(0, 0, -1, -1, -1, -1)
+        assertTrue("an unknown callback preserves the optimistic state", copy.isEnabled)
+        assertTrue(copy.isClickable)
+
+        f.service.onUpdateSelection(-1, -1, 4, 4, -1, -1)
+        assertFalse("a reported bare cursor disables copy", copy.isEnabled)
+        assertFalse(copy.isClickable)
+
+        f.service.onUpdateSelection(4, 4, 2, 5, -1, -1)
+        assertTrue("a reported range enables copy", copy.isEnabled)
+        assertTrue(copy.isClickable)
+    }
+
+    @Test fun edit_panel_disables_copy_and_cut_for_an_explicit_bare_cursor() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("bare cursor", 1)
+
+        val panel = showEditPanel(f.service)
+
+        for (action in listOf(EditAction.COPY, EditAction.CUT)) {
+            val key = requireNotNull(panel.actionViewForTest(action))
+            assertFalse("$action is disabled for a reported bare cursor", key.isEnabled)
+            assertFalse("$action is not clickable for a reported bare cursor", key.isClickable)
+        }
     }
 
     @Test fun select_all_keeps_the_shortcut_away_from_editors_that_take_raw_keys() {

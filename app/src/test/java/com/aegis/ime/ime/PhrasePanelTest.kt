@@ -68,9 +68,7 @@ class PhrasePanelTest {
     private fun categoryScroll(root: View): HorizontalScrollView =
         allViews(root).filterIsInstance<HorizontalScrollView>()
             .single { scroll ->
-                allViews(scroll).none {
-                    it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_back)
-                }
+                allViews(scroll).filterIsInstance<TextView>().any(View::isLongClickable)
             }
     private fun clickDesc(root: View, desc: String): Boolean {
         val v = allViews(root).firstOrNull { it.contentDescription?.toString() == desc && it.hasOnClickListeners() } ?: return false
@@ -94,18 +92,6 @@ class PhrasePanelTest {
     private fun boundsInRoot(root: ViewGroup, target: View): Rect = Rect(0, 0, target.width, target.height).also {
         root.offsetDescendantRectToMyCoords(target, it)
     }
-    private fun inkRight(bitmap: Bitmap, bounds: Rect, background: Int): Int {
-        var right = -1
-        val top = bounds.centerY() - dp(10)
-        val bottom = bounds.centerY() + dp(10)
-        for (y in top until bottom) {
-            for (x in bounds.left until bounds.right) {
-                if (bitmap.getPixel(x, y) != background) right = maxOf(right, x)
-            }
-        }
-        return right
-    }
-
     private fun phraseView(): ClipboardView = phraseView(listOf("你好", "在吗", "稍等"))
     private fun phraseView(phrases: List<String>): ClipboardView = ClipboardView(ctx).apply {
         categoriesProvider = { listOf("默认", "工作", "私人") }
@@ -156,17 +142,16 @@ class PhrasePanelTest {
         assertTrue(all.all { Gravity.getAbsoluteGravity(it.gravity, it.layoutDirection) and Gravity.HORIZONTAL_GRAVITY_MASK == Gravity.LEFT })
         val heightTolerance = 2 * ctx.resources.displayMetrics.density + 1f
         assertTrue(all.all { abs(it.compoundDrawables[0].intrinsicHeight - it.textSize) <= heightTolerance })
-        assertTrue(all.all { it.background is GradientDrawable })
-        assertEquals(1, all.map { (it.background as GradientDrawable).cornerRadius }.toSet().size)
-        assertTrue(all.all { (it.background as GradientDrawable).cornerRadius > 0f })
+        assertTrue(clipActions.all { clip.isImmediateActionForTest(it) })
+        assertTrue(phraseActions.all { phrase.isImmediateActionForTest(it) })
+        assertTrue(clipActions.all { it.background === clip.immediateActionDrawableForTest(it) })
+        assertTrue(phraseActions.all { it.background === phrase.immediateActionDrawableForTest(it) })
+        assertTrue(all.all { it.foreground == null && it.height == dp(48) })
         for (action in all) {
             action.draw(Canvas(Bitmap.createBitmap(action.width, action.height, Bitmap.Config.ARGB_8888)))
             val hit = Rect()
             action.getHitRect(hit)
             assertEquals(Rect(action.left, action.top, action.right, action.bottom), hit)
-            assertEquals(Rect(0, 0, action.width, action.height), action.foreground.bounds)
-            val mask = (action.foreground as RippleDrawable).findDrawableByLayerId(android.R.id.mask) as GradientDrawable
-            assertEquals((action.background as GradientDrawable).cornerRadius, mask.cornerRadius, 0f)
         }
         val gap = (4 * ctx.resources.displayMetrics.density).toInt()
         assertEquals(listOf(0, gap, gap), clipActions.map { (it.layoutParams as android.widget.LinearLayout.LayoutParams).marginStart })
@@ -478,8 +463,8 @@ class PhrasePanelTest {
                 assertTrue(cancel.parent === topBar)
                 assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, selectAll.layoutParams.width)
                 assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, cancel.layoutParams.width)
-                assertEquals(dp(36), selectAll.height)
-                assertEquals(dp(36), cancel.height)
+                assertEquals(dp(48), selectAll.height)
+                assertEquals(dp(48), cancel.height)
                 assertTrue(selectAll.left < cancel.left)
                 assertEquals(topBar.paddingLeft, selectAll.left)
                 assertEquals(topBar.width - topBar.paddingRight, cancel.right)
@@ -492,13 +477,11 @@ class PhrasePanelTest {
                 assertEquals(Gravity.CENTER, cancel.gravity)
                 assertTrue(selectAll.hasOnClickListeners())
                 assertTrue(cancel.hasOnClickListeners())
-                assertTrue(selectAll.background is GradientDrawable)
-                assertTrue(cancel.background is GradientDrawable)
-                assertEquals((selectAll.background as GradientDrawable).cornerRadius, (cancel.background as GradientDrawable).cornerRadius, 0f)
-                val selectMask = (selectAll.foreground as RippleDrawable).findDrawableByLayerId(android.R.id.mask) as GradientDrawable
-                val cancelMask = (cancel.foreground as RippleDrawable).findDrawableByLayerId(android.R.id.mask) as GradientDrawable
-                assertEquals((selectAll.background as GradientDrawable).cornerRadius, selectMask.cornerRadius, 0f)
-                assertEquals((cancel.background as GradientDrawable).cornerRadius, cancelMask.cornerRadius, 0f)
+                assertTrue(view.isImmediateActionForTest(selectAll))
+                assertTrue(view.isImmediateActionForTest(cancel))
+                assertTrue(selectAll.background === view.immediateActionDrawableForTest(selectAll))
+                assertTrue(cancel.background === view.immediateActionDrawableForTest(cancel))
+                assertTrue(selectAll.foreground == null && cancel.foreground == null)
                 assertEquals(selectAll.paint.measureText(" ").roundToInt().coerceAtLeast(1), selectAll.compoundDrawablePadding)
 
                 val bottomLeftLabel = if (view.isClipboardTabForTest()) {
@@ -513,15 +496,17 @@ class PhrasePanelTest {
                 val cancelBounds = boundsInRoot(view, cancel)
                 val bottomLeftBounds = boundsInRoot(view, bottomLeft)
                 val bottomRightBounds = boundsInRoot(view, bottomRight)
-                assertEquals(dp(36), bottomLeft.height)
-                assertEquals(dp(36), bottomRight.height)
+                assertEquals(dp(48), bottomLeft.height)
+                assertEquals(dp(48), bottomRight.height)
                 assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, bottomLeft.layoutParams.width)
                 assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, bottomRight.layoutParams.width)
                 assertEquals(selectBounds.left, bottomLeftBounds.left)
                 assertEquals(cancelBounds.right, bottomRightBounds.right)
                 assertTrue(bottomLeftBounds.right <= bottomRightBounds.left)
-                assertEquals((selectAll.background as GradientDrawable).color?.defaultColor, (bottomLeft.background as GradientDrawable).color?.defaultColor)
-                assertEquals((cancel.background as GradientDrawable).color?.defaultColor, (bottomRight.background as GradientDrawable).color?.defaultColor)
+                assertTrue(view.isImmediateActionForTest(bottomLeft))
+                assertTrue(view.isImmediateActionForTest(bottomRight))
+                assertTrue(bottomLeft.background === view.immediateActionDrawableForTest(bottomLeft))
+                assertTrue(bottomRight.background === view.immediateActionDrawableForTest(bottomRight))
                 assertEquals(selectAll.currentTextColor, bottomLeft.currentTextColor)
                 assertEquals(cancel.currentTextColor, bottomRight.currentTextColor)
 
@@ -575,10 +560,12 @@ class PhrasePanelTest {
             assertEquals(categoryBounds.left + category.totalPaddingLeft, dragBounds.left + dragCategories.totalPaddingLeft)
             assertEquals(dragCategories.currentTextColor, done.currentTextColor)
             assertEquals(pal.keyLabel, done.currentTextColor)
-            assertEquals(dp(36), done.height)
+            assertEquals(dp(48), done.height)
             assertEquals(ViewGroup.LayoutParams.WRAP_CONTENT, done.layoutParams.width)
             assertTrue(done.hasOnClickListeners())
-            assertTrue(done.background is GradientDrawable)
+            assertTrue(view.isImmediateActionForTest(done))
+            assertTrue(done.background === view.immediateActionDrawableForTest(done))
+            assertTrue(done.foreground == null)
             assertTrue(dragBounds.right <= doneBounds.left)
             assertEquals(dp(44), handle.width)
             assertEquals(firstRow.height, handle.height)
@@ -586,10 +573,6 @@ class PhrasePanelTest {
             val doneTextRight = doneBounds.left + done.totalPaddingLeft + done.layout.getLineRight(0)
             val handleVisibleRight = handleBounds.exactCenterX() + dp(9) * 0.78f + ctx.resources.displayMetrics.density
             assertEquals(handleVisibleRight, doneTextRight, 0.6f)
-            val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
-            view.draw(Canvas(bitmap))
-            assertEquals(inkRight(bitmap, handleBounds, pal.keySurface), inkRight(bitmap, doneBounds, pal.keySurface))
-            bitmap.recycle()
         }
         val phraseSort = phraseView().apply {
             layoutDirection = View.LAYOUT_DIRECTION_RTL
@@ -721,10 +704,10 @@ class PhrasePanelTest {
         assertEquals("all top action icons share one width (item7)", 1, actions.map { it.layoutParams.width }.toSet().size)
         assertEquals("all top action icons share one height (item7)", 1, actions.map { it.layoutParams.height }.toSet().size)
         val surfaced = icons.filter { it.contentDescription?.toString() in setOf(ctx.getString(com.aegis.ime.R.string.clip_add_phrase), ctx.getString(com.aegis.ime.R.string.clip_edit_phrases), ctx.getString(com.aegis.ime.R.string.clip_clear_category)) }
-        assertTrue(surfaced.all { it.background is GradientDrawable })
-        val iconSize = (36 * ctx.resources.displayMetrics.density).toInt()
+        assertTrue(surfaced.all(v::isImmediateActionForTest))
+        val iconSize = (48 * ctx.resources.displayMetrics.density).toInt()
         assertTrue(surfaced.all { it.layoutParams.width == iconSize && it.layoutParams.height == iconSize })
-        assertTrue(surfaced.all { (it.background as GradientDrawable).cornerRadius > 0f })
+        assertTrue(surfaced.all { it.background === v.immediateActionDrawableForTest(it) && it.foreground == null })
         assertTrue(icons.filterNot { it in surfaced }.all { it.background == null })
     }
 

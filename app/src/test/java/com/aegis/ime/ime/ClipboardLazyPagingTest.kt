@@ -160,4 +160,33 @@ class ClipboardLazyPagingTest {
         assertTrue("nothing already on screen is lost", after.containsAll(before))
         assertEquals("the loaded rows stay a gap-free head", history.take(after.size), after)
     }
+
+    @Test fun a_pending_paged_refresh_releases_actions_from_replaced_rows() {
+        val history = (1..300).map { "clip-$it" }.toMutableList()
+        val v = clipView(history)
+        layout(v, h = 700)
+        assertTrue(v.hasPendingListAppendForTest())
+        v.expandForTest("clip-1")
+        layout(v, h = 700)
+        assertTrue(v.hasPendingListAppendForTest())
+        val expanded = requireNotNull(v.listRowViewForTest(0))
+        val oldActions = descendants(expanded).filter(v::isImmediateActionForTest)
+        assertTrue(oldActions.isNotEmpty())
+
+        history.clear()
+        history.add("replacement")
+        v.refresh()
+        layout(v, h = 700)
+
+        assertTrue(oldActions.none(v::isImmediateActionForTest))
+        assertEquals(listOf("replacement"), v.listRowTextsForTest())
+    }
+
+    private fun descendants(root: View): List<View> = buildList {
+        fun addTree(view: View) {
+            add(view)
+            if (view is ViewGroup) for (index in 0 until view.childCount) addTree(view.getChildAt(index))
+        }
+        addTree(root)
+    }
 }

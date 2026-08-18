@@ -201,7 +201,7 @@ class EditPanelBackspaceGestureTest {
         assertEquals(listOf(EditAction.DELETE), p.actions)
     }
 
-    @Test fun a_release_off_the_key_still_commits_one_delete() = withPanel { p ->
+    @Test fun a_release_well_off_the_key_cancels_the_tap() = withPanel { p ->
         val (x, y) = p.centerOf(EditAction.DELETE)
         val button = p.deleteButton()
         val outside = x + button.width
@@ -210,26 +210,26 @@ class EditPanelBackspaceGestureTest {
         p.send(MotionEvent.ACTION_UP, outside, y, 24)
 
         assertTrue(p.swipes.isEmpty())
-        assertEquals(listOf(EditAction.DELETE), p.actions)
+        assertTrue(p.actions.isEmpty())
+        assertFalse("leaving the shared key target clears its pressed state", button.isPressed)
     }
 
-    @Test fun a_finger_that_left_the_key_settles_as_a_delete_on_every_pointer_path() = withPanel { p ->
+    @Test fun an_outside_first_finger_is_cancelled_before_an_inside_second_finger_takes_over() = withPanel { p ->
         val (x, y) = p.centerOf(EditAction.DELETE)
         val button = p.deleteButton()
         val outside = x + button.width
         p.dispatch(MotionEvent.ACTION_DOWN, 0, intArrayOf(0), floatArrayOf(x), floatArrayOf(y))
         p.dispatch(MotionEvent.ACTION_MOVE, 8, intArrayOf(0), floatArrayOf(outside), floatArrayOf(y))
-        p.dispatch(pointerDown(1), 16, intArrayOf(0, 1), floatArrayOf(outside, outside), floatArrayOf(y, y))
-        assertEquals("the first finger settles as a delete off the key", listOf(EditAction.DELETE), p.actions)
+        p.dispatch(pointerDown(1), 16, intArrayOf(0, 1), floatArrayOf(outside, x), floatArrayOf(y, y))
+        assertTrue("the first finger cannot click after it left the shared target", p.actions.isEmpty())
 
-        p.dispatch(pointerUp(1), 32, intArrayOf(0, 1), floatArrayOf(outside, outside), floatArrayOf(y, y))
-        assertEquals("the second finger settles as a delete off the key", 2, p.actions.size)
+        p.dispatch(pointerUp(1), 32, intArrayOf(0, 1), floatArrayOf(outside, x), floatArrayOf(y, y))
+        assertEquals("the inside second finger owns one tap", listOf(EditAction.DELETE), p.actions)
 
         p.dispatch(MotionEvent.ACTION_UP, 48, intArrayOf(0), floatArrayOf(outside), floatArrayOf(y))
         p.advance(600)
 
-        assertEquals("a settled gesture leaves no repeat behind", 2, p.actions.size)
-        assertTrue(p.actions.all { it == EditAction.DELETE })
+        assertEquals("the cancelled first pointer adds nothing on release", listOf(EditAction.DELETE), p.actions)
         assertTrue(p.swipes.isEmpty())
     }
 
@@ -239,10 +239,11 @@ class EditPanelBackspaceGestureTest {
         p.advance(500)
         val whileHeld = p.actions.size
         assertTrue("precondition: the repeat is running", whileHeld >= 2)
-        p.send(MotionEvent.ACTION_MOVE, x, y - (swipeThreshold + 15f), 500)
+        val outsideY = y - p.deleteButton().height - swipeThreshold
+        p.send(MotionEvent.ACTION_MOVE, x, outsideY, 500)
         p.advance(400)
         assertEquals("leaving the key stops the repeat", whileHeld, p.actions.size)
-        p.send(MotionEvent.ACTION_UP, x, y - (swipeThreshold + 15f), 900)
+        p.send(MotionEvent.ACTION_UP, x, outsideY, 900)
 
         assertTrue("a repeat never converts into a swipe", p.swipes.isEmpty())
         assertEquals("lifting after a stopped repeat emits nothing more", whileHeld, p.actions.size)

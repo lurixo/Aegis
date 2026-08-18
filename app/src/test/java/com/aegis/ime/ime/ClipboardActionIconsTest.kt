@@ -158,7 +158,7 @@ class ClipboardActionIconsTest {
         )
         for ((view, desc) in cases) {
             val button = swipeButton(view, desc)
-            assertEquals(dp(44), button.width)
+            assertEquals(dp(48), button.width)
             val box = dp(15)
             val left = (button.width - box) / 2
             val top = (button.height - box) / 2

@@ -20,6 +20,9 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.graphics.drawable.RippleDrawable
+import android.os.Looper
+import android.view.MotionEvent
 import android.view.View
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.theme.ImePalette
@@ -28,13 +31,16 @@ import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.LayoutId
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import java.time.Duration
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "zh")
@@ -86,6 +92,30 @@ class LayoutPanelTest {
         view.layout(0, 0, view.measuredWidth, view.measuredHeight)
         view.draw(Canvas(Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)))
         return view
+    }
+
+    private fun layoutPanel(panel: LayoutPanelView, widthDp: Int = 360, heightDp: Int = 240) {
+        panel.measure(
+            View.MeasureSpec.makeMeasureSpec((widthDp * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((heightDp * density).toInt(), View.MeasureSpec.EXACTLY),
+        )
+        panel.layout(0, 0, panel.measuredWidth, panel.measuredHeight)
+    }
+
+    private fun send(
+        view: View,
+        action: Int,
+        x: Float,
+        y: Float,
+        downTime: Long = 0L,
+        eventTime: Long = downTime,
+    ): Boolean {
+        val event = MotionEvent.obtain(downTime, eventTime, action, x, y, 0)
+        return try {
+            view.dispatchTouchEvent(event)
+        } finally {
+            event.recycle()
+        }
     }
 
     @Test fun the_layout_and_edit_functions_have_the_final_toolbar_order() {
@@ -141,6 +171,73 @@ class LayoutPanelTest {
         assertEquals("拼", panel.iconCharForTest(LayoutChoice.CN_NINE))
         assertEquals("拼", panel.iconCharForTest(LayoutChoice.CN_ALPHA))
         assertEquals("EN", panel.iconCharForTest(LayoutChoice.EN_ALPHA))
+    }
+
+    @Test fun cards_reuse_the_key_state_layer_timeline_without_a_platform_ripple_or_haptic() {
+        val panel = fixture().panel
+        layoutPanel(panel)
+        assertEquals(50L, Motion.PRESS_IN)
+        assertEquals(100L, Motion.PRESS_OUT)
+
+        for (choice in LayoutChoice.entries) {
+            val card = panel.cardViewForTest(choice)
+            assertSame(panel.cardFeedbackDrawableForTest(choice), card.background)
+            assertFalse(card.background is RippleDrawable)
+            assertNull(card.foreground)
+
+            val x = card.width / 2f
+            val y = card.height / 2f
+            send(card, MotionEvent.ACTION_DOWN, x, y)
+            assertEquals(1f, panel.cardFeedbackLevelForTest(choice), 0f)
+            assertEquals(
+                "the shared pressed state layer keeps the keyboard's 0x22 maximum alpha",
+                0x22,
+                Color.alpha(Motion.stateLayerColor(card.currentTextColor, panel.cardFeedbackLevelForTest(choice))),
+            )
+            assertEquals("layout choices never use keyboard haptics", -1, shadowOf(card).lastHapticFeedbackPerformed())
+            send(card, MotionEvent.ACTION_UP, x, y, eventTime = 16L)
+            assertEquals(0f, panel.cardFeedbackLevelForTest(choice), 0f)
+        }
+    }
+
+    @Test fun cards_keep_selection_card_touch_semantics_without_sticky_retarget_or_repeat() {
+        val panel = LayoutPanelView(ctx).apply { applyPalette(light) }
+        layoutPanel(panel)
+        val picks = ArrayList<LayoutChoice>()
+        panel.onPick = picks::add
+        val card = panel.cardViewForTest(LayoutChoice.CN_NINE)
+        val x = card.width / 2f
+        val y = card.height / 2f
+
+        send(card, MotionEvent.ACTION_DOWN, x, y)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(600))
+        assertTrue("holding a selection card never repeats", picks.isEmpty())
+        send(card, MotionEvent.ACTION_MOVE, card.width + 100f, y, eventTime = 610L)
+        assertEquals(0f, panel.cardFeedbackLevelForTest(LayoutChoice.CN_NINE), 0f)
+        send(card, MotionEvent.ACTION_UP, card.width + 100f, y, eventTime = 620L)
+        assertTrue("releasing outside neither sticks to nor retargets a layout choice", picks.isEmpty())
+
+        assertTrue(card.performClick())
+        assertEquals(listOf(LayoutChoice.CN_NINE), picks)
+    }
+
+    @Test fun closing_and_reopening_the_layout_panel_clears_an_active_card_press() {
+        val f = fixture()
+        f.open()
+        layoutPanel(f.panel)
+        val card = f.panel.cardViewForTest(LayoutChoice.CN_ALPHA)
+
+        send(card, MotionEvent.ACTION_DOWN, card.width / 2f, card.height / 2f)
+        assertEquals(1f, f.panel.cardFeedbackLevelForTest(LayoutChoice.CN_ALPHA), 0f)
+
+        f.input.showPanel(null)
+        assertEquals(0f, f.panel.cardFeedbackLevelForTest(LayoutChoice.CN_ALPHA), 0f)
+        assertEquals(LayoutChoice.CN_NINE, f.controller.currentLayoutChoice())
+
+        f.open()
+        layoutPanel(f.panel)
+        assertEquals(0f, f.panel.cardFeedbackLevelForTest(LayoutChoice.CN_ALPHA), 0f)
+        assertTrue(f.input.isPanelShowing(f.panel))
     }
 
     @Test fun each_card_pick_from_a_cn_start_sets_lang_layout_and_closes_the_panel() {
@@ -253,7 +350,10 @@ class LayoutPanelTest {
             View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY),
         )
         panel.layout(0, 0, panel.measuredWidth, panel.measuredHeight)
-        assertEquals((40 * density).toInt() + (18 * density).toInt(), panel.cardRowTopForTest())
+        assertEquals(
+            (PanelBackButton.HIT_DP * density).toInt() + (18 * density).toInt(),
+            panel.cardRowTopForTest(),
+        )
     }
 
     @Config(sdk = [34], qualifiers = "zh-xxhdpi")

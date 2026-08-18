@@ -17,7 +17,6 @@ package com.aegis.ime.ime
 
 import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
-import com.aegis.ime.ime.theme.ImeShapes
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
@@ -28,8 +27,6 @@ import android.graphics.Rect
 import android.graphics.drawable.Drawable
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.HapticFeedbackConstants
-import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
@@ -53,13 +50,13 @@ enum class EditAction(val keyAction: KeyAction? = null) {
     BACK,
 }
 
-class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar {
+class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar, KeyHapticsAware {
 
     var onAction: (EditAction) -> Unit = {}
 
     var onBackspaceSwipe: (Boolean) -> Unit = {}
 
-    var hapticEnabled = false
+    override var hapticEnabled = false
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
@@ -74,30 +71,28 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
     private val cutIcon: GlyphDrawable
     private val icons = mutableListOf<GlyphDrawable>()
     private val actionViews = mutableMapOf<EditAction, View>()
+    private val actionFeedback = mutableMapOf<EditAction, ImeKeyFeedback>()
     private val arrowIcons = mutableMapOf<EditAction, GlyphDrawable>()
     private val tintAnimators = HashMap<View, ValueAnimator>()
     private var selectionTinted = false
     private var selecting = false
+    private val backControl: PanelHeaderBackControl
     private val titleBar: LinearLayout
     private val actionColumn: LinearLayout
     private val actionScroll: ScrollView
-    private val backspace = BackspaceGesture(density)
-    private var backspacePointerId = MotionEvent.INVALID_POINTER_ID
+    private val backspaceTouch: ImeBackspaceTouch
 
     fun applyPalette(p: ImePalette) {
         palette = p
         setBackgroundColor(p.keyboardBg)
         recolor(this)
-        Motion.applyTapFeedback(selectBtn, p.keyLabel, pressedOnly = true)
-        for (action in listOf(EditAction.DELETE, EditAction.COPY, EditAction.CUT, EditAction.PASTE)) {
-            actionViews[action]?.let { Motion.applyTapFeedback(it, p.keyLabel, radiusDp = ImeShapes.keyRadiusDp) }
-        }
+        backControl.applyTint(p.keyLabel)
+        for (feedback in actionFeedback.values) feedback.update(p.keySurface, p.keyLabel)
         for (g in icons) g.applyTint(p.keyLabel)
         applySelectionTint(selectionTinted, animate = false)
     }
 
     private fun recolor(v: View) {
-        if (v.hasOnClickListeners()) Motion.applyTapFeedback(v, palette.keyLabel)
         when (v) {
             is TextView -> {
                 v.setTextColor(palette.keyLabel)
@@ -109,31 +104,22 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
     init {
         orientation = VERTICAL
         setBackgroundColor(palette.keyboardBg)
-        backspace.onRepeat = { onAction(EditAction.DELETE) }
-        backspace.onSwipe = { up -> onBackspaceSwipe(up) }
 
+        backControl = PanelBackButton.control(
+            context,
+            context.getString(R.string.edit_title),
+            palette.keyLabel,
+        ) { onAction(EditAction.BACK) }.also {
+            it.isFocusable = false
+            actionViews[EditAction.BACK] = it
+        }
         titleBar = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            addView(
-                textBtn(context.getString(R.string.edit_title), EditAction.BACK, sp = TITLE_SP).apply {
-                    isFocusable = false
-                    gravity = Gravity.CENTER_VERTICAL
-                    setPadding(dp(PanelBackButton.EDGE_DP), 0, dp(PanelBackButton.EDGE_DP), 0)
-                    setCompoundDrawablesWithIntrinsicBounds(
-                        icon(PanelBackButton.ICON_DP, PanelBackButton.GLYPH_SCALE) { c, p, x, y, s ->
-                            Glyphs.drawBack(c, p, x, y, s)
-                        },
-                        null,
-                        null,
-                        null,
-                    )
-                    compoundDrawablePadding = dp(PanelBackButton.GAP_DP)
-                },
-                LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT),
-            )
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
+            addView(backControl, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
         }
-        addView(titleBar, LayoutParams(LayoutParams.MATCH_PARENT, dp(40)))
+        addView(titleBar, LayoutParams(LayoutParams.MATCH_PARENT, dp(PanelBackButton.HIT_DP)))
 
         val mid = LinearLayout(context).apply { orientation = HORIZONTAL }
         val dpad = LinearLayout(context).apply { orientation = VERTICAL; gravity = Gravity.CENTER_HORIZONTAL }
@@ -141,7 +127,6 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
             context.getString(R.string.edit_start_select),
             EditAction.START_SELECT,
             sp = 16f,
-            pressedOnly = true,
         ).apply { includeFontPadding = false }
         val upRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
@@ -177,6 +162,14 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
             icon(27, 0.319f, 0.9f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) },
             iconOnStart = true,
             repeatable = true,
+        )
+        backspaceTouch = ImeBackspaceTouch(
+            deleteBtn,
+            requireNotNull(actionFeedback[EditAction.DELETE]),
+            density,
+            { hapticEnabled },
+            { onAction(EditAction.DELETE) },
+            { onBackspaceSwipe(it) },
         )
         val rightActions = listOf(deleteBtn, copyBtn, cutBtn)
         val rightCol = LinearLayout(context).apply { orientation = VERTICAL }
@@ -278,8 +271,8 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
         if (MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED) {
             val available = MeasureSpec.getSize(heightMeasureSpec).coerceAtLeast(0)
 
-            val titleHeight = if (available >= dp(84)) {
-                dp(40)
+            val titleHeight = if (available >= dp(PanelBackButton.HIT_DP + 44)) {
+                dp(PanelBackButton.HIT_DP)
             } else {
                 maxOf(dp(20).coerceAtMost(available), available - dp(44)).coerceAtMost(available)
             }
@@ -293,8 +286,17 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
     private fun applySelectionTint(has: Boolean, animate: Boolean) {
         selectionTinted = has
         val tint = if (has) palette.keyLabel else palette.disabled
-        for ((b, icon) in listOf(copyBtn to copyIcon, cutBtn to cutIcon)) {
-            Motion.applyTapFeedback(b, tint, radiusDp = ImeShapes.keyRadiusDp)
+        for ((action, b, icon) in listOf(
+            Triple(EditAction.COPY, copyBtn, copyIcon),
+            Triple(EditAction.CUT, cutBtn, cutIcon),
+        )) {
+            val enabledChanged = b.isEnabled != has || b.isClickable != has
+            actionFeedback[action]?.apply {
+                if (enabledChanged) reset()
+                update(palette.keySurface, tint)
+            }
+            b.isEnabled = has
+            b.isClickable = has
             tintAnimators.remove(b)?.cancel()
             if (animate) {
                 Motion.crossfadeColor(b, b.currentTextColor, tint) {
@@ -320,8 +322,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
 
     override fun resetToDefault() {
         selecting = false
-        backspace.cancel()
-        backspacePointerId = MotionEvent.INVALID_POINTER_ID
+        resetActionFeedback()
         Motion.reset(selectBtn)
         renderSelectingLabel()
         actionScroll.scrollTo(0, 0)
@@ -329,14 +330,21 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
     }
 
     override fun onDetachedFromWindow() {
-        backspace.cancel()
-        backspacePointerId = MotionEvent.INVALID_POINTER_ID
+        resetActionFeedback()
         super.onDetachedFromWindow()
+    }
+
+    private fun resetActionFeedback() {
+        backspaceTouch.cancel()
+        for ((action, feedback) in actionFeedback) {
+            if (action != EditAction.DELETE) feedback.reset()
+        }
     }
 
     internal fun selectingLabelForTest(): CharSequence = selectBtn.text
     internal fun selectionTintAnimatingForTest(): Boolean = tintAnimators.values.any { it.isRunning }
     internal fun actionViewForTest(action: EditAction): View? = actionViews[action]
+    internal fun actionFeedbackLevelForTest(action: EditAction): Float? = actionFeedback[action]?.levelForTest()
     internal fun titleBarForTest(): View = titleBar
     internal fun actionViewportForTest(): View = actionScroll
     internal fun actionContentCanScrollForTest(): Boolean = actionScroll.canScrollVertically(1)
@@ -359,16 +367,15 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
         label: String,
         action: EditAction,
         sp: Float,
-        pressedOnly: Boolean = false,
     ): TextView = TextView(context).apply {
         text = label
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
         setTextColor(palette.keyLabel)
         isClickable = true
-        Motion.applyTapFeedback(this, palette.keyLabel, pressedOnly = pressedOnly)
         setOnClickListener { onAction(action) }
         actionViews[action] = this
+        bindActionFeedback(this, action)
     }
 
     private fun iconBtn(
@@ -379,14 +386,6 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
         repeatable: Boolean = false,
     ): TextView = object : TextView(context) {
         private val textBounds = Rect()
-
-        override fun onTouchEvent(event: MotionEvent): Boolean {
-            if (!repeatable) return super.onTouchEvent(event)
-            if (backspaceTouch(this, event)) performClick()
-            return true
-        }
-
-        override fun performClick(): Boolean = super.performClick()
 
         override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
             val avail = MeasureSpec.getSize(widthMeasureSpec) -
@@ -422,77 +421,26 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
         )
         compoundDrawablePadding = dp(2)
         isClickable = true
-        Motion.applyTapFeedback(this, palette.keyLabel, radiusDp = ImeShapes.keyRadiusDp)
         setOnClickListener { onAction(action) }
         actionViews[action] = this
+        bindActionFeedback(this, action, bindTouch = !repeatable)
     }
-
-    private fun backspaceTouch(view: View, event: MotionEvent): Boolean {
-        var tapped = false
-        when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                view.parent?.requestDisallowInterceptTouchEvent(true)
-                beginBackspace(view, event.getPointerId(0), event.x, event.y)
-            }
-            MotionEvent.ACTION_POINTER_DOWN -> {
-                val index = event.actionIndex
-                val tracked = event.findPointerIndex(backspacePointerId)
-                if (tracked >= 0) tapped = settleBackspace(view, event.getY(tracked))
-                beginBackspace(view, event.getPointerId(index), event.getX(index), event.getY(index))
-            }
-            MotionEvent.ACTION_MOVE -> {
-                val index = event.findPointerIndex(backspacePointerId)
-                if (index >= 0) {
-                    val x = event.getX(index)
-                    val y = event.getY(index)
-                    backspace.move(x, y, inside(view, x, y))
-                }
-            }
-            MotionEvent.ACTION_POINTER_UP -> {
-                val index = event.actionIndex
-                if (event.getPointerId(index) == backspacePointerId) {
-                    tapped = settleBackspace(view, event.getY(index))
-                }
-            }
-            MotionEvent.ACTION_UP -> {
-                val index = event.findPointerIndex(backspacePointerId)
-                tapped = settleBackspace(view, if (index >= 0) event.getY(index) else event.y)
-                view.parent?.requestDisallowInterceptTouchEvent(false)
-            }
-            MotionEvent.ACTION_CANCEL -> {
-                backspace.cancel()
-                backspacePointerId = MotionEvent.INVALID_POINTER_ID
-                view.isPressed = false
-                view.parent?.requestDisallowInterceptTouchEvent(false)
-            }
-        }
-        return tapped
-    }
-
-    private fun beginBackspace(view: View, pointerId: Int, x: Float, y: Float) {
-        backspacePointerId = pointerId
-        view.isPressed = true
-        if (hapticEnabled) view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
-        backspace.begin(x, y)
-    }
-
-    private fun settleBackspace(view: View, y: Float): Boolean {
-        backspacePointerId = MotionEvent.INVALID_POINTER_ID
-        val tap = backspace.finish(y)
-        view.isPressed = false
-        return tap
-    }
-
-    private fun inside(view: View, x: Float, y: Float): Boolean =
-        x >= 0f && y >= 0f && x < view.width && y < view.height
 
     private fun arrowBtn(action: EditAction, glyph: GlyphDrawable): View = View(context).apply {
         arrowIcons[action] = glyph
-        background = glyph
+        foreground = glyph
+        foregroundGravity = Gravity.CENTER
         isClickable = true
-        Motion.applyTapFeedback(this, palette.keyLabel)
         setOnClickListener { onAction(action) }
         actionViews[action] = this
+        bindActionFeedback(this, action)
+    }
+
+    private fun bindActionFeedback(view: View, action: EditAction, bindTouch: Boolean = true) {
+        ImeKeyFeedback(view, palette.keySurface, palette.keyLabel).also {
+            if (bindTouch) it.bind { hapticEnabled }
+            actionFeedback[action] = it
+        }
     }
 
     private fun icon(

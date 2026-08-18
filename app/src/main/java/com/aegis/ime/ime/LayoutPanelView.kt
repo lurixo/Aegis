@@ -23,9 +23,9 @@ import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
-import android.graphics.drawable.GradientDrawable
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import com.aegis.ime.R
@@ -44,7 +44,6 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
     private fun dp(v: Int) = (v * density).toInt()
     private fun sp(v: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, v, resources.displayMetrics)
 
-    private val TITLE_SP = 16f
     private val ICON_BOX_DP = 34
     private val ICON_STROKE_DP = 2f
     private val ICON_RADIUS_DP = 7f
@@ -54,8 +53,7 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
 
     private var palette = ImePalette.STATIC_LIGHT
     private var active = LayoutChoice.CN_NINE
-    private val backIcon = GlyphDrawable(dp(16), 0.56f, 2f * density) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }
-    private val titleBtn: TextView
+    private val titleBtn: PanelHeaderBackControl
     private val cards: List<Card>
     private val cardRow: LinearLayout
     private val content: LinearLayout
@@ -63,27 +61,22 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
     init {
         orientation = VERTICAL
         setBackgroundColor(palette.keyboardBg)
-        backIcon.applyTint(palette.keyLabel)
 
-        titleBtn = TextView(context).apply {
-            text = context.getString(R.string.layout_panel_title)
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(12), 0, dp(12), 0)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, TITLE_SP)
-            setTextColor(palette.keyLabel)
+        titleBtn = PanelBackButton.control(
+            context,
+            context.getString(R.string.layout_panel_title),
+            palette.keyLabel,
+        ) { onBack() }.apply {
             isClickable = true
             isFocusable = false
-            setCompoundDrawablesWithIntrinsicBounds(backIcon, null, null, null)
-            compoundDrawablePadding = dp(6)
-            Motion.applyTapFeedback(this, palette.keyLabel)
-            setOnClickListener { onBack() }
         }
         val titleBar = LinearLayout(context).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
             addView(titleBtn, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
         }
-        addView(titleBar, LayoutParams(LayoutParams.MATCH_PARENT, dp(40)))
+        addView(titleBar, LayoutParams(LayoutParams.MATCH_PARENT, dp(PanelBackButton.HIT_DP)))
 
         cards = listOf(
             Card(LayoutChoice.CN_NINE, context.getString(R.string.layout_nine), "拼", CN_CHAR_SP, "9"),
@@ -114,9 +107,7 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
     fun applyPalette(p: ImePalette) {
         palette = p
         setBackgroundColor(p.keyboardBg)
-        titleBtn.setTextColor(p.keyLabel)
-        backIcon.applyTint(p.keyLabel)
-        Motion.applyTapFeedback(titleBtn, p.keyLabel)
+        titleBtn.applyTint(p.keyLabel)
         restyle()
     }
 
@@ -129,7 +120,18 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
         for (card in cards) card.applyStyle(card.choice == active)
     }
 
-    override fun resetToDefault() {}
+    override fun resetToDefault() {
+        resetCardFeedback()
+    }
+
+    override fun onDetachedFromWindow() {
+        resetCardFeedback()
+        super.onDetachedFromWindow()
+    }
+
+    private fun resetCardFeedback() {
+        for (card in cards) card.feedback.reset()
+    }
 
     internal fun cardViewForTest(choice: LayoutChoice): TextView = card(choice).view
     internal fun cardActiveForTest(choice: LayoutChoice): Boolean = card(choice).active
@@ -139,6 +141,8 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
     internal fun titleButtonForTest(): TextView = titleBtn
     internal fun cardIconForTest(choice: LayoutChoice): Drawable = card(choice).icon
     internal fun cardRowTopForTest(): Int = content.top + cardRow.top
+    internal fun cardFeedbackLevelForTest(choice: LayoutChoice): Float = card(choice).feedback.levelForTest()
+    internal fun cardFeedbackDrawableForTest(choice: LayoutChoice): Drawable = card(choice).feedback.drawableForTest()
 
     private fun card(choice: LayoutChoice): Card = cards.first { it.choice == choice }
 
@@ -155,6 +159,15 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
             isClickable = true
             setOnClickListener { onPick(choice) }
         }
+        val feedback = ImeKeyFeedback(
+            view,
+            palette.keySurface,
+            palette.keyLabel,
+            faceInsetDp = 0f,
+            radiusDp = ImeShapes.cardRadiusDp,
+        ).apply {
+            bind { false }
+        }
 
         fun applyStyle(isActive: Boolean) {
             active = isActive
@@ -163,11 +176,7 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
             view.typeface = if (isActive) Typeface.DEFAULT_BOLD else Typeface.DEFAULT
             icon.applyTint(tint)
             icon.applyFill(palette.keySurface)
-            view.background = GradientDrawable().apply {
-                setColor(palette.keySurface)
-                cornerRadius = ImeShapes.cardRadiusDp * density
-            }
-            Motion.applyTapFeedback(view, tint, radiusDp = ImeShapes.cardRadiusDp)
+            feedback.update(palette.keySurface, tint)
         }
     }
 
@@ -243,25 +252,4 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
         override fun getOpacity() = PixelFormat.TRANSLUCENT
     }
 
-    private class GlyphDrawable(
-        private val boxPx: Int,
-        private val sFactor: Float,
-        strokePx: Float,
-        private val render: (Canvas, Paint, Float, Float, Float) -> Unit,
-    ) : Drawable() {
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND; strokeWidth = strokePx
-        }
-        fun applyTint(color: Int) { paint.color = color; invalidateSelf() }
-        override fun getIntrinsicWidth() = boxPx
-        override fun getIntrinsicHeight() = boxPx
-        override fun draw(canvas: Canvas) {
-            val b = bounds
-            render(canvas, paint, b.exactCenterX(), b.exactCenterY(), boxPx * sFactor)
-        }
-        override fun setAlpha(alpha: Int) {}
-        override fun setColorFilter(colorFilter: ColorFilter?) {}
-        @Deprecated("deprecated in Drawable", ReplaceWith("PixelFormat.TRANSLUCENT"))
-        override fun getOpacity() = PixelFormat.TRANSLUCENT
-    }
 }

@@ -20,6 +20,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.widget.TextView
 import com.aegis.ime.R
+import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.ime.theme.ImeType
 
 object PanelBackButton {
@@ -30,7 +31,7 @@ object PanelBackButton {
     const val GAP_DP = 6
     const val EDGE_DP = 12
 
-    internal fun icon(density: Float): EditPanelView.GlyphDrawable =
+    private fun icon(density: Float): EditPanelView.GlyphDrawable =
         EditPanelView.GlyphDrawable(
             (ICON_DP * density).toInt(),
             GLYPH_SCALE,
@@ -41,23 +42,45 @@ object PanelBackButton {
     internal fun control(
         context: Context,
         label: String,
-        glyph: EditPanelView.GlyphDrawable,
         tint: Int,
-        edgeDp: Int = EDGE_DP,
-    ): TextView {
-        val density = context.resources.displayMetrics.density
-        return TextView(context).apply {
-            text = label
-            maxLines = 1
-            gravity = Gravity.CENTER_VERTICAL
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
-            setTextColor(tint)
-            contentDescription = context.getString(R.string.clip_back)
-            glyph.applyTint(tint)
-            setCompoundDrawablesWithIntrinsicBounds(glyph, null, null, null)
-            compoundDrawablePadding = (GAP_DP * density).toInt()
-            setPadding((edgeDp * density).toInt(), 0, (edgeDp * density).toInt(), 0)
-            minWidth = (HIT_DP * density).toInt()
-        }
+        onBack: () -> Unit,
+    ): PanelHeaderBackControl = PanelHeaderBackControl(context, label, tint, onBack)
+
+    internal fun newIcon(density: Float): EditPanelView.GlyphDrawable = icon(density)
+}
+
+internal class PanelHeaderBackControl(
+    context: Context,
+    label: String,
+    tint: Int,
+    onBack: () -> Unit,
+) : TextView(context) {
+
+    private val density = resources.displayMetrics.density
+    private val glyph = PanelBackButton.newIcon(density)
+
+    init {
+        text = label
+        maxLines = 1
+        gravity = Gravity.CENTER_VERTICAL
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+        contentDescription = context.getString(R.string.panel_back)
+        setCompoundDrawablesWithIntrinsicBounds(glyph, null, null, null)
+        compoundDrawablePadding = (PanelBackButton.GAP_DP * density).toInt()
+        val edge = (PanelBackButton.EDGE_DP * density).toInt()
+        setPadding(edge, 0, edge, 0)
+        minWidth = (PanelBackButton.HIT_DP * density).toInt()
+        minHeight = (PanelBackButton.HIT_DP * density).toInt()
+        isClickable = true
+        setOnClickListener { onBack() }
+        applyTint(tint)
     }
+
+    fun applyTint(tint: Int) {
+        setTextColor(tint)
+        glyph.applyTint(tint)
+        Motion.applyTapFeedback(this, tint, radiusDp = ImeShapes.keyRadiusDp)
+    }
+
+    internal fun glyphForTest(): EditPanelView.GlyphDrawable = glyph
 }

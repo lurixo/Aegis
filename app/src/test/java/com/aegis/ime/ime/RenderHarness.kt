@@ -20,7 +20,6 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Rect
-import android.graphics.drawable.RippleDrawable
 import android.view.MotionEvent
 import android.view.View
 import android.widget.TextView
@@ -33,7 +32,6 @@ import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -540,21 +538,12 @@ class RenderHarness {
             val geometry = actions.map { action ->
                 val target = requireNotNull(view.actionViewForTest(action))
                 val viewRect = bounds(action)
-                assertNull("$name/${width}px: $action has no resting background", target.background)
-                val ripple = target.foreground as? RippleDrawable
-                    ?: throw AssertionError("$name/${width}px: $action lost pressed feedback")
-                val mask = ripple.findDrawableByLayerId(android.R.id.mask) as? android.graphics.drawable.GradientDrawable
-                    ?: throw AssertionError("$name/${width}px: $action lost its pressed mask")
-                assertEquals(
-                    "$name/${width}px: $action pressed mask uses the shared key radius",
-                    com.aegis.ime.ime.theme.ImeShapes.keyRadiusDp * density,
-                    mask.cornerRadius,
-                    0f,
-                )
-                val rippleRect = Rect(ripple.bounds).apply {
+                val surface = target.background
+                assertTrue("$name/${width}px: $action keeps the shared resting and pressed surface", surface is ImeKeySurface)
+                val surfaceRect = Rect(surface.bounds).apply {
                     offset(viewRect.left, viewRect.top)
                 }
-                listOf(viewRect, rippleRect, hitBounds(target))
+                listOf(viewRect, surfaceRect, hitBounds(target))
             }
             if (pass == 0) {
                 firstGeometry = geometry.map { rectangles -> rectangles.map { Rect(it) } }
@@ -578,14 +567,8 @@ class RenderHarness {
         view.onAction = navigationClicks::add
         for (action in bottomNavigation) {
             val target = requireNotNull(view.actionViewForTest(action))
-            if (action == EditAction.SELECT_ALL) {
-                assertTrue("$name: $action keeps a transparent resting background", target.background == null)
-            } else {
-                assertTrue("$name: $action keeps its glyph face", target.background != null)
-            }
-            val ripple = target.foreground as? RippleDrawable
-                ?: throw AssertionError("$name: $action lost pressed feedback")
-            assertTrue("$name: $action pressed feedback remains stateful", ripple.isStateful)
+            assertTrue("$name: $action keeps the shared key surface", target.background is ImeKeySurface)
+            assertTrue("$name: $action keeps a press controller", view.actionFeedbackLevelForTest(action) != null)
             assertTrue("$name: $action click", target.performClick())
         }
         assertEquals("$name: navigation clicks", bottomNavigation, navigationClicks)

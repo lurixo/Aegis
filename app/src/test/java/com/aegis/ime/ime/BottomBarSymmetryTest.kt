@@ -18,7 +18,6 @@ package com.aegis.ime.ime
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
-import android.graphics.drawable.RippleDrawable
 import android.graphics.Rect
 import android.view.Gravity
 import android.view.View
@@ -27,6 +26,7 @@ import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -85,10 +85,11 @@ class BottomBarSymmetryTest {
         return (left + right + 1) / 2f to (top + bottom + 1) / 2f
     }
 
-    private fun assertControlsAreIconOnly(controls: List<TextView>, name: String) {
+    private fun assertControlsUseKeySurfaces(controls: List<TextView>, name: String) {
         for (control in controls) {
-            assertNull("$name control has no resting background slab", control.background)
-            assertTrue("$name control keeps transient press feedback", control.foreground is RippleDrawable)
+            assertNotNull("$name control keeps a resting key surface", control.background)
+            assertFalse("$name control does not fall back to a platform ripple", control.background is android.graphics.drawable.RippleDrawable)
+            assertNull("$name control uses its shared animated surface instead of a foreground ripple", control.foreground)
         }
     }
 
@@ -110,13 +111,15 @@ class BottomBarSymmetryTest {
         val clearBounds = bounds(view, clear)
         val lockBounds = bounds(view, lock)
         val backspaceBounds = bounds(view, backspace)
-        assertEquals((60 * view.resources.displayMetrics.density).toInt(), backBounds.width())
+        assertEquals(view.width / 4, backBounds.width())
         assertEquals(backBounds.width(), clearBounds.width())
         assertEquals(backBounds.width(), lockBounds.width())
         assertEquals(backBounds.width(), backspaceBounds.width())
         assertEquals(backBounds.height(), clearBounds.height())
         assertEquals(backBounds.height(), lockBounds.height())
         assertEquals(backBounds.height(), backspaceBounds.height())
+        assertTrue(backBounds.width() >= (48 * view.resources.displayMetrics.density).toInt())
+        assertTrue(backBounds.height() >= (48 * view.resources.displayMetrics.density).toInt())
         controls.forEach {
             val bitmap = Bitmap.createBitmap(it.width, it.height, Bitmap.Config.ARGB_8888)
             it.draw(Canvas(bitmap))
@@ -130,12 +133,9 @@ class BottomBarSymmetryTest {
         assertNull("$name delete has no right-anchored glyph", backspace.compoundDrawables[2])
         for (control in listOf(clear, backspace)) {
             val glyph = requireNotNull(control.compoundDrawables[0])
-            assertEquals(Rect(0, 0, control.width, control.height), glyph.bounds)
-            assertEquals(control.width / 2f, glyph.bounds.exactCenterX(), 0f)
-            assertEquals(control.height / 2f, glyph.bounds.exactCenterY(), 0f)
             val center = inkCenter(glyph)
-            assertEquals(control.width / 2f, center.first, 0.6f)
-            assertEquals(control.height / 2f, center.second, 0.6f)
+            assertEquals(glyph.bounds.exactCenterX(), center.first, 0.6f)
+            assertEquals(glyph.bounds.exactCenterY(), center.second, 0.6f)
         }
     }
 
@@ -161,9 +161,9 @@ class BottomBarSymmetryTest {
                     backspace,
                     "SymbolsView",
                 )
-                assertControlsAreIconOnly(controls, "SymbolsView")
+                assertControlsUseKeySurfaces(controls, "SymbolsView")
                 view.applyPalette(ImePalette.STATIC_DARK)
-                assertControlsAreIconOnly(controls, "SymbolsView")
+                assertControlsUseKeySurfaces(controls, "SymbolsView")
             }
         }
     }
@@ -189,9 +189,9 @@ class BottomBarSymmetryTest {
                     backspace,
                     "EmojiView",
                 )
-                assertControlsAreIconOnly(controls, "EmojiView")
+                assertControlsUseKeySurfaces(controls, "EmojiView")
                 view.applyPalette(ImePalette.STATIC_DARK)
-                assertControlsAreIconOnly(controls, "EmojiView")
+                assertControlsUseKeySurfaces(controls, "EmojiView")
             }
         }
     }

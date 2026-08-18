@@ -29,6 +29,7 @@ import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import kotlin.math.pow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -191,8 +192,15 @@ class ImeVisualPolishTest {
         val clickable = clickableViews(root)
         assertTrue("$label exposes click targets for the audit", clickable.isNotEmpty())
         clickable.forEach { view ->
+            if (view.background is ImeKeySurface) {
+                assertFalse(
+                    "$label click target ${view.javaClass.simpleName} must not stack a platform ripple on the shared key surface",
+                    view.foreground is RippleDrawable,
+                )
+                return@forEach
+            }
             val ripple = view.foreground as? RippleDrawable
-                ?: throw AssertionError("$label click target ${view.javaClass.simpleName} lost ripple feedback")
+                ?: throw AssertionError("$label click target ${view.javaClass.simpleName} lost rounded feedback")
             val mask = ripple.findDrawableByLayerId(android.R.id.mask) as? GradientDrawable
                 ?: throw AssertionError("$label click target ${view.javaClass.simpleName} lost its ripple mask")
             assertTrue(
@@ -242,10 +250,11 @@ class ImeVisualPolishTest {
     }
 
     private fun assertDisabledButton(tv: TextView, palette: ImePalette) {
-        val bg = (tv.background as GradientDrawable).color?.defaultColor
+        assertTrue("disabled immediate action keeps the shared key surface", tv.background is ImeKeySurface)
+        val bg = palette.keySurface
         assertEquals(palette.keySurface, bg)
         assertEquals(palette.keyLabel, tv.currentTextColor)
-        assertTrue("disabled action text contrast is readable", contrastRatio(tv.currentTextColor, bg!!) >= 4.5)
+        assertTrue("disabled action text contrast is readable", contrastRatio(tv.currentTextColor, bg) >= 4.5)
         assertTrue("disabled action stays disabled", !tv.hasOnClickListeners())
     }
 

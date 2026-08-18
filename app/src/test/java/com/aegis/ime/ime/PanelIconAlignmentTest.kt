@@ -15,13 +15,9 @@
 
 package com.aegis.ime.ime
 
-import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Rect
-import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.RippleDrawable
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -29,7 +25,6 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
-import com.aegis.ime.ime.theme.ImeShapes
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
@@ -49,18 +44,6 @@ class PanelIconAlignmentTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
     private val density = ctx.resources.displayMetrics.density
-
-    private fun rippleColors(view: View): ColorStateList {
-        val ripple = view.foreground as RippleDrawable
-        val state = RippleDrawable::class.java.getDeclaredField("mState").run {
-            isAccessible = true
-            get(ripple)
-        }
-        return state.javaClass.getDeclaredField("mColor").run {
-            isAccessible = true
-            get(state) as ColorStateList
-        }
-    }
 
     private fun textViews(root: View): List<TextView> {
         val out = ArrayList<TextView>()
@@ -193,10 +176,14 @@ class PanelIconAlignmentTest {
         for ((action, direction) in directions) {
             val button = v.actionViewForTest(action)
                 ?: throw AssertionError("$action arrow button must exist")
-            assertTrue("$action arrow keeps rounded tap feedback", button.foreground is RippleDrawable)
+            assertTrue("$action arrow keeps the shared key surface", button.background is ImeKeySurface)
+            assertTrue("$action arrow glyph stays above the key surface", button.foreground is EditPanelView.GlyphDrawable)
 
             val bitmap = Bitmap.createBitmap(button.width, button.height, Bitmap.Config.ARGB_8888)
-            button.draw(Canvas(bitmap))
+            requireNotNull(button.foreground).apply {
+                setBounds(0, 0, button.width, button.height)
+                draw(Canvas(bitmap))
+            }
             val center = v.arrowLastDrawCenterForTest(action)
                 ?: throw AssertionError("$action arrow glyph must draw during button rendering")
             assertEquals("$action glyph x center", button.width / 2f, center.first, 0.5f)
@@ -286,7 +273,7 @@ class PanelIconAlignmentTest {
         assertEquals(select.top, rightArrow.top)
         assertEquals(select.top, upArrow.bottom)
         assertEquals(select.bottom, downArrow.top)
-        val titleHeight = (40 * density).toInt()
+        val titleHeight = (PanelBackButton.HIT_DP * density).toInt()
         val bottomHeight = (56 * density).toInt()
         val contentHeight = maxOf((48 * 3 * density).toInt() + bottomHeight, panelHeight - titleHeight)
         val bottomContainerHeight = maxOf(bottomHeight, (contentHeight + 3) / 4)
@@ -343,7 +330,7 @@ class PanelIconAlignmentTest {
         )
 
         for (action in listOf(EditAction.UP, EditAction.DOWN, EditAction.LEFT, EditAction.RIGHT)) {
-            val glyph = requireNotNull(requireNotNull(v.actionViewForTest(action)).background)
+            val glyph = requireNotNull(requireNotNull(v.actionViewForTest(action)).foreground)
             assertEquals("$action glyph box", (38 * density).toInt(), glyph.intrinsicWidth)
         }
         for ((action, label) in listOf(
@@ -351,7 +338,7 @@ class PanelIconAlignmentTest {
             EditAction.END to ctx.getString(com.aegis.ime.R.string.edit_paragraph_end),
         )) {
             val button = requireNotNull(v.actionViewForTest(action))
-            assertEquals("$action glyph box", (38 * density).toInt(), requireNotNull(button.background).intrinsicWidth)
+            assertEquals("$action glyph box", (38 * density).toInt(), requireNotNull(button.foreground).intrinsicWidth)
             assertEquals(label, button.contentDescription)
         }
         val selectAll = requireNotNull(v.actionViewForTest(EditAction.SELECT_ALL)) as TextView
@@ -379,7 +366,7 @@ class PanelIconAlignmentTest {
             }
             assertTrue(bounds.all { it.left == bounds.first().left && it.right == bounds.first().right })
             bounds.zipWithNext().forEach { (upper, lower) -> assertTrue(upper.bottom <= lower.top) }
-            val titleHeight = (40 * density).toInt()
+            val titleHeight = (PanelBackButton.HIT_DP * density).toInt()
             val bottomHeight = (56 * density).toInt()
             val contentHeight = maxOf((48 * 3 * density).toInt() + bottomHeight, height - titleHeight)
             val bottomContainerHeight = maxOf(bottomHeight, (contentHeight + 3) / 4)
@@ -404,10 +391,8 @@ class PanelIconAlignmentTest {
             assertTrue(navigationBounds.all { kotlin.math.abs(it.centerY() - bounds.last().centerY()) <= 1 })
             for (action in actions) {
                 val target = requireNotNull(v.actionViewForTest(action))
-                assertNull(target.background)
-                val ripple = target.foreground as android.graphics.drawable.RippleDrawable
-                val mask = ripple.findDrawableByLayerId(android.R.id.mask) as GradientDrawable
-                assertEquals(ImeShapes.keyRadiusDp * density, mask.cornerRadius, 0f)
+                assertTrue(target.background is ImeKeySurface)
+                assertFalse(target.background is android.graphics.drawable.RippleDrawable)
                 assertTrue(target.hasOnClickListeners())
                 assertTrue(target.performClick())
                 assertEquals(action, dispatched.last())
@@ -416,8 +401,8 @@ class PanelIconAlignmentTest {
             v.applyPalette(ImePalette.STATIC_DARK)
             for (action in actions) {
                 val target = requireNotNull(v.actionViewForTest(action))
-                assertNull(target.background)
-                assertTrue(target.foreground is android.graphics.drawable.RippleDrawable)
+                assertTrue(target.background is ImeKeySurface)
+                assertFalse(target.background is android.graphics.drawable.RippleDrawable)
             }
         }
     }
@@ -436,6 +421,7 @@ class PanelIconAlignmentTest {
             EditAction.HOME,
             EditAction.END,
         )
+        v.setHasSelection(true)
         val back = requireNotNull(v.actionViewForTest(EditAction.BACK))
         assertFalse(back.isFocusable)
         assertFalse(back.requestFocus())
@@ -462,24 +448,17 @@ class PanelIconAlignmentTest {
         assertEquals(navigation + EditAction.BACK, actions)
     }
 
-    @Test fun start_select_ripple_is_transparent_when_focused_and_visible_when_pressed() {
+    @Test fun start_select_and_delete_use_the_shared_key_surface_in_each_palette() {
         for (palette in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
             val v = EditPanelView(ctx).apply { applyPalette(palette) }
             val select = requireNotNull(v.actionViewForTest(EditAction.START_SELECT))
-            val selectColors = rippleColors(select)
-            val focused = intArrayOf(android.R.attr.state_enabled, android.R.attr.state_focused)
-            val pressed = intArrayOf(android.R.attr.state_enabled, android.R.attr.state_pressed)
-            val expected = Motion.withAlpha(palette.keyLabel, 0x24)
-
-            assertEquals(Color.TRANSPARENT, selectColors.getColorForState(focused, Color.MAGENTA))
-            assertEquals(expected, selectColors.getColorForState(pressed, Color.MAGENTA))
-
             val delete = requireNotNull(v.actionViewForTest(EditAction.DELETE))
-            assertEquals(
-                "default tap feedback remains visible for focused controls",
-                expected,
-                rippleColors(delete).getColorForState(focused, Color.MAGENTA),
-            )
+            assertTrue(select.background is ImeKeySurface)
+            assertTrue(delete.background is ImeKeySurface)
+            assertFalse(select.background is android.graphics.drawable.RippleDrawable)
+            assertFalse(delete.background is android.graphics.drawable.RippleDrawable)
+            assertEquals(0f, requireNotNull(v.actionFeedbackLevelForTest(EditAction.START_SELECT)), 0f)
+            assertEquals(0f, requireNotNull(v.actionFeedbackLevelForTest(EditAction.DELETE)), 0f)
         }
     }
 
@@ -515,9 +494,11 @@ class PanelIconAlignmentTest {
 
         assertEquals("$name: lock key face is icon-only", "", lock.text.toString())
         val icon = requireNotNull(lock.compoundDrawables[0])
-        assertEquals("$name: lock glyph fills the key face", Rect(0, 0, lock.width, lock.height), icon.bounds)
+        assertTrue("$name: lock glyph keeps a drawable box", icon.bounds.width() > 0 && icon.bounds.height() > 0)
+        assertTrue("$name: lock glyph stays within the key face", icon.bounds.width() <= lock.width && icon.bounds.height() <= lock.height)
         assertEquals("$name: back key face is icon-only", "", back.text.toString())
         val backIcon = requireNotNull(back.compoundDrawables[0])
-        assertEquals("$name: back glyph fills the key face", Rect(0, 0, back.width, back.height), backIcon.bounds)
+        assertTrue("$name: back glyph keeps a drawable box", backIcon.bounds.width() > 0 && backIcon.bounds.height() > 0)
+        assertTrue("$name: back glyph stays within the key face", backIcon.bounds.width() <= back.width && backIcon.bounds.height() <= back.height)
     }
 }

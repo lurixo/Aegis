@@ -21,7 +21,6 @@ import android.graphics.Color
 import android.graphics.RectF
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
-import android.graphics.drawable.RippleDrawable
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
@@ -121,7 +120,7 @@ class CandidateGridViewTest {
         assertTrue("the retype must stay inside the column, got ${clear.topMargin + clear.height} of $h", clear.topMargin + clear.height <= h)
     }
 
-    @Test fun short_column_still_squeezes_and_bottom_anchors_the_three_controls() {
+    @Test fun short_column_keeps_full_size_primary_controls_and_hides_the_redundant_clear_action() {
         val h = (120 * density).toInt()
         val v = CandidateGridView(ctx)
         v.measure(
@@ -131,15 +130,13 @@ class CandidateGridViewTest {
         v.layout(0, 0, v.measuredWidth, v.measuredHeight)
         val back = v.returnButtonForTest().layoutParams as FrameLayout.LayoutParams
         val delete = v.backspaceButtonForTest().layoutParams as FrameLayout.LayoutParams
-        val clear = v.clearButtonForTest().layoutParams as FrameLayout.LayoutParams
 
-        assertTrue("controls shrink below the preferred row height when the column is short", back.height < rowPx())
+        assertEquals(rowPx(), back.height)
+        assertEquals(rowPx(), delete.height)
         assertEquals(0, back.topMargin)
-        assertEquals(h, clear.topMargin + clear.height)
-        val backCenter = back.topMargin + back.height / 2f
-        val deleteCenter = delete.topMargin + delete.height / 2f
-        val clearCenter = clear.topMargin + clear.height / 2f
-        assertEquals(deleteCenter - backCenter, clearCenter - deleteCenter, 1f)
+        assertEquals(h, delete.topMargin + delete.height)
+        assertEquals(View.GONE, v.clearButtonForTest().visibility)
+        assertTrue("the two 48dp controls do not overlap", back.topMargin + back.height <= delete.topMargin)
     }
 
     @Test fun right_controls_share_one_vertical_center_line() {
@@ -259,12 +256,15 @@ class CandidateGridViewTest {
     @Test fun grid_backspace_shows_press_feedback_on_touch_down_like_the_other_controls() {
         val v = measured()
         val b = v.backspaceButtonForTest()
-        assertTrue("backspace carries a ripple foreground like collapse and redo", b.foreground is RippleDrawable)
+        assertTrue("backspace keeps a resting action-key surface", b.background != null)
+        assertNull("backspace no longer uses a platform foreground ripple", b.foreground)
         val x = b.width / 2f
         b.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, x, b.height / 2f, 0))
-        assertTrue("touch-down puts backspace into the pressed state so its ripple fires", b.isPressed)
+        assertTrue("touch-down puts backspace into the pressed state", b.isPressed)
+        assertEquals(1f, v.backspaceFeedbackLevelForTest(), 0f)
         b.dispatchTouchEvent(MotionEvent.obtain(0, 16, MotionEvent.ACTION_UP, x, b.height / 2f, 0))
         assertFalse("release clears the pressed state", b.isPressed)
+        assertEquals(0f, v.backspaceFeedbackLevelForTest(), 0f)
     }
 
     @Test fun up_swipe_on_grid_backspace_clears_instead_of_deleting_one_unit() {

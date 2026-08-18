@@ -50,15 +50,13 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     private val headerBar = LinearLayout(context).apply {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(EDGE_DP), 0, dp(EDGE_DP), 0)
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
     }
-    private val backIcon = PanelBackButton.icon(density)
     private val titleText = PanelBackButton.control(
         context,
         context.getString(R.string.csp_punctuation_title),
-        backIcon,
         colors.keyLabel,
-    )
+    ) { onBack() }
     private val sectionLabels = mutableListOf<TextView>()
     private val addedLabel = sectionLabel(context.getString(R.string.csp_section_added))
     private val paletteLabel = sectionLabel(context.getString(R.string.csp_section_all_punctuation))
@@ -85,8 +83,6 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     init {
         orientation = VERTICAL
         setBackgroundColor(colors.keyboardBg)
-        titleText.setOnClickListener { onBack() }
-        Motion.applyTapFeedback(titleText, colors.keyLabel)
         headerBar.setBackgroundColor(colors.keyboardBg)
         headerBar.addView(titleText, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
         addView(headerBar, LayoutParams(LayoutParams.MATCH_PARENT, headerHeight))
@@ -113,9 +109,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         colors = p
         setBackgroundColor(p.keyboardBg)
         headerBar.setBackgroundColor(p.keyboardBg)
-        titleText.setTextColor(p.keyLabel)
-        backIcon.applyTint(p.keyLabel)
-        Motion.applyTapFeedback(titleText, p.keyLabel)
+        titleText.applyTint(p.keyLabel)
         addedEmpty.setTextColor(p.keyLabelSecondary)
         sectionLabels.forEach { it.setTextColor(p.keyLabelSecondary) }
         rebuildFlows()
@@ -223,7 +217,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     internal fun paletteSectionLabelForTest(): TextView = paletteLabel
     internal fun titleForTest(): TextView = titleText
     internal fun backButtonForTest(): View = titleText
-    internal fun backIconForTest(): android.graphics.drawable.Drawable = backIcon
+    internal fun backIconForTest(): android.graphics.drawable.Drawable = titleText.glyphForTest()
     internal fun paletteChipForTest(symbol: String): View? {
         for (r in 0 until paletteRows.childCount) {
             val row = paletteRows.getChildAt(r) as? ViewGroup ?: continue

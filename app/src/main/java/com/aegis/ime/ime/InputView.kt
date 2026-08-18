@@ -347,7 +347,7 @@ class InputView(context: Context) : LinearLayout(context) {
     fun setKeyHaptics(on: Boolean) {
         keyHaptics = on
         keyboardView.hapticEnabled = on
-        (currentPanel as? EditPanelView)?.hapticEnabled = on
+        (currentPanel as? KeyHapticsAware)?.hapticEnabled = on
     }
     fun setKeyPreviewNine(on: Boolean) { keyboardView.previewNineEnabled = on }
     fun setKeyPreviewAlpha(on: Boolean) { keyboardView.previewAlphaEnabled = on }
@@ -538,7 +538,7 @@ class InputView(context: Context) : LinearLayout(context) {
         (outgoing as? ResettablePanel)?.takeIf { it !== panel }?.resetToDefault()
         if (outgoing === gridView && panel !== gridView) onExpandClosed()
         currentPanel = panel
-        (panel as? EditPanelView)?.hapticEnabled = keyHaptics
+        (panel as? KeyHapticsAware)?.hapticEnabled = keyHaptics
         if (panel !== gridView) pendingGridBind = null
         candidateView.setExpanded(panel === gridView)
         val coversBar = panel is CoversToolbar

@@ -33,9 +33,7 @@ import android.graphics.drawable.RippleDrawable
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
-import android.view.MotionEvent
 import android.view.View
-import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.BaseAdapter
 import android.widget.FrameLayout
@@ -61,13 +59,14 @@ data class CandidateProjectionPolicy(val maxPhraseRows: Int) {
     }
 }
 
-class CandidateGridView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar {
+class CandidateGridView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar, KeyHapticsAware {
 
     var onPick: (Int) -> Unit = {}
     var onPickReading: (Int) -> Unit = {}
     var onClose: () -> Unit = {}
     var onBackspace: () -> Unit = {}
     var onClear: () -> Unit = {}
+    override var hapticEnabled = false
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
@@ -86,7 +85,6 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
     private val collapseGlyph = IconDrawable(density, 9f * (1.64f / 1.40f) / 22f) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = false) }
     private val measurePaint = Paint()
-    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private var sourceCandidates: List<String>? = null
     private var sourceCandidateProjection: CandidateProjectionPolicy? = null
     private var renderedCandidates: List<String>? = null
@@ -113,6 +111,10 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private val chipClick = OnClickListener { v -> onPick(v.tag as Int) }
     private val readingClick = OnClickListener { v -> onPickReading(v.tag as Int) }
     private val candidateAdapter = CandidateAdapter()
+    private val returnFeedback: ImeKeyFeedback
+    private val backspaceFeedback: ImeKeyFeedback
+    private val clearFeedback: ImeKeyFeedback
+    private val backspaceTouch: ImeBackspaceTouch
 
     init {
         orientation = HORIZONTAL
@@ -170,10 +172,26 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             actionBoundaryLp(clearActionBoundary),
         )
         addView(rightColumn, LayoutParams(dp(Layouts.CANDIDATE_ACTION_WIDTH_DP), LayoutParams.MATCH_PARENT))
+        returnFeedback = ImeKeyFeedback(returnButton(), palette.railBg, palette.keyLabelSecondary)
+        returnFeedback.bind { hapticEnabled }
+        backspaceFeedback = ImeKeyFeedback(backspaceButton(), palette.railBg, palette.keyLabelSecondary)
+        backspaceTouch = ImeBackspaceTouch(
+            backspaceButton(),
+            backspaceFeedback,
+            density,
+            { hapticEnabled },
+            { onBackspace() },
+            { up -> if (up) onClear() },
+        )
+        clearFeedback = ImeKeyFeedback(clearButton(), palette.railBg, palette.keyLabelSecondary)
+        clearFeedback.bind { hapticEnabled }
     }
 
     override fun resetToDefault() {
         resetViewportToStart()
+        returnFeedback.reset()
+        backspaceTouch.cancel()
+        clearFeedback.reset()
     }
 
     fun prepareForOpen() {
@@ -194,10 +212,10 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         readingScroll.applyPalette(p)
         table.applyPalette(p)
         rightColumn.setBackgroundColor(p.keyboardBg)
-        for (i in 0 until rightColumn.childCount) (rightColumn.getChildAt(i) as? TextView)?.let {
-            it.setTextColor(p.keyLabelSecondary)
-            Motion.applyTapFeedback(it, p.keyLabelSecondary)
-        }
+        for (i in 0 until rightColumn.childCount) (rightColumn.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
+        returnFeedback.update(p.railBg, p.keyLabelSecondary)
+        backspaceFeedback.update(p.railBg, p.keyLabelSecondary)
+        clearFeedback.update(p.railBg, p.keyLabelSecondary)
         backspaceGlyph.tint(p.keyLabelSecondary)
         collapseGlyph.tint(p.keyLabelSecondary)
         candidateAdapter.notifyDataSetChanged()
@@ -289,14 +307,19 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         val delete = backspaceButton()
         val clear = clearButton()
         if (candidateBoundaryFits(availableHeight, clearActionBoundary)) {
+            clear.visibility = View.VISIBLE
             setActionFrame(back, rowHeightPx, Gravity.TOP, candidateRowTop(backActionRow))
             setActionFrame(delete, rowHeightPx, Gravity.TOP, candidateBoundaryTop(deleteActionBoundary))
             setActionFrame(clear, rowHeightPx, Gravity.TOP, candidateBoundaryTop(clearActionBoundary))
+        } else if (availableHeight >= rowHeightPx * 3) {
+            clear.visibility = View.VISIBLE
+            setActionFrame(back, rowHeightPx, Gravity.TOP, 0)
+            setActionFrame(delete, rowHeightPx, Gravity.TOP, (availableHeight - rowHeightPx) / 2)
+            setActionFrame(clear, rowHeightPx, Gravity.TOP, availableHeight - rowHeightPx)
         } else {
-            val actionHeight = minOf(rowHeightPx, availableHeight.coerceAtLeast(0) / 3)
-            setActionFrame(back, actionHeight, Gravity.TOP, 0)
-            setActionFrame(delete, actionHeight, Gravity.TOP, (availableHeight - actionHeight) / 2)
-            setActionFrame(clear, actionHeight, Gravity.TOP, (availableHeight - actionHeight).coerceAtLeast(0))
+            clear.visibility = View.GONE
+            setActionFrame(back, rowHeightPx, Gravity.TOP, 0)
+            setActionFrame(delete, rowHeightPx, Gravity.TOP, (availableHeight - rowHeightPx).coerceAtLeast(0))
         }
     }
 
@@ -313,41 +336,16 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setTextColor(palette.keyLabelSecondary)
         isClickable = true
-        Motion.applyTapFeedback(this, palette.keyLabelSecondary)
         setOnClickListener { onClick() }
     }
 
-    private fun createBackspaceButton(): TextView {
-        var downX = 0f
-        var downY = 0f
-        return funcButton("") { onBackspace() }.apply {
-            setOnTouchListener { v, e ->
-                when (e.actionMasked) {
-                    MotionEvent.ACTION_DOWN -> {
-                        downX = e.x
-                        downY = e.y
-                        v.drawableHotspotChanged(e.x, e.y)
-                        v.isPressed = true
-                        true
-                    }
-                    MotionEvent.ACTION_UP -> {
-                        v.isPressed = false
-                        val upSwipe = downY - e.y > touchSlop && abs(e.x - downX) <= dp(28)
-                        if (upSwipe) {
-                            onClear()
-                        } else {
-                            v.performClick()
-                        }
-                        true
-                    }
-                    MotionEvent.ACTION_CANCEL -> {
-                        v.isPressed = false
-                        true
-                    }
-                    else -> true
-                }
-            }
-        }
+    private fun createBackspaceButton(): TextView = funcButton("") { onBackspace() }
+
+    override fun onDetachedFromWindow() {
+        returnFeedback.reset()
+        backspaceTouch.cancel()
+        clearFeedback.reset()
+        super.onDetachedFromWindow()
     }
 
     fun setReadings(readings: List<String>, selected: Int = -1) {
@@ -680,6 +678,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private fun clearButton(): TextView = rightColumn.getChildAt(2) as TextView
     internal fun returnButtonForTest(): TextView = returnButton()
     internal fun backspaceButtonForTest(): TextView = backspaceButton()
+    internal fun backspaceFeedbackLevelForTest(): Float = backspaceFeedback.levelForTest()
     internal fun clearButtonForTest(): TextView = clearButton()
     internal fun collapseGlyphForTest(): Drawable = collapseGlyph
     internal fun backspaceGlyphForTest(): Drawable = backspaceGlyph

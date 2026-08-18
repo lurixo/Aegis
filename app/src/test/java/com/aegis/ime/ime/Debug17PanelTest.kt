@@ -54,7 +54,9 @@ class Debug17PanelTest {
     }
     private fun labels(root: View): List<String> = textViews(root).mapNotNull { it.text?.toString() }
     private fun actionButtons(root: View): List<TextView> = textViews(root).filter {
-        it.compoundDrawables[0] != null && it.background is GradientDrawable && it.hasOnClickListeners()
+        it.compoundDrawables[0] != null &&
+            (it.background is GradientDrawable || it.background is ImeKeySurface) &&
+            it.hasOnClickListeners()
     }
     private fun layout(root: View, width: Int = 480, height: Int = 400) {
         root.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY))
@@ -66,7 +68,11 @@ class Debug17PanelTest {
     }
     private fun chip(root: View, label: String): TextView? =
         textViews(root).firstOrNull { it.text?.toString() == label && it.hasOnClickListeners() }
-    private fun bgColor(v: View): Int? = (v.background as? GradientDrawable)?.color?.defaultColor
+    private fun bgColor(v: View): Int? = when (val background = v.background) {
+        is GradientDrawable -> background.color?.defaultColor
+        is ImeKeySurface -> background.faceColor
+        else -> null
+    }
     private fun allViews(root: View): List<View> {
         val out = ArrayList<View>()
         fun walk(x: View) { out.add(x); if (x is ViewGroup) for (i in 0 until x.childCount) walk(x.getChildAt(i)) }
@@ -75,11 +81,7 @@ class Debug17PanelTest {
     private fun descs(root: View): List<String> = allViews(root).mapNotNull { it.contentDescription?.toString() }
     private fun categoryScroll(root: View): HorizontalScrollView =
         allViews(root).filterIsInstance<HorizontalScrollView>()
-            .single { scroll ->
-                allViews(scroll).none {
-                    it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_back)
-                }
-            }
+            .single { scroll -> textViews(scroll).any { it.text?.toString() == "默认" && it.hasOnClickListeners() } }
     private fun clickDesc(root: View, desc: String): Boolean {
         val v = allViews(root).firstOrNull { it.contentDescription?.toString() == desc && it.hasOnClickListeners() } ?: return false
         v.performClick(); return true
@@ -101,9 +103,9 @@ class Debug17PanelTest {
         val strip = actions.first().parent as View
         assertEquals(descriptions, actions.map { it.contentDescription?.toString() })
         assertTrue(actions.all { it !is TextView && it.hasOnClickListeners() })
-        assertTrue(actions.all { it.width == dp(44) && it.height == dp(44) })
-        assertTrue(actions.all { it.background is GradientDrawable && (it.background as GradientDrawable).cornerRadius > 0f })
-        assertEquals(descriptions.size * (dp(44) + dp(4)), strip.width)
+        assertTrue(actions.all { it.width == dp(48) && it.height == dp(48) })
+        assertTrue(actions.all { it.background is ImeKeySurface })
+        assertEquals(descriptions.size * (dp(48) + dp(4)), strip.width)
         assertEquals(dp(4), actions.first().left)
         assertEquals(strip.width, actions.last().right)
         actions.zipWithNext().forEach { (left, right) -> assertEquals(dp(4), right.left - left.right) }
@@ -740,8 +742,8 @@ class Debug17PanelTest {
         val tray = phraseTab.parent as View
         val plus = allViews(view).first { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_add_phrase) }
         val list = allViews(view).first { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_edit_phrases) }
-        assertTrue(plus.background is GradientDrawable)
-        assertTrue(list.background is GradientDrawable)
+        assertTrue(plus.background is ImeKeySurface)
+        assertTrue(list.background is ImeKeySurface)
         val trayToPlus = absoluteBounds(plus).left - absoluteBounds(tray).right
         val plusToList = absoluteBounds(list).left - absoluteBounds(plus).right
         assertTrue(trayToPlus > 0)
@@ -778,18 +780,15 @@ class Debug17PanelTest {
         val cancel = textViews(selected).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_cancel) }
         assertEquals(pal.keyLabel, selectAll.currentTextColor)
         assertEquals(pal.keyLabel, cancel.currentTextColor)
-        assertTrue(selectAll.background is GradientDrawable)
-        assertTrue(cancel.background is GradientDrawable)
-        assertTrue((selectAll.background as GradientDrawable).cornerRadius > 0f)
-        assertTrue((cancel.background as GradientDrawable).cornerRadius > 0f)
+        assertTrue(selectAll.background is ImeKeySurface)
+        assertTrue(cancel.background is ImeKeySurface)
 
         val categorySort = phraseView().apply { enterCategorySortModeForTest() }
         val done = textViews(categorySort).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_done) }
         val dragCategories = textViews(categorySort).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_drag_category) }
         assertEquals(pal.keyLabel, done.currentTextColor)
         assertEquals(dragCategories.currentTextColor, done.currentTextColor)
-        assertTrue(done.background is GradientDrawable)
-        assertTrue((done.background as GradientDrawable).cornerRadius > 0f)
+        assertTrue(done.background is ImeKeySurface)
 
         val expanded = clipView().apply { expandForTest("hello") }
         val actions = textViews(expanded)
