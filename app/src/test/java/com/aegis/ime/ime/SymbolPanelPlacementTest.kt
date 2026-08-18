@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import android.graphics.Rect
+import android.graphics.RectF
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
@@ -66,10 +67,12 @@ class SymbolPanelPlacementTest {
         return tv.height / 2f + (ink.exactCenterY() - (fm.ascent + fm.descent) / 2f)
     }
 
-    private fun topInRoot(root: ViewGroup, v: View): Int {
-        val r = Rect(0, 0, v.width, v.height)
-        root.offsetDescendantRectToMyCoords(v, r)
-        return r.top
+    private fun faceBoundsInRoot(root: ViewGroup, v: View): RectF {
+        val outer = Rect(0, 0, v.width, v.height)
+        root.offsetDescendantRectToMyCoords(v, outer)
+        return (v.background as ImeKeySurface).faceBoundsForTest(v.width, v.height).apply {
+            offset(outer.left.toFloat(), outer.top.toFloat())
+        }
     }
 
     @Test fun superscripts_land_high_and_subscripts_land_low() {
@@ -148,8 +151,11 @@ class SymbolPanelPlacementTest {
         assertTrue("the 常用 tab is nudged down as one unit", (tab0.layoutParams as ViewGroup.MarginLayoutParams).topMargin > 0)
         assertEquals("later rail tabs keep their natural position", 0, (tab1.layoutParams as ViewGroup.MarginLayoutParams).topMargin)
 
-        val row = sv.gridGlyphForTest(",") ?: throw AssertionError(", missing from the first symbol row")
-        assertEquals("the 常用 tab lines up with the first symbol row", topInRoot(sv, row).toFloat(), topInRoot(sv, tab0).toFloat(), 2f)
+        val row = sv.gridCellForTest(",") ?: throw AssertionError(", missing from the first symbol row")
+        val tabFace = faceBoundsInRoot(sv, tab0)
+        val rowFace = faceBoundsInRoot(sv, row)
+        assertEquals("the 常用 tab face lines up with the first symbol face", rowFace.top, tabFace.top, 0f)
+        assertEquals("the 常用 tab face bottom lines up with the first symbol face", rowFace.bottom, tabFace.bottom, 0f)
     }
 
     @Test fun emoji_common_tab_top_aligns_with_the_first_emoji_row() {
@@ -161,6 +167,9 @@ class SymbolPanelPlacementTest {
         assertEquals("later rail tabs keep their natural position", 0, (tab1.layoutParams as ViewGroup.MarginLayoutParams).topMargin)
 
         val cell = ev.gridCellForTest(0) ?: throw AssertionError("first emoji cell missing")
-        assertEquals("the 常用 tab lines up with the first emoji row", topInRoot(ev, cell).toFloat(), topInRoot(ev, tab0).toFloat(), 2f)
+        val tabFace = faceBoundsInRoot(ev, tab0)
+        val cellFace = faceBoundsInRoot(ev, cell)
+        assertEquals("the 常用 tab face lines up with the first emoji face", cellFace.top, tabFace.top, 0f)
+        assertEquals("the 常用 tab face bottom lines up with the first emoji face", cellFace.bottom, tabFace.bottom, 0f)
     }
 }

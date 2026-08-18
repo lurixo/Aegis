@@ -22,14 +22,29 @@ import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.view.HapticFeedbackConstants
+import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.ViewGroup
+import android.widget.FrameLayout
 import com.aegis.ime.ime.theme.ImeShapes
 
 interface KeyHapticsAware {
     var hapticEnabled: Boolean
 }
+
+internal fun panelBottomActionSlot(slot: FrameLayout, button: View, actionWidthPx: Int): FrameLayout =
+    slot.apply {
+        addView(
+            button,
+            FrameLayout.LayoutParams(
+                actionWidthPx.coerceAtLeast(1),
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                Gravity.START or Gravity.CENTER_VERTICAL,
+            ),
+        )
+    }
 
 internal data class ImePanelGridMetrics(
     val columns: Int,
@@ -48,7 +63,13 @@ internal data class ImePanelGridMetrics(
 
 internal data class ImePanelSurfaceMetrics(
     val railWidthPx: Int,
+    val actionWidthPx: Int,
+    val faceHeightPx: Int,
+    val faceInsetPx: Int,
+    val gridCellHeightPx: Int,
     val gridSidePaddingPx: Int,
+    val gridTopPaddingPx: Int,
+    val topFaceOffsetPx: Int,
     val minimumGridCellWidthPx: Int,
 ) {
     fun fitGrid(panelWidthPx: Int, maximumColumns: Int): ImePanelGridMetrics =
@@ -61,16 +82,32 @@ internal data class ImePanelSurfaceMetrics(
     fun outerWidth(cellWidthPx: Int, span: Int = 1): Int =
         cellWidthPx * span.coerceAtLeast(1)
 
+    fun faceWidth(cellWidthPx: Int, span: Int = 1): Int =
+        outerWidth(cellWidthPx, span) - faceInsetPx * 2
+
     companion object {
         const val RAIL_WIDTH_DP = 60
+        const val ACTION_WIDTH_DP = 60
+        const val FACE_HEIGHT_DP = 45
+        const val FACE_INSET_DP = 3
         const val GRID_SIDE_PADDING_DP = 4
+        const val TOP_FACE_OFFSET_DP = 8
         const val MINIMUM_GRID_CELL_WIDTH_DP = 48
 
         fun resolve(density: Float): ImePanelSurfaceMetrics {
             fun dp(value: Int): Int = (value * density).toInt()
+            val faceInsetPx = dp(FACE_INSET_DP)
+            val faceHeightPx = dp(FACE_HEIGHT_DP)
+            val topFaceOffsetPx = dp(TOP_FACE_OFFSET_DP)
             return ImePanelSurfaceMetrics(
                 railWidthPx = dp(RAIL_WIDTH_DP),
+                actionWidthPx = dp(ACTION_WIDTH_DP),
+                faceHeightPx = faceHeightPx,
+                faceInsetPx = faceInsetPx,
+                gridCellHeightPx = faceHeightPx + faceInsetPx * 2,
                 gridSidePaddingPx = dp(GRID_SIDE_PADDING_DP),
+                gridTopPaddingPx = (topFaceOffsetPx - faceInsetPx).coerceAtLeast(0),
+                topFaceOffsetPx = topFaceOffsetPx,
                 minimumGridCellWidthPx = dp(MINIMUM_GRID_CELL_WIDTH_DP),
             )
         }
@@ -79,6 +116,8 @@ internal data class ImePanelSurfaceMetrics(
 
 internal interface ImeKeySurface {
     val faceColor: Int
+    val cornerRadiusPx: Float
+    fun faceBoundsForTest(width: Int, height: Int): RectF
 }
 
 class ImeKeyFeedback(
@@ -87,10 +126,11 @@ class ImeKeyFeedback(
     stateColor: Int,
     faceInsetDp: Float = 3f,
     radiusDp: Float = ImeShapes.keyRadiusDp,
+    faceInsetPxOverride: Float? = null,
 ) {
     private val density = view.resources.displayMetrics.density
     private val touchSlop = ViewConfiguration.get(view.context).scaledTouchSlop.toFloat()
-    private val faceInset = faceInsetDp * density
+    private val faceInset = faceInsetPxOverride ?: faceInsetDp * density
     private val radius = radiusDp * density
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rect = RectF()
@@ -98,13 +138,22 @@ class ImeKeyFeedback(
     private var stateColorValue = stateColor
     private var tracking = false
     private val press = Motion.PressFeedback(view) { view.invalidate() }
+    private fun setFaceBounds(out: RectF, left: Int, top: Int, right: Int, bottom: Int) {
+        out.set(left.toFloat(), top.toFloat(), right.toFloat(), bottom.toFloat())
+        out.inset(faceInset, faceInset)
+    }
     private val surface = object : Drawable(), ImeKeySurface {
         override val faceColor: Int
             get() = face
+        override val cornerRadiusPx: Float
+            get() = radius
+
+        override fun faceBoundsForTest(width: Int, height: Int): RectF = RectF().also {
+            setFaceBounds(it, 0, 0, width, height)
+        }
 
         override fun draw(canvas: Canvas) {
-            rect.set(bounds)
-            rect.inset(faceInset, faceInset)
+            setFaceBounds(rect, bounds.left, bounds.top, bounds.right, bounds.bottom)
             if (rect.width() <= 0f || rect.height() <= 0f) return
             paint.color = face
             canvas.drawRoundRect(rect, radius, radius, paint)

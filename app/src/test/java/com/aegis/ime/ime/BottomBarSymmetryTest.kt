@@ -15,15 +15,19 @@
 
 package com.aegis.ime.ime
 
+import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.drawable.Drawable
 import android.graphics.Rect
+import android.os.Looper
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.layout.Layouts
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertFalse
@@ -31,8 +35,10 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -85,11 +91,82 @@ class BottomBarSymmetryTest {
         return (left + right + 1) / 2f to (top + bottom + 1) / 2f
     }
 
-    private fun assertControlsUseKeySurfaces(controls: List<TextView>, name: String) {
+    private fun opaqueBounds(width: Int, height: Int, draw: (Canvas) -> Unit): Rect {
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        draw(Canvas(bitmap))
+        var left = width
+        var top = height
+        var right = -1
+        var bottom = -1
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                if (bitmap.getPixel(x, y) ushr 24 != 0) {
+                    left = minOf(left, x)
+                    top = minOf(top, y)
+                    right = maxOf(right, x)
+                    bottom = maxOf(bottom, y)
+                }
+            }
+        }
+        bitmap.recycle()
+        assertTrue(right >= left && bottom >= top)
+        return Rect(left, top, right + 1, bottom + 1)
+    }
+
+    private fun assertClickTargetMatchesFaceAndCentersGlyph(control: TextView, name: String) {
+        val background = requireNotNull(control.background)
+        background.setBounds(0, 0, control.width, control.height)
+        val face = opaqueBounds(control.width, control.height) { background.draw(it) }
+
+        control.background = null
+        val glyph = opaqueBounds(control.width, control.height) { control.draw(it) }
+        control.background = background
+
+        assertEquals("$name face width matches its click target", control.width, face.width())
+        assertEquals("$name face height matches its click target", control.height, face.height())
+        assertEquals("$name glyph has equal left and right face clearance", face.exactCenterX(), glyph.exactCenterX(), 0.6f)
+    }
+
+    private fun tap(root: View, x: Float, y: Float) {
+        root.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, x, y, 0))
+        root.dispatchTouchEvent(MotionEvent.obtain(0, 10, MotionEvent.ACTION_UP, x, y, 0))
+        shadowOf(Looper.getMainLooper()).idle()
+    }
+
+    private fun tapControl(root: ViewGroup, control: View) {
+        val target = bounds(root, control)
+        tap(root, target.exactCenterX(), target.exactCenterY())
+    }
+
+    private fun tapDeadSpaceAfterEachControl(root: ViewGroup, controls: List<View>) {
+        val slotWidth = root.width / 4
+        for (control in controls) {
+            val target = bounds(root, control)
+            val deadWidth = slotWidth - target.width()
+            assertTrue("each fixed action keeps non-clickable space after its face", deadWidth > 0)
+            tap(root, target.right + deadWidth / 2f, target.exactCenterY())
+        }
+    }
+
+    private fun assertControlsUseKeySurfaces(
+        controls: List<TextView>,
+        name: String,
+        palette: ImePalette,
+    ) {
+        var radius: Float? = null
         for (control in controls) {
             assertNotNull("$name control keeps a resting key surface", control.background)
             assertFalse("$name control does not fall back to a platform ripple", control.background is android.graphics.drawable.RippleDrawable)
             assertNull("$name control uses its shared animated surface instead of a foreground ripple", control.foreground)
+            val surface = control.background as ImeKeySurface
+            val face = surface.faceBoundsForTest(control.width, control.height)
+            assertEquals("$name control face color", palette.keySurface, surface.faceColor)
+            assertEquals("$name control face left", 0f, face.left, 0f)
+            assertEquals("$name control face top", 0f, face.top, 0f)
+            assertEquals("$name control face right", control.width.toFloat(), face.right, 0f)
+            assertEquals("$name control face bottom", control.height.toFloat(), face.bottom, 0f)
+            radius?.let { assertEquals("$name controls share one corner radius", it, surface.cornerRadiusPx, 0f) }
+                ?: run { radius = surface.cornerRadiusPx }
         }
     }
 
@@ -111,15 +188,25 @@ class BottomBarSymmetryTest {
         val clearBounds = bounds(view, clear)
         val lockBounds = bounds(view, lock)
         val backspaceBounds = bounds(view, backspace)
-        assertEquals(view.width / 4, backBounds.width())
+        val metrics = ImePanelSurfaceMetrics.resolve(view.resources.displayMetrics.density)
+        val actionWidth = (Layouts.CANDIDATE_ACTION_WIDTH_DP * view.resources.displayMetrics.density).toInt()
+        assertEquals(metrics.actionWidthPx, actionWidth)
+        val controlBounds = listOf(backBounds, clearBounds, lockBounds, backspaceBounds)
+        assertEquals(actionWidth, backBounds.width())
         assertEquals(backBounds.width(), clearBounds.width())
         assertEquals(backBounds.width(), lockBounds.width())
         assertEquals(backBounds.width(), backspaceBounds.width())
         assertEquals(backBounds.height(), clearBounds.height())
         assertEquals(backBounds.height(), lockBounds.height())
         assertEquals(backBounds.height(), backspaceBounds.height())
-        assertTrue(backBounds.width() >= (48 * view.resources.displayMetrics.density).toInt())
-        assertTrue(backBounds.height() >= (48 * view.resources.displayMetrics.density).toInt())
+        assertEquals(metrics.actionWidthPx, backBounds.width())
+        assertEquals(metrics.faceHeightPx, backBounds.height())
+        controlBounds.forEachIndexed { index, control ->
+            assertEquals("$name control $index keeps its physical x", index * (view.width / 4), control.left)
+        }
+        controls.forEachIndexed { index, control ->
+            assertClickTargetMatchesFaceAndCentersGlyph(control, "$name control $index")
+        }
         controls.forEach {
             val bitmap = Bitmap.createBitmap(it.width, it.height, Bitmap.Config.ARGB_8888)
             it.draw(Canvas(bitmap))
@@ -161,9 +248,17 @@ class BottomBarSymmetryTest {
                     backspace,
                     "SymbolsView",
                 )
-                assertControlsUseKeySurfaces(controls, "SymbolsView")
+                assertControlsUseKeySurfaces(controls, "SymbolsView", ImePalette.STATIC_LIGHT)
                 view.applyPalette(ImePalette.STATIC_DARK)
-                assertControlsUseKeySurfaces(controls, "SymbolsView")
+                assertControlsUseKeySurfaces(controls, "SymbolsView", ImePalette.STATIC_DARK)
+                view.toggleLockForTest()
+                shadowOf(Looper.getMainLooper()).idle()
+                assertControlsUseKeySurfaces(controls, "SymbolsView locked", ImePalette.STATIC_DARK)
+                view.applyPalette(ImePalette.STATIC_LIGHT)
+                assertControlsUseKeySurfaces(controls, "SymbolsView locked light", ImePalette.STATIC_LIGHT)
+                view.toggleLockForTest()
+                shadowOf(Looper.getMainLooper()).idle()
+                assertControlsUseKeySurfaces(controls, "SymbolsView unlocked light", ImePalette.STATIC_LIGHT)
             }
         }
     }
@@ -189,10 +284,79 @@ class BottomBarSymmetryTest {
                     backspace,
                     "EmojiView",
                 )
-                assertControlsUseKeySurfaces(controls, "EmojiView")
+                assertControlsUseKeySurfaces(controls, "EmojiView", ImePalette.STATIC_LIGHT)
                 view.applyPalette(ImePalette.STATIC_DARK)
-                assertControlsUseKeySurfaces(controls, "EmojiView")
+                assertControlsUseKeySurfaces(controls, "EmojiView", ImePalette.STATIC_DARK)
+                view.toggleLockForTest()
+                shadowOf(Looper.getMainLooper()).idle()
+                assertControlsUseKeySurfaces(controls, "EmojiView locked", ImePalette.STATIC_DARK)
+                view.applyPalette(ImePalette.STATIC_LIGHT)
+                assertControlsUseKeySurfaces(controls, "EmojiView locked light", ImePalette.STATIC_LIGHT)
+                view.toggleLockForTest()
+                shadowOf(Looper.getMainLooper()).idle()
+                assertControlsUseKeySurfaces(controls, "EmojiView unlocked light", ImePalette.STATIC_LIGHT)
             }
         }
+    }
+
+    @Test fun only_the_visible_symbol_and_emoji_action_faces_are_clickable() {
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        var symbolBack = 0
+        var symbolBackspace = 0
+        val symbols = SymbolsView(ctx).apply {
+            onBack = { symbolBack++ }
+            onBackspace = { symbolBackspace++ }
+        }
+        controller.get().setContentView(symbols)
+        layout(symbols, 360)
+        val symbolControls = listOf(
+            symbols.backBtnForTest(),
+            symbols.clearBtnForTest(),
+            symbols.lockBtnForTest(),
+            symbols.backspaceBtnForTest(),
+        )
+        tapDeadSpaceAfterEachControl(symbols, symbolControls)
+        assertEquals(0, symbolBack)
+        assertEquals(0, symbolBackspace)
+        assertFalse(symbols.clearDialogVisibleForTest())
+        assertFalse(symbols.lockedForTest())
+        tapControl(symbols, symbolControls[0])
+        tapControl(symbols, symbolControls[1])
+        assertTrue(symbols.clearDialogVisibleForTest())
+        assertTrue(symbols.dismissClearForTest())
+        tapControl(symbols, symbolControls[2])
+        tapControl(symbols, symbolControls[3])
+        assertEquals(1, symbolBack)
+        assertEquals(1, symbolBackspace)
+        assertTrue(symbols.lockedForTest())
+
+        var emojiBack = 0
+        var emojiBackspace = 0
+        val emoji = EmojiView(ctx).apply {
+            onBack = { emojiBack++ }
+            onBackspace = { emojiBackspace++ }
+        }
+        controller.get().setContentView(emoji)
+        layout(emoji, 360)
+        val emojiControls = listOf(
+            emoji.backBtnForTest(),
+            emoji.clearBtnForTest(),
+            emoji.lockBtnForTest(),
+            emoji.backspaceBtnForTest(),
+        )
+        tapDeadSpaceAfterEachControl(emoji, emojiControls)
+        assertEquals(0, emojiBack)
+        assertEquals(0, emojiBackspace)
+        assertFalse(emoji.clearDialogVisibleForTest())
+        assertFalse(emoji.lockedForTest())
+        tapControl(emoji, emojiControls[0])
+        tapControl(emoji, emojiControls[1])
+        assertTrue(emoji.clearDialogVisibleForTest())
+        assertTrue(emoji.dismissClearForTest())
+        tapControl(emoji, emojiControls[2])
+        tapControl(emoji, emojiControls[3])
+        assertEquals(1, emojiBack)
+        assertEquals(1, emojiBackspace)
+        assertTrue(emoji.lockedForTest())
     }
 }

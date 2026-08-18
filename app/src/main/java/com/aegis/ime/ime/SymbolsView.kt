@@ -19,16 +19,14 @@ import com.aegis.ime.R
 
 import android.animation.ValueAnimator
 import android.content.Context
-import android.content.res.ColorStateList
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
-import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.RippleDrawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
@@ -57,11 +55,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
     private val surfaceMetrics = ImePanelSurfaceMetrics.resolve(density)
-
-    private val cellHeightPx: Int = run {
-        val displayPx = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, ImeType.display, resources.displayMetrics)
-        maxOf(dp(48), (displayPx * 1.35f).toInt() + dp(14))
-    }
+    private val cellHeightPx = surfaceMetrics.gridCellHeightPx
 
     private val titles: List<String> =
         listOf(context.getString(SymbolCatalog.RECENT_TITLE_RES)) + SymbolCatalog.categories.map { context.getString(it.titleRes) }
@@ -76,7 +70,12 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
     private val railScroll = ScrollView(context).apply { addView(rail) }
     private val grid = GridLayout(context).apply {
         columnCount = COLUMNS
-        val p = dp(4); setPadding(p, p, p, p)
+        setPadding(
+            surfaceMetrics.gridSidePaddingPx,
+            surfaceMetrics.gridTopPaddingPx,
+            surfaceMetrics.gridSidePaddingPx,
+            surfaceMetrics.gridSidePaddingPx,
+        )
     }
     private var gridCellWidthPx = surfaceMetrics.minimumGridCellWidthPx
     private val netBar = LinearLayout(context).apply { orientation = VERTICAL; visibility = View.GONE }
@@ -97,10 +96,10 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
     private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
     private val backspaceBtn = barButton("") { onBackspace() }
     private val bottomBarView = bottomBar()
-    private val backFeedback = ImeKeyFeedback(backBtn, palette.railBg, palette.keyLabelSecondary)
-    private val lockFeedback = ImeKeyFeedback(lockBtn, palette.railBg, palette.keyLabelSecondary)
-    private val clearFeedback = ImeKeyFeedback(clearBtn, palette.railBg, palette.keyLabelSecondary)
-    private val backspaceFeedback = ImeKeyFeedback(backspaceBtn, palette.railBg, palette.keyLabelSecondary)
+    private val backFeedback = ImeKeyFeedback(backBtn, palette.keySurface, palette.keyLabelSecondary, faceInsetDp = 0f)
+    private val lockFeedback = ImeKeyFeedback(lockBtn, palette.keySurface, palette.keyLabelSecondary, faceInsetDp = 0f)
+    private val clearFeedback = ImeKeyFeedback(clearBtn, palette.keySurface, palette.keyLabelSecondary, faceInsetDp = 0f)
+    private val backspaceFeedback = ImeKeyFeedback(backspaceBtn, palette.keySurface, palette.keyLabelSecondary, faceInsetDp = 0f)
     private val backspaceTouch = ImeBackspaceTouch(
         backspaceBtn,
         backspaceFeedback,
@@ -112,6 +111,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
     private val tileFeedback = HashMap<FrameLayout, ImeKeyFeedback>()
     private val tileSpans = HashMap<FrameLayout, Int>()
     private val netFeedback = HashMap<View, ImeKeyFeedback>()
+    private val railFeedback = HashMap<TextView, ImeKeyFeedback>()
 
     private val tilePool = ArrayList<FrameLayout>()
     private var emptySpanView: TextView? = null
@@ -187,13 +187,13 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         val content = LinearLayout(context).apply {
             orientation = HORIZONTAL
             railScroll.setBackgroundColor(palette.keyboardBg)
-            addView(railScroll, LayoutParams(dp(60), LayoutParams.MATCH_PARENT))
+            addView(railScroll, LayoutParams(surfaceMetrics.railWidthPx, LayoutParams.MATCH_PARENT))
             addView(gridScroll, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         }
         val panelColumn = LinearLayout(context).apply {
             orientation = VERTICAL
             addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
-            addView(bottomBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(48)))
+            addView(bottomBarView, LayoutParams(LayoutParams.MATCH_PARENT, surfaceMetrics.faceHeightPx))
         }
         val panelFrame = FrameLayout(context).apply {
             addView(panelColumn, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
@@ -221,6 +221,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         backFeedback.reset()
         lockFeedback.reset()
         clearFeedback.reset()
+        for (feedback in railFeedback.values) feedback.reset()
         for (feedback in tileFeedback.values) feedback.reset()
         for (feedback in netFeedback.values) feedback.reset()
     }
@@ -231,9 +232,9 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         railScroll.setBackgroundColor(p.keyboardBg)
         bottomBarView.setBackgroundColor(p.keyboardBg)
         for (button in listOf(backBtn, clearBtn, backspaceBtn)) button.setTextColor(p.keyLabelSecondary)
-        backFeedback.update(p.railBg, p.keyLabelSecondary)
-        clearFeedback.update(p.railBg, p.keyLabelSecondary)
-        backspaceFeedback.update(p.railBg, p.keyLabelSecondary)
+        backFeedback.update(p.keySurface, p.keyLabelSecondary)
+        clearFeedback.update(p.keySurface, p.keyLabelSecondary)
+        backspaceFeedback.update(p.keySurface, p.keyLabelSecondary)
         backGlyph.tint(p.keyLabelSecondary)
         clearGlyph.tint(p.keyLabelSecondary)
         backspaceGlyph.tint(p.keyLabelSecondary)
@@ -264,11 +265,11 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         for (i in 0 until rail.childCount) {
             val tab = rail.getChildAt(i) as TextView
             val on = i == selected
-            tab.background = railTabBackground(on)
+            tab.isSelected = on
             tab.setTypeface(null, if (on) Typeface.BOLD else Typeface.NORMAL)
             val color = if (on) palette.candidateFirst else palette.keyLabelSecondary
             if (crossfadeFrom >= 0 && (i == selected || i == crossfadeFrom)) crossfadeTabColor(tab, color) else tab.setTextColor(color)
-            retintRipple(tab, color, ImeShapes.chipRadiusDp)
+            railFeedback[tab]?.update(if (on) palette.keySurface else Color.TRANSPARENT, color)
         }
     }
 
@@ -329,21 +330,18 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         Motion.crossfadeColor(tab, tab.currentTextColor, color) { tab.setTextColor(it) }?.let { colorAnimators[tab] = it }
     }
 
-    private fun retintRipple(v: View, color: Int, radiusDp: Float = ImeShapes.keyRadiusDp) {
-        val fg = v.foreground
-        if (fg is RippleDrawable) fg.setColor(ColorStateList.valueOf(Motion.withAlpha(color, 0x24)))
-        else Motion.applyTapFeedback(v, color, radiusDp = radiusDp)
-    }
-
     private fun addCompletionChips(completions: List<String>) {
-        val maxRowW = resources.displayMetrics.widthPixels - dp(60) - dp(16)
+        val maxRowW = resources.displayMetrics.widthPixels - surfaceMetrics.railWidthPx - dp(16)
         val configuredWidth = resources.configuration.screenWidthDp
             .takeIf { it > 0 }
             ?.let { (it * density).toInt() }
             ?: resources.displayMetrics.widthPixels
 
         val liveWidth = measuringWidthOverride.takeIf { it > 0 } ?: width.takeIf { it > 0 } ?: configuredWidth
-        val liveMaxRowW = minOf(maxRowW, (liveWidth - dp(60) - dp(16)).coerceAtLeast(dp(44)))
+        val liveMaxRowW = minOf(
+            maxRowW,
+            (liveWidth - surfaceMetrics.railWidthPx - dp(16)).coerceAtLeast(dp(44)),
+        )
         val gap = dp(8)
         var row = netRow()
         var rowW = 0
@@ -353,7 +351,10 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
             if (rowW + w > liveMaxRowW && row.childCount > 0) { netBar.addView(row); row = netRow(); rowW = 0 }
             row.addView(
                 chip,
-                LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply { marginEnd = gap; topMargin = dp(4) },
+                LinearLayout.LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT).apply {
+                    marginEnd = gap
+                    topMargin = surfaceMetrics.gridTopPaddingPx
+                },
             )
             rowW += w
         }
@@ -400,14 +401,14 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
 
     private fun netRow(): LinearLayout = LinearLayout(context).apply {
         orientation = HORIZONTAL
-        setPadding(dp(4), 0, dp(4), 0)
+        setPadding(surfaceMetrics.gridSidePaddingPx, 0, surfaceMetrics.gridSidePaddingPx, 0)
     }
 
     private fun netChip(symbol: String): View = TextView(context).apply {
         text = symbol
         maxLines = 1
         ellipsize = null
-        minimumWidth = dp(MIN_KEY_TARGET_DP)
+        minimumWidth = surfaceMetrics.minimumGridCellWidthPx
         minimumHeight = cellHeightPx
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
@@ -416,7 +417,12 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         isClickable = true
         setOnClickListener { onSymbol(symbol, originForCurrent(symbol)); if (!locked) onBack() }
         contentDescription = symbol
-        ImeKeyFeedback(this, palette.keySurface, palette.keyLabel).also {
+        ImeKeyFeedback(
+            this,
+            palette.keySurface,
+            palette.keyLabel,
+            faceInsetPxOverride = surfaceMetrics.faceInsetPx.toFloat(),
+        ).also {
             it.bind { hapticEnabled }
             netFeedback[this] = it
         }
@@ -443,20 +449,26 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         text = title
         gravity = Gravity.CENTER
         maxLines = 1
-        setPadding(dp(2), dp(13), dp(2), dp(13))
-        if (index == 0) layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { topMargin = dp(4) + dp(3) }
+        setPadding(dp(2), 0, dp(2), 0)
+        layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            surfaceMetrics.faceHeightPx,
+        ).apply {
+            if (index == 0) topMargin = surfaceMetrics.topFaceOffsetPx
+        }
         TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(this, 11, ImeType.label.toInt(), 1, TypedValue.COMPLEX_UNIT_SP)
-        background = railTabBackground(index == selected)
         isClickable = true
-        Motion.applyTapFeedback(this, if (index == selected) palette.candidateFirst else palette.keyLabelSecondary, radiusDp = ImeShapes.chipRadiusDp)
+        val on = index == selected
+        isSelected = on
+        railFeedback[this] = ImeKeyFeedback(
+            this,
+            if (on) palette.keySurface else Color.TRANSPARENT,
+            if (on) palette.candidateFirst else palette.keyLabelSecondary,
+            faceInsetDp = 0f,
+            radiusDp = ImeShapes.keyRadiusDp,
+        ).also { it.bind { hapticEnabled } }
         setOnClickListener { showCategory(index) }
     }
-
-    private fun railTabBackground(on: Boolean): GradientDrawable? =
-        if (!on) null else GradientDrawable().apply {
-            setColor(palette.keySurface)
-            cornerRadius = ImeShapes.chipRadiusDp * density
-        }
 
     private fun obtainTile(index: Int): FrameLayout {
         if (index < tilePool.size) return tilePool[index]
@@ -486,13 +498,18 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
             addView(
                 glyph,
                 FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER).apply {
-                    val inset = dp(3)
+                    val inset = surfaceMetrics.faceInsetPx
                     setMargins(inset, inset, inset, inset)
                 },
             )
             addView(badge, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END))
         }
-        ImeKeyFeedback(tile, palette.keySurface, palette.keyLabel).also {
+        ImeKeyFeedback(
+            tile,
+            palette.keySurface,
+            palette.keyLabel,
+            faceInsetPxOverride = surfaceMetrics.faceInsetPx.toFloat(),
+        ).also {
             it.bind { hapticEnabled }
             tileFeedback[tile] = it
         }
@@ -575,6 +592,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
     internal fun lockBtnForTest(): TextView = lockBtn
     internal fun lockSlotForTest(): View = lockSlot
     internal fun railTabForTest(index: Int): TextView = rail.getChildAt(index) as TextView
+    internal fun railTabFeedbackLevelForTest(index: Int): Float =
+        railFeedback[railTabForTest(index)]?.levelForTest() ?: 0f
     internal fun clearDialogVisibleForTest(): Boolean = clearDialog.visibility == View.VISIBLE
     internal fun confirmClearForTest(): Boolean = clearDialog.confirmForTest()
     internal fun cancelClearForTest(): Boolean = clearDialog.cancelForTest()
@@ -660,7 +679,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         lockGlyph.closed = locked
         lockGlyph.tint(tint)
         lockBtn.isSelected = locked
-        lockFeedback.update(palette.railBg, tint)
+        lockFeedback.update(palette.keySurface, tint)
     }
 
     private fun showClearConfirmation() {
@@ -684,11 +703,14 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         clearBtn.gravity = Gravity.CENTER; clearBtn.setPadding(0, 0, 0, 0)
         lockBtn.gravity = Gravity.CENTER; lockBtn.setPadding(0, 0, 0, 0)
         backspaceBtn.gravity = Gravity.CENTER; backspaceBtn.setPadding(0, 0, 0, 0)
-        lockSlot.addView(lockBtn, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT, Gravity.CENTER))
-        addView(backBtn, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(clearBtn, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(lockSlot, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
-        addView(backspaceBtn, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        val actionWidth = surfaceMetrics.actionWidthPx
+        val slots = listOf(
+            panelBottomActionSlot(FrameLayout(context), backBtn, actionWidth),
+            panelBottomActionSlot(FrameLayout(context), clearBtn, actionWidth),
+            panelBottomActionSlot(lockSlot, lockBtn, actionWidth),
+            panelBottomActionSlot(FrameLayout(context), backspaceBtn, actionWidth),
+        )
+        for (slot in slots) addView(slot, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
     }
 
     private fun barButton(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
@@ -705,6 +727,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         backFeedback.reset()
         lockFeedback.reset()
         clearFeedback.reset()
+        for (feedback in railFeedback.values) feedback.reset()
         for (feedback in tileFeedback.values) feedback.reset()
         for (feedback in netFeedback.values) feedback.reset()
         super.onDetachedFromWindow()
@@ -723,8 +746,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
             Glyphs.drawLock(canvas, paint, b.exactCenterX(), b.exactCenterY(), 18 * density * 0.48f, closed)
         }
         init { paint.strokeWidth = 2f * density }
-        override fun getIntrinsicWidth() = (60 * density).toInt()
-        override fun getIntrinsicHeight() = (46 * density).toInt()
+        override fun getIntrinsicWidth() = (ImePanelSurfaceMetrics.ACTION_WIDTH_DP * density).toInt()
+        override fun getIntrinsicHeight() = (ImePanelSurfaceMetrics.FACE_HEIGHT_DP * density).toInt()
         override fun setAlpha(alpha: Int) {}
         override fun setColorFilter(colorFilter: ColorFilter?) {}
         @Deprecated("Deprecated in Java")
@@ -745,8 +768,8 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
             val b = bounds
             render(canvas, paint, b.exactCenterX(), b.exactCenterY(), iconBoxPx * sFactor)
         }
-        override fun getIntrinsicWidth() = (60 * density).toInt()
-        override fun getIntrinsicHeight() = (46 * density).toInt()
+        override fun getIntrinsicWidth() = (ImePanelSurfaceMetrics.ACTION_WIDTH_DP * density).toInt()
+        override fun getIntrinsicHeight() = (ImePanelSurfaceMetrics.FACE_HEIGHT_DP * density).toInt()
         override fun setAlpha(alpha: Int) {}
         override fun setColorFilter(colorFilter: ColorFilter?) {}
         @Deprecated("Deprecated in Java")

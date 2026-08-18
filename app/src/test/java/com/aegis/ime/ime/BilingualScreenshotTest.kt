@@ -122,7 +122,7 @@ class BilingualScreenshotTest {
         val rail = scroll.getChildAt(0) as LinearLayout
         val tabs = (0 until rail.childCount).map { rail.getChildAt(it) }
         val words = tabs.map { it.top + it.paddingTop to it.bottom - it.paddingBottom }
-        val open = tabs.single { it.background != null }
+        val open = tabs.single { it.isSelected }
         val viewport = scroll.height
         fun cuts(edge: Int) = words.any { (top, bottom) -> edge > top && edge < bottom }
         fun clearance(edge: Int) = words.minOf { (top, bottom) ->

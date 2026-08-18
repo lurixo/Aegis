@@ -25,6 +25,7 @@ import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.layout.Layouts
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
@@ -482,11 +483,13 @@ class PanelIconAlignmentTest {
         layout(root)
         assertTrue("$name: lock control must live inside its slot", lock.parent === slot)
         val lp = lock.layoutParams as FrameLayout.LayoutParams
-        assertEquals("$name: lock hit target should fill the slot width", ViewGroup.LayoutParams.MATCH_PARENT, lp.width)
+        val actionWidth = (Layouts.CANDIDATE_ACTION_WIDTH_DP * density).toInt()
+        assertEquals("$name: lock hit target should match the fixed action face", actionWidth, lp.width)
         assertEquals("$name: lock hit target should fill the bar height", ViewGroup.LayoutParams.MATCH_PARENT, lp.height)
-        assertEquals("$name: lock label should be centered inside the middle slot", Gravity.CENTER, lp.gravity)
-        assertEquals("$name: lock hit target should fill the slot", slot.width, lock.width)
-        assertEquals("$name: lock hit target should fill the slot", slot.height, lock.height)
+        assertEquals("$name: lock keeps its physical start position", Gravity.START or Gravity.CENTER_VERTICAL, lp.gravity)
+        assertEquals("$name: lock hit target should match its face width", actionWidth, lock.width)
+        assertEquals("$name: lock hit target should fill the bar height", slot.height, lock.height)
+        assertTrue("$name: unused slot space must stay outside the click target", slot.width > lock.width)
         assertEquals("$name: lock hit target should match Return width", back.width, lock.width)
         assertEquals("$name: lock hit target should match Return height", back.height, lock.height)
         assertEquals(Gravity.CENTER, lock.gravity)

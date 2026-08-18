@@ -18,7 +18,6 @@ package com.aegis.ime.ime
 import com.aegis.ime.user.clipEntries
 import android.graphics.Color
 import android.graphics.Rect
-import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.InsetDrawable
 import android.graphics.drawable.RippleDrawable
@@ -69,12 +68,10 @@ class ImeVisualPolishTest {
         val symbols = SymbolsView(ctx).apply { applyPalette(palette); refresh() }
         val emoji = EmojiView(ctx).apply { applyPalette(palette) }
 
-        assertRoundedRailTab(symbols.railTabForTest(0), "symbols 常用")
-        assertRoundedRailTab(emoji.railTabForTest(0), "emoji 常用")
-        assertTrue("symbols unselected tabs also use rounded ripple", symbols.railTabForTest(1).foreground is RippleDrawable)
-        assertTrue("emoji unselected tabs also use rounded ripple", emoji.railTabForTest(1).foreground is RippleDrawable)
-        assertEquals(palette.keyboardBg, effectiveBackgroundColor(symbols.railTabForTest(1)))
-        assertEquals(palette.keyboardBg, effectiveBackgroundColor(emoji.railTabForTest(1)))
+        assertRoundedRailTab(symbols.railTabForTest(0), "symbols 常用", palette.keySurface)
+        assertRoundedRailTab(emoji.railTabForTest(0), "emoji 常用", palette.keySurface)
+        assertRoundedRailTab(symbols.railTabForTest(1), "symbols 中文", Color.TRANSPARENT)
+        assertRoundedRailTab(emoji.railTabForTest(1), "emoji 笑脸", Color.TRANSPARENT)
     }
 
     @Test fun copy_bar_background_uses_the_toolbar_capsule_radius() {
@@ -170,22 +167,12 @@ class ImeVisualPolishTest {
         assertPhraseDisabledActionContrast(ImePalette.STATIC_DARK)
     }
 
-    private fun assertRoundedRailTab(tab: TextView, label: String) {
-        assertTrue("$label selected background is rounded", tab.background is GradientDrawable)
-        assertTrue("$label press state is a rounded ripple", tab.foreground is RippleDrawable)
+    private fun assertRoundedRailTab(tab: TextView, label: String, faceColor: Int) {
+        val surface = tab.background as? ImeKeySurface
+        assertTrue("$label uses the shared rounded key surface", surface != null)
+        assertEquals("$label resting face", faceColor, requireNotNull(surface).faceColor)
+        assertFalse("$label does not stack a platform ripple", tab.foreground is RippleDrawable)
         assertTrue("$label remains clickable", tab.hasOnClickListeners())
-    }
-
-    private fun effectiveBackgroundColor(view: View): Int? {
-        var current: View? = view
-        while (current != null) {
-            when (val background = current.background) {
-                is ColorDrawable -> return background.color
-                is GradientDrawable -> background.color?.defaultColor?.let { return it }
-            }
-            current = current.parent as? View
-        }
-        return null
     }
 
     private fun assertAllClickableViewsUseRoundedTapFeedback(root: View, label: String) {
