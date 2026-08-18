@@ -1413,12 +1413,19 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         ic.endBatchEdit()
     }
 
-    override fun hasSelection(): Boolean =
-        if (panelInput.active) false else !currentInputConnection?.getSelectedText(0).isNullOrEmpty()
+    override fun hasSelection(): Boolean {
+        if (panelInput.active) return false
+        val ic = currentInputConnection ?: return false
+        if (!ic.getSelectedText(0).isNullOrEmpty()) return true
+        val extracted = ic.getExtractedText(ExtractedTextRequest(), 0) ?: return false
+        return extracted.selectionStart >= 0 &&
+            extracted.selectionEnd >= 0 &&
+            extracted.selectionStart != extracted.selectionEnd
+    }
 
     override fun deleteSelection() {
         if (panelInput.backspace()) return
-        currentInputConnection?.commitText("", 1)
+        sendKey(KeyEvent.KEYCODE_DEL, false)
     }
 
     override fun performEnter() {

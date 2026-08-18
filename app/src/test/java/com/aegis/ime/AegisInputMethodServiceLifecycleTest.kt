@@ -93,10 +93,12 @@ class AegisInputMethodServiceLifecycleTest {
         val committedChunks = ArrayList<String>()
         val contextMenuActions = ArrayList<Int>()
         val sentKeyCodes = ArrayList<Int>()
+        val sentKeyEvents = ArrayList<Pair<Int, Int>>()
         val surroundingDeletes = ArrayList<Int>()
         var onContextMenuAction: (Int) -> Unit = {}
         var finishes = 0
         var hidesSelection = false
+        var hidesExtractedSelection = false
         var hidesExtractedText = false
 
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
@@ -108,6 +110,7 @@ class AegisInputMethodServiceLifecycleTest {
             if (hidesSelection) null else super.getSelectedText(flags)
 
         override fun sendKeyEvent(event: KeyEvent): Boolean {
+            sentKeyEvents.add(event.action to event.keyCode)
             if (event.action != KeyEvent.ACTION_DOWN) return super.sendKeyEvent(event)
             sentKeyCodes.add(event.keyCode)
             if (event.keyCode == KeyEvent.KEYCODE_DEL) backspaceEditable()
@@ -139,7 +142,7 @@ class AegisInputMethodServiceLifecycleTest {
                 startOffset = 0
                 text = content.subSequence(0, content.length)
                 val end = Selection.getSelectionEnd(content)
-                selectionStart = if (hidesSelection) end else Selection.getSelectionStart(content)
+                selectionStart = if (hidesExtractedSelection) end else Selection.getSelectionStart(content)
                 selectionEnd = end
             }
         }
@@ -710,7 +713,31 @@ class AegisInputMethodServiceLifecycleTest {
         assertTrue("the panel must not fall back to a raw KEYCODE_DEL", connection.sentKeyCodes.isEmpty())
     }
 
-    @Test fun backspace_over_a_line_break_goes_through_a_key_event() {
+    @Test fun a_reported_selection_uses_one_delete_key_pair_without_double_deleting() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("leftSELECTright", 1)
+        Selection.setSelection(connection.editable, 4, 10)
+        connection.committedChunks.clear()
+
+        handleEdit(f.service, EditAction.DELETE)
+
+        assertEquals("only the selection is removed", "leftright", connection.editable.toString())
+        assertEquals("the cursor collapses at the former selection start", 4, selectionStart(connection))
+        assertEquals(
+            "selection deletion is exactly one KEYCODE_DEL down/up pair",
+            listOf(
+                KeyEvent.ACTION_DOWN to KeyEvent.KEYCODE_DEL,
+                KeyEvent.ACTION_UP to KeyEvent.KEYCODE_DEL,
+            ),
+            connection.sentKeyEvents,
+        )
+        assertTrue("selection deletion must not commit an empty string", connection.committedChunks.isEmpty())
+        assertTrue("selection deletion must not also use a ranged delete", connection.surroundingDeletes.isEmpty())
+    }
+
+    @Test fun backspace_without_a_selection_sends_one_delete_key_pair_for_a_line_break() {
         val f = fixture()
         val connection = RecordingInputConnection(FrameLayout(f.service))
         installInputConnection(f.service, connection)
@@ -719,11 +746,18 @@ class AegisInputMethodServiceLifecycleTest {
         handleEdit(f.service, EditAction.DELETE)
 
         assertEquals("the line break is gone", "ab", connection.editable.toString())
-        assertTrue("a line break is removed by a key event", connection.sentKeyCodes.contains(KeyEvent.KEYCODE_DEL))
+        assertEquals(
+            "a line break is removed by exactly one KEYCODE_DEL down/up pair",
+            listOf(
+                KeyEvent.ACTION_DOWN to KeyEvent.KEYCODE_DEL,
+                KeyEvent.ACTION_UP to KeyEvent.KEYCODE_DEL,
+            ),
+            connection.sentKeyEvents,
+        )
         assertTrue("no ranged delete is used for a line break", connection.surroundingDeletes.isEmpty())
     }
 
-    @Test fun backspace_over_a_grapheme_cluster_keeps_using_a_ranged_delete() {
+    @Test fun backspace_without_a_selection_keeps_using_a_ranged_delete_for_a_grapheme_cluster() {
         val f = fixture()
         val connection = RecordingInputConnection(FrameLayout(f.service))
         installInputConnection(f.service, connection)
@@ -733,7 +767,7 @@ class AegisInputMethodServiceLifecycleTest {
 
         assertEquals("the cluster is gone", "ab", connection.editable.toString())
         assertEquals("the cluster is removed in one ranged delete", listOf(2), connection.surroundingDeletes)
-        assertTrue("a cluster never goes through a key event", connection.sentKeyCodes.isEmpty())
+        assertTrue("a cluster never goes through a key event", connection.sentKeyEvents.isEmpty())
     }
 
     @Test fun select_all_also_reaches_editors_that_own_their_selection() {
@@ -794,13 +828,67 @@ class AegisInputMethodServiceLifecycleTest {
         val f = fixture()
         val connection = RecordingInputConnection(FrameLayout(f.service))
         installInputConnection(f.service, connection)
-        connection.commitText("hello", 1)
-        Selection.setSelection(connection.editable, 0, 5)
+        connection.commitText("abHIDDENcd", 1)
+        Selection.setSelection(connection.editable, 2, 8)
         connection.hidesSelection = true
+        connection.hidesExtractedSelection = true
+        connection.committedChunks.clear()
 
         handleEdit(f.service, EditAction.DELETE)
 
-        assertEquals("the hidden selection is what gets removed", "", connection.editable.toString())
+        assertEquals("the hidden selection is what gets removed", "abcd", connection.editable.toString())
+        assertEquals(
+            "the unknown-selection fallback still emits one KEYCODE_DEL down/up pair",
+            listOf(
+                KeyEvent.ACTION_DOWN to KeyEvent.KEYCODE_DEL,
+                KeyEvent.ACTION_UP to KeyEvent.KEYCODE_DEL,
+            ),
+            connection.sentKeyEvents,
+        )
+        assertTrue("the hidden-selection fallback must not commit an empty string", connection.committedChunks.isEmpty())
+        assertTrue("the hidden-selection fallback must not also use a ranged delete", connection.surroundingDeletes.isEmpty())
+    }
+
+    private fun assertDeleteUsesExtractedSelection(prefix: String) {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        val selected = "HIDDEN"
+        connection.commitText(prefix + selected + "cd", 1)
+        val from = prefix.length
+        val to = from + selected.length
+        Selection.setSelection(connection.editable, from, to)
+        connection.hidesSelection = true
+        connection.committedChunks.clear()
+
+        assertNull(connection.getSelectedText(0))
+        val extracted = requireNotNull(connection.getExtractedText(ExtractedTextRequest(), 0))
+        assertEquals(from, extracted.selectionStart)
+        assertEquals(to, extracted.selectionEnd)
+
+        handleEdit(f.service, EditAction.DELETE)
+
+        assertEquals(prefix + "cd", connection.editable.toString())
+        assertEquals(from, Selection.getSelectionStart(connection.editable))
+        assertEquals(from, Selection.getSelectionEnd(connection.editable))
+        assertEquals(
+            listOf(
+                KeyEvent.ACTION_DOWN to KeyEvent.KEYCODE_DEL,
+                KeyEvent.ACTION_UP to KeyEvent.KEYCODE_DEL,
+            ),
+            connection.sentKeyEvents,
+        )
+        assertEquals(listOf(KeyEvent.KEYCODE_DEL), connection.sentKeyCodes)
+        assertTrue(connection.surroundingDeletes.isEmpty())
+        assertTrue(connection.committedChunks.isEmpty())
+    }
+
+    @Test fun delete_uses_extracted_selection_when_selected_text_is_null_after_surrogate_pair() {
+        assertDeleteUsesExtractedSelection("😀")
+    }
+
+    @Test fun delete_uses_extracted_selection_when_selected_text_is_null_after_combining_grapheme() {
+        assertDeleteUsesExtractedSelection("e\u0301")
     }
 
     @Test fun edit_delete_consumes_the_preedit_before_the_editor_text() {
