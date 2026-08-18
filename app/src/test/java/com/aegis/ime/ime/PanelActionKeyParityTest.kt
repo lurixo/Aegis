@@ -373,6 +373,7 @@ class PanelActionKeyParityTest {
                 emoji.openCategoryForTest(index)
                 shadowOf(Looper.getMainLooper()).idle()
                 relayout(emoji, 360)
+                assertEquals("emoji category $index starts at the top", 0, emoji.gridScrollYForTest())
                 val tabFace = faceBounds(emoji, emoji.railTabForTest(0))
                 val cellFace = faceBounds(emoji, requireNotNull(emoji.gridCellForTest(0)))
                 assertEquals(metrics.topFaceOffsetPx.toFloat(), tabFace.top, 0f)
@@ -393,6 +394,7 @@ class PanelActionKeyParityTest {
                 symbols.openCategoryForTest(index)
                 shadowOf(Looper.getMainLooper()).idle()
                 relayout(symbols, 360)
+                assertEquals("symbol category $index starts at the top", 0, symbols.gridScrollYForTest())
                 val symbol = if (index == 0) "+" else SymbolCatalog.categories[index - 1].symbols.first { it.length == 1 }
                 val tabFace = faceBounds(symbols, symbols.railTabForTest(0))
                 val cellFace = faceBounds(symbols, requireNotNull(symbols.gridCellForTest(symbol)))

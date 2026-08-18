@@ -257,8 +257,15 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         val prev = selected
         selected = index
         styleRail(if (tabChanged) prev else -1)
-        if (animate && tabChanged && gridScroll.isShown) Motion.coverThrough(gridScroll, palette.keyboardBg) { bindGrid(selected) }
-        else bindGrid(index)
+        val swap = {
+            bindGrid(selected)
+            if (tabChanged) {
+                gridScroll.scrollTo(0, 0)
+                gridScroll.fling(0)
+            }
+        }
+        if (animate && tabChanged && gridScroll.isShown) Motion.coverThrough(gridScroll, palette.keyboardBg, swap)
+        else swap()
     }
 
     private fun styleRail(crossfadeFrom: Int) {

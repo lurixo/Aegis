@@ -23,6 +23,7 @@ import android.os.Looper
 import android.provider.Settings
 import android.view.View
 import android.widget.FrameLayout
+import android.widget.ScrollView
 import com.aegis.ime.ime.theme.ImePalette
 import java.time.Duration
 import org.junit.Assert.assertEquals
@@ -218,6 +219,159 @@ class SwitchFlickerTest {
     }
 
     private fun flushMotion() = shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
+
+    private fun layoutPanel(panel: View, widthDp: Int = 480, heightDp: Int = 220) {
+        val density = panel.resources.displayMetrics.density
+        val width = (widthDp * density).toInt()
+        val height = (heightDp * density).toInt()
+        panel.measure(
+            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
+        )
+        panel.layout(0, 0, width, height)
+    }
+
+    private fun maxScroll(viewport: ScrollView): Int =
+        ((viewport.getChildAt(0)?.height ?: 0) - viewport.height).coerceAtLeast(0)
+
+    private fun <T : View> assertCategoryScrollContract(
+        panel: T,
+        viewport: ScrollView,
+        first: Int,
+        second: Int,
+        open: T.(Int) -> Unit,
+        refresh: T.() -> Unit,
+    ) {
+        panel.open(first)
+        flushMotion()
+        layoutPanel(panel)
+        assertTrue("the first category must overflow the viewport", maxScroll(viewport) > 0)
+        viewport.scrollTo(0, maxScroll(viewport))
+        val firstRestingScroll = viewport.scrollY
+        assertTrue("the first category must be parked away from the top", firstRestingScroll > 0)
+
+        panel.refresh()
+        layoutPanel(panel)
+        assertEquals("refreshing the current category keeps its scroll position", firstRestingScroll, viewport.scrollY)
+
+        panel.open(second)
+        assertEquals("a category switch resets to the top synchronously", 0, viewport.scrollY)
+        flushMotion()
+        layoutPanel(panel)
+        assertEquals("the switched category stays at the top after motion settles", 0, viewport.scrollY)
+        assertTrue("the second category must overflow the viewport", maxScroll(viewport) > 0)
+        viewport.scrollTo(0, maxScroll(viewport))
+        assertTrue("the second category must be parked away from the top", viewport.scrollY > 0)
+
+        panel.open(first)
+        assertEquals("switching back also resets to the top synchronously", 0, viewport.scrollY)
+        flushMotion()
+        layoutPanel(panel)
+        assertEquals("the original category stays at the top after motion settles", 0, viewport.scrollY)
+    }
+
+    private fun <T : View> assertCategorySwitchStopsFling(
+        panel: T,
+        viewport: ScrollView,
+        first: Int,
+        second: Int,
+        open: T.(Int) -> Unit,
+    ) {
+        fun frame() {
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(16))
+            viewport.computeScroll()
+            layoutPanel(panel)
+        }
+
+        panel.open(first)
+        flushMotion()
+        layoutPanel(panel)
+        assertTrue("the fling source category must overflow", maxScroll(viewport) > 0)
+        viewport.scrollTo(0, 0)
+        viewport.fling(9000)
+        repeat(3) { frame() }
+        assertTrue("the source category fling must move before switching", viewport.scrollY > 0)
+
+        panel.open(second)
+        assertEquals("switching during a fling resets to the top", 0, viewport.scrollY)
+        repeat(30) {
+            frame()
+            assertEquals("the outgoing fling must not move the new category", 0, viewport.scrollY)
+        }
+    }
+
+    @Test fun emoji_category_switches_start_at_the_top_without_resetting_same_category_refreshes() {
+        for (scale in listOf(1f, 0f)) {
+            Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, scale)
+            val controller = Robolectric.buildActivity(Activity::class.java).setup()
+            try {
+                val activity = controller.get()
+                val panel = attached(activity, EmojiView(activity).apply { applyPalette(light) })
+                layoutPanel(panel)
+                assertCategoryScrollContract(
+                    panel,
+                    panel.gridViewportForTest() as ScrollView,
+                    first = 2,
+                    second = 3,
+                    open = { openCategoryForTest(it) },
+                    refresh = { refresh() },
+                )
+            } finally {
+                controller.pause().stop().destroy()
+            }
+        }
+    }
+
+    @Test fun symbol_category_switches_start_at_the_top_without_resetting_same_category_refreshes() {
+        for (scale in listOf(1f, 0f)) {
+            Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, scale)
+            val controller = Robolectric.buildActivity(Activity::class.java).setup()
+            try {
+                val activity = controller.get()
+                val panel = attached(activity, SymbolsView(activity).apply { applyPalette(light) })
+                layoutPanel(panel)
+                assertCategoryScrollContract(
+                    panel,
+                    panel.gridViewportForTest() as ScrollView,
+                    first = 5,
+                    second = 9,
+                    open = { openCategoryForTest(it) },
+                    refresh = { refresh() },
+                )
+            } finally {
+                controller.pause().stop().destroy()
+            }
+        }
+    }
+
+    @Test fun switching_categories_stops_the_outgoing_grid_fling() {
+        Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val activity = controller.get()
+            val emoji = attached(activity, EmojiView(activity).apply { applyPalette(light) })
+            layoutPanel(emoji)
+            assertCategorySwitchStopsFling(
+                emoji,
+                emoji.gridViewportForTest() as ScrollView,
+                first = 2,
+                second = 3,
+                open = { openCategoryForTest(it) },
+            )
+
+            val symbols = attached(activity, SymbolsView(activity).apply { applyPalette(light) })
+            layoutPanel(symbols)
+            assertCategorySwitchStopsFling(
+                symbols,
+                symbols.gridViewportForTest() as ScrollView,
+                first = 5,
+                second = 9,
+                open = { openCategoryForTest(it) },
+            )
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
 
     @Test fun emoji_category_switch_swaps_synchronously_at_full_opacity_when_animated() {
         Settings.Global.putFloat(ctx.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
