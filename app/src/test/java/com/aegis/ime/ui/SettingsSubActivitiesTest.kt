@@ -16,6 +16,7 @@
 package com.aegis.ime.ui
 
 import android.content.Context
+import android.content.Intent
 import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.compose.ui.test.assertCountEquals
@@ -39,6 +40,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import com.aegis.ime.R
+import com.aegis.ime.dict.ModelDownload
 import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserLearnEdit
@@ -487,6 +489,27 @@ class DictSettingsActivityTest {
         compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performScrollTo().performClick()
         compose.waitForIdle()
         assertTrue("back arrow finishes the Activity", compose.activity.isFinishing)
+    }
+
+    @Test fun source_links_stay_in_the_activity_task_and_have_no_local_single_click_gate() {
+        val links = listOf(
+            R.string.dict_source_link to ModelDownload.DICT_REPO_URL,
+            R.string.gram_source_link to ModelDownload.REPO_URL,
+        )
+        for ((labelRes, url) in links) {
+            repeat(2) { attempt ->
+                compose.onNodeWithText(ctxString(labelRes)).performScrollTo().performClick()
+                compose.waitForIdle()
+                val started = shadowOf(compose.activity).nextStartedActivity
+                assertEquals("$url attempt $attempt uses ACTION_VIEW", Intent.ACTION_VIEW, started?.action)
+                assertEquals("$url attempt $attempt keeps its URL", url, started?.dataString)
+                assertEquals(
+                    "$url attempt $attempt must not start a new task",
+                    0,
+                    requireNotNull(started).flags and Intent.FLAG_ACTIVITY_NEW_TASK,
+                )
+            }
+        }
     }
 }
 

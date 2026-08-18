@@ -149,13 +149,20 @@ class LicensesTest {
         R.string.license_androidx_name to "https://developer.android.com/jetpack/androidx",
     )
 
-    @Test fun each_component_card_taps_through_to_its_upstream_url() {
+    @Test fun each_component_card_taps_through_to_its_upstream_url_every_time() {
         for ((nameId, url) in expectedLinks) {
-            compose.onNodeWithText(s(nameId)).performScrollTo().performClick()
-            compose.waitForIdle()
-            val started = shadowOf(compose.activity).nextStartedActivity
-            assertEquals("$url must open via a view intent", Intent.ACTION_VIEW, started?.action)
-            assertEquals("card opens its own upstream url", url, started?.dataString)
+            repeat(2) { attempt ->
+                compose.onNodeWithText(s(nameId)).performScrollTo().performClick()
+                compose.waitForIdle()
+                val started = shadowOf(compose.activity).nextStartedActivity
+                assertEquals("$url attempt $attempt must open via a view intent", Intent.ACTION_VIEW, started?.action)
+                assertEquals("card opens its own upstream url on attempt $attempt", url, started?.dataString)
+                assertEquals(
+                    "an Activity-hosted link must stay in its caller task",
+                    0,
+                    requireNotNull(started).flags and Intent.FLAG_ACTIVITY_NEW_TASK,
+                )
+            }
         }
     }
 }

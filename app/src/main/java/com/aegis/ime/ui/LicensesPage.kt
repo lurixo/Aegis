@@ -15,8 +15,6 @@
 
 package com.aegis.ime.ui
 
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -70,12 +68,7 @@ private fun LicenseCard(item: LicenseItem) {
     val context = LocalContext.current
     Card(
         onClick = {
-            runCatching {
-                context.startActivity(
-                    Intent(Intent.ACTION_VIEW, Uri.parse(item.url))
-                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                )
-            }
+            context.openActivityExternalLink(item.url)
         },
         modifier = Modifier.fillMaxWidth(),
     ) {

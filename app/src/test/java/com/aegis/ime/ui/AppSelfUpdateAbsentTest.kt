@@ -40,9 +40,7 @@ class AppSelfUpdateAbsentTest {
             "REQUEST_INSTALL_PACKAGES",
         )
         val allowedActionViewFiles = setOf(
-            "src/main/java/com/aegis/ime/ui/DictDownloadCard.kt",
-            "src/main/java/com/aegis/ime/ui/GramDownloadCard.kt",
-            "src/main/java/com/aegis/ime/ui/LicensesPage.kt",
+            "src/main/java/com/aegis/ime/ui/ActivityExternalLink.kt",
         ).map { File(it).normalize().path }.toSet()
 
         val offenders = File("src/main").walkTopDown()

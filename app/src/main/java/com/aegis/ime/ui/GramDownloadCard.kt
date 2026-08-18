@@ -16,8 +16,6 @@
 package com.aegis.ime.ui
 
 import android.content.Context
-import android.content.Intent
-import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
@@ -150,12 +148,7 @@ internal fun GramDownloadCard(
             )
             TextButton(
                 onClick = {
-                    runCatching {
-                        context.startActivity(
-                            Intent(Intent.ACTION_VIEW, Uri.parse(ModelDownload.REPO_URL))
-                                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                        )
-                    }
+                    context.openActivityExternalLink(ModelDownload.REPO_URL)
                 },
                 contentPadding = PaddingValues(0.dp),
             ) {
