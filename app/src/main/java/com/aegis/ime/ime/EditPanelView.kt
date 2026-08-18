@@ -20,6 +20,7 @@ import com.aegis.ime.ime.theme.ImePalette
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
@@ -87,7 +88,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
         setBackgroundColor(p.keyboardBg)
         recolor(this)
         backControl.applyTint(p.keyLabel)
-        for (feedback in actionFeedback.values) feedback.update(p.keySurface, p.keyLabel)
+        for (feedback in actionFeedback.values) feedback.update(Color.TRANSPARENT, p.keyLabel)
         for (g in icons) g.applyTint(p.keyLabel)
         applySelectionTint(selectionTinted, animate = false)
     }
@@ -293,7 +294,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
             val enabledChanged = b.isEnabled != has || b.isClickable != has
             actionFeedback[action]?.apply {
                 if (enabledChanged) reset()
-                update(palette.keySurface, tint)
+                update(Color.TRANSPARENT, tint)
             }
             b.isEnabled = has
             b.isClickable = has
@@ -437,7 +438,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
     }
 
     private fun bindActionFeedback(view: View, action: EditAction, bindTouch: Boolean = true) {
-        ImeKeyFeedback(view, palette.keySurface, palette.keyLabel).also {
+        ImeKeyFeedback(view, Color.TRANSPARENT, palette.keyLabel).also {
             if (bindTouch) it.bind { hapticEnabled }
             actionFeedback[action] = it
         }

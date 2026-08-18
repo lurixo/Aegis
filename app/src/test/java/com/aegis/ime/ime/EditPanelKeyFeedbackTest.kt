@@ -25,7 +25,6 @@ import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
-import androidx.core.graphics.ColorUtils
 import com.aegis.ime.ime.theme.ImePalette
 import java.time.Duration
 import kotlin.math.abs
@@ -68,21 +67,18 @@ class EditPanelKeyFeedbackTest {
         }
     }
 
-    @Test fun every_immediate_action_uses_the_keyboard_surface_press_timeline_and_haptic() = withPanel { panel ->
+    @Test fun every_immediate_action_has_no_idle_face_but_keeps_the_press_timeline_and_haptic() = withPanel { panel ->
         val keyHaptics: KeyHapticsAware = panel
         keyHaptics.hapticEnabled = true
         val dispatched = ArrayList<EditAction>()
         panel.onAction = { dispatched += it }
         val palette = ImePalette.STATIC_LIGHT
-        val pressedColor = ColorUtils.compositeColors(
-            Motion.withAlpha(palette.keyLabel, 0x22),
-            palette.keySurface,
-        )
+        val pressedColor = Motion.withAlpha(palette.keyLabel, 0x22)
 
         for ((index, action) in immediateActions.withIndex()) {
             val key = requireNotNull(panel.actionViewForTest(action))
             assertFalse("$action must not use a platform ripple as its key face", key.background is RippleDrawable)
-            assertEquals("$action has the same idle face as a normal key", palette.keySurface, faceCenter(key))
+            assertTransparentFace("$action idle", key)
             assertEquals(
                 "$action starts with no pressed layer",
                 0f,
@@ -115,17 +111,31 @@ class EditPanelKeyFeedbackTest {
                 requireNotNull(panel.actionFeedbackLevelForTest(action)),
                 0f,
             )
+            assertTransparentFace("$action released", key)
         }
 
         assertEquals("each immediate key dispatches exactly once", immediateActions, dispatched)
     }
 
-    @Test fun palette_updates_every_immediate_key_but_never_turns_the_header_back_into_a_key() = withPanel { panel ->
-        panel.applyPalette(ImePalette.STATIC_DARK)
+    @Test fun palette_updates_keep_every_immediate_face_transparent_and_retint_the_press_layer() = withPanel { panel ->
+        val palette = ImePalette.STATIC_DARK
+        panel.applyPalette(palette)
 
-        for (action in immediateActions) {
+        for ((index, action) in immediateActions.withIndex()) {
             val key = requireNotNull(panel.actionViewForTest(action))
-            assertEquals("$action follows the current key surface", ImePalette.STATIC_DARK.keySurface, faceCenter(key))
+            assertTransparentFace("$action dark idle", key)
+
+            val time = index * 200L
+            send(key, MotionEvent.ACTION_DOWN, time, time)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(Motion.PRESS_IN))
+            assertColorWithinCanvasRounding(
+                "$action follows the dark state-layer tint",
+                Motion.withAlpha(palette.keyLabel, 0x22),
+                faceCenter(key),
+            )
+            send(key, MotionEvent.ACTION_UP, time, time + Motion.PRESS_IN)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(Motion.PRESS_OUT))
+            assertTransparentFace("$action dark released", key)
         }
 
         val back = requireNotNull(panel.actionViewForTest(EditAction.BACK))
@@ -162,6 +172,7 @@ class EditPanelKeyFeedbackTest {
             panel.setHasSelection(false)
             assertFalse("$action is disabled without a selection", key.isEnabled)
             assertFalse("$action is not clickable without a selection", key.isClickable)
+            assertTransparentFace("$action disabled", key)
 
             val time = index * 200L
             send(key, MotionEvent.ACTION_DOWN, time, time)
@@ -174,12 +185,14 @@ class EditPanelKeyFeedbackTest {
             panel.setHasSelection(true)
             assertTrue("$action is enabled when a selection exists", key.isEnabled)
             assertTrue("$action is clickable when a selection exists", key.isClickable)
+            assertTransparentFace("$action enabled", key)
             send(key, MotionEvent.ACTION_DOWN, time + 50, time + 50)
             shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(Motion.PRESS_IN))
             assertEquals(1f, requireNotNull(panel.actionFeedbackLevelForTest(action)), 0f)
             assertEquals(HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(key).lastHapticFeedbackPerformed())
             send(key, MotionEvent.ACTION_UP, time + 50, time + 50 + Motion.PRESS_IN)
             shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(Motion.PRESS_OUT))
+            assertTransparentFace("$action released", key)
             assertEquals(listOf(action), dispatched)
             dispatched.clear()
         }
@@ -193,15 +206,24 @@ class EditPanelKeyFeedbackTest {
         send(copy, MotionEvent.ACTION_DOWN, 0, 0)
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(Motion.PRESS_IN))
         assertEquals(1f, requireNotNull(panel.actionFeedbackLevelForTest(EditAction.COPY)), 0f)
+        assertEquals(Color.TRANSPARENT, (copy.background as ImeKeySurface).faceColor)
 
         panel.setHasSelection(true)
         assertEquals(1f, requireNotNull(panel.actionFeedbackLevelForTest(EditAction.COPY)), 0f)
+        assertEquals(Color.TRANSPARENT, (copy.background as ImeKeySurface).faceColor)
         panel.applyPalette(ImePalette.STATIC_DARK)
         assertEquals(1f, requireNotNull(panel.actionFeedbackLevelForTest(EditAction.COPY)), 0f)
+        assertEquals(Color.TRANSPARENT, (copy.background as ImeKeySurface).faceColor)
+        assertColorWithinCanvasRounding(
+            "an active Copy press follows the dark state-layer tint",
+            Motion.withAlpha(ImePalette.STATIC_DARK.keyLabel, 0x22),
+            faceCenter(copy),
+        )
 
         send(copy, MotionEvent.ACTION_UP, 0, Motion.PRESS_IN)
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(Motion.PRESS_OUT))
         assertEquals(0f, requireNotNull(panel.actionFeedbackLevelForTest(EditAction.COPY)), 0f)
+        assertTransparentFace("Copy released after palette update", copy)
         assertEquals(listOf(EditAction.COPY), dispatched)
     }
 
@@ -233,13 +255,23 @@ class EditPanelKeyFeedbackTest {
         }
     }
 
+    private fun assertTransparentFace(message: String, view: View) {
+        val surface = view.background as? ImeKeySurface
+        assertTrue("$message keeps the shared press surface", surface != null)
+        assertEquals("$message has no static face color", Color.TRANSPARENT, requireNotNull(surface).faceColor)
+        assertEquals("$message draws no idle face", Color.TRANSPARENT, faceCenter(view))
+    }
+
     private fun assertColorWithinCanvasRounding(message: String, expected: Int, actual: Int) {
+        fun premultiplied(channel: Int, alpha: Int): Int = (channel * alpha + 127) / 255
+        val expectedAlpha = Color.alpha(expected)
+        val actualAlpha = Color.alpha(actual)
         assertTrue(
             "$message: expected=${Integer.toHexString(expected)} actual=${Integer.toHexString(actual)}",
-            abs(Color.alpha(expected) - Color.alpha(actual)) <= 1 &&
-                abs(Color.red(expected) - Color.red(actual)) <= 1 &&
-                abs(Color.green(expected) - Color.green(actual)) <= 1 &&
-                abs(Color.blue(expected) - Color.blue(actual)) <= 1,
+            abs(expectedAlpha - actualAlpha) <= 1 &&
+                abs(premultiplied(Color.red(expected), expectedAlpha) - premultiplied(Color.red(actual), actualAlpha)) <= 1 &&
+                abs(premultiplied(Color.green(expected), expectedAlpha) - premultiplied(Color.green(actual), actualAlpha)) <= 1 &&
+                abs(premultiplied(Color.blue(expected), expectedAlpha) - premultiplied(Color.blue(actual), actualAlpha)) <= 1,
         )
     }
 
