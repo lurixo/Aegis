@@ -137,7 +137,11 @@
     <string name="user_dict_import_merge">Merge (recommended)</string>
     <string name="user_dict_import_overwrite">Overwrite</string>
     <string name="user_dict_manual_title">Your words</string>
-    <string name="user_dict_manual_description">Add a word and its pinyin so it is offered whenever you type that pinyin, or delete a word to drop it from suggestions. Words you assemble character by character are added here automatically. Changes take effect immediately.</string>
+    <string name="user_dict_add_sheet_button">Add</string>
+    <string name="user_dict_more_button">Tools</string>
+    <string name="user_dict_more_title">Dictionary tools</string>
+    <string name="user_dict_data_title">Data management</string>
+    <string name="user_dict_selected_count_format">%1$d selected</string>
     <string name="user_dict_search_hint">Search word or pinyin</string>
     <string name="user_dict_count_format">Words: %1$d</string>
     <string name="user_dict_search_no_match">No matching words.</string>
@@ -176,7 +180,7 @@
     <string name="user_dict_delete_dialog_body">This deletes %1$s from this device. This cannot be undone.</string>
     <string name="user_dict_delete_confirm">Delete</string>
     <string name="user_dict_delete_cancel">Cancel</string>
-    <string name="user_dict_select_button">Select words to delete</string>
+    <string name="user_dict_select_button">Manage words</string>
     <string name="user_dict_select_all_button">Select all</string>
     <string name="user_dict_select_cancel_button">Cancel</string>
     <string name="user_dict_delete_selected_button">Delete selected</string>

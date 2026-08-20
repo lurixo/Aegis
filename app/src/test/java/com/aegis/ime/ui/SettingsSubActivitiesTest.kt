@@ -536,7 +536,8 @@ class UserDictActivityTest {
 
     @Test fun holds_the_search_field_and_tools_and_back_finishes() {
         compose.onNodeWithTag("user_dict_search").assertExists()
-        compose.onNodeWithText(ctxString(R.string.user_dict_export_button)).assertExists()
+        compose.onNodeWithTag("user_dict_open_more").assertExists()
+        compose.onNodeWithText(ctxString(R.string.user_dict_export_button)).assertDoesNotExist()
         compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performClick()
         compose.waitForIdle()
         assertTrue("back arrow finishes the Activity", compose.activity.isFinishing)

@@ -19,33 +19,36 @@ import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -54,13 +57,23 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import com.aegis.ime.R
+import com.aegis.ime.ui.theme.AppShapes
+import com.aegis.ime.ui.theme.AppSpacing
+import com.aegis.ime.ui.theme.SettingsMotion
 import com.aegis.ime.user.UserDictEdit
 import com.aegis.ime.user.UserDictImport
 import com.aegis.ime.user.UserDictSearch
@@ -69,6 +82,7 @@ import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
 import com.aegis.ime.user.UserStoreEdits
 import java.io.File
+import kotlin.math.roundToInt
 
 @Composable
 internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
@@ -96,6 +110,7 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
     var pendingBatchDelete by remember { mutableStateOf(false) }
     var selecting by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf(emptySet<String>()) }
+    var sheet by remember { mutableStateOf<UserDictSheet?>(null) }
 
     var learnedView by remember { mutableStateOf(UserLearnEdit.view(userLearn)) }
     val learned = learnedView.entries
@@ -204,7 +219,13 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
         edit(
             if (known) keptToast else addedToast,
             writeFailedToast,
-            { landed -> if (landed) { newWord = ""; newReading = "" } },
+            { landed ->
+                if (landed) {
+                    newWord = ""
+                    newReading = ""
+                    sheet = null
+                }
+            },
         ) {
             UserDictEdit.add(userDb, word, typedReading, System.currentTimeMillis())
         }
@@ -252,255 +273,183 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .userDictPageInsets(
-                bottomInsets = WindowInsets.safeDrawing,
-                topInsets = settingsTopInset(),
-            )
-            .padding(horizontal = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
+    fun leaveSelection() {
+        selecting = false
+        selected = emptySet()
+    }
+
+    BackHandler(enabled = selecting) { leaveSelection() }
+
+    val pageBack = { if (selecting) leaveSelection() else onBack() }
+    AppPageScaffold(
+        title = stringResource(R.string.settings_group_userdict_title),
+        onBack = pageBack,
     ) {
-        SettingsPageHeader(stringResource(R.string.settings_group_userdict_title), onBack)
-        OutlinedTextField(
-            value = query,
-            onValueChange = { search(it) },
-            label = { Text(stringResource(R.string.user_dict_search_hint)) },
-            singleLine = true,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("user_dict_search"),
-        )
-        if (summary.readable) {
-            Text(
-                stringResource(R.string.user_dict_count_format, entries.size),
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.testTag("user_dict_count"),
-            )
-            Text(
-                stringResource(R.string.user_dict_forgotten_format, summary.forgotten),
-                style = MaterialTheme.typography.bodySmall,
-                modifier = Modifier.testTag("user_dict_forgotten"),
-            )
-        } else {
-            Text(
-                stringResource(R.string.user_dict_unreadable),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.testTag("user_dict_unreadable"),
-            )
-        }
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            if (!selecting) {
-                TextButton(
-                    onClick = { selecting = true },
-                    enabled = filtered.isNotEmpty() || filteredLearned.isNotEmpty(),
-                    modifier = Modifier.testTag("user_dict_select"),
-                ) {
-                    Text(stringResource(R.string.user_dict_select_button))
-                }
-            } else {
-                TextButton(
-                    onClick = {
-                        selected = (filtered.map { manualKey(it) } + filteredLearned.map { learnedKey(it) }).toSet()
-                    },
-                    modifier = Modifier.testTag("user_dict_select_all"),
-                ) {
-                    Text(stringResource(R.string.user_dict_select_all_button))
-                }
-                TextButton(
-                    onClick = { pendingBatchDelete = true },
-                    enabled = selected.isNotEmpty(),
-                    modifier = Modifier.testTag("user_dict_delete_selected"),
-                ) {
-                    Text(stringResource(R.string.user_dict_delete_selected_button))
-                }
-                TextButton(
-                    onClick = { selecting = false; selected = emptySet() },
-                    modifier = Modifier.testTag("user_dict_select_cancel"),
-                ) {
-                    Text(stringResource(R.string.user_dict_select_cancel_button))
-                }
-            }
-        }
-        LazyColumn(
+        Column(
             modifier = Modifier
                 .fillMaxSize()
-                .testTag("user_dict_list"),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+                .padding(horizontal = AppSpacing.screenHorizontal)
+                .padding(top = AppSpacing.compactGap),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.contentGap),
         ) {
-            if (query.isBlank()) {
-                item(key = "tools") {
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            Text(
-                                stringResource(R.string.user_dict_description),
-                                style = MaterialTheme.typography.bodySmall,
+            OutlinedTextField(
+                value = query,
+                onValueChange = { search(it) },
+                label = { Text(stringResource(R.string.user_dict_search_hint)) },
+                singleLine = true,
+                shape = AppShapes.section,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("user_dict_search"),
+            )
+            val selectionProgress by animateFloatAsState(
+                targetValue = if (selecting) 1f else 0f,
+                animationSpec = tween(SettingsMotion.DURATION_STATE, easing = SettingsMotion.EmphasizedDecelerate),
+            )
+            UserDictTopCard(
+                selecting = selecting,
+                selectionProgress = selectionProgress,
+                readable = summary.readable,
+                count = entries.size,
+                forgotten = summary.forgotten,
+                manageEnabled = filtered.isNotEmpty() || filteredLearned.isNotEmpty(),
+                selectedCount = selected.size,
+                deleteEnabled = selected.isNotEmpty(),
+                onManage = { selecting = true },
+                onAdd = { sheet = UserDictSheet.ADD },
+                onMore = { sheet = UserDictSheet.MORE },
+                onSelectAll = {
+                    selected = (filtered.map { manualKey(it) } + filteredLearned.map { learnedKey(it) }).toSet()
+                },
+                onCancel = { leaveSelection() },
+                onDeleteSelected = { pendingBatchDelete = true },
+            )
+            AppSection(
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(bottom = AppSpacing.compactGap)
+                    .testTag("user_dict_list_surface"),
+            ) {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize().testTag("user_dict_list"),
+                    contentPadding = PaddingValues(vertical = AppSpacing.textGap),
+                ) {
+                    if (summary.readable && filtered.isNotEmpty()) {
+                        item(key = "manual_header") {
+                            UserDictListHeader(
+                                title = stringResource(R.string.user_dict_manual_title),
                             )
-                            Text(
-                                stringResource(R.string.user_dict_default_path_format, userDb.absolutePath),
-                                style = MaterialTheme.typography.bodySmall,
+                        }
+                        items(filtered, key = { manualKey(it) }) { entry ->
+                            UserDictEntryRow(
+                                entry,
+                                selecting = selecting,
+                                checked = manualKey(entry) in selected,
+                                onToggle = { toggle(manualKey(entry)) },
+                                onDelete = { pendingDelete = PendingDelete(entry.word, entry.reading, learned = false) },
                             )
-                            Button(
-                                onClick = { startExport() },
-                                modifier = Modifier.fillMaxWidth().testTag("user_dict_export"),
-                            ) { Text(stringResource(R.string.user_dict_export_button)) }
-                            Button(
-                                onClick = { importLauncher.launch(arrayOf("text/plain")) },
-                                modifier = Modifier.fillMaxWidth(),
-                            ) { Text(stringResource(R.string.user_dict_import_button)) }
-
-                            HorizontalDivider()
-
-                            Text(
-                                stringResource(R.string.user_dict_manual_title),
-                                style = MaterialTheme.typography.titleSmall,
+                        }
+                    } else if (summary.readable && query.isBlank()) {
+                        item(key = "manual_empty") {
+                            UserDictListNote(
+                                text = stringResource(R.string.user_dict_manual_empty),
+                                modifier = Modifier.testTag("user_dict_empty_note"),
                             )
-                            Text(
-                                stringResource(R.string.user_dict_manual_description),
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            OutlinedTextField(
-                                value = newWord,
-                                onValueChange = { newWord = it },
-                                label = { Text(stringResource(R.string.user_dict_word_hint)) },
-                                singleLine = true,
-                                modifier = Modifier.fillMaxWidth().testTag("user_dict_new_word"),
-                            )
-                            OutlinedTextField(
-                                value = newReading,
-                                onValueChange = { newReading = it },
-                                label = { Text(stringResource(R.string.user_dict_reading_hint)) },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-                                modifier = Modifier.fillMaxWidth().testTag("user_dict_new_reading"),
-                            )
-                            Button(
-                                onClick = { addWord() },
-                                modifier = Modifier.fillMaxWidth().testTag("user_dict_add"),
-                            ) {
-                                Text(stringResource(R.string.user_dict_add_button))
-                            }
                         }
                     }
-                }
-            }
-            if (summary.readable && filtered.isEmpty() && (query.isBlank() || filteredLearned.isEmpty())) {
-                item(key = "empty") {
-                    Text(
-                        stringResource(
-                            if (query.isBlank()) R.string.user_dict_manual_empty else R.string.user_dict_search_no_match,
-                        ),
-                        style = MaterialTheme.typography.bodySmall,
-                        modifier = Modifier.padding(vertical = 8.dp).testTag("user_dict_empty_note"),
-                    )
-                }
-            }
-            items(filtered, key = { manualKey(it) }) { entry ->
-                UserDictEntryRow(
-                    entry,
-                    selecting = selecting,
-                    checked = manualKey(entry) in selected,
-                    onToggle = { toggle(manualKey(entry)) },
-                    onDelete = { pendingDelete = PendingDelete(entry.word, entry.reading, learned = false) },
-                )
-            }
-            if (query.isNotBlank() && filteredLearned.isNotEmpty()) {
-                item(key = "auto_learn_header") {
-                    Text(
-                        stringResource(R.string.user_dict_auto_title),
-                        style = MaterialTheme.typography.titleSmall,
-                        modifier = Modifier.padding(top = 8.dp).testTag("user_dict_auto_header"),
-                    )
-                }
-                items(filteredLearned, key = { learnedKey(it) }) { entry ->
-                    LearnedEntryRow(
-                        entry,
-                        selecting = selecting,
-                        checked = learnedKey(entry) in selected,
-                        onToggle = { toggle(learnedKey(entry)) },
-                        onDelete = { pendingDelete = PendingDelete(entry.word, entry.reading, learned = true) },
-                    )
-                }
-            }
-            if (query.isBlank()) {
-                item(key = "auto_learn") {
-                    Card(modifier = Modifier.fillMaxWidth()) {
-                        Column(
-                            modifier = Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
-                        ) {
-                            Text(
-                                stringResource(R.string.user_dict_auto_title),
-                                style = MaterialTheme.typography.titleSmall,
+
+                    if (!learnedView.readable || filteredLearned.isNotEmpty() || query.isBlank()) {
+                        item(key = "auto_learn_header") {
+                            UserDictListHeader(
+                                title = stringResource(R.string.user_dict_auto_title),
+                                status = if (learnedView.readable && query.isBlank()) {
+                                    stringResource(R.string.user_dict_auto_count_format, learned.size)
+                                } else {
+                                    null
+                                },
                             )
-                            Text(
-                                stringResource(R.string.user_dict_auto_description),
-                                style = MaterialTheme.typography.bodySmall,
-                            )
-                            if (learnedView.readable) {
-                                Text(
-                                    stringResource(R.string.user_dict_auto_count_format, learned.size),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    modifier = Modifier.testTag("user_dict_auto_count"),
-                                )
-                                if (learned.isEmpty() && learnedHasData) {
-                                    Text(
-                                        stringResource(R.string.user_dict_auto_pairs_only),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        modifier = Modifier.testTag("user_dict_auto_pairs_only"),
-                                    )
-                                }
-                            } else {
-                                Text(
-                                    stringResource(
-                                        if (learned.isEmpty()) R.string.user_learn_unreadable
-                                        else R.string.user_learn_unreadable_kept,
-                                    ),
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.error,
-                                    modifier = Modifier.testTag("user_learn_unreadable"),
-                                )
-                            }
-                            Button(
-                                onClick = { pendingAutoClear = true },
-                                enabled = learnedHasData || !learnedView.readable,
-                                modifier = Modifier.fillMaxWidth().testTag("user_dict_auto_clear"),
-                            ) {
-                                Text(stringResource(R.string.user_dict_auto_clear_button))
-                            }
                         }
                     }
-                }
-                if (learned.isEmpty() && learnedView.readable) {
-                    item(key = "auto_learn_empty") {
-                        Text(
-                            stringResource(R.string.user_dict_auto_empty),
-                            style = MaterialTheme.typography.bodySmall,
-                            modifier = Modifier.padding(vertical = 8.dp),
-                        )
+                    if (!learnedView.readable) {
+                        item(key = "auto_learn_unreadable") {
+                            UserDictListNote(
+                                text = stringResource(
+                                    if (learned.isEmpty()) R.string.user_learn_unreadable
+                                    else R.string.user_learn_unreadable_kept,
+                                ),
+                                error = true,
+                                modifier = Modifier.testTag("user_learn_unreadable"),
+                            )
+                        }
                     }
-                } else {
-                    items(learned, key = { learnedKey(it) }) { entry ->
-                        LearnedEntryRow(
-                            entry,
-                            selecting = selecting,
-                            checked = learnedKey(entry) in selected,
-                            onToggle = { toggle(learnedKey(entry)) },
-                            onDelete = { pendingDelete = PendingDelete(entry.word, entry.reading, learned = true) },
-                        )
+                    if (filteredLearned.isNotEmpty()) {
+                        items(filteredLearned, key = { learnedKey(it) }) { entry ->
+                            LearnedEntryRow(
+                                entry,
+                                selecting = selecting,
+                                checked = learnedKey(entry) in selected,
+                                onToggle = { toggle(learnedKey(entry)) },
+                                onDelete = { pendingDelete = PendingDelete(entry.word, entry.reading, learned = true) },
+                            )
+                        }
+                    } else if (learnedView.readable && query.isBlank()) {
+                        item(key = "auto_learn_empty") {
+                            UserDictListNote(
+                                text = stringResource(
+                                    if (learnedHasData) R.string.user_dict_auto_pairs_only else R.string.user_dict_auto_empty,
+                                ),
+                                modifier = if (learnedHasData) {
+                                    Modifier.testTag("user_dict_auto_pairs_only")
+                                } else {
+                                    Modifier
+                                },
+                            )
+                        }
+                    }
+
+                    if (summary.readable && query.isNotBlank() && filtered.isEmpty() && filteredLearned.isEmpty()) {
+                        item(key = "search_empty") {
+                            UserDictListNote(
+                                text = stringResource(R.string.user_dict_search_no_match),
+                                modifier = Modifier.testTag("user_dict_empty_note"),
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+
+    if (sheet == UserDictSheet.ADD) {
+        UserDictAddSheet(
+            word = newWord,
+            reading = newReading,
+            onWordChange = { newWord = it },
+            onReadingChange = { newReading = it },
+            onAdd = { addWord() },
+            onDismiss = { sheet = null },
+        )
+    }
+
+    if (sheet == UserDictSheet.MORE) {
+        UserDictMoreSheet(
+            dictionaryPath = userDb.absolutePath,
+            learnedHasData = learnedHasData,
+            learnedReadable = learnedView.readable,
+            onExport = {
+                sheet = null
+                startExport()
+            },
+            onImport = {
+                sheet = null
+                importLauncher.launch(arrayOf("text/plain"))
+            },
+            onClearLearned = {
+                sheet = null
+                pendingAutoClear = true
+            },
+            onDismiss = { sheet = null },
+        )
     }
 
     val rowDelete = pendingDelete
@@ -611,14 +560,369 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
     }
 }
 
-private class PendingDelete(val word: String, val reading: String, val learned: Boolean)
+private enum class UserDictSheet { ADD, MORE }
 
-internal fun Modifier.userDictPageInsets(
-    bottomInsets: WindowInsets,
-    topInsets: WindowInsets,
-): Modifier = this
-    .windowInsetsPadding(bottomInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom))
-    .windowInsetsPadding(topInsets.only(WindowInsetsSides.Top))
+@Composable
+private fun UserDictTopCard(
+    selecting: Boolean,
+    selectionProgress: Float,
+    readable: Boolean,
+    count: Int,
+    forgotten: Int,
+    manageEnabled: Boolean,
+    selectedCount: Int,
+    deleteEnabled: Boolean,
+    onManage: () -> Unit,
+    onAdd: () -> Unit,
+    onMore: () -> Unit,
+    onSelectAll: () -> Unit,
+    onCancel: () -> Unit,
+    onDeleteSelected: () -> Unit,
+) {
+    AppSection(modifier = Modifier.testTag("user_dict_overview")) {
+        Column(
+            modifier = Modifier.padding(
+                horizontal = AppSpacing.sectionPadding,
+                vertical = AppSpacing.contentGap,
+            ),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.textGap),
+        ) {
+            Box(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .alpha(1f - selectionProgress)
+                        .then(if (selecting) Modifier.clearAndSetSemantics {} else Modifier),
+                    verticalArrangement = Arrangement.spacedBy(AppSpacing.textGap),
+                ) {
+                    if (readable) {
+                        Text(
+                            stringResource(R.string.user_dict_count_format, count),
+                            style = MaterialTheme.typography.bodyMedium,
+                            modifier = Modifier.testTag("user_dict_count"),
+                        )
+                        Text(
+                            stringResource(R.string.user_dict_forgotten_format, forgotten),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.testTag("user_dict_forgotten"),
+                        )
+                    } else {
+                        Text(
+                            stringResource(R.string.user_dict_unreadable),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.testTag("user_dict_unreadable"),
+                        )
+                    }
+                }
+                Box(
+                    modifier = Modifier
+                        .alpha(selectionProgress)
+                        .then(if (selecting) Modifier else Modifier.clearAndSetSemantics {})
+                        .testTag("user_dict_selection_context"),
+                ) {
+                    Text(
+                        stringResource(R.string.user_dict_selected_count_format, selectedCount),
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.testTag("user_dict_selected_count"),
+                    )
+                }
+            }
+            Layout(
+                modifier = Modifier.fillMaxWidth(),
+                content = {
+                    UserDictSlotButtons(
+                        selecting = selecting,
+                        selectionProgress = selectionProgress,
+                        normalText = stringResource(R.string.user_dict_select_button),
+                        normalEnabled = manageEnabled,
+                        onNormal = onManage,
+                        normalTag = "user_dict_select",
+                        selectText = stringResource(R.string.user_dict_select_all_button),
+                        selectEnabled = true,
+                        onSelect = onSelectAll,
+                        selectTag = "user_dict_select_all",
+                    )
+                    UserDictSlotButtons(
+                        selecting = selecting,
+                        selectionProgress = selectionProgress,
+                        normalText = stringResource(R.string.user_dict_add_sheet_button),
+                        normalEnabled = true,
+                        onNormal = onAdd,
+                        normalTag = "user_dict_open_add",
+                        selectText = stringResource(R.string.user_dict_select_cancel_button),
+                        selectEnabled = true,
+                        onSelect = onCancel,
+                        selectTag = "user_dict_select_cancel",
+                    )
+                    UserDictSlotButtons(
+                        selecting = selecting,
+                        selectionProgress = selectionProgress,
+                        normalText = stringResource(R.string.user_dict_more_button),
+                        normalEnabled = true,
+                        onNormal = onMore,
+                        normalTag = "user_dict_open_more",
+                        selectText = stringResource(R.string.user_dict_delete_selected_button),
+                        selectEnabled = deleteEnabled,
+                        onSelect = onDeleteSelected,
+                        selectTag = "user_dict_delete_selected",
+                    )
+                },
+            ) { measurables, constraints ->
+                val width = constraints.maxWidth
+                val intrinsics = measurables.map { it.maxIntrinsicWidth(Constraints.Infinity) }
+                val normalSum = intrinsics[0] + intrinsics[2] + intrinsics[4]
+                val selectSum = intrinsics[1] + intrinsics[3] + intrinsics[5]
+                fun budget(index: Int): Int {
+                    val sum = if (index % 2 == 0) normalSum else selectSum
+                    if (sum <= width || sum == 0) return intrinsics[index]
+                    return (width.toLong() * intrinsics[index] / sum).toInt()
+                }
+                val placeables = measurables.mapIndexed { index, measurable ->
+                    measurable.measure(
+                        constraints.copy(minWidth = 0, minHeight = 0, maxWidth = budget(index)),
+                    )
+                }
+                fun slotWidth(slot: Int): Int {
+                    val normal = placeables[slot * 2].width
+                    val select = placeables[slot * 2 + 1].width
+                    return normal + ((select - normal) * selectionProgress).roundToInt()
+                }
+                val height = placeables.maxOf { it.height }
+                val middle = slotWidth(0) + (width - slotWidth(2) - slotWidth(0) - slotWidth(1)) / 2
+                layout(width, height) {
+                    for (i in 0..5) {
+                        val slot = i / 2
+                        val x = when (slot) {
+                            0 -> 0
+                            1 -> middle + (slotWidth(1) - placeables[i].width) / 2
+                            else -> width - placeables[i].width
+                        }
+                        val y = (height - placeables[i].height) / 2
+                        placeables[i].placeRelative(x, y)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UserDictSlotButtons(
+    selecting: Boolean,
+    selectionProgress: Float,
+    normalText: String,
+    normalEnabled: Boolean,
+    onNormal: () -> Unit,
+    normalTag: String,
+    selectText: String,
+    selectEnabled: Boolean,
+    onSelect: () -> Unit,
+    selectTag: String,
+) {
+    AppPrimaryButton(
+        text = normalText,
+        onClick = onNormal,
+        enabled = !selecting && normalEnabled,
+        singleLine = true,
+        modifier = Modifier
+            .zIndex(if (selecting) 0f else 1f)
+            .alpha(1f - selectionProgress)
+            .then(if (selecting) Modifier.clearAndSetSemantics {} else Modifier)
+            .testTag(normalTag),
+    )
+    AppPrimaryButton(
+        text = selectText,
+        onClick = onSelect,
+        enabled = selecting && selectEnabled,
+        singleLine = true,
+        modifier = Modifier
+            .zIndex(if (selecting) 1f else 0f)
+            .alpha(selectionProgress)
+            .then(if (selecting) Modifier else Modifier.clearAndSetSemantics {})
+            .testTag(selectTag),
+    )
+}
+
+@Composable
+private fun UserDictListHeader(title: String, status: String? = null) {
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = AppSpacing.touchTarget)
+                .padding(horizontal = AppSpacing.rowHorizontal, vertical = AppSpacing.compactGap),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(AppSpacing.contentGap),
+        ) {
+            Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            if (status != null) {
+                Text(
+                    status,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.testTag("user_dict_auto_count"),
+                )
+            }
+        }
+        AppSectionDivider()
+    }
+}
+
+@Composable
+private fun UserDictListNote(
+    text: String,
+    modifier: Modifier = Modifier,
+    error: Boolean = false,
+) {
+    Column {
+        Text(
+            text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = if (error) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = modifier
+                .fillMaxWidth()
+                .padding(horizontal = AppSpacing.rowHorizontal, vertical = AppSpacing.contentGap),
+        )
+        AppSectionDivider()
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun UserDictAddSheet(
+    word: String,
+    reading: String,
+    onWordChange: (String) -> Unit,
+    onReadingChange: (String) -> Unit,
+    onAdd: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = AppShapes.sheet,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.testTag("user_dict_add_sheet"),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .imePadding()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = AppSpacing.screenHorizontal)
+                .padding(bottom = AppSpacing.pageBottom),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.contentGap),
+        ) {
+            Text(stringResource(R.string.user_dict_add_sheet_button), style = MaterialTheme.typography.titleLarge)
+            OutlinedTextField(
+                value = word,
+                onValueChange = onWordChange,
+                label = { Text(stringResource(R.string.user_dict_word_hint)) },
+                singleLine = true,
+                shape = AppShapes.section,
+                modifier = Modifier.fillMaxWidth().testTag("user_dict_new_word"),
+            )
+            OutlinedTextField(
+                value = reading,
+                onValueChange = onReadingChange,
+                label = { Text(stringResource(R.string.user_dict_reading_hint)) },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                shape = AppShapes.section,
+                modifier = Modifier.fillMaxWidth().testTag("user_dict_new_reading"),
+            )
+            AppPrimaryButton(
+                text = stringResource(R.string.user_dict_add_button),
+                onClick = onAdd,
+                modifier = Modifier.fillMaxWidth().testTag("user_dict_add"),
+            )
+        }
+    }
+}
+
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+private fun UserDictMoreSheet(
+    dictionaryPath: String,
+    learnedHasData: Boolean,
+    learnedReadable: Boolean,
+    onExport: () -> Unit,
+    onImport: () -> Unit,
+    onClearLearned: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        shape = AppShapes.sheet,
+        sheetState = sheetState,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.testTag("user_dict_more_sheet"),
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .padding(horizontal = AppSpacing.screenHorizontal)
+                .padding(bottom = AppSpacing.pageBottom),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.sectionGap),
+        ) {
+            Text(stringResource(R.string.user_dict_more_title), style = MaterialTheme.typography.titleLarge)
+            AppSection {
+                Column(
+                    modifier = Modifier.padding(AppSpacing.sectionPadding),
+                    verticalArrangement = Arrangement.spacedBy(AppSpacing.contentGap),
+                ) {
+                    Text(stringResource(R.string.user_dict_data_title), style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        stringResource(R.string.user_dict_description),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        stringResource(R.string.user_dict_default_path_format, dictionaryPath),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    AppPrimaryButton(
+                        text = stringResource(R.string.user_dict_export_button),
+                        onClick = onExport,
+                        modifier = Modifier.fillMaxWidth().testTag("user_dict_export"),
+                    )
+                    AppPrimaryButton(
+                        text = stringResource(R.string.user_dict_import_button),
+                        onClick = onImport,
+                        modifier = Modifier.fillMaxWidth().testTag("user_dict_import"),
+                    )
+                }
+            }
+            AppSection {
+                Column(
+                    modifier = Modifier.padding(AppSpacing.sectionPadding),
+                    verticalArrangement = Arrangement.spacedBy(AppSpacing.contentGap),
+                ) {
+                    Text(stringResource(R.string.user_dict_auto_title), style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        stringResource(R.string.user_dict_auto_description),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    AppPrimaryButton(
+                        text = stringResource(R.string.user_dict_auto_clear_button),
+                        onClick = onClearLearned,
+                        enabled = learnedHasData || !learnedReadable,
+                        modifier = Modifier.fillMaxWidth().testTag("user_dict_auto_clear"),
+                    )
+                }
+            }
+        }
+    }
+}
+
+private class PendingDelete(val word: String, val reading: String, val learned: Boolean)
 
 @Composable
 private fun LearnedEntryRow(
@@ -662,32 +966,47 @@ private fun DictEntryRow(
     onToggle: () -> Unit,
     onDelete: () -> Unit,
 ) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .then(
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(min = AppSpacing.rowMinHeight)
+                .then(
+                    if (selecting) {
+                        Modifier
+                            .clip(MaterialTheme.shapes.extraSmall)
+                            .toggleable(
+                                value = checked,
+                                role = Role.Checkbox,
+                                onValueChange = { onToggle() },
+                            )
+                    } else {
+                        Modifier
+                    },
+                )
+                .padding(start = AppSpacing.rowHorizontal, end = AppSpacing.compactGap),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.weight(1f).testTag("user_dict_entry_text"),
+            )
+            Box(
+                modifier = Modifier.width(96.dp),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
                 if (selecting) {
-                    Modifier.toggleable(value = checked, onValueChange = { onToggle() })
+                    Checkbox(checked = checked, onCheckedChange = null)
                 } else {
-                    Modifier
-                },
-            ),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (selecting) {
-            Checkbox(checked = checked, onCheckedChange = null)
-            Spacer(Modifier.width(8.dp))
-        }
-        Text(
-            text,
-            style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.weight(1f),
-        )
-        if (!selecting) {
-            Spacer(Modifier.width(8.dp))
-            TextButton(onClick = onDelete) {
-                Text(stringResource(R.string.user_dict_delete_button))
+                    AppPrimaryButton(
+                        text = stringResource(R.string.user_dict_delete_button),
+                        onClick = onDelete,
+                        singleLine = true,
+                    )
+                }
             }
         }
+        AppSectionDivider()
     }
 }
