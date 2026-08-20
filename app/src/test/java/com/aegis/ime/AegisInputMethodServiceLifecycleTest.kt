@@ -71,6 +71,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.shadows.ShadowToast
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 
@@ -102,6 +103,7 @@ class AegisInputMethodServiceLifecycleTest {
         var hidesSelection = false
         var hidesExtractedSelection = false
         var hidesExtractedText = false
+        var contextMenuAccepted = true
 
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
             surroundingDeletes.add(beforeLength)
@@ -168,7 +170,7 @@ class AegisInputMethodServiceLifecycleTest {
             contextMenuActions.add(id)
             onContextMenuAction(id)
             if (id == android.R.id.paste) commitText("SYSTEM_CLIPBOARD", 1)
-            return true
+            return contextMenuAccepted
         }
     }
 
@@ -546,6 +548,7 @@ class AegisInputMethodServiceLifecycleTest {
     }
 
     @Test fun edit_paste_replaces_the_selection_with_the_latest_aegis_entry_without_system_paste() {
+        ShadowToast.reset()
         val f = fixture()
         val connection = RecordingInputConnection(FrameLayout(f.service))
         installInputConnection(f.service, connection)
@@ -565,9 +568,11 @@ class AegisInputMethodServiceLifecycleTest {
         assertEquals("before Aegis latest after", connection.editable.toString())
         assertEquals(listOf("Aegis latest"), connection.committedChunks)
         assertTrue(connection.contextMenuActions.isEmpty())
+        assertEquals(f.service.getString(R.string.edit_paste_done), ShadowToast.getTextOfLatestToast())
     }
 
     @Test fun edit_paste_keeps_large_aegis_entries_on_the_chunked_commit_path() {
+        ShadowToast.reset()
         val f = fixture()
         val connection = RecordingInputConnection(FrameLayout(f.service))
         installInputConnection(f.service, connection)
@@ -583,9 +588,11 @@ class AegisInputMethodServiceLifecycleTest {
         assertEquals(big, connection.committedChunks.joinToString(""))
         assertEquals(big, connection.editable.toString())
         assertTrue(connection.contextMenuActions.isEmpty())
+        assertEquals(f.service.getString(R.string.edit_paste_done), ShadowToast.getTextOfLatestToast())
     }
 
     @Test fun edit_paste_does_nothing_when_aegis_history_is_empty() {
+        ShadowToast.reset()
         val f = fixture()
         val connection = RecordingInputConnection(FrameLayout(f.service))
         installInputConnection(f.service, connection)
@@ -598,6 +605,7 @@ class AegisInputMethodServiceLifecycleTest {
         assertEquals("", connection.editable.toString())
         assertTrue(connection.committedChunks.isEmpty())
         assertTrue(connection.contextMenuActions.isEmpty())
+        assertEquals(f.service.getString(R.string.edit_paste_empty), ShadowToast.getTextOfLatestToast())
     }
 
     @Test fun the_edit_panel_backspace_swipes_clear_and_restore_the_document() {
@@ -1167,6 +1175,7 @@ class AegisInputMethodServiceLifecycleTest {
             Triple(EditAction.CUT, android.R.id.cut, "cut from edit panel"),
         )
         for ((index, case) in cases.withIndex()) {
+            ShadowToast.reset()
             val (action, actionId, copiedText) = case
             val f = fixture()
             val connection = RecordingInputConnection(FrameLayout(f.service))
@@ -1203,6 +1212,10 @@ class AegisInputMethodServiceLifecycleTest {
             assertEquals(panelHeight, f.view.panelHeightPx())
             assertEquals(copiedText, cachedPanel(f.service, "lastCopy"))
             assertEquals(copiedText, store.historyText().firstOrNull())
+            assertEquals(
+                f.service.getString(if (action == EditAction.COPY) R.string.edit_copy_done else R.string.edit_cut_done),
+                ShadowToast.getTextOfLatestToast(),
+            )
 
             if (index == 0) {
                 handleEdit(f.service, EditAction.BACK)
@@ -1222,6 +1235,27 @@ class AegisInputMethodServiceLifecycleTest {
             assertTrue(f.view.copyBarShown)
             assertEquals(copiedText, f.view.copyBarForTest().contentForTest())
             assertEquals(rootHeight, f.view.measuredHeight)
+        }
+    }
+
+    @Test fun edit_copy_and_cut_report_a_rejected_editor_action() {
+        val cases = listOf(
+            EditAction.COPY to R.string.edit_copy_failed,
+            EditAction.CUT to R.string.edit_cut_failed,
+        )
+        for ((action, expected) in cases) {
+            ShadowToast.reset()
+            val f = fixture()
+            val connection = RecordingInputConnection(FrameLayout(f.service)).apply {
+                commitText("selected text", 1)
+                setSelection(0, "selected text".length)
+                contextMenuAccepted = false
+            }
+            installInputConnection(f.service, connection)
+
+            handleEdit(f.service, action)
+
+            assertEquals(f.service.getString(expected), ShadowToast.getTextOfLatestToast())
         }
     }
 

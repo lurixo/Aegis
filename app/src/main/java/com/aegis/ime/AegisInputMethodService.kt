@@ -806,10 +806,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 resetSelectionAnchor()
             }
             EditAction.COPY -> if (!editorReportsNoSelection()) {
-                currentInputConnection?.performContextMenuAction(android.R.id.copy)
+                val copied = currentInputConnection
+                    ?.performContextMenuAction(android.R.id.copy) == true
+                toast(getString(if (copied) R.string.edit_copy_done else R.string.edit_copy_failed))
             }
             EditAction.CUT -> if (!editorReportsNoSelection()) {
-                currentInputConnection?.performContextMenuAction(android.R.id.cut)
+                val cut = currentInputConnection
+                    ?.performContextMenuAction(android.R.id.cut) == true
+                toast(getString(if (cut) R.string.edit_cut_done else R.string.edit_cut_failed))
                 resetSelectionAnchor()
             }
             EditAction.SELECT_ALL -> {
@@ -820,7 +824,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 resetSelectionAnchor()
             }
             EditAction.PASTE -> {
-                clipboardStore.latest()?.let(::commitLargeText)
+                val latest = clipboardStore.latest()
+                val message = when {
+                    latest == null -> R.string.edit_paste_empty
+                    commitLargeText(latest) -> R.string.edit_paste_done
+                    else -> R.string.edit_paste_failed
+                }
+                toast(getString(message))
                 resetSelectionAnchor()
             }
             EditAction.BACK -> { stopSelecting(); inputView?.showPanel(null) }
@@ -1371,13 +1381,17 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         ic.endBatchEdit()
     }
 
-    private fun commitLargeText(text: CharSequence) {
-        if (panelInput.commit(text)) return
+    private fun commitLargeText(text: CharSequence): Boolean {
+        if (panelInput.commit(text)) return true
         controller.expireCandidateChoiceUndo()
-        val ic = currentInputConnection ?: return
+        val ic = currentInputConnection ?: return false
         ic.beginBatchEdit()
-        com.aegis.ime.ime.LargeCommit.commit(text) { ic.commitText(it, 1) }
+        var committed = true
+        com.aegis.ime.ime.LargeCommit.commit(text) {
+            committed = ic.commitText(it, 1) && committed
+        }
         ic.endBatchEdit()
+        return committed
     }
 
     override fun deleteBackward() {
