@@ -356,6 +356,15 @@
     <string name="edit_select_all">Select all</string>
     <string name="edit_paragraph_end">To end</string>
     <string name="edit_paste">Paste</string>
+    <string name="edit_select_all_done">Selected all</string>
+    <string name="edit_no_selection">Nothing selected</string>
+    <string name="edit_copy_done">Copied</string>
+    <string name="edit_copy_failed">Could not copy</string>
+    <string name="edit_cut_done">Cut</string>
+    <string name="edit_cut_failed">Could not cut</string>
+    <string name="edit_paste_done">Pasted</string>
+    <string name="edit_paste_failed">Could not paste</string>
+    <string name="edit_paste_empty">Aegis clipboard is empty</string>
     <string name="svc_edit_phrase">Edit phrase</string>
     <string name="svc_add_phrase">Add phrase</string>
     <string name="svc_note">Note</string>

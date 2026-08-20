@@ -353,6 +353,15 @@
     <string name="edit_select_all">全选</string>
     <string name="edit_paragraph_end">段尾</string>
     <string name="edit_paste">粘贴</string>
+    <string name="edit_select_all_done">已全选</string>
+    <string name="edit_no_selection">没有选中内容</string>
+    <string name="edit_copy_done">已复制</string>
+    <string name="edit_copy_failed">复制失败</string>
+    <string name="edit_cut_done">已剪切</string>
+    <string name="edit_cut_failed">剪切失败</string>
+    <string name="edit_paste_done">已粘贴</string>
+    <string name="edit_paste_failed">粘贴失败</string>
+    <string name="edit_paste_empty">Aegis 剪贴板为空</string>
     <string name="svc_edit_phrase">编辑常用语</string>
     <string name="svc_add_phrase">添加常用语</string>
     <string name="svc_note">备注</string>

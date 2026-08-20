@@ -530,7 +530,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPanelClear = { controller.onPanelClear() }
             onExpandClosed = { controller.clearDrill() }
             onCollapse = { requestHideSelf(0) }
-            onCopyCommit = { t -> commitLargeText(t) }
+            onCopyCommit = { t ->
+                toast(getString(if (commitLargeText(t)) R.string.edit_paste_done else R.string.edit_paste_failed))
+            }
             onCopySelectionChanged = { text ->
                 controller.expireCandidateChoiceUndo()
                 updateSplitSelection(text)
@@ -804,11 +806,19 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 controller.onKey(Key(action = key))
                 resetSelectionAnchor()
             }
-            EditAction.COPY -> if (!editorReportsNoSelection()) {
-                currentInputConnection?.performContextMenuAction(android.R.id.copy)
+            EditAction.COPY -> if (editorReportsNoSelection()) {
+                toast(getString(R.string.edit_no_selection))
+            } else {
+                val copied = currentInputConnection
+                    ?.performContextMenuAction(android.R.id.copy) == true
+                toast(getString(if (copied) R.string.edit_copy_done else R.string.edit_copy_failed))
             }
-            EditAction.CUT -> if (!editorReportsNoSelection()) {
-                currentInputConnection?.performContextMenuAction(android.R.id.cut)
+            EditAction.CUT -> if (editorReportsNoSelection()) {
+                toast(getString(R.string.edit_no_selection))
+            } else {
+                val cut = currentInputConnection
+                    ?.performContextMenuAction(android.R.id.cut) == true
+                toast(getString(if (cut) R.string.edit_cut_done else R.string.edit_cut_failed))
                 resetSelectionAnchor()
             }
             EditAction.SELECT_ALL -> {
@@ -817,9 +827,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                     sendKeyWithMeta(KeyEvent.KEYCODE_A, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON)
                 }
                 resetSelectionAnchor()
+                toast(getString(R.string.edit_select_all_done))
             }
             EditAction.PASTE -> {
-                clipboardStore.latest()?.let(::commitLargeText)
+                val latest = clipboardStore.latest()
+                val message = when {
+                    latest == null -> R.string.edit_paste_empty
+                    commitLargeText(latest) -> R.string.edit_paste_done
+                    else -> R.string.edit_paste_failed
+                }
+                toast(getString(message))
                 resetSelectionAnchor()
             }
             EditAction.BACK -> { stopSelecting(); inputView?.showPanel(null) }
@@ -1372,13 +1389,17 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         ic.endBatchEdit()
     }
 
-    private fun commitLargeText(text: CharSequence) {
-        if (panelInput.commit(text)) return
+    private fun commitLargeText(text: CharSequence): Boolean {
+        if (panelInput.commit(text)) return true
         controller.expireCandidateChoiceUndo()
-        val ic = currentInputConnection ?: return
+        val ic = currentInputConnection ?: return false
         ic.beginBatchEdit()
-        com.aegis.ime.ime.LargeCommit.commit(text) { ic.commitText(it, 1) }
+        var committed = true
+        com.aegis.ime.ime.LargeCommit.commit(text) {
+            committed = ic.commitText(it, 1) && committed
+        }
         ic.endBatchEdit()
+        return committed
     }
 
     override fun deleteBackward() {
