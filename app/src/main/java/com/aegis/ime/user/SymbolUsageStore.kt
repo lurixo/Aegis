@@ -22,11 +22,18 @@ import java.nio.file.Files
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.atomic.AtomicLong
 
 class SymbolUsageStore(private val dir: File) {
 
     data class Entry(val symbol: String, val origin: String?)
+
+    private data class RemovedEntry(
+        val entry: Entry,
+        val previousKey: String?,
+        val nextKey: String?,
+    )
 
     private val file get() = File(dir, "symbol_usage.txt")
     private val used = ArrayList<Entry>()
@@ -44,6 +51,7 @@ class SymbolUsageStore(private val dir: File) {
     private var clearFailed = false
 
     private var clearedAway: List<Entry> = emptyList()
+    private val failedRemovals = ConcurrentLinkedQueue<RemovedEntry>()
 
     @Volatile
     private var reportLane: Executor = Executor { it.run() }
@@ -64,7 +72,14 @@ class SymbolUsageStore(private val dir: File) {
     }
 
     fun load() {
-        settleClear()
+        val restored = settleDestructiveWrites(persistRecovery = false)
+        if (restored && readable && !LiveUserData.restoreInProgress) {
+            val recovered = serialize()
+            if (runCatching { onWriteLaneNow { writeRecoveryAtomically(recovered) } }.isFailure) {
+                readable = false
+                return
+            }
+        }
         loadGen.incrementAndGet()
         used.clear()
         val seen = HashSet<String>()
@@ -81,7 +96,7 @@ class SymbolUsageStore(private val dir: File) {
     }
 
     fun record(symbol: String, origin: String? = null) {
-        settleClear()
+        settleDestructiveWrites()
         if (symbol.isEmpty() || !readable) return
         val key = SymbolCatalog.foldFullWidth(symbol)
         used.removeAll { SymbolCatalog.foldFullWidth(it.symbol) == key }
@@ -92,7 +107,7 @@ class SymbolUsageStore(private val dir: File) {
     }
 
     fun clear(): Boolean {
-        settleClear()
+        settleDestructiveWrites()
         if (!readable) { reportWrite(false); return false }
         if (used.isEmpty()) return true
         clearedAway = ArrayList(used)
@@ -101,36 +116,87 @@ class SymbolUsageStore(private val dir: File) {
         return true
     }
 
-    private fun settleClear() {
-        if (!clearFailed) return
+    fun remove(symbol: String): Boolean {
+        settleDestructiveWrites()
+        if (!readable) { reportWrite(false); return false }
+        if (symbol.isEmpty()) return true
+        val key = SymbolCatalog.foldFullWidth(symbol)
+        val index = used.indexOfFirst { SymbolCatalog.foldFullWidth(it.symbol) == key }
+        if (index < 0) return true
+        val removed = RemovedEntry(
+            entry = used[index],
+            previousKey = used.getOrNull(index - 1)?.symbol?.let(SymbolCatalog::foldFullWidth),
+            nextKey = used.getOrNull(index + 1)?.symbol?.let(SymbolCatalog::foldFullWidth),
+        )
+        used.removeAt(index)
+        if (LiveUserData.restoreInProgress) return true
+        writeLater(serialize(), removed = removed)
+        return true
+    }
+
+    private fun settleDestructiveWrites(persistRecovery: Boolean = true): Boolean {
+        var restored = settleClear()
+        while (true) {
+            val removed = failedRemovals.poll() ?: break
+            val removedKey = SymbolCatalog.foldFullWidth(removed.entry.symbol)
+            if (used.any { SymbolCatalog.foldFullWidth(it.symbol) == removedKey }) continue
+            val nextIndex = removed.nextKey?.let { key ->
+                used.indexOfFirst { SymbolCatalog.foldFullWidth(it.symbol) == key }.takeIf { it >= 0 }
+            }
+            val previousIndex = removed.previousKey?.let { key ->
+                used.indexOfFirst { SymbolCatalog.foldFullWidth(it.symbol) == key }.takeIf { it >= 0 }
+            }
+            val index = nextIndex ?: previousIndex?.plus(1) ?: used.size
+            used.add(index.coerceIn(0, used.size), removed.entry)
+            restored = true
+        }
+        while (used.size > MAX) used.removeAt(used.size - 1)
+        if (restored && persistRecovery && readable && !LiveUserData.restoreInProgress) {
+            writeLater(serialize(), recovery = true)
+        }
+        return restored
+    }
+
+    private fun settleClear(): Boolean {
+        if (!clearFailed) return false
         clearFailed = false
         val back = clearedAway
         clearedAway = emptyList()
         val seen = used.mapTo(HashSet()) { SymbolCatalog.foldFullWidth(it.symbol) }
         for (e in back) if (seen.add(SymbolCatalog.foldFullWidth(e.symbol))) used.add(e)
         while (used.size > MAX) used.removeAt(used.size - 1)
+        return true
     }
 
-    private fun writeLater(text: String, tellClear: Boolean = false) {
+    private fun writeLater(
+        text: String,
+        tellClear: Boolean = false,
+        removed: RemovedEntry? = null,
+        recovery: Boolean = false,
+    ) {
         val gen = loadGen.get()
         val queued = runCatching {
             io.execute {
                 val overtaken = gen != loadGen.get()
-                val landed = !overtaken && runCatching { writeAtomically(text) }.isSuccess
-                if (tellClear) {
-                    if (!landed && !overtaken) clearFailed = true
+                val landed = !overtaken && runCatching {
+                    if (recovery) writeRecoveryAtomically(text) else writeAtomically(text)
+                }.isSuccess
+                if (tellClear || removed != null) {
+                    if (!landed && !overtaken && tellClear) clearFailed = true
+                    if (!landed && !overtaken && removed != null) failedRemovals.add(removed)
                     reportWrite(landed)
                 }
             }
         }.isSuccess
-        if (!queued && tellClear) {
-            clearFailed = true
+        if (!queued && (tellClear || removed != null)) {
+            if (tellClear) clearFailed = true
+            if (removed != null) failedRemovals.add(removed)
             reportWrite(false)
         }
     }
 
     fun importEntries(incoming: List<Entry>, merge: Boolean): Boolean {
-        settleClear()
+        settleDestructiveWrites()
         if (merge) {
             if (!readable) return false
         } else {
@@ -170,18 +236,23 @@ class SymbolUsageStore(private val dir: File) {
 
     private fun writeAtomically(text: String) = AtomicFileSwap.write(file, tmpTag, text)
 
+    private fun writeRecoveryAtomically(text: String) {
+        val current = if (file.exists()) file.readText().trimEnd('\r', '\n') else ""
+        if (current != text) writeAtomically(text)
+    }
+
     fun recent(n: Int = MAX): List<String> {
-        settleClear()
+        settleDestructiveWrites()
         return used.take(n).map { it.symbol }
     }
 
     fun recentEntries(n: Int = MAX): List<Entry> {
-        settleClear()
+        settleDestructiveWrites()
         return used.take(n)
     }
 
     fun originOf(symbol: String): String? {
-        settleClear()
+        settleDestructiveWrites()
         val key = SymbolCatalog.foldFullWidth(symbol)
         return used.firstOrNull { SymbolCatalog.foldFullWidth(it.symbol) == key }?.origin
     }

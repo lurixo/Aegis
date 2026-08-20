@@ -79,6 +79,29 @@ class EmojiVariantsUiTest {
         assertTrue(v.variantVisibleForTest())
     }
 
+    @Test fun recent_keeps_the_exact_tone_and_routes_long_press_to_confirmed_single_delete() {
+        val toned = EmojiVariants.applyTone("👋", EmojiVariants.SKIN_TONES[2])
+        val recents = mutableListOf(toned, "😀")
+        val removed = mutableListOf<String>()
+        val v = view().apply {
+            recentProvider = { recents.toList() }
+            onDeleteRecent = { emoji ->
+                removed += emoji
+                recents.remove(emoji)
+            }
+            openCategoryForTest(0)
+        }
+
+        assertEquals(listOf(toned, "😀"), v.gridCellTextsForTest())
+        assertTrue(v.longPressCellForTest(0))
+        assertFalse("recent emoji never opens the skin selector", v.variantVisibleForTest())
+        assertTrue(v.clearDialogVisibleForTest())
+        assertTrue("long-press alone does not delete", removed.isEmpty())
+        assertTrue(v.confirmClearForTest())
+        assertEquals(listOf(toned), removed)
+        assertEquals(listOf("😀"), v.gridCellTextsForTest())
+    }
+
     @Test fun a_plain_tap_still_commits_the_default_form() {
         val v = view()
         var committed = ""

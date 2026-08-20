@@ -18,6 +18,7 @@ package com.aegis.ime.ime
 import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.drawable.Drawable
 import android.graphics.Rect
 import android.os.Looper
@@ -28,6 +29,7 @@ import android.view.ViewGroup
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.Layouts
+import java.time.Duration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertFalse
@@ -116,15 +118,15 @@ class BottomBarSymmetryTest {
     private fun assertClickTargetMatchesFaceAndCentersGlyph(control: TextView, name: String) {
         val background = requireNotNull(control.background)
         background.setBounds(0, 0, control.width, control.height)
-        val face = opaqueBounds(control.width, control.height) { background.draw(it) }
+        val face = (background as ImeKeySurface).faceBoundsForTest(control.width, control.height)
 
         control.background = null
         val glyph = opaqueBounds(control.width, control.height) { control.draw(it) }
         control.background = background
 
-        assertEquals("$name face width matches its click target", control.width, face.width())
-        assertEquals("$name face height matches its click target", control.height, face.height())
-        assertEquals("$name glyph has equal left and right face clearance", face.exactCenterX(), glyph.exactCenterX(), 0.6f)
+        assertEquals("$name face width matches its click target", control.width.toFloat(), face.width(), 0f)
+        assertEquals("$name face height matches its click target", control.height.toFloat(), face.height(), 0f)
+        assertEquals("$name glyph has equal left and right face clearance", face.centerX(), glyph.exactCenterX(), 0.6f)
     }
 
     private fun tap(root: View, x: Float, y: Float) {
@@ -139,10 +141,15 @@ class BottomBarSymmetryTest {
     }
 
     private fun tapDeadSpaceAfterEachControl(root: ViewGroup, controls: List<View>) {
-        val slotWidth = root.width / 4
-        for (control in controls) {
+        val ordered = controls.sortedBy { bounds(root, it).left }
+        for ((index, control) in ordered.withIndex()) {
             val target = bounds(root, control)
-            val deadWidth = slotWidth - target.width()
+            val nextLeft = ordered.getOrNull(index + 1)?.let { bounds(root, it).left } ?: root.width
+            val deadWidth = nextLeft - target.right
+            if (index == ordered.lastIndex && deadWidth == 0) {
+                assertEquals("the sixth-column action may meet the panel edge exactly", root.width, target.right)
+                continue
+            }
             assertTrue("each fixed action keeps non-clickable space after its face", deadWidth > 0)
             tap(root, target.right + deadWidth / 2f, target.exactCenterY())
         }
@@ -151,7 +158,6 @@ class BottomBarSymmetryTest {
     private fun assertControlsUseKeySurfaces(
         controls: List<TextView>,
         name: String,
-        palette: ImePalette,
     ) {
         var radius: Float? = null
         for (control in controls) {
@@ -160,7 +166,7 @@ class BottomBarSymmetryTest {
             assertNull("$name control uses its shared animated surface instead of a foreground ripple", control.foreground)
             val surface = control.background as ImeKeySurface
             val face = surface.faceBoundsForTest(control.width, control.height)
-            assertEquals("$name control face color", palette.keySurface, surface.faceColor)
+            assertEquals("$name control resting face is transparent", Color.TRANSPARENT, surface.faceColor)
             assertEquals("$name control face left", 0f, face.left, 0f)
             assertEquals("$name control face top", 0f, face.top, 0f)
             assertEquals("$name control face right", control.width.toFloat(), face.right, 0f)
@@ -170,19 +176,32 @@ class BottomBarSymmetryTest {
         }
     }
 
+    private fun assertPressStateLayer(control: TextView, name: String) {
+        val x = control.width / 2f
+        val y = control.height / 2f
+        control.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, x, y, 0))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(Motion.PRESS_IN))
+        val background = requireNotNull(control.background)
+        background.setBounds(0, 0, control.width, control.height)
+        val pressed = opaqueBounds(control.width, control.height) { background.draw(it) }
+        assertEquals("$name pressed layer keeps the full hit width", control.width, pressed.width())
+        assertEquals("$name pressed layer keeps the full hit height", control.height, pressed.height())
+        control.dispatchTouchEvent(MotionEvent.obtain(0, 10, MotionEvent.ACTION_CANCEL, x, y, 0))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(Motion.PRESS_OUT))
+    }
+
     private fun assertAxes(
         view: ViewGroup,
         back: TextView,
         clear: TextView,
         lock: TextView,
         backspace: TextView,
+        axisViews: List<View>,
         name: String,
     ) {
         val controls = listOf(back, clear, lock, backspace)
         val centers = controls.map { centerX(view, it) }
         assertEquals(controls, controls.sortedBy { centerX(view, it) })
-        assertEquals(centers[1] - centers[0], centers[2] - centers[1], 1f)
-        assertEquals(centers[2] - centers[1], centers[3] - centers[2], 1f)
 
         val backBounds = bounds(view, back)
         val clearBounds = bounds(view, clear)
@@ -191,7 +210,6 @@ class BottomBarSymmetryTest {
         val metrics = ImePanelSurfaceMetrics.resolve(view.resources.displayMetrics.density)
         val actionWidth = (Layouts.CANDIDATE_ACTION_WIDTH_DP * view.resources.displayMetrics.density).toInt()
         assertEquals(metrics.actionWidthPx, actionWidth)
-        val controlBounds = listOf(backBounds, clearBounds, lockBounds, backspaceBounds)
         assertEquals(actionWidth, backBounds.width())
         assertEquals(backBounds.width(), clearBounds.width())
         assertEquals(backBounds.width(), lockBounds.width())
@@ -201,8 +219,8 @@ class BottomBarSymmetryTest {
         assertEquals(backBounds.height(), backspaceBounds.height())
         assertEquals(metrics.actionWidthPx, backBounds.width())
         assertEquals(metrics.faceHeightPx, backBounds.height())
-        controlBounds.forEachIndexed { index, control ->
-            assertEquals("$name control $index keeps its physical x", index * (view.width / 4), control.left)
+        centers.forEachIndexed { index, center ->
+            assertEquals("$name control $index follows the rendered rail/grid axis", centerX(view, axisViews[index]), center, 0.6f)
         }
         controls.forEachIndexed { index, control ->
             assertClickTargetMatchesFaceAndCentersGlyph(control, "$name control $index")
@@ -246,19 +264,26 @@ class BottomBarSymmetryTest {
                     clear,
                     view.lockBtnForTest(),
                     backspace,
+                    listOf(
+                        view.railTabForTest(0),
+                        requireNotNull(view.gridCellForTest("2")),
+                        requireNotNull(view.gridCellForTest("4")),
+                        requireNotNull(view.gridCellForTest("6")),
+                    ),
                     "SymbolsView",
                 )
-                assertControlsUseKeySurfaces(controls, "SymbolsView", ImePalette.STATIC_LIGHT)
+                assertControlsUseKeySurfaces(controls, "SymbolsView")
+                controls.forEachIndexed { index, control -> assertPressStateLayer(control, "SymbolsView control $index") }
                 view.applyPalette(ImePalette.STATIC_DARK)
-                assertControlsUseKeySurfaces(controls, "SymbolsView", ImePalette.STATIC_DARK)
+                assertControlsUseKeySurfaces(controls, "SymbolsView")
                 view.toggleLockForTest()
                 shadowOf(Looper.getMainLooper()).idle()
-                assertControlsUseKeySurfaces(controls, "SymbolsView locked", ImePalette.STATIC_DARK)
+                assertControlsUseKeySurfaces(controls, "SymbolsView locked")
                 view.applyPalette(ImePalette.STATIC_LIGHT)
-                assertControlsUseKeySurfaces(controls, "SymbolsView locked light", ImePalette.STATIC_LIGHT)
+                assertControlsUseKeySurfaces(controls, "SymbolsView locked light")
                 view.toggleLockForTest()
                 shadowOf(Looper.getMainLooper()).idle()
-                assertControlsUseKeySurfaces(controls, "SymbolsView unlocked light", ImePalette.STATIC_LIGHT)
+                assertControlsUseKeySurfaces(controls, "SymbolsView unlocked light")
             }
         }
     }
@@ -270,6 +295,7 @@ class BottomBarSymmetryTest {
                     this.layoutDirection = layoutDirection
                     recentProvider = { (1..7).map(Int::toString) }
                     applyPalette(ImePalette.STATIC_LIGHT)
+                    refresh()
                 }
                 layout(view, width)
                 val back = view.backBtnForTest()
@@ -282,19 +308,26 @@ class BottomBarSymmetryTest {
                     clear,
                     view.lockBtnForTest(),
                     backspace,
+                    listOf(
+                        view.railTabForTest(0),
+                        requireNotNull(view.gridCellForTest(1)),
+                        requireNotNull(view.gridCellForTest(3)),
+                        requireNotNull(view.gridCellForTest(5)),
+                    ),
                     "EmojiView",
                 )
-                assertControlsUseKeySurfaces(controls, "EmojiView", ImePalette.STATIC_LIGHT)
+                assertControlsUseKeySurfaces(controls, "EmojiView")
+                controls.forEachIndexed { index, control -> assertPressStateLayer(control, "EmojiView control $index") }
                 view.applyPalette(ImePalette.STATIC_DARK)
-                assertControlsUseKeySurfaces(controls, "EmojiView", ImePalette.STATIC_DARK)
+                assertControlsUseKeySurfaces(controls, "EmojiView")
                 view.toggleLockForTest()
                 shadowOf(Looper.getMainLooper()).idle()
-                assertControlsUseKeySurfaces(controls, "EmojiView locked", ImePalette.STATIC_DARK)
+                assertControlsUseKeySurfaces(controls, "EmojiView locked")
                 view.applyPalette(ImePalette.STATIC_LIGHT)
-                assertControlsUseKeySurfaces(controls, "EmojiView locked light", ImePalette.STATIC_LIGHT)
+                assertControlsUseKeySurfaces(controls, "EmojiView locked light")
                 view.toggleLockForTest()
                 shadowOf(Looper.getMainLooper()).idle()
-                assertControlsUseKeySurfaces(controls, "EmojiView unlocked light", ImePalette.STATIC_LIGHT)
+                assertControlsUseKeySurfaces(controls, "EmojiView unlocked light")
             }
         }
     }

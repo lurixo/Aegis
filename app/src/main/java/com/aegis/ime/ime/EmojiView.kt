@@ -43,11 +43,14 @@ import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.layout.EmojiCatalog
 import com.aegis.ime.layout.EmojiVariants
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar, KeyHapticsAware {
 
     var onEmoji: (String) -> Unit = {}
     var onClearRecents: () -> Unit = {}
+    var onDeleteRecent: (String) -> Unit = {}
     var onBackspace: () -> Unit = {}
     var onBackspaceSwipe: (Boolean) -> Unit = {}
     var onBack: () -> Unit = {}
@@ -65,6 +68,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
     private val rail = LinearLayout(context).apply { orientation = VERTICAL }
     private val railScroll = ScrollView(context).apply { addView(rail) }
     private val grid = GridLayout(context).apply {
+        layoutDirection = View.LAYOUT_DIRECTION_LTR
         columnCount = COLUMNS
         setPadding(
             surfaceMetrics.gridSidePaddingPx,
@@ -103,18 +107,22 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
     private var locked = false
     private val backGlyph = IconDrawable(density, 0.41f) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }
     private val backBtn = barButton("") { onBack() }
+    private val backSlot = FrameLayout(context)
     private val lockBtn = barButton("") { toggleLock() }
     private val lockSlot = FrameLayout(context)
     private val lockGlyph = LockDrawable(density)
     private val clearGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y - s * 0.06f, s) }
     private val clearBtn = barButton("") { showClearConfirmation() }
+    private val clearSlot = FrameLayout(context)
     private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
     private val backspaceBtn = barButton("") { onBackspace() }
+    private val backspaceSlot = FrameLayout(context)
+    private val bottomSlots = listOf(backSlot, clearSlot, lockSlot, backspaceSlot)
     private val bottomBarView = bottomBar()
-    private val backFeedback = ImeKeyFeedback(backBtn, palette.keySurface, palette.keyLabelSecondary, faceInsetDp = 0f)
-    private val lockFeedback = ImeKeyFeedback(lockBtn, palette.keySurface, palette.keyLabelSecondary, faceInsetDp = 0f)
-    private val clearFeedback = ImeKeyFeedback(clearBtn, palette.keySurface, palette.keyLabelSecondary, faceInsetDp = 0f)
-    private val backspaceFeedback = ImeKeyFeedback(backspaceBtn, palette.keySurface, palette.keyLabelSecondary, faceInsetDp = 0f)
+    private val backFeedback = ImeKeyFeedback(backBtn, Color.TRANSPARENT, palette.keyLabelSecondary, faceInsetDp = 0f)
+    private val lockFeedback = ImeKeyFeedback(lockBtn, Color.TRANSPARENT, palette.keyLabelSecondary, faceInsetDp = 0f)
+    private val clearFeedback = ImeKeyFeedback(clearBtn, Color.TRANSPARENT, palette.keyLabelSecondary, faceInsetDp = 0f)
+    private val backspaceFeedback = ImeKeyFeedback(backspaceBtn, Color.TRANSPARENT, palette.keyLabelSecondary, faceInsetDp = 0f)
     private val backspaceTouch = ImeBackspaceTouch(
         backspaceBtn,
         backspaceFeedback,
@@ -135,7 +143,10 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
     }
     private val emojiLongClick = View.OnLongClickListener { v ->
         val e = (v as TextView).text.toString()
-        if (EmojiVariants.hasVariants(e)) {
+        if (selected == 0) {
+            showDeleteConfirmation(e)
+            true
+        } else if (EmojiVariants.hasVariants(e)) {
             openVariants(e)
             variantOwnsPointer = true
             parent?.requestDisallowInterceptTouchEvent(true)
@@ -170,6 +181,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         variantCard.addView(variantSkinRow)
         val content = LinearLayout(context).apply {
             orientation = HORIZONTAL
+            layoutDirection = View.LAYOUT_DIRECTION_LTR
             railScroll.setBackgroundColor(palette.keyboardBg)
             addView(railScroll, LayoutParams(surfaceMetrics.railWidthPx, LayoutParams.MATCH_PARENT))
             addView(gridFrame, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
@@ -193,9 +205,9 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         railScroll.setBackgroundColor(p.keyboardBg)
         bottomBarView.setBackgroundColor(p.keyboardBg)
         for (button in listOf(backBtn, clearBtn, backspaceBtn)) button.setTextColor(p.keyLabelSecondary)
-        backFeedback.update(p.keySurface, p.keyLabelSecondary)
-        clearFeedback.update(p.keySurface, p.keyLabelSecondary)
-        backspaceFeedback.update(p.keySurface, p.keyLabelSecondary)
+        backFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
+        clearFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
+        backspaceFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
         backGlyph.tint(p.keyLabelSecondary)
         clearGlyph.tint(p.keyLabelSecondary)
         backspaceGlyph.tint(p.keyLabelSecondary)
@@ -240,7 +252,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         lockGlyph.closed = locked
         lockGlyph.tint(tint)
         lockBtn.isSelected = locked
-        lockFeedback.update(palette.keySurface, tint)
+        lockFeedback.update(Color.TRANSPARENT, tint)
     }
 
     internal fun selectedCategoryForTest(): Int = selected
@@ -561,10 +573,34 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         }
     }
 
-    private fun bottomBar(): View = LinearLayout(context).apply {
-        orientation = HORIZONTAL
+    private fun showDeleteConfirmation(emoji: String) {
+        clearDialog.show(
+            context.getString(R.string.emoji_delete_recent_confirm, emoji),
+            context.getString(R.string.clip_delete),
+            context.getString(R.string.clip_cancel),
+            palette,
+        ) {
+            onDeleteRecent(emoji)
+            showCategory(selected)
+        }
+    }
+
+    private fun bottomBar(): View = object : FrameLayout(context) {
+        override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
+            val actionLefts = bottomActionLefts(right - left)
+            for (index in bottomSlots.indices) {
+                val slot = bottomSlots[index]
+                val slotRight = if (index + 1 < actionLefts.size) actionLefts[index + 1] else right - left
+                slot.layout(
+                    actionLefts[index],
+                    0,
+                    maxOf(actionLefts[index] + surfaceMetrics.actionWidthPx, slotRight),
+                    bottom - top,
+                )
+            }
+        }
+    }.apply {
         layoutDirection = View.LAYOUT_DIRECTION_LTR
-        gravity = Gravity.CENTER_VERTICAL
         setBackgroundColor(palette.keyboardBg)
         backBtn.gravity = Gravity.CENTER; backBtn.setPadding(0, 0, 0, 0)
         clearBtn.gravity = Gravity.CENTER; clearBtn.setPadding(0, 0, 0, 0)
@@ -572,12 +608,58 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         backspaceBtn.gravity = Gravity.CENTER; backspaceBtn.setPadding(0, 0, 0, 0)
         val actionWidth = surfaceMetrics.actionWidthPx
         val slots = listOf(
-            panelBottomActionSlot(FrameLayout(context), backBtn, actionWidth),
-            panelBottomActionSlot(FrameLayout(context), clearBtn, actionWidth),
+            panelBottomActionSlot(backSlot, backBtn, actionWidth),
+            panelBottomActionSlot(clearSlot, clearBtn, actionWidth),
             panelBottomActionSlot(lockSlot, lockBtn, actionWidth),
-            panelBottomActionSlot(FrameLayout(context), backspaceBtn, actionWidth),
+            panelBottomActionSlot(backspaceSlot, backspaceBtn, actionWidth),
         )
-        for (slot in slots) addView(slot, LinearLayout.LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        for (slot in slots) {
+            slot.layoutDirection = View.LAYOUT_DIRECTION_LTR
+            addView(slot, FrameLayout.LayoutParams(actionWidth, LayoutParams.MATCH_PARENT))
+        }
+    }
+
+    private fun bottomActionLefts(panelWidth: Int): IntArray {
+        val actionWidth = surfaceMetrics.actionWidthPx
+        val maximumLeft = (panelWidth - actionWidth).coerceAtLeast(0)
+        val columns = if (grid.columnCount >= 6) {
+            intArrayOf(1, 3, 5)
+        } else {
+            intArrayOf(0, (grid.columnCount - 1) / 2, grid.columnCount - 1)
+        }
+        val fallbackGridCenters = FloatArray(columns.size) { index ->
+            surfaceMetrics.railWidthPx + surfaceMetrics.gridSidePaddingPx + (columns[index] + 0.5f) * gridCellWidthPx
+        }
+        val rawCenters = floatArrayOf(
+            surfaceMetrics.railWidthPx / 2f,
+            renderedGridCenter(fallbackGridCenters[0]),
+            renderedGridCenter(fallbackGridCenters[1]),
+            renderedGridCenter(fallbackGridCenters[2]),
+        )
+        val lefts = IntArray(rawCenters.size) { index ->
+            (rawCenters[index] - actionWidth / 2f).roundToInt().coerceIn(0, maximumLeft)
+        }
+        for (index in 1 until lefts.size) lefts[index] = maxOf(lefts[index], lefts[index - 1] + actionWidth)
+        if (lefts.last() > maximumLeft) {
+            lefts[lefts.lastIndex] = maximumLeft
+            for (index in lefts.lastIndex - 1 downTo 0) {
+                lefts[index] = minOf(lefts[index], lefts[index + 1] - actionWidth)
+            }
+        }
+        return lefts
+    }
+
+    private fun renderedGridCenter(fallback: Float): Float {
+        val relativeFallback = fallback - surfaceMetrics.railWidthPx
+        val nearest = (0 until grid.childCount)
+            .map { grid.getChildAt(it) }
+            .filter { it.width > 0 && it.layoutParams.width == gridCellWidthPx }
+            .minByOrNull { abs(it.left + it.width / 2f - relativeFallback) }
+            ?: return fallback
+        val center = nearest.left + nearest.width / 2f
+        return if (abs(center - relativeFallback) <= gridCellWidthPx / 2f) {
+            surfaceMetrics.railWidthPx + center
+        } else fallback
     }
 
     private fun barButton(label: String, onClick: () -> Unit): TextView = TextView(context).apply {

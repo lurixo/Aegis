@@ -299,12 +299,14 @@
     <string name="lang_en">EN</string>
     <string name="panel_back">返回</string>
     <string name="panel_lock">锁定</string>
-    <string name="emoji_clear_recent">清空最近表情</string>
-    <string name="emoji_clear_recent_confirm">清空最近使用的表情?</string>
+    <string name="emoji_clear_recent">清空常用表情</string>
+    <string name="emoji_clear_recent_confirm">清空常用表情？</string>
+    <string name="emoji_delete_recent_confirm">从常用表情中删除「%1$s」？</string>
     <string name="symbols_clear_recent">清空常用符号</string>
-    <string name="symbols_clear_recent_confirm">清空常用符号?</string>
-    <string name="emoji_empty_hint">最近使用的表情会显示在这里</string>
-    <string name="symbols_empty_hint">最近使用的符号会显示在这里</string>
+    <string name="symbols_clear_recent_confirm">清空常用符号？</string>
+    <string name="symbols_delete_recent_confirm">从常用符号中删除「%1$s」？</string>
+    <string name="emoji_empty_hint">常用表情会显示在这里</string>
+    <string name="symbols_empty_hint">常用符号会显示在这里</string>
 
     <string name="sym_cat_recent">常用</string>
     <string name="sym_cat_zh">中文</string>
@@ -368,7 +370,7 @@
     <string name="svc_new_category">新建分类</string>
     <string name="svc_rename_category">重命名分类</string>
     <string name="svc_saved_to_clipboard">已存入剪贴板</string>
-    <string name="svc_recents_not_cleared">最近使用没能清空，它们还在</string>
+    <string name="svc_recents_update_failed">常用记录更新失败，已恢复原内容</string>
     <string name="clip_back">返回</string>
     <string name="clip_add_phrase">添加常用语</string>
     <string name="clip_clear_category">清空分类</string>
