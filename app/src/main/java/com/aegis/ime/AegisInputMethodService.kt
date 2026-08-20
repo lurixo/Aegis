@@ -1278,8 +1278,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun historyEnabled() = getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true)
-    private fun setHistoryEnabled(on: Boolean) =
+    private fun setHistoryEnabled(on: Boolean) {
         getSharedPreferences("aegis", MODE_PRIVATE).edit().putBoolean("clip_history", on).apply()
+        toast(getString(if (on) R.string.clip_history_resumed else R.string.clip_history_paused))
+    }
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)

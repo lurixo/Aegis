@@ -17,6 +17,7 @@ package com.aegis.ime.ime
 
 import com.aegis.ime.user.asClipEntries
 import com.aegis.ime.user.clipEntries
+import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.graphics.Rect
 import android.view.Gravity
@@ -27,6 +28,7 @@ import android.widget.HorizontalScrollView
 import android.widget.ScrollView
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -85,10 +87,6 @@ class Debug17PanelTest {
     private fun clickDesc(root: View, desc: String): Boolean {
         val v = allViews(root).firstOrNull { it.contentDescription?.toString() == desc && it.hasOnClickListeners() } ?: return false
         v.performClick(); return true
-    }
-    private fun longClickDesc(root: View, desc: String): Boolean {
-        val v = allViews(root).firstOrNull { it.contentDescription?.toString() == desc && it.hasOnClickListeners() } ?: return false
-        return v.performLongClick()
     }
     private fun dp(value: Int): Int = (value * ctx.resources.displayMetrics.density).toInt()
     private fun swipeActions(v: ClipboardView, text: String): List<View> {
@@ -184,13 +182,15 @@ class Debug17PanelTest {
         val rename = ctx.getString(com.aegis.ime.R.string.clip_rename_named, "工作")
         val delete = ctx.getString(com.aegis.ime.R.string.clip_delete_named, "工作")
         assertTrue(category.performLongClick())
-        assertActionPopup(v, listOf(rename, delete))
-        assertTrue(click(overlayOf(v), rename))
+        assertEquals(
+            listOf(ctx.getString(com.aegis.ime.R.string.clip_rename), "工作", ctx.getString(com.aegis.ime.R.string.clip_delete), "工作"),
+            labels(overlayOf(v)),
+        )
+        assertTrue(clickDesc(overlayOf(v), rename))
         assertEquals("工作", renamed)
         assertNull(deleted)
         assertTrue(category.performLongClick())
-        assertActionPopup(v, listOf(rename, delete))
-        assertTrue(click(overlayOf(v), delete))
+        assertTrue(clickDesc(overlayOf(v), delete))
         assertEquals("工作", deleted)
     }
 
@@ -652,10 +652,16 @@ class Debug17PanelTest {
         assertEquals("confirmed clear fires once", 1, clears)
     }
 
-    @Test fun clipboard_clear_icon_long_press_keeps_recording_toggle_reachable() {
+    @Test fun clipboard_recording_toggle_is_visible_and_clear_has_no_long_press_action() {
         val v = clipView()
-        assertTrue(longClickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_clear_history)))
-        assertTrue("history recording toggle remains reachable", labels(overlayOf(v)).any { it == ctx.getString(com.aegis.ime.R.string.clip_history_recording_on) || it == ctx.getString(com.aegis.ime.R.string.clip_history_recording_off) })
+        assertTrue(
+            "history recording toggle is visible in the former blank slot",
+            ctx.getString(com.aegis.ime.R.string.clip_pause_history) in descs(mainOf(v)),
+        )
+        val clear = allViews(v).single {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_clear_history)
+        }
+        assertFalse("clear-history no longer owns the recording toggle", clear.isLongClickable)
     }
 
     @Test fun clipboard_and_phrase_tabs_share_a_capsule_and_highlight_the_selected_half() {
@@ -766,7 +772,14 @@ class Debug17PanelTest {
         assertEquals(pal.keyLabel, manage.currentTextColor)
         assertTrue(category.background is GradientDrawable)
         assertTrue(inactiveCategory.background == null)
-        assertTrue(manage.background == null)
+        val manageSurface = manage.background as ImeKeySurface
+        assertEquals(Color.TRANSPARENT, manageSurface.faceColor)
+        assertEquals(
+            ImeShapes.toolbarPillRadiusDp * ctx.resources.displayMetrics.density,
+            manageSurface.cornerRadiusPx,
+            0f,
+        )
+        assertNull(manage.foreground)
         assertTrue(categoryScroll.parent === manage.parent)
         val categorySurface = (categoryScroll.parent as View).background as GradientDrawable
         assertTrue(categorySurface.cornerRadius > 0f)

@@ -401,6 +401,7 @@
     <string name="clip_clear_history_confirm">Clear clipboard history?</string>
     <string name="clip_rename_named">Rename \"%1$s\"</string>
     <string name="clip_delete_named">Delete \"%1$s\"</string>
+    <string name="clip_rename">Rename</string>
     <string name="clip_select_all">Select all</string>
     <string name="clip_edit_phrases">Batch phrases</string>
     <string name="clip_edit_clipboard">Batch clipboard</string>
@@ -415,8 +416,10 @@
     <string name="clip_delete_clip_confirm">Delete the selected clipboard item(s)?</string>
     <string name="clip_delete_phrase_confirm">Delete the selected phrase(s)?</string>
     <string name="clip_split_title">Split into words</string>
-    <string name="clip_history_recording_on">Clipboard history: On</string>
-    <string name="clip_history_recording_off">Clipboard history: Off</string>
+    <string name="clip_history_resumed">Clipboard history on</string>
+    <string name="clip_history_paused">Clipboard history off</string>
+    <string name="clip_pause_history">Pause clipboard history</string>
+    <string name="clip_resume_history">Resume clipboard history</string>
     <string name="clip_choose_category">Choose category</string>
     <string name="clip_nothing_to_split">Nothing to split</string>
     <string name="clip_copy_all">Copy all</string>

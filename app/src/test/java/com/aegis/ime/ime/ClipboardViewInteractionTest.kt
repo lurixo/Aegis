@@ -72,6 +72,33 @@ class ClipboardViewInteractionTest {
     private fun send(v: View, action: Int, x: Float, y: Float, t: Long) =
         v.dispatchTouchEvent(MotionEvent.obtain(0, t, action, x, y, 0))
 
+    private fun sendPointers(
+        view: View,
+        action: Int,
+        time: Long,
+        ids: IntArray,
+        xs: FloatArray,
+        ys: FloatArray,
+    ): Boolean {
+        val properties = Array(ids.size) {
+            MotionEvent.PointerProperties().apply {
+                id = ids[it]
+                toolType = MotionEvent.TOOL_TYPE_FINGER
+            }
+        }
+        val coordinates = Array(ids.size) {
+            MotionEvent.PointerCoords().apply {
+                x = xs[it]
+                y = ys[it]
+                pressure = 1f
+                size = 1f
+            }
+        }
+        return view.dispatchTouchEvent(
+            MotionEvent.obtain(0, time, action, ids.size, properties, coordinates, 0, 0, 1f, 1f, 0, 0, 0, 0),
+        )
+    }
+
     private fun leftSwipe(target: View, dx: Float) {
         send(target, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
         send(target, MotionEvent.ACTION_MOVE, 320f - dx, 12f, 16)
@@ -227,6 +254,7 @@ class ClipboardViewInteractionTest {
 
         val selected = clipView(listOf("a", "b")).apply { enterSelectForTest(listOf("a")) }
         layout(selected)
+        assertImmediateKey(selected, requireNotNull(selected.listRowViewForTest(0)), "selection row")
         assertImmediateKey(selected, requireNotNull(selected.selectAllActionForTest()), "select all")
         assertImmediateKey(selected, requireNotNull(selected.cancelSelectActionForTest()), "cancel selection")
 
@@ -255,7 +283,7 @@ class ClipboardViewInteractionTest {
         )
     }
 
-    @Test fun content_navigation_filters_menus_split_chips_and_drag_handles_keep_their_existing_semantics() {
+    @Test fun content_navigation_keeps_complex_gestures_while_simple_menu_actions_use_key_feedback() {
         val phrase = phraseView(listOf("你好"))
         layout(phrase)
         val body = bodyOf(phrase, "你好")
@@ -270,8 +298,9 @@ class ClipboardViewInteractionTest {
         }
         phrase.showPhraseManageMenuForTest()
         val menu = textViews(overlayOf(phrase)).first { it.hasOnClickListeners() }
-        assertFalse(phrase.isImmediateActionForTest(menu))
-        assertTrue(menu.foreground is RippleDrawable)
+        assertTrue(phrase.isImmediateActionForTest(menu))
+        assertTrue(menu.background === phrase.immediateActionDrawableForTest(menu))
+        assertNull(menu.foreground)
 
         val split = clipView(listOf("one two")).apply { showSplitForTest("one two") }
         layout(split)
@@ -1056,6 +1085,110 @@ class ClipboardViewInteractionTest {
         assertTrue(clickText(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_clear)))
         assertEquals("confirming clears history", 1, clears)
         assertFalse("old settings gear is gone", allViews(v).any { it.contentDescription?.toString() == "设置" })
+    }
+
+    @Test fun clipboard_top_slot_exposes_pause_and_resume_without_overloading_the_trash_button() {
+        var enabled = true
+        val changes = ArrayList<Boolean>()
+        val v = clipView(listOf("第一条")).apply {
+            historyEnabledProvider = { enabled }
+            onSetHistoryEnabled = { next -> enabled = next; changes += next }
+        }
+        layout(v)
+
+        val pause = allViews(v).single {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_pause_history)
+        }
+        assertImmediateKey(v, pause, "pause history")
+        assertTrue(pause.performClick())
+        assertEquals(listOf(false), changes)
+
+        layout(v)
+        val resume = allViews(v).single {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_resume_history)
+        }
+        assertImmediateKey(v, resume, "resume history")
+        val trash = allViews(v).single {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_clear_history)
+        }
+        assertFalse("trash no longer hides the history toggle behind long press", trash.isLongClickable)
+        assertTrue(resume.performClick())
+        assertEquals(listOf(false, true), changes)
+    }
+
+    @Test fun confirmation_actions_are_compact_on_one_row_with_the_destructive_action_first() {
+        val v = phraseView(listOf("你好"))
+        v.confirmClearForTest()
+        layout(v)
+        val overlay = overlayOf(v)
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_clear_category_confirm, "默认") in labels(overlay))
+        val clear = textViews(overlay).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_clear) }
+        val cancel = textViews(overlay).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_cancel) }
+        val row = clear.parent as ViewGroup
+        assertTrue(row === cancel.parent)
+        assertEquals(3, row.childCount)
+        assertTrue(clear.left < cancel.left)
+        assertEquals(dp(14), row.getChildAt(1).width)
+        assertTrue(v.isImmediateActionForTest(clear))
+        assertTrue(v.isImmediateActionForTest(cancel))
+        assertEquals(0f, (clear.layoutParams as LinearLayout.LayoutParams).weight, 0f)
+        assertEquals(0f, (cancel.layoutParams as LinearLayout.LayoutParams).weight, 0f)
+    }
+
+    @Test fun overlay_backdrop_owns_the_full_touch_stream_and_resets_on_cancel_or_reopen() {
+        val v = phraseView(listOf("你好"))
+        v.showPhraseManageMenuForTest()
+        layout(v)
+        val backdrop = overlayOf(v)
+        val card = (backdrop as ViewGroup).getChildAt(0)
+
+        assertTrue(send(backdrop, MotionEvent.ACTION_DOWN, 1f, 1f, 0))
+        assertTrue(send(backdrop, MotionEvent.ACTION_MOVE, card.left + card.width / 2f, card.top + card.height / 2f, 16))
+        assertTrue(send(backdrop, MotionEvent.ACTION_UP, card.left + card.width / 2f, card.top + card.height / 2f, 32))
+        assertFalse(v.overlayVisibleForTest())
+
+        v.showPhraseManageMenuForTest()
+        layout(v)
+        assertTrue(send(backdrop, MotionEvent.ACTION_DOWN, 1f, 1f, 40))
+        assertTrue(send(backdrop, MotionEvent.ACTION_CANCEL, 1f, 1f, 56))
+        assertTrue("cancel resets tracking without dismissing", v.overlayVisibleForTest())
+
+        assertTrue(sendPointers(backdrop, MotionEvent.ACTION_DOWN, 58, intArrayOf(4), floatArrayOf(1f), floatArrayOf(1f)))
+        assertTrue(sendPointers(
+            backdrop,
+            MotionEvent.ACTION_POINTER_DOWN or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT),
+            60,
+            intArrayOf(4, 7),
+            floatArrayOf(1f, 2f),
+            floatArrayOf(1f, 2f),
+        ))
+        assertTrue(sendPointers(
+            backdrop,
+            MotionEvent.ACTION_POINTER_UP,
+            62,
+            intArrayOf(4, 7),
+            floatArrayOf(1f, 2f),
+            floatArrayOf(1f, 2f),
+        ))
+        assertTrue("lifting the original pointer transfers backdrop ownership", v.overlayVisibleForTest())
+        assertTrue(sendPointers(backdrop, MotionEvent.ACTION_UP, 63, intArrayOf(7), floatArrayOf(2f), floatArrayOf(2f)))
+        assertFalse("the replacement pointer closes on its final UP", v.overlayVisibleForTest())
+
+        v.showPhraseManageMenuForTest()
+        layout(v)
+
+        assertTrue(send(backdrop, MotionEvent.ACTION_DOWN, 1f, 1f, 64))
+        v.showPhraseManageMenuForTest()
+        layout(v)
+        send(backdrop, MotionEvent.ACTION_UP, 1f, 1f, 80)
+        assertTrue("an old terminal event cannot close a freshly reopened popup", v.overlayVisibleForTest())
+
+        val reopenedCard = (backdrop as ViewGroup).getChildAt(0)
+        val insideX = reopenedCard.left + 1f
+        val insideY = reopenedCard.top + 1f
+        send(backdrop, MotionEvent.ACTION_DOWN, insideX, insideY, 96)
+        send(backdrop, MotionEvent.ACTION_UP, insideX, insideY, 112)
+        assertTrue("touches inside the popup never dismiss through the backdrop", v.overlayVisibleForTest())
     }
 
     @Test fun confirmed_bulk_clear_resets_item_actions_before_same_text_returns() {
