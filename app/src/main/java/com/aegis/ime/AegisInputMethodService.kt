@@ -137,18 +137,19 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val symbolUsageStore by lazy {
         SymbolUsageStore(filesDir).also {
             it.load()
-            it.reportWritesTo(mainLane) { landed -> reportRecentsCleared(landed) { symbolsView?.refresh() } }
+            it.reportWritesTo(mainLane) { landed -> reportRecentsWrite(landed) { symbolsView?.refresh() } }
         }
     }
     private val emojiUsageStore by lazy {
         SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).also {
             it.load()
-            it.reportWritesTo(mainLane) { landed -> reportRecentsCleared(landed) { emojiView?.refresh() } }
+            it.reportWritesTo(mainLane) { landed -> reportRecentsWrite(landed) { emojiView?.refresh() } }
         }
     }
 
-    private fun reportRecentsCleared(landed: Boolean, redraw: () -> Unit) {
-        if (landed) redraw() else toast(getString(R.string.svc_recents_not_cleared))
+    private fun reportRecentsWrite(landed: Boolean, redraw: () -> Unit) {
+        redraw()
+        if (!landed) toast(getString(R.string.svc_recents_update_failed))
     }
     @Volatile private var secureField = false
     @Volatile private var personalizationBlocked = false
@@ -926,6 +927,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 commitExternalText(e)
             }
             it.onClearRecents = { emojiUsageStore.clear() }
+            it.onDeleteRecent = { emoji -> emojiUsageStore.remove(emoji) }
             it.onBackspace = { panelBackspace() }
             it.onBackspaceSwipe = { up -> backspaceSwipe(up) }
             it.onBack = { inputView?.showPanel(null) }
@@ -1046,6 +1048,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.recentProvider = { symbolUsageStore.recent() }
             it.recentOriginOf = { s -> symbolUsageStore.originOf(s) }
             it.onClearRecents = { symbolUsageStore.clear() }
+            it.onDeleteRecent = { symbol -> symbolUsageStore.remove(symbol) }
             it.onSymbol = { s, origin ->
                 if (!personalizationBlocked) symbolUsageStore.record(s, origin)
                 commitExternalSymbol(s)

@@ -108,7 +108,7 @@ class ClearRecentsNoticeTest {
             invoke(service) as SymbolUsageStore
         }
 
-    private fun notice() = app.getString(R.string.svc_recents_not_cleared)
+    private fun notice() = app.getString(R.string.svc_recents_update_failed)
 
     private fun settle() {
         SymbolUsageStore.flushPendingWrites()
@@ -168,6 +168,26 @@ class ClearRecentsNoticeTest {
             panel.recentProvider(),
         )
         assertEquals("and it must still be on the disk", "★\t符号\n", symbolFile.readText())
+    }
+
+    @Test fun a_symbol_removal_that_could_not_be_written_is_restored_on_the_open_panel() {
+        symbolFile.writeText("★\t符号\n")
+        val service = started()
+
+        open(service, "showSymbolsPanel")
+        val panel = panel(service, "symbolsView") as SymbolsView
+        assertEquals(listOf("★"), panel.recentProvider())
+        assertTrue(
+            "precondition: the individual removal cannot reach the disk",
+            store(service, "getSymbolUsageStore").tempFile().mkdir(),
+        )
+
+        panel.onDeleteRecent("★")
+        settle()
+
+        assertEquals(notice(), ShadowToast.getTextOfLatestToast())
+        assertEquals("the failed asynchronous removal is restored before redraw", listOf("★"), panel.recentProvider())
+        assertEquals("★\t符号\n", symbolFile.readText())
     }
 
     @Test fun an_emoji_clear_that_could_not_be_done_says_so() {

@@ -93,6 +93,159 @@ class SymbolUsageStoreTest {
         assertEquals("", File(dir, "symbol_usage.txt").readText())
     }
 
+    @Test fun remove_deletes_only_the_matching_entry_and_preserves_other_origins_on_disk() {
+        val dir = newDir()
+        val reported = CopyOnWriteArrayList<Boolean>()
+        val store = SymbolUsageStore(dir).apply {
+            load()
+            record("★", "shape")
+            record("℃", "supsub")
+            record("π", "greek")
+            reportWritesTo({ it.run() }) { reported.add(it) }
+        }
+        SymbolUsageStore.flushPendingWrites()
+
+        assertTrue(store.remove("℃"))
+        assertEquals(listOf("π", "★"), store.recent())
+        assertEquals("greek", store.originOf("π"))
+        assertEquals("shape", store.originOf("★"))
+        SymbolUsageStore.flushPendingWrites()
+
+        assertEquals(listOf(true), reported.toList())
+        assertEquals(
+            listOf(
+                SymbolUsageStore.Entry("π", "greek"),
+                SymbolUsageStore.Entry("★", "shape"),
+            ),
+            SymbolUsageStore(dir).apply { load() }.recentEntries(),
+        )
+    }
+
+    @Test fun remove_matches_the_same_fullwidth_fold_without_rewriting_the_surviving_forms() {
+        val dir = newDir()
+        val store = SymbolUsageStore(dir).apply {
+            load()
+            record("％", "math")
+            record("！", "zh")
+        }
+        SymbolUsageStore.flushPendingWrites()
+
+        assertTrue(store.remove("%"))
+        SymbolUsageStore.flushPendingWrites()
+
+        assertEquals(listOf("！"), store.recent())
+        assertEquals("zh", store.originOf("！"))
+        assertEquals(listOf("！"), SymbolUsageStore(dir).apply { load() }.recent())
+    }
+
+    @Test fun a_remove_that_never_reached_the_file_restores_exact_order_and_origin_and_reports_failure() {
+        val dir = newDir()
+        val store = SymbolUsageStore(dir).apply {
+            load()
+            record("★", "shape")
+            record("℃", "supsub")
+            record("π", "greek")
+        }
+        SymbolUsageStore.flushPendingWrites()
+        val before = store.recentEntries()
+        assertTrue("precondition: the remove cannot reach the disk", store.tempFile().mkdirs())
+        val reported = CopyOnWriteArrayList<Boolean>()
+        store.reportWritesTo({ it.run() }) { reported.add(it) }
+        occupyTheWriteLane()
+
+        assertTrue(store.remove("℃"))
+        assertEquals(listOf("π", "★"), store.recent())
+        release?.countDown()
+        SymbolUsageStore.flushPendingWrites()
+
+        assertEquals(listOf(false), reported.toList())
+        assertEquals(before, store.recentEntries())
+        assertEquals("supsub", store.originOf("℃"))
+        assertEquals(before, SymbolUsageStore(dir).apply { load() }.recentEntries())
+    }
+
+    @Test fun a_failed_remove_is_corrected_on_disk_after_a_later_stale_snapshot_lands() {
+        val dir = newDir()
+        val store = SymbolUsageStore(dir).apply {
+            load()
+            record("★", "shape")
+            record("→", "arrow")
+        }
+        SymbolUsageStore.flushPendingWrites()
+        assertTrue("precondition: only the first queued snapshot will be obstructed", store.tempFile().mkdirs())
+        val reported = CopyOnWriteArrayList<Boolean>()
+        store.reportWritesTo({ it.run() }) { reported.add(it) }
+        occupyTheWriteLane()
+
+        assertTrue(store.remove("★"))
+        store.record("☆", "shape")
+        assertEquals(listOf("☆", "→"), store.recent())
+        release?.countDown()
+        SymbolUsageStore.flushPendingWrites()
+
+        assertEquals(listOf(false), reported.toList())
+        assertEquals(
+            "the later record snapshot landed while the failed removal was still absent",
+            listOf("☆", "→"),
+            SymbolUsageStore(dir).apply { load() }.recent(),
+        )
+        assertEquals(
+            listOf(
+                SymbolUsageStore.Entry("☆", "shape"),
+                SymbolUsageStore.Entry("→", "arrow"),
+                SymbolUsageStore.Entry("★", "shape"),
+            ),
+            store.recentEntries(),
+        )
+        SymbolUsageStore.flushPendingWrites()
+
+        assertEquals(
+            "the recovery snapshot makes the rejected removal survive a reload",
+            store.recentEntries(),
+            SymbolUsageStore(dir).apply { load() }.recentEntries(),
+        )
+    }
+
+    @Test fun same_store_load_persists_a_failed_remove_recovery_before_reading_the_stale_file() {
+        val dir = newDir()
+        val store = SymbolUsageStore(dir).apply {
+            load()
+            record("★", "shape")
+            record("→", "arrow")
+        }
+        SymbolUsageStore.flushPendingWrites()
+        assertTrue("precondition: only the remove snapshot will fail", store.tempFile().mkdirs())
+        val reported = CopyOnWriteArrayList<Boolean>()
+        store.reportWritesTo({ it.run() }) { reported.add(it) }
+        occupyTheWriteLane()
+
+        assertTrue(store.remove("★"))
+        store.record("☆", "shape")
+        release?.countDown()
+        SymbolUsageStore.flushPendingWrites()
+
+        assertEquals(listOf(false), reported.toList())
+        assertEquals(
+            "precondition: the later stale snapshot reached disk without the rejected removal",
+            listOf("☆", "→"),
+            SymbolUsageStore(dir).apply { load() }.recent(),
+        )
+
+        store.load()
+
+        val recovered = listOf(
+            SymbolUsageStore.Entry("☆", "shape"),
+            SymbolUsageStore.Entry("→", "arrow"),
+            SymbolUsageStore.Entry("★", "shape"),
+        )
+        assertEquals(recovered, store.recentEntries())
+        assertEquals(
+            "the same-instance load must not overtake its own correction snapshot",
+            recovered,
+            SymbolUsageStore(dir).apply { load() }.recentEntries(),
+        )
+    }
+
     @Test fun a_symbol_history_whose_bytes_went_bad_reads_as_one_nobody_could_read() {
         val dir = newDir()
         val file = File(dir, "symbol_usage.txt")
@@ -120,6 +273,7 @@ class SymbolUsageStoreTest {
         assertTrue("a symbol used afterwards must not stand in for the history", s.recent().isEmpty())
 
         assertFalse("a clear over a history nobody could read must not be reported as done", s.clear())
+        assertFalse("a remove over a history nobody could read must not be reported as done", s.remove("★"))
         SymbolUsageStore.flushPendingWrites()
         assertFalse(
             "merging into a history nobody could read must not be reported as done",

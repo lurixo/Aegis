@@ -215,7 +215,9 @@ class PanelActionKeyParityTest {
             assertFalse("$name category $index has no platform ripple", tab.foreground is RippleDrawable)
         }
         for ((index, action) in bottomActions.withIndex()) {
-            assertTrue("$name bottom action $index keeps the shared key surface", action.background is ImeKeySurface)
+            val surface = action.background as? ImeKeySurface
+            assertNotNull("$name bottom action $index keeps the shared key surface", surface)
+            assertEquals("$name bottom action $index has no resting key face", Color.TRANSPARENT, requireNotNull(surface).faceColor)
             assertFalse("$name bottom action $index has no platform ripple", action.foreground is RippleDrawable)
         }
     }
