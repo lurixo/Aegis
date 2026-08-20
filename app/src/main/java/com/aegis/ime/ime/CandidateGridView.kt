@@ -19,8 +19,8 @@ import com.aegis.ime.R
 
 import android.animation.ValueAnimator
 import android.content.Context
-import android.content.res.ColorStateList
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
@@ -29,7 +29,6 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.GradientDrawable
-import android.graphics.drawable.RippleDrawable
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
@@ -106,8 +105,9 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private var chipsAllocated = 0
     private var readingsAllocated = 0
     private var gridScrollOffsetForTest = 0
-    private var firstChipForeground: Drawable? = null
     private val readingColorAnimators = HashMap<TextView, ValueAnimator>()
+    private val readingFeedback = HashMap<TextView, ImeKeyFeedback>()
+    private val chipFeedback = HashMap<TextView, ImeKeyFeedback>()
     private val chipClick = OnClickListener { v -> onPick(v.tag as Int) }
     private val readingClick = OnClickListener { v -> onPickReading(v.tag as Int) }
     private val candidateAdapter = CandidateAdapter()
@@ -172,9 +172,9 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             actionBoundaryLp(clearActionBoundary),
         )
         addView(rightColumn, LayoutParams(dp(Layouts.CANDIDATE_ACTION_WIDTH_DP), LayoutParams.MATCH_PARENT))
-        returnFeedback = ImeKeyFeedback(returnButton(), palette.railBg, palette.keyLabelSecondary)
+        returnFeedback = ImeKeyFeedback(returnButton(), Color.TRANSPARENT, palette.keyLabelSecondary)
         returnFeedback.bind { hapticEnabled }
-        backspaceFeedback = ImeKeyFeedback(backspaceButton(), palette.railBg, palette.keyLabelSecondary)
+        backspaceFeedback = ImeKeyFeedback(backspaceButton(), Color.TRANSPARENT, palette.keyLabelSecondary)
         backspaceTouch = ImeBackspaceTouch(
             backspaceButton(),
             backspaceFeedback,
@@ -183,12 +183,14 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             { onBackspace() },
             { up -> if (up) onClear() },
         )
-        clearFeedback = ImeKeyFeedback(clearButton(), palette.railBg, palette.keyLabelSecondary)
+        clearFeedback = ImeKeyFeedback(clearButton(), Color.TRANSPARENT, palette.keyLabelSecondary)
         clearFeedback.bind { hapticEnabled }
     }
 
     override fun resetToDefault() {
         resetViewportToStart()
+        readingFeedback.values.forEach(ImeKeyFeedback::reset)
+        chipFeedback.values.forEach(ImeKeyFeedback::reset)
         returnFeedback.reset()
         backspaceTouch.cancel()
         clearFeedback.reset()
@@ -213,27 +215,21 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         table.applyPalette(p)
         rightColumn.setBackgroundColor(p.keyboardBg)
         for (i in 0 until rightColumn.childCount) (rightColumn.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
-        returnFeedback.update(p.railBg, p.keyLabelSecondary)
-        backspaceFeedback.update(p.railBg, p.keyLabelSecondary)
-        clearFeedback.update(p.railBg, p.keyLabelSecondary)
+        returnFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
+        backspaceFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
+        clearFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
         backspaceGlyph.tint(p.keyLabelSecondary)
         collapseGlyph.tint(p.keyLabelSecondary)
         candidateAdapter.notifyDataSetChanged()
         for (i in readingPool.indices) {
             val color = readingColor(i == renderedSelected)
             readingPool[i].setTextColor(color)
-            retintRipple(readingPool[i], color)
+            readingFeedback[readingPool[i]]?.update(Color.TRANSPARENT, color)
         }
         renderedReadings = null
     }
 
     private fun readingColor(on: Boolean): Int = if (on) palette.candidateFirst else palette.candidateText
-
-    private fun retintRipple(v: View, color: Int) {
-        val fg = v.foreground
-        if (fg is RippleDrawable) fg.setColor(ColorStateList.valueOf(Motion.withAlpha(color, 0x24)))
-        else Motion.applyTapFeedback(v, color)
-    }
 
     private fun actionLp(rowIndex: Int) =
         FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, rowHeightPx, Gravity.TOP)
@@ -342,6 +338,8 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private fun createBackspaceButton(): TextView = funcButton("") { onBackspace() }
 
     override fun onDetachedFromWindow() {
+        readingFeedback.values.forEach(ImeKeyFeedback::reset)
+        chipFeedback.values.forEach(ImeKeyFeedback::reset)
         returnFeedback.reset()
         backspaceTouch.cancel()
         clearFeedback.reset()
@@ -357,6 +355,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         readingRebuilds++
         for (i in readings.indices) {
             val tile = obtainReading(i)
+            readingFeedback[tile]?.reset()
             tile.tag = i
             if (tile.text != readings[i]) {
                 tile.text = readings[i]
@@ -365,7 +364,11 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             if (abs(tile.textSize - target) > 0.5f) tile.setTextSize(TypedValue.COMPLEX_UNIT_PX, target)
             tile.visibility = View.VISIBLE
         }
-        for (i in readings.size until readingColumn.childCount) readingColumn.getChildAt(i).visibility = View.GONE
+        for (i in readings.size until readingColumn.childCount) {
+            val tile = readingColumn.getChildAt(i)
+            tile.visibility = View.GONE
+            (tile as? TextView)?.let { readingFeedback[it]?.reset() }
+        }
         if (listChanged) {
             for (i in readings.indices) styleReading(i, on = i == selected, animate = false)
         } else {
@@ -383,9 +386,13 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
             setTextColor(palette.candidateText)
             isClickable = true
-            Motion.applyTapFeedback(this, palette.candidateText)
             setOnClickListener(readingClick)
         }
+        readingFeedback[tv] = ImeKeyFeedback(
+            tv,
+            Color.TRANSPARENT,
+            palette.candidateText,
+        ).also { it.bind { hapticEnabled } }
         readingPool.add(tv)
         readingColumn.addView(tv, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         readingsAllocated++
@@ -403,7 +410,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             tile.setTextColor(target)
         }
         tile.setTypeface(null, if (on) Typeface.BOLD else Typeface.NORMAL)
-        retintRipple(tile, target)
+        readingFeedback[tile]?.update(Color.TRANSPARENT, target)
     }
 
     private fun capFor(len: Int, tableW: Int): Int {
@@ -500,6 +507,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
                 chipTextSizes[i] = size
             }
         }
+        chipFeedback.values.forEach(ImeKeyFeedback::reset)
         candidateAdapter.notifyDataSetChanged()
         if (contentChanged) {
             table.setSelection(0)
@@ -527,11 +535,14 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
             setTextColor(palette.candidateText)
             isClickable = true
-            Motion.applyTapFeedback(this, palette.candidateText)
             setOnClickListener(chipClick)
         }
+        chipFeedback[chip] = ImeKeyFeedback(
+            chip,
+            Color.TRANSPARENT,
+            palette.candidateText,
+        ).also { it.bind { hapticEnabled } }
         chipsAllocated++
-        if (firstChipForeground == null) firstChipForeground = chip.foreground
         return chip
     }
 
@@ -569,9 +580,13 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
                     chip.text = renderedCandidates?.get(index).orEmpty()
                     chip.tag = renderedSourceIndices[index]
                     chip.setTextColor(palette.candidateText)
-                    retintRipple(chip, palette.candidateText)
+                    chipFeedback[chip]?.run {
+                        reset()
+                        update(Color.TRANSPARENT, palette.candidateText)
+                    }
                     applyCell(chip, index)
                 } else {
+                    chipFeedback[chip]?.reset()
                     chip.visibility = View.GONE
                 }
             }
@@ -670,16 +685,26 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
     internal fun tapReadingForTest(index: Int): Boolean =
         (readingColumn.getChildAt(index) as? TextView)?.takeIf { it.visibility == View.VISIBLE }?.performClick() ?: false
-    internal fun firstChipForegroundForTest(): Drawable? = firstChipForeground
+    internal fun firstChipForTest(): TextView? =
+        (table.getChildAt(0) as? CandidateRow)?.getChildAt(0) as? TextView
+    internal fun readingTileForTest(index: Int): TextView? = readingPool.getOrNull(index)
+    internal fun firstChipBackgroundForTest(): Drawable? = firstChipForTest()?.background
+    internal fun firstChipForegroundForTest(): Drawable? = firstChipForTest()?.foreground
+    internal fun firstChipFeedbackLevelForTest(): Float? =
+        firstChipForTest()?.let { chipFeedback[it]?.levelForTest() }
+    internal fun readingFeedbackLevelForTest(index: Int): Float? =
+        readingPool.getOrNull(index)?.let { readingFeedback[it]?.levelForTest() }
     internal fun activeReadingColorAnimatorsForTest(): Int =
         readingColorAnimators.values.count { it.isRunning }
     private fun returnButton(): TextView = rightColumn.getChildAt(0) as TextView
     private fun backspaceButton(): TextView = rightColumn.getChildAt(1) as TextView
     private fun clearButton(): TextView = rightColumn.getChildAt(2) as TextView
     internal fun returnButtonForTest(): TextView = returnButton()
+    internal fun returnFeedbackLevelForTest(): Float = returnFeedback.levelForTest()
     internal fun backspaceButtonForTest(): TextView = backspaceButton()
     internal fun backspaceFeedbackLevelForTest(): Float = backspaceFeedback.levelForTest()
     internal fun clearButtonForTest(): TextView = clearButton()
+    internal fun clearFeedbackLevelForTest(): Float = clearFeedback.levelForTest()
     internal fun collapseGlyphForTest(): Drawable = collapseGlyph
     internal fun backspaceGlyphForTest(): Drawable = backspaceGlyph
     internal fun gridScrollYForTest(): Int = gridScrollOffsetForTest

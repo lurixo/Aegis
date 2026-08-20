@@ -601,21 +601,71 @@ class PanelActionKeyParityTest {
 
     @Test fun expanded_candidate_actions_use_the_same_static_face_and_haptic_policy() {
         var closes = 0
+        var backspaces = 0
+        var clears = 0
+        var picked = -1
+        var pickedReading = -1
         val panel = CandidateGridView(context).apply {
             hapticEnabled = true
             onClose = { closes++ }
+            onBackspace = { backspaces++ }
+            onClear = { clears++ }
+            onPick = { picked = it }
+            onPickReading = { pickedReading = it }
+            setCandidates(listOf("你", "好"))
+            setReadings(listOf("ni", "hao"), selected = 0)
         }
         layout(panel, 360)
-        for (button in listOf(panel.returnButtonForTest(), panel.backspaceButtonForTest(), panel.clearButtonForTest())) {
-            assertNotNull(button.background)
+        val actions = listOf(
+            Triple("collapse", panel.returnButtonForTest(), panel::returnFeedbackLevelForTest),
+            Triple("backspace", panel.backspaceButtonForTest(), panel::backspaceFeedbackLevelForTest),
+            Triple("redo", panel.clearButtonForTest(), panel::clearFeedbackLevelForTest),
+        )
+        for ((name, button, level) in actions) {
+            val surface = button.background as? ImeKeySurface
+            assertNotNull("expanded $name keeps the shared IME press surface", surface)
+            assertEquals("expanded $name has no resting key face", Color.TRANSPARENT, requireNotNull(surface).faceColor)
             assertFalse(button.background is RippleDrawable)
+            exercisePressLifecycle("expanded $name", button, level)
+            assertEquals(HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(button).lastHapticFeedbackPerformed())
         }
-        val button = panel.returnButtonForTest()
-        button.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, button.width / 2f, button.height / 2f))
-        assertEquals(HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(button).lastHapticFeedbackPerformed())
-        button.dispatchTouchEvent(event(MotionEvent.ACTION_UP, button.width / 2f, button.height / 2f, 20L))
-        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(0, closes)
+        assertEquals(0, backspaces)
+        assertEquals(0, clears)
+
+        for ((index, button) in actions.map { it.second }.withIndex()) {
+            val time = 100L + index * 20L
+            button.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, button.width / 2f, button.height / 2f, time))
+            button.dispatchTouchEvent(event(MotionEvent.ACTION_UP, button.width / 2f, button.height / 2f, time + 10L))
+            shadowOf(Looper.getMainLooper()).idle()
+        }
         assertEquals(1, closes)
+        assertEquals(1, backspaces)
+        assertEquals(1, clears)
+
+        val candidate = requireNotNull(panel.firstChipForTest())
+        val reading = requireNotNull(panel.readingTileForTest(0))
+        for ((name, key) in listOf("candidate" to candidate, "reading" to reading)) {
+            val surface = key.background as? ImeKeySurface
+            assertNotNull("expanded $name uses the shared IME press surface", surface)
+            assertEquals(Color.TRANSPARENT, requireNotNull(surface).faceColor)
+            assertFalse("expanded $name does not stack a platform ripple", key.foreground is RippleDrawable)
+            key.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, key.width / 2f, key.height / 2f, 40L))
+            assertEquals(HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(key).lastHapticFeedbackPerformed())
+            key.dispatchTouchEvent(event(MotionEvent.ACTION_CANCEL, key.width / 2f, key.height / 2f, 50L))
+        }
+        assertEquals(0f, panel.firstChipFeedbackLevelForTest() ?: -1f, 0f)
+        assertEquals(0f, panel.readingFeedbackLevelForTest(0) ?: -1f, 0f)
+        assertEquals(-1, picked)
+        assertEquals(-1, pickedReading)
+
+        candidate.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, candidate.width / 2f, candidate.height / 2f, 60L))
+        candidate.dispatchTouchEvent(event(MotionEvent.ACTION_UP, candidate.width / 2f, candidate.height / 2f, 70L))
+        reading.dispatchTouchEvent(event(MotionEvent.ACTION_DOWN, reading.width / 2f, reading.height / 2f, 80L))
+        reading.dispatchTouchEvent(event(MotionEvent.ACTION_UP, reading.width / 2f, reading.height / 2f, 90L))
+        shadowOf(Looper.getMainLooper()).idle()
+        assertEquals(0, picked)
+        assertEquals(0, pickedReading)
     }
 
     private fun exerciseBackspace(button: View, repeats: MutableList<Unit>, swipes: MutableList<Boolean>) {

@@ -16,13 +16,12 @@
 package com.aegis.ime.ime
 
 import android.app.Activity
-import android.graphics.drawable.RippleDrawable
+import android.graphics.Color
 import android.provider.Settings
 import android.view.View
 import android.widget.FrameLayout
 import com.aegis.ime.ime.theme.ImePalette
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -134,7 +133,7 @@ class CandidateGridRecyclingTest {
         assertEquals("the recycled reading tile must still pick reading index 2", 2, pickedReading)
     }
 
-    @Test fun recycled_tiles_keep_a_ripple_foreground() {
+    @Test fun recycled_tiles_keep_the_transparent_shared_press_surface() {
         val v = grid()
         v.setCandidates(listOf("你", "好"))
         v.setReadings(listOf("ni", "hao"), selected = 0)
@@ -142,8 +141,10 @@ class CandidateGridRecyclingTest {
         v.setCandidates(listOf("我"))
         v.setReadings(listOf("wo"), selected = 0)
         layout(v)
-        assertNotNull("recycled chip keeps its ripple", v.firstChipForegroundForTest())
-        assertTrue("recycled chip foreground is a RippleDrawable", v.firstChipForegroundForTest() is RippleDrawable)
+        val surface = v.firstChipBackgroundForTest() as? ImeKeySurface
+        assertTrue("recycled chip keeps the shared IME key surface", surface != null)
+        assertEquals(Color.TRANSPARENT, requireNotNull(surface).faceColor)
+        assertTrue("recycled chip does not stack the old platform ripple", v.firstChipForegroundForTest() == null)
     }
 
     @Test fun exhaustive_candidate_sets_keep_all_logical_entries_with_a_bounded_visible_pool() {

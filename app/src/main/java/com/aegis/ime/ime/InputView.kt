@@ -347,6 +347,7 @@ class InputView(context: Context) : LinearLayout(context) {
     fun setKeyHaptics(on: Boolean) {
         keyHaptics = on
         keyboardView.hapticEnabled = on
+        candidateView.hapticEnabled = on
         (currentPanel as? KeyHapticsAware)?.hapticEnabled = on
     }
     fun setKeyPreviewNine(on: Boolean) { keyboardView.previewNineEnabled = on }
@@ -526,6 +527,8 @@ class InputView(context: Context) : LinearLayout(context) {
         gridView.readingTextColorForTest(index)
 
     internal fun barChevronGlyph(): String = candidateView.chevronGlyph()
+
+    internal fun candidateBarHapticsForTest(): Boolean = candidateView.hapticEnabled
 
     internal fun toolbarShownForTest(): Boolean = candidateView.visibility == VISIBLE
 
