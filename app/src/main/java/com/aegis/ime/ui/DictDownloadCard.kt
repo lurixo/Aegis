@@ -26,10 +26,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import com.aegis.ime.R
 import com.aegis.ime.SettingsHotApply
 import com.aegis.ime.dict.ModelDownload
+import com.aegis.ime.ui.theme.AppSpacing
 
 @Composable
 internal fun DictDownloadCard(
@@ -161,10 +160,10 @@ internal fun DictDownloadCard(
         }
     }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    AppSection {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(AppSpacing.sectionPadding),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.compactGap),
         ) {
             Text(stringResource(R.string.dict_card_title), style = MaterialTheme.typography.titleMedium)
             Text(
@@ -209,7 +208,8 @@ internal fun DictDownloadCard(
                         onClick = { checkUpdate() },
                     ) { Text(stringResource(R.string.check_dict_update_button)) }
                 }
-                OutlinedButton(
+                AppDangerButton(
+                    text = stringResource(R.string.delete_button),
                     enabled = !downloading && !checking && present,
                     onClick = delete@ {
                         if (ModelDownload.dictionaryTransactionInProgress(context.filesDir)) return@delete
@@ -241,7 +241,7 @@ internal fun DictDownloadCard(
                         }
                         DictDownloadWork.setIdleStatus(context, status)
                     },
-                ) { Text(stringResource(R.string.delete_button)) }
+                )
             }
         }
     }

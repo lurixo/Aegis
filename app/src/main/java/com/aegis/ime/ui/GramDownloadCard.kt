@@ -26,10 +26,8 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import com.aegis.ime.R
 import com.aegis.ime.SettingsHotApply
 import com.aegis.ime.dict.ModelDownload
+import com.aegis.ime.ui.theme.AppSpacing
 
 internal data class DownloadCardPreview(val present: Boolean, val checking: Boolean = false, val status: String? = null)
 
@@ -132,10 +131,10 @@ internal fun GramDownloadCard(
         }
     }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    AppSection {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(AppSpacing.sectionPadding),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.compactGap),
         ) {
             Text(stringResource(R.string.gram_card_title), style = MaterialTheme.typography.titleMedium)
             Text(
@@ -183,7 +182,8 @@ internal fun GramDownloadCard(
                         onClick = { checkUpdate() },
                     ) { Text(stringResource(R.string.check_model_update_button)) }
                 }
-                OutlinedButton(
+                AppDangerButton(
+                    text = stringResource(R.string.delete_button),
                     enabled = !downloading && !checking && present,
                     onClick = {
                         val purged = ModelDownload.purge(context.filesDir)
@@ -207,7 +207,7 @@ internal fun GramDownloadCard(
                         }
                         GramDownloadWork.setIdleStatus(context, status)
                     },
-                ) { Text(stringResource(R.string.delete_button)) }
+                )
             }
         }
     }

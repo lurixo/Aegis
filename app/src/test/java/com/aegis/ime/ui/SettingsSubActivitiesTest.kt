@@ -71,7 +71,7 @@ private fun <A : ComponentActivity> AndroidComposeTestRule<ActivityScenarioRule<
 ) {
     onNodeWithText(ctxString(R.string.setup_steps_title)).performScrollTo().assertExists()
 
-    val pageHorizontalPadding = 24f
+    val pageHorizontalPadding = 20f
     val cardContentPadding = 16f
     val buttonHorizontalContentPadding = 24f
     val rootBounds = onRoot().getUnclippedBoundsInRoot()
@@ -180,7 +180,7 @@ class InputSettingsActivityTest {
         compose.onNodeWithText(ctxString(R.string.layout_card_title)).assertExists()
         compose.onNodeWithText(ctxString(R.string.fuzzy_card_title)).performScrollTo().assertExists()
         compose.onNodeWithText(ctxString(R.string.association_title)).performScrollTo().assertExists()
-        compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performScrollTo().performClick()
+        compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performClick()
         compose.waitForIdle()
         assertTrue("back arrow finishes the Activity", compose.activity.isFinishing)
     }
@@ -188,6 +188,12 @@ class InputSettingsActivityTest {
     @Test fun back_affordance_is_the_drawn_chevron_not_a_thin_text_glyph() {
         compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).assertExists()
         compose.onAllNodesWithText("‹").assertCountEquals(0)
+        val target = compose.onNodeWithTag("app_back_button").getUnclippedBoundsInRoot()
+        val iconBox = compose.onNodeWithTag("app_back_icon", useUnmergedTree = true).getUnclippedBoundsInRoot()
+        assertEquals("back target width", 48f, (target.right - target.left).value, 0.5f)
+        assertEquals("back target height", 48f, (target.bottom - target.top).value, 0.5f)
+        assertEquals("back icon box width", 24f, (iconBox.right - iconBox.left).value, 0.5f)
+        assertEquals("back icon box height", 24f, (iconBox.bottom - iconBox.top).value, 0.5f)
     }
 
     @Test fun the_auto_learning_switch_starts_on_and_writes_the_preference_both_ways() {
@@ -486,7 +492,7 @@ class DictSettingsActivityTest {
     @Test fun holds_the_dict_pack_and_model_cards_and_back_finishes() {
         compose.onNodeWithText(ctxString(R.string.dict_card_title)).assertExists()
         compose.onNodeWithText(ctxString(R.string.gram_card_title)).performScrollTo().assertExists()
-        compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performScrollTo().performClick()
+        compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performClick()
         compose.waitForIdle()
         assertTrue("back arrow finishes the Activity", compose.activity.isFinishing)
     }
@@ -520,7 +526,8 @@ class UserDictActivityTest {
 
     @Test fun holds_the_search_field_and_tools_and_back_finishes() {
         compose.onNodeWithTag("user_dict_search").assertExists()
-        compose.onNodeWithText(ctxString(R.string.user_dict_export_button)).assertExists()
+        compose.onNodeWithTag("user_dict_open_more").assertExists()
+        compose.onNodeWithText(ctxString(R.string.user_dict_export_button)).assertDoesNotExist()
         compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performClick()
         compose.waitForIdle()
         assertTrue("back arrow finishes the Activity", compose.activity.isFinishing)
@@ -550,7 +557,7 @@ class AboutActivityTest {
     }
 
     @Test fun back_arrow_finishes_the_activity() {
-        compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performScrollTo().performClick()
+        compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performClick()
         compose.waitForIdle()
         assertTrue(compose.activity.isFinishing)
     }
@@ -573,7 +580,7 @@ class LicensesActivityTest {
     @Test fun lists_components_and_back_finishes() {
         compose.onNodeWithText(ctxString(R.string.license_wanxiang_name)).performScrollTo().assertIsDisplayed()
         compose.onNodeWithText(ctxString(R.string.license_androidx_name)).performScrollTo().assertExists()
-        compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performScrollTo().performClick()
+        compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performClick()
         compose.waitForIdle()
         assertTrue("back arrow finishes the Activity", compose.activity.isFinishing)
     }

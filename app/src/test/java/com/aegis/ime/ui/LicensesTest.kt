@@ -135,7 +135,7 @@ class LicensesTest {
             "a component must show the Modified mark",
             compose.onAllNodesWithText(s(R.string.licenses_modified), substring = true).fetchSemanticsNodes().isNotEmpty(),
         )
-        compose.onNodeWithContentDescription(s(R.string.settings_back)).performScrollTo().performClick()
+        compose.onNodeWithContentDescription(s(R.string.settings_back)).performClick()
         compose.waitForIdle()
         assertTrue("back arrow finishes the licenses Activity", compose.activity.isFinishing)
     }

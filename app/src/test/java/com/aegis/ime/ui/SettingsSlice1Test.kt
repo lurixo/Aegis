@@ -18,11 +18,13 @@ package com.aegis.ime.ui
 import androidx.core.content.edit
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.aegis.ime.R
 import com.aegis.ime.dict.EngineAssets
 import com.aegis.ime.dict.ModelDownload
-import com.aegis.ime.ime.theme.ImeShapes
+import com.aegis.ime.ui.theme.AppIconMetrics
 import com.aegis.ime.ui.theme.aegisShapes
+import com.aegis.ime.ui.theme.aegisTypography
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -43,9 +45,13 @@ class SettingsSlice1Test {
 
     private val ctx = RuntimeEnvironment.getApplication()
 
-    @Test fun settings_cards_use_the_shared_smaller_aegis_radius() {
-        assertEquals(RoundedCornerShape(ImeShapes.cardRadiusDp.dp), aegisShapes.medium)
-        assertEquals(8f, ImeShapes.cardRadiusDp, 0f)
+    @Test fun app_visual_metrics_are_independent_and_keep_text_and_back_affordances_accessible() {
+        assertEquals(RoundedCornerShape(12.dp), aegisShapes.medium)
+        assertEquals(14.sp, aegisTypography.bodySmall.fontSize)
+        assertEquals(20.sp, aegisTypography.bodySmall.lineHeight)
+        assertEquals(14.sp, aegisTypography.labelLarge.fontSize)
+        assertEquals(17.5.dp, AppIconMetrics.backChevronHeight)
+        assertEquals(48.dp, AppIconMetrics.touchTarget)
     }
 
 

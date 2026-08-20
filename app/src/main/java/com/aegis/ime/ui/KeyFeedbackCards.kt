@@ -17,11 +17,10 @@ package com.aegis.ime.ui
 
 import android.content.Context
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -34,9 +33,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import com.aegis.ime.R
+import com.aegis.ime.ui.theme.AppSpacing
 
 internal const val PREF_KEY_HAPTICS = "pref_key_haptics"
 internal const val KEY_HAPTICS_DEFAULT = false
@@ -52,27 +51,20 @@ private fun FeedbackToggleCard(prefKey: String, default: Boolean, titleRes: Int,
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
     var on by remember { mutableStateOf(prefs.getBoolean(prefKey, default)) }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(stringResource(titleRes), style = MaterialTheme.typography.titleMedium)
-                Text(stringResource(descRes), style = MaterialTheme.typography.bodySmall)
-            }
-            Switch(
-                checked = on,
-                onCheckedChange = {
-                    on = it
-                    prefs.edit { putBoolean(prefKey, it) }
-                },
-            )
-        }
+    AppSection {
+        AppSettingRow(
+            title = stringResource(titleRes),
+            description = stringResource(descRes),
+            trailing = {
+                Switch(
+                    checked = on,
+                    onCheckedChange = {
+                        on = it
+                        prefs.edit { putBoolean(prefKey, it) }
+                    },
+                )
+            },
+        )
     }
 }
 
@@ -88,23 +80,11 @@ internal fun KeyPreviewCard() {
     var nine by remember { mutableStateOf(prefs.getBoolean(PREF_KEY_PREVIEW_NINE, KEY_PREVIEW_SUB_DEFAULT)) }
     var alpha by remember { mutableStateOf(prefs.getBoolean(PREF_KEY_PREVIEW_ALPHA, KEY_PREVIEW_SUB_DEFAULT)) }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text(stringResource(R.string.key_preview_title), style = MaterialTheme.typography.titleMedium)
-                    Text(stringResource(R.string.key_preview_description), style = MaterialTheme.typography.bodySmall)
-                }
+    AppSection {
+        AppSettingRow(
+            title = stringResource(R.string.key_preview_title),
+            description = stringResource(R.string.key_preview_description),
+            trailing = {
                 Switch(
                     checked = master,
                     onCheckedChange = {
@@ -112,15 +92,17 @@ internal fun KeyPreviewCard() {
                         prefs.edit { putBoolean(PREF_KEY_PREVIEW_MASTER, it) }
                     },
                 )
-            }
-            KeyPreviewSubRow(R.string.key_preview_nine_label, checked = nine, enabled = master) {
-                nine = it
-                prefs.edit { putBoolean(PREF_KEY_PREVIEW_NINE, it) }
-            }
-            KeyPreviewSubRow(R.string.key_preview_alpha_label, checked = alpha, enabled = master) {
-                alpha = it
-                prefs.edit { putBoolean(PREF_KEY_PREVIEW_ALPHA, it) }
-            }
+            },
+        )
+        AppSectionDivider()
+        KeyPreviewSubRow(R.string.key_preview_nine_label, checked = nine, enabled = master) {
+            nine = it
+            prefs.edit { putBoolean(PREF_KEY_PREVIEW_NINE, it) }
+        }
+        AppSectionDivider()
+        KeyPreviewSubRow(R.string.key_preview_alpha_label, checked = alpha, enabled = master) {
+            alpha = it
+            prefs.edit { putBoolean(PREF_KEY_PREVIEW_ALPHA, it) }
         }
     }
 }
@@ -128,8 +110,11 @@ internal fun KeyPreviewCard() {
 @Composable
 private fun KeyPreviewSubRow(labelRes: Int, checked: Boolean, enabled: Boolean, onCheckedChange: (Boolean) -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(start = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .heightIn(min = AppSpacing.rowMinHeight)
+            .padding(horizontal = AppSpacing.rowHorizontal),
+        horizontalArrangement = Arrangement.spacedBy(AppSpacing.contentGap),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(stringResource(labelRes), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))

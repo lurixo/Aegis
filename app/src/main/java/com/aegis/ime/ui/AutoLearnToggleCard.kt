@@ -24,8 +24,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -44,6 +42,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import com.aegis.ime.R
+import com.aegis.ime.ui.theme.AppSpacing
 import com.aegis.ime.user.UserLearnEdit
 import com.aegis.ime.user.UserStoreEdits
 import java.io.File
@@ -87,10 +86,10 @@ internal fun AutoLearnToggleCard(resumeSignal: Int) {
         }
     }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    AppSection {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            modifier = Modifier.fillMaxWidth().padding(AppSpacing.sectionPadding),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.contentGap),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -140,13 +139,12 @@ internal fun AutoLearnToggleCard(resumeSignal: Int) {
                     modifier = Modifier.testTag("auto_learn_unreadable"),
                 )
             }
-            Button(
+            AppDangerButton(
+                text = stringResource(R.string.user_dict_auto_clear_button),
                 onClick = { pendingClear = true },
                 enabled = learnedHasData || !learnedView.readable,
                 modifier = Modifier.fillMaxWidth().testTag("auto_learn_clear"),
-            ) {
-                Text(stringResource(R.string.user_dict_auto_clear_button))
-            }
+            )
         }
     }
 

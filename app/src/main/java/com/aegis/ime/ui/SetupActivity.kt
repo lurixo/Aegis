@@ -17,7 +17,6 @@ package com.aegis.ime.ui
 
 import android.content.Context
 import android.content.Intent
-import android.graphics.Paint
 import android.os.Bundle
 import android.provider.Settings
 import android.view.View
@@ -28,7 +27,6 @@ import android.view.inputmethod.InputMethodManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -46,7 +44,6 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.width
@@ -54,9 +51,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -75,10 +69,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
-import androidx.compose.ui.graphics.nativeCanvas
-import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -87,8 +77,6 @@ import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -98,8 +86,8 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import com.aegis.ime.ime.Glyphs
 import com.aegis.ime.R
+import com.aegis.ime.ui.theme.AppSpacing
 import com.aegis.ime.ui.theme.SettingsMotion
 
 class SetupActivity : ComponentActivity() {
@@ -177,8 +165,8 @@ internal fun SettingsHomePage(onOpenGroup: (String) -> Unit) {
                 bottomInsets = WindowInsets.safeDrawing,
                 topInsets = settingsTopInset(),
             )
-            .padding(24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
+            .padding(AppSpacing.screenHorizontal),
+        verticalArrangement = Arrangement.spacedBy(AppSpacing.sectionGap),
     ) {
         Text(stringResource(R.string.setup_title), style = MaterialTheme.typography.headlineMedium)
         Text(
@@ -191,10 +179,10 @@ internal fun SettingsHomePage(onOpenGroup: (String) -> Unit) {
             enter = SettingsMotion.revealEnter(),
             exit = SettingsMotion.collapseExit(),
         ) {
-            Card(modifier = Modifier.fillMaxWidth()) {
+            AppSection {
                 Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                    modifier = Modifier.padding(AppSpacing.sectionPadding),
+                    verticalArrangement = Arrangement.spacedBy(AppSpacing.compactGap),
                 ) {
                     Text(stringResource(R.string.setup_first_run_title), style = MaterialTheme.typography.titleMedium)
                     Text(
@@ -202,6 +190,7 @@ internal fun SettingsHomePage(onOpenGroup: (String) -> Unit) {
                         style = MaterialTheme.typography.bodySmall,
                     )
                     TextButton(
+                        modifier = Modifier.testTag("setup_first_run_ack"),
                         onClick = {
                             showDownloadHint = false
                             prefs.edit { putBoolean("dl_hint_dismissed", true) }
@@ -211,112 +200,56 @@ internal fun SettingsHomePage(onOpenGroup: (String) -> Unit) {
             }
         }
 
-        SettingsGroupCard(
-            titleRes = R.string.settings_group_input_title,
-            descRes = R.string.settings_group_input_desc,
-            onClick = { onOpenGroup(SettingsRoutes.INPUT) },
-        )
-        SettingsGroupCard(
-            titleRes = R.string.settings_group_dicts_title,
-            descRes = R.string.settings_group_dicts_desc,
-            onClick = { onOpenGroup(SettingsRoutes.DICTS) },
-        )
-        SettingsGroupCard(
-            titleRes = R.string.settings_group_userdict_title,
-            descRes = R.string.settings_group_userdict_desc,
-            onClick = { onOpenGroup(SettingsRoutes.USER_DICT) },
-        )
-        SettingsGroupCard(
-            titleRes = R.string.settings_backup_title,
-            descRes = R.string.settings_backup_desc,
-            onClick = { onOpenGroup(SettingsRoutes.BACKUP) },
-        )
-        SettingsGroupCard(
-            titleRes = R.string.settings_group_about_title,
-            descRes = R.string.settings_group_about_desc,
-            onClick = { onOpenGroup(SettingsRoutes.ABOUT) },
-        )
-    }
-}
-
-@Composable
-private fun SettingsGroupCard(titleRes: Int, descRes: Int, onClick: () -> Unit) {
-    Card(onClick = onClick, modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(stringResource(titleRes), style = MaterialTheme.typography.titleMedium)
-                Text(stringResource(descRes), style = MaterialTheme.typography.bodySmall)
-            }
-            Text(
-                "›",
-                style = MaterialTheme.typography.headlineSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+        AppSection {
+            SettingsGroupRow(
+                titleRes = R.string.settings_group_input_title,
+                descRes = R.string.settings_group_input_desc,
+                onClick = { onOpenGroup(SettingsRoutes.INPUT) },
+            )
+            AppSectionDivider()
+            SettingsGroupRow(
+                titleRes = R.string.settings_group_dicts_title,
+                descRes = R.string.settings_group_dicts_desc,
+                onClick = { onOpenGroup(SettingsRoutes.DICTS) },
+            )
+            AppSectionDivider()
+            SettingsGroupRow(
+                titleRes = R.string.settings_group_userdict_title,
+                descRes = R.string.settings_group_userdict_desc,
+                onClick = { onOpenGroup(SettingsRoutes.USER_DICT) },
+            )
+            AppSectionDivider()
+            SettingsGroupRow(
+                titleRes = R.string.settings_backup_title,
+                descRes = R.string.settings_backup_desc,
+                onClick = { onOpenGroup(SettingsRoutes.BACKUP) },
+            )
+            AppSectionDivider()
+            SettingsGroupRow(
+                titleRes = R.string.settings_group_about_title,
+                descRes = R.string.settings_group_about_desc,
+                onClick = { onOpenGroup(SettingsRoutes.ABOUT) },
             )
         }
     }
 }
+
+@Composable
+private fun SettingsGroupRow(titleRes: Int, descRes: Int, onClick: () -> Unit) =
+    AppNavigationRow(
+        title = stringResource(titleRes),
+        description = stringResource(descRes),
+        onClick = onClick,
+    )
 
 @Composable
 internal fun SettingsPageHeader(title: String, onBack: () -> Unit) {
-    val backLabel = stringResource(R.string.settings_back)
-    val iconColor = LocalContentColor.current
-    Row(verticalAlignment = Alignment.CenterVertically) {
-        IconButton(
-            onClick = onBack,
-            modifier = Modifier.semantics { contentDescription = backLabel },
-        ) {
-            BackChevron(color = iconColor)
-        }
-        Text(title, style = MaterialTheme.typography.headlineSmall)
-    }
+    AppTopBar(title = title, onBack = onBack)
 }
-
-@Composable
-private fun BackChevron(color: Color) {
-    val argb = color.toArgb()
-    val strokePx = with(LocalDensity.current) { SETTINGS_BACK_ICON_STROKE.toPx() }
-    Canvas(modifier = Modifier.size(SETTINGS_BACK_ICON_BOX)) {
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            this.color = argb
-            style = Paint.Style.STROKE
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-            strokeWidth = strokePx
-        }
-        val s = size.minDimension * SETTINGS_BACK_ICON_S_FACTOR
-        drawIntoCanvas { canvas ->
-            Glyphs.drawBack(canvas.nativeCanvas, paint, size.width / 2f, size.height / 2f, s)
-        }
-    }
-}
-
-private val SETTINGS_BACK_ICON_BOX = 24.dp
-private const val SETTINGS_BACK_ICON_S_FACTOR = 0.56f
-private val SETTINGS_BACK_ICON_STROKE = 2.dp
 
 @Composable
 internal fun SettingsPageColumn(title: String, onBack: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .settingsScrollInsets(
-                scrollState = rememberScrollState(),
-                bottomInsets = WindowInsets.safeDrawing,
-                topInsets = settingsTopInset(),
-            )
-            .padding(horizontal = 24.dp)
-            .padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp),
-    ) {
-        SettingsPageHeader(title, onBack)
-        content()
-    }
+    AppSettingsPage(title = title, onBack = onBack, content = content)
 }
 
 @Composable
@@ -397,7 +330,7 @@ internal fun AboutPage(resumeSignal: Int, onBack: () -> Unit, onOpenLicenses: ()
     SettingsPageColumn(stringResource(R.string.settings_group_about_title), onBack) {
         AppVersionCard()
 
-        Card(modifier = Modifier.fillMaxWidth().testTag("setup_steps_card")) {
+        AppSection(modifier = Modifier.testTag("setup_steps_card")) {
             Column(
                 modifier = Modifier.fillMaxWidth().padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -439,11 +372,13 @@ internal fun AboutPage(resumeSignal: Int, onBack: () -> Unit, onOpenLicenses: ()
                 },
         )
 
-        SettingsGroupCard(
-            titleRes = R.string.settings_about_licenses_title,
-            descRes = R.string.settings_about_licenses_desc,
-            onClick = onOpenLicenses,
-        )
+        AppSection {
+            SettingsGroupRow(
+                titleRes = R.string.settings_about_licenses_title,
+                descRes = R.string.settings_about_licenses_desc,
+                onClick = onOpenLicenses,
+            )
+        }
     }
 }
 

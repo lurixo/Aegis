@@ -400,13 +400,30 @@ class SettingsWiringTest {
     @Test fun every_settings_page_keeps_the_edge_to_edge_inset_contract() {
         val setup = src("src/main/java/com/aegis/ime/ui/SetupActivity.kt")
         assertTrue(setup.contains("fun SettingsPageColumn") && setup.contains(".settingsScrollInsets("))
-        val page = src("src/main/java/com/aegis/ime/ui/UserDictPage.kt")
-        assertTrue(page.contains(".userDictPageInsets("))
-        assertTrue(page.contains("bottomInsets = WindowInsets.safeDrawing"))
-        assertTrue(page.contains("topInsets = settingsTopInset()"))
-        assertTrue(page.contains("bottomInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)"))
-        assertTrue(page.contains("topInsets.only(WindowInsetsSides.Top)"))
-        assertFalse("user dict must not source top padding directly from safeDrawing", page.contains(".windowInsetsPadding(WindowInsets.safeDrawing)"))
+        val components = src("src/main/java/com/aegis/ime/ui/AppComponents.kt")
+        assertTrue(components.contains(".appPageInsets("))
+        assertTrue(components.contains("bottomInsets = WindowInsets.safeDrawing"))
+        assertTrue(components.contains("topInsets = settingsTopInset()"))
+        assertTrue(components.contains("bottomInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)"))
+        assertTrue(components.contains("topInsets.only(WindowInsetsSides.Top)"))
+        assertFalse(
+            "app pages must not source top padding directly from safeDrawing",
+            components.contains(".windowInsetsPadding(WindowInsets.safeDrawing)"),
+        )
+    }
+
+    @Test fun app_design_tokens_and_navigation_are_not_visually_coupled_to_the_ime() {
+        val theme = src("src/main/java/com/aegis/ime/ui/theme/Theme.kt")
+        val tokens = src("src/main/java/com/aegis/ime/ui/theme/AppDesignTokens.kt")
+        val components = src("src/main/java/com/aegis/ime/ui/AppComponents.kt")
+
+        assertTrue(theme.contains("typography = aegisTypography"))
+        assertTrue(theme.contains("shapes = aegisShapes"))
+        assertTrue(components.contains("AppIconMetrics.backChevronHeight"))
+        assertTrue(components.contains("AppIconMetrics.touchTarget"))
+        assertFalse("App shapes must not inherit IME corner tokens", theme.contains("ImeShapes"))
+        assertFalse("App navigation must not draw through IME glyph code", components.contains("Glyphs"))
+        assertFalse("App design tokens must remain in the App layer", tokens.contains("com.aegis.ime.ime"))
     }
 
     @Test fun the_model_card_sits_above_the_dictionary_card_on_the_dicts_page() {
