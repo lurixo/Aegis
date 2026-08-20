@@ -19,26 +19,24 @@ import android.content.Context
 import android.content.pm.PackageManager
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import com.aegis.ime.R
+import com.aegis.ime.ui.theme.AppSpacing
 
 @Composable
 internal fun AppVersionCard() {
     val context = LocalContext.current
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    AppSection {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(AppSpacing.sectionPadding),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.compactGap),
         ) {
             Text(stringResource(R.string.app_version_card_title), style = MaterialTheme.typography.titleMedium)
             Text(

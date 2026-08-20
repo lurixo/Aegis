@@ -105,7 +105,7 @@ class SettingsInsetTest {
         return caps to scroll
     }
 
-    private fun renderUserDictInsets(imeBottomDp: Int, safeTopDp: Int): Caps {
+    private fun renderAppPageInsets(imeBottomDp: Int, safeTopDp: Int): Caps {
         val caps = Caps()
         val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup()
         val activity: Activity = controller.get()
@@ -115,7 +115,7 @@ class SettingsInsetTest {
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
-                            .userDictPageInsets(
+                            .appPageInsets(
                                 bottomInsets = WindowInsets(
                                     left = leftDp.dp,
                                     top = safeTopDp.dp,
@@ -262,10 +262,10 @@ class SettingsInsetTest {
         )
     }
 
-    @Test fun user_dict_insets_use_seeded_top_not_safe_drawing_top() {
+    @Test fun app_page_insets_use_seeded_top_not_safe_drawing_top() {
         val safeTopDp = 99
-        val caps = renderUserDictInsets(imeBottomDp = imeDp, safeTopDp = safeTopDp)
-        assertEquals("user dict top must come from settingsTopInset's source", statusPx, caps.topY, density)
+        val caps = renderAppPageInsets(imeBottomDp = imeDp, safeTopDp = safeTopDp)
+        assertEquals("app page top must come from settingsTopInset's source", statusPx, caps.topY, density)
         assertEquals("safeDrawing start inset must be preserved", leftDp * density, caps.leftX, density)
         assertEquals(
             "safeDrawing horizontal insets must be preserved",
@@ -275,11 +275,11 @@ class SettingsInsetTest {
         )
     }
 
-    @Test fun user_dict_ime_inset_shrinks_the_lazy_viewport() {
-        val withIme = renderUserDictInsets(imeBottomDp = imeDp, safeTopDp = 99)
-        val withoutIme = renderUserDictInsets(imeBottomDp = 0, safeTopDp = 99)
+    @Test fun app_page_ime_inset_shrinks_the_content_viewport() {
+        val withIme = renderAppPageInsets(imeBottomDp = imeDp, safeTopDp = 99)
+        val withoutIme = renderAppPageInsets(imeBottomDp = 0, safeTopDp = 99)
         val shrink = (withoutIme.height - withIme.height).toFloat()
         val expected = imeDp * density
-        assertEquals("user dict IME inset must shrink the lazy-list viewport", expected, shrink, density * 4f)
+        assertEquals("app page IME inset must shrink the content viewport", expected, shrink, density * 4f)
     }
 }

@@ -26,17 +26,15 @@ import androidx.activity.result.contract.ActivityResultContracts.CreateDocument
 import androidx.activity.result.contract.ActivityResultContracts.OpenDocument
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
@@ -55,6 +53,8 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import com.aegis.ime.R
+import com.aegis.ime.ui.theme.AppShapes
+import com.aegis.ime.ui.theme.AppSpacing
 import com.aegis.ime.backup.BackupError
 import com.aegis.ime.backup.BackupItem
 import com.aegis.ime.backup.BackupException
@@ -414,15 +414,19 @@ internal fun BackupScreen(
     onDone: () -> Unit,
 ) {
     SettingsPageColumn(stringResource(R.string.settings_backup_title), onBack) {
-        Card(modifier = Modifier.fillMaxWidth()) {
-            Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        AppSection {
+            Column(
+                modifier = Modifier.padding(AppSpacing.sectionPadding),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.compactGap),
+            ) {
                 Text(
                     stringResource(R.string.backup_intro),
                     style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Text(
                     stringResource(R.string.backup_password_warning),
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -437,17 +441,19 @@ internal fun BackupScreen(
             onRemove = onRemoveDefaultPassword,
         )
 
-        Button(
+        AppPrimaryButton(
+            text = stringResource(R.string.backup_export_button),
             onClick = onStartExport,
             enabled = state == BackupUiState.Menu,
             modifier = Modifier.fillMaxWidth(),
-        ) { Text(stringResource(R.string.backup_export_button)) }
+        )
 
-        OutlinedButton(
+        AppPrimaryButton(
+            text = stringResource(R.string.backup_import_button),
             onClick = onStartImport,
             enabled = state == BackupUiState.Menu,
             modifier = Modifier.fillMaxWidth(),
-        ) { Text(stringResource(R.string.backup_import_button)) }
+        )
 
         if (state == BackupUiState.Working) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -504,12 +510,15 @@ private fun DefaultPasswordCard(
     onSet: () -> Unit,
     onRemove: () -> Unit,
 ) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    AppSection {
+        Column(
+            modifier = Modifier.padding(AppSpacing.sectionPadding),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.compactGap),
+        ) {
             Text(stringResource(R.string.backup_default_password_title), style = MaterialTheme.typography.titleMedium)
             Text(
                 stringResource(R.string.backup_default_password_desc),
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
@@ -517,7 +526,8 @@ private fun DefaultPasswordCard(
                     if (saved) R.string.backup_default_password_status_saved
                     else R.string.backup_default_password_status_not_set,
                 ),
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             if (!authAvailable) {
                 Text(
@@ -533,23 +543,24 @@ private fun DefaultPasswordCard(
                     style = MaterialTheme.typography.bodySmall,
                 )
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.compactGap),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.compactGap),
+            ) {
+                AppPrimaryButton(
+                    text = stringResource(
+                        if (saved) R.string.backup_default_password_update_button
+                        else R.string.backup_default_password_set_button,
+                    ),
                     onClick = onSet,
                     enabled = actionsEnabled && authAvailable,
-                ) {
-                    Text(
-                        stringResource(
-                            if (saved) R.string.backup_default_password_update_button
-                            else R.string.backup_default_password_set_button,
-                        ),
-                    )
-                }
+                )
                 if (saved) {
-                    OutlinedButton(
+                    AppPrimaryButton(
+                        text = stringResource(R.string.backup_default_password_remove_button),
                         onClick = onRemove,
                         enabled = actionsEnabled,
-                    ) { Text(stringResource(R.string.backup_default_password_remove_button)) }
+                    )
                 }
             }
         }
@@ -789,9 +800,10 @@ private fun PasswordTextField(
         onValueChange = onValueChange,
         label = { Text(stringResource(labelRes)) },
         singleLine = true,
+        shape = AppShapes.section,
         visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
         trailingIcon = {
-            TextButton(onClick = { visible = !visible }) {
+            TextButton(onClick = { visible = !visible }, shape = MaterialTheme.shapes.extraSmall) {
                 Text(
                     stringResource(
                         if (visible) R.string.backup_password_hide

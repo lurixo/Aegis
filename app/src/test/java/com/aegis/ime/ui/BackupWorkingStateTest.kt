@@ -90,7 +90,7 @@ class BackupWorkingStateTest {
         compose.waitForIdle()
         compose.onNodeWithText(label(R.string.backup_working)).assertExists()
 
-        compose.onNodeWithContentDescription(label(R.string.settings_back)).performScrollTo().performClick()
+        compose.onNodeWithContentDescription(label(R.string.settings_back)).performClick()
         compose.waitForIdle()
 
         assertTrue("a restore that hangs must never hold the page shut", compose.activity.isFinishing)

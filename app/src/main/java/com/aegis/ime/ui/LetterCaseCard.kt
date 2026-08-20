@@ -16,28 +16,22 @@
 package com.aegis.ime.ui
 
 import android.content.Context
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import androidx.core.content.edit
 import com.aegis.ime.R
+import com.aegis.ime.ui.theme.AppSpacing
 
 enum class LetterCase { AUTO, UPPER, LOWER }
 
@@ -62,25 +56,30 @@ internal fun LetterCaseCard() {
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
     var choice by remember { mutableStateOf(prefs.getString(PREF_LETTER_CASE, LETTER_CASE_DEFAULT) ?: LETTER_CASE_DEFAULT) }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    AppSection {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(AppSpacing.sectionPadding),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.compactGap),
         ) {
             Text(stringResource(R.string.letter_case_title), style = MaterialTheme.typography.titleMedium)
-            Text(stringResource(R.string.letter_case_description), style = MaterialTheme.typography.bodySmall)
+            Text(
+                stringResource(R.string.letter_case_description),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        AppSectionDivider()
+        AppChoiceGroup {
             LETTER_CASE_CHOICES.forEach { (value, labelRes) ->
                 val select = {
                     choice = value
                     prefs.edit { putString(PREF_LETTER_CASE, value) }
                 }
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth().clickable(onClick = select),
-                ) {
-                    RadioButton(selected = choice == value, onClick = select)
-                    Text(stringResource(labelRes), style = MaterialTheme.typography.bodyLarge)
-                }
+                AppChoiceRow(
+                    label = stringResource(labelRes),
+                    selected = choice == value,
+                    onSelect = select,
+                )
             }
         }
     }

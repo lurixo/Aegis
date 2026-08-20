@@ -218,7 +218,7 @@ class BackupActivityUiTest {
     }
 
     @Test fun back_arrow_finishes_the_activity() {
-        compose.onNodeWithContentDescription(str(R.string.settings_back)).performScrollTo().performClick()
+        compose.onNodeWithContentDescription(str(R.string.settings_back)).performClick()
         compose.waitForIdle()
         assertTrue(compose.activity.isFinishing)
     }

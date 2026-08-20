@@ -45,7 +45,7 @@ class SettingsNavigationTest {
     private val groups = listOf(
         Group(R.string.settings_group_input_title, InputSettingsActivity::class.java, R.string.layout_card_title),
         Group(R.string.settings_group_dicts_title, DictSettingsActivity::class.java, R.string.dict_card_title),
-        Group(R.string.settings_group_userdict_title, UserDictActivity::class.java, R.string.user_dict_export_button),
+        Group(R.string.settings_group_userdict_title, UserDictActivity::class.java, R.string.user_dict_search_hint),
         Group(R.string.settings_backup_title, BackupActivity::class.java, R.string.backup_export_button),
         Group(R.string.settings_group_about_title, AboutActivity::class.java, R.string.setup_steps_title),
     )

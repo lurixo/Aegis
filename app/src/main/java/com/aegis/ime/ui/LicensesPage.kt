@@ -15,19 +15,19 @@
 
 package com.aegis.ime.ui
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Card
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
 import com.aegis.ime.R
+import com.aegis.ime.ui.theme.AppSpacing
 
 private data class LicenseItem(
     val nameRes: Int,
@@ -66,15 +66,13 @@ internal fun LicensesPage(onBack: () -> Unit) {
 private fun LicenseCard(item: LicenseItem) {
     val modifiedLabel = stringResource(R.string.licenses_modified)
     val context = LocalContext.current
-    Card(
-        onClick = {
-            context.openActivityExternalLink(item.url)
-        },
-        modifier = Modifier.fillMaxWidth(),
-    ) {
+    AppSection(modifier = Modifier.fillMaxWidth()) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clickable { context.openActivityExternalLink(item.url) }
+                .padding(AppSpacing.sectionPadding),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.compactGap),
         ) {
             Text(stringResource(item.nameRes), style = MaterialTheme.typography.titleMedium)
             val meta = "${item.copyright} · ${item.license}" + if (item.modified) " · $modifiedLabel" else ""

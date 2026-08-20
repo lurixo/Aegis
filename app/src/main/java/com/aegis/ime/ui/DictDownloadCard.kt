@@ -21,15 +21,16 @@ import android.os.Looper
 import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -45,6 +46,7 @@ import androidx.compose.ui.unit.dp
 import com.aegis.ime.R
 import com.aegis.ime.SettingsHotApply
 import com.aegis.ime.dict.ModelDownload
+import com.aegis.ime.ui.theme.AppSpacing
 
 @Composable
 internal fun DictDownloadCard(
@@ -161,27 +163,29 @@ internal fun DictDownloadCard(
         }
     }
 
-    Card(modifier = Modifier.fillMaxWidth()) {
+    AppSection {
         Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            modifier = Modifier.padding(AppSpacing.sectionPadding),
+            verticalArrangement = Arrangement.spacedBy(AppSpacing.compactGap),
         ) {
             Text(stringResource(R.string.dict_card_title), style = MaterialTheme.typography.titleMedium)
             Text(
                 stringResource(R.string.dict_card_description),
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text(
                 stringResource(R.string.download_storage_format, location),
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             TextButton(
                 onClick = {
                     context.openActivityExternalLink(ModelDownload.DICT_REPO_URL)
                 },
-                contentPadding = PaddingValues(0.dp),
+                shape = MaterialTheme.shapes.extraSmall,
             ) {
-                Text(stringResource(R.string.dict_source_link), style = MaterialTheme.typography.bodySmall)
+                Text(stringResource(R.string.dict_source_link), style = MaterialTheme.typography.labelLarge)
             }
             if (downloading) {
                 val currentProgress = progress
@@ -193,23 +197,33 @@ internal fun DictDownloadCard(
             }
             Text(
                 if (checking) stringResource(R.string.download_status_checking_update) else status.asString(),
-                style = MaterialTheme.typography.bodySmall,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            FlowRow(
+            Row(
+                modifier = Modifier.fillMaxWidth().height(IntrinsicSize.Max),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Button(
+                AppPrimaryButton(
+                    text = stringResource(R.string.download_button),
                     enabled = !downloading && (!present || redownloadOffered),
                     onClick = { startDownload() },
-                ) { Text(stringResource(R.string.download_button)) }
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                )
                 if (present) {
-                    Button(
+                    AppPrimaryButton(
+                        text = stringResource(R.string.check_dict_update_button),
                         enabled = !downloading && !checking,
                         onClick = { checkUpdate() },
-                    ) { Text(stringResource(R.string.check_dict_update_button)) }
+                        modifier = Modifier.weight(2f).fillMaxHeight(),
+                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                    )
+                } else {
+                    Spacer(Modifier.weight(2f))
                 }
-                OutlinedButton(
+                AppPrimaryButton(
+                    text = stringResource(R.string.delete_button),
                     enabled = !downloading && !checking && present,
                     onClick = delete@ {
                         if (ModelDownload.dictionaryTransactionInProgress(context.filesDir)) return@delete
@@ -241,7 +255,9 @@ internal fun DictDownloadCard(
                         }
                         DictDownloadWork.setIdleStatus(context, status)
                     },
-                ) { Text(stringResource(R.string.delete_button)) }
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+                )
             }
         }
     }

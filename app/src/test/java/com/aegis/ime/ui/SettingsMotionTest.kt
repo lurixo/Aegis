@@ -17,9 +17,12 @@ package com.aegis.ime.ui
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
+import androidx.compose.ui.semantics.SemanticsActions
 import com.aegis.ime.R
+import com.aegis.ime.ui.theme.SettingsMotion
+import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -39,7 +42,12 @@ class SettingsMotionTest {
 
     @Test fun first_run_hint_reveals_then_collapses_away_on_ack() {
         compose.onNodeWithText(s(R.string.setup_first_run_title)).assertIsDisplayed()
-        compose.onNodeWithText(s(R.string.setup_first_run_ack)).performClick()
+        val click = compose.onNodeWithTag("setup_first_run_ack")
+            .fetchSemanticsNode().config[SemanticsActions.OnClick].action
+        compose.runOnIdle { assertTrue("the acknowledgement exposes an actionable click", click?.invoke() == true) }
+        compose.waitForIdle()
+        compose.mainClock.advanceTimeBy(SettingsMotion.DURATION_STATE.toLong() + 64L)
+        compose.mainClock.advanceTimeByFrame()
         compose.waitForIdle()
         compose.onNodeWithText(s(R.string.setup_first_run_title)).assertDoesNotExist()
     }

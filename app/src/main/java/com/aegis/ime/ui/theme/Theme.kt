@@ -18,20 +18,14 @@ package com.aegis.ime.ui.theme
 import android.content.Context
 import android.content.res.Configuration
 import androidx.compose.foundation.isSystemInDarkTheme
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Shapes
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import com.aegis.ime.R
-import com.aegis.ime.ime.theme.ImeShapes
-
-internal val aegisShapes = Shapes(medium = RoundedCornerShape(ImeShapes.cardRadiusDp.dp))
 
 @Composable
 fun AegisTheme(
@@ -40,7 +34,12 @@ fun AegisTheme(
 ) {
     val context = LocalContext.current
     val colorScheme = aegisColorScheme(context, darkTheme)
-    MaterialTheme(colorScheme = colorScheme, shapes = aegisShapes, content = content)
+    MaterialTheme(
+        colorScheme = colorScheme,
+        typography = aegisTypography,
+        shapes = aegisShapes,
+        content = content,
+    )
 }
 
 internal fun aegisColorScheme(context: Context, darkTheme: Boolean): ColorScheme = if (darkTheme) {

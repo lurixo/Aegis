@@ -16,7 +16,6 @@
 package com.aegis.ime.ui
 
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -39,7 +38,7 @@ internal fun AegisAlertDialog(
         title = title,
         text = text,
         shape = MaterialTheme.shapes.medium,
-        containerColor = CardDefaults.cardColors().containerColor,
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
         tonalElevation = 0.dp,
     )
 }
