@@ -24,6 +24,7 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
@@ -31,6 +32,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onLast
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
@@ -161,6 +163,26 @@ class UserDictPageTest {
         compose.onNodeWithTag("user_dict_search").assertExists()
     }
 
+    private fun openAddSheet() {
+        compose.onNodeWithTag("user_dict_open_add").performClick()
+        compose.onNodeWithTag("user_dict_add_sheet").assertExists()
+    }
+
+    private fun openMoreSheet() {
+        compose.onNodeWithTag("user_dict_open_more").performClick()
+        compose.onNodeWithTag("user_dict_more_sheet").assertExists()
+    }
+
+    private fun startExportFromTools() {
+        openMoreSheet()
+        compose.onNodeWithTag("user_dict_export").performScrollTo().performClick()
+    }
+
+    private fun requestLearnedClearFromTools() {
+        openMoreSheet()
+        compose.onNodeWithTag("user_dict_auto_clear").performScrollTo().performClick()
+    }
+
     private fun seed(n: Int, vararg extras: Pair<String, String>) {
         db.writeText(
             buildString {
@@ -195,13 +217,14 @@ class UserDictPageTest {
     @Test fun search_by_pinyin_prefix_word_substring_and_the_empty_and_no_result_boundaries() {
         seed(50, "nihao" to "你好", "ceshi" to "测试")
         openUserDictPage()
-        compose.onNodeWithText(s(R.string.user_dict_export_button)).assertExists()
+        compose.onNodeWithTag("user_dict_open_more").assertExists()
+        compose.onNodeWithText(s(R.string.user_dict_export_button)).assertDoesNotExist()
         compose.onNodeWithText(ctx.getString(R.string.user_dict_count_format, 52)).assertExists()
 
         compose.onNodeWithTag("user_dict_search").performTextInput("nih")
         compose.onNodeWithText(row("你好", "nihao")).assertExists()
         compose.onNodeWithText(row("测试", "ceshi")).assertDoesNotExist()
-        compose.onNodeWithText(s(R.string.user_dict_export_button)).assertDoesNotExist()
+        compose.onNodeWithTag("user_dict_open_more").assertExists()
 
         compose.onNodeWithTag("user_dict_search").performTextClearance()
         compose.onNodeWithTag("user_dict_search").performTextInput("测")
@@ -213,7 +236,7 @@ class UserDictPageTest {
         compose.onNodeWithText(s(R.string.user_dict_search_no_match)).assertExists()
 
         compose.onNodeWithTag("user_dict_search").performTextClearance()
-        compose.onNodeWithText(s(R.string.user_dict_export_button)).assertExists()
+        compose.onNodeWithTag("user_dict_open_more").assertExists()
         compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(row("你好", "nihao")))
         compose.onNodeWithText(row("你好", "nihao")).assertExists()
     }
@@ -221,6 +244,7 @@ class UserDictPageTest {
     @Test fun add_writes_the_word_into_userdb_and_the_list() {
         seed(0)
         openUserDictPage()
+        openAddSheet()
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("测试词")
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("ceshici")
         compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
@@ -316,6 +340,7 @@ class UserDictPageTest {
 
         compose.onNodeWithTag("user_dict_list").performScrollToNode(hasTestTag("user_dict_auto_pairs_only"))
         compose.onNodeWithText(ctx.getString(R.string.user_dict_auto_count_format, 0)).assertExists()
+        openMoreSheet()
         compose.onNodeWithTag("user_dict_auto_clear").assertIsEnabled()
         compose.onNodeWithText(s(R.string.user_dict_auto_pairs_only)).assertExists()
     }
@@ -325,7 +350,7 @@ class UserDictPageTest {
         seedLearned("你" to "ni", "呢" to "ne", "嗯" to "n")
         openUserDictPage()
 
-        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasTestTag("user_dict_auto_clear"))
+        openMoreSheet()
         compose.onNodeWithText(ctx.getString(R.string.user_dict_auto_count_format, 1)).assertExists()
         compose.onNodeWithTag("user_dict_auto_pairs_only").assertDoesNotExist()
     }
@@ -335,8 +360,7 @@ class UserDictPageTest {
         seedLearned("你" to "ni", "呢" to "ne", "嗯" to "n")
         openUserDictPage()
 
-        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(s(R.string.user_dict_auto_clear_button)))
-        compose.onNodeWithTag("user_dict_auto_clear").performClick()
+        requestLearnedClearFromTools()
         compose.waitForIdle()
         compose.onNodeWithText(s(R.string.user_dict_auto_clear_dialog_body)).assertExists()
         assertTrue("nothing is cleared before the confirmation", UserLearnEdit.list(learn).isNotEmpty())
@@ -345,7 +369,7 @@ class UserDictPageTest {
         compose.waitForIdle()
         assertTrue("cancelling keeps the learned data", UserLearnEdit.list(learn).isNotEmpty())
 
-        compose.onNodeWithTag("user_dict_auto_clear").performClick()
+        requestLearnedClearFromTools()
         compose.waitForIdle()
         compose.onNodeWithText(s(R.string.user_dict_auto_clear_confirm)).performClick()
         assertEquals(s(R.string.user_dict_toast_auto_cleared), reported())
@@ -377,6 +401,56 @@ class UserDictPageTest {
         compose.waitForIdle()
         compose.onNodeWithText(row("你好", "nihao")).assertIsOff()
         assertTrue("leaving selection mode deletes nothing", UserDictEdit.list(db).any { it.word == "你好" })
+    }
+
+    @Test fun overview_status_actions_and_entry_text_keep_one_left_baseline_across_selection() {
+        seed(0, "nihao" to "你好")
+        openUserDictPage()
+        compose.onNodeWithTag("user_dict_search").performTextInput("nihao")
+
+        val countLeft = compose.onNodeWithTag("user_dict_count").getUnclippedBoundsInRoot().left.value
+        val forgottenLeft = compose.onNodeWithTag("user_dict_forgotten").getUnclippedBoundsInRoot().left.value
+        val manageLeft = compose.onNodeWithTag("user_dict_select").getUnclippedBoundsInRoot().left.value
+        assertEquals("count and forgotten status share a left baseline", countLeft, forgottenLeft, 0.5f)
+        assertEquals("status and batch management share a left baseline", countLeft, manageLeft, 0.5f)
+
+        val normalEntryLeft = compose.onNodeWithTag("user_dict_entry_text", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot().left.value
+        compose.onNodeWithTag("user_dict_select").performClick()
+        compose.waitForIdle()
+        val selectionEntryLeft = compose.onNodeWithTag("user_dict_entry_text", useUnmergedTree = true)
+            .getUnclippedBoundsInRoot().left.value
+        assertEquals("selection mode must not shift the word column", normalEntryLeft, selectionEntryLeft, 0.5f)
+    }
+
+    @Test fun selection_context_counts_ticks_and_system_back_exits_selection_before_the_activity() {
+        seed(0, "nihao" to "你好")
+        openUserDictPage()
+        compose.onNodeWithTag("user_dict_search").performTextInput("nihao")
+        compose.onNodeWithTag("user_dict_select").performClick()
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_selected_count_format, 0)).assertExists()
+        compose.onNodeWithText(row("你好", "nihao")).performClick()
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_selected_count_format, 1)).assertExists()
+
+        scenario!!.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        compose.waitForIdle()
+
+        compose.onNodeWithTag("user_dict_selection_context").assertDoesNotExist()
+        compose.onNodeWithTag("user_dict_select").assertExists()
+        scenario!!.onActivity { assertFalse("selection back must not finish the Activity", it.isFinishing) }
+    }
+
+    @Test fun selection_delete_bar_stays_below_the_list_and_inside_the_safe_page_bounds() {
+        seed(0, "nihao" to "你好")
+        openUserDictPage()
+        compose.onNodeWithTag("user_dict_select").performClick()
+        compose.waitForIdle()
+
+        val list = compose.onNodeWithTag("user_dict_list_surface").getUnclippedBoundsInRoot()
+        val bar = compose.onNodeWithTag("user_dict_selection_bottom_bar").getUnclippedBoundsInRoot()
+        val root = compose.onRoot().getUnclippedBoundsInRoot()
+        assertTrue("the fixed delete bar must start below the scrolling list", list.bottom.value <= bar.top.value + 0.5f)
+        assertTrue("the fixed delete bar must stay inside the safe page", bar.bottom.value <= root.bottom.value + 0.5f)
     }
 
     @Test fun select_all_asks_with_the_count_and_only_a_confirmation_empties_both_sections() {
@@ -591,6 +665,7 @@ class UserDictPageTest {
         openUserDictPage()
 
         ShadowToast.reset()
+        openAddSheet()
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("自动词")
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("zidongci")
         compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
@@ -603,6 +678,7 @@ class UserDictPageTest {
         compose.onNodeWithText(ctx.getString(R.string.user_dict_count_format, 1)).assertExists()
 
         ShadowToast.reset()
+        openAddSheet()
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("全新词")
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("quanxinci")
         compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
@@ -618,6 +694,7 @@ class UserDictPageTest {
         openUserDictPage()
 
         ShadowToast.reset()
+        openAddSheet()
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("词".repeat(257))
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("ceshi")
         compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
@@ -672,8 +749,7 @@ class UserDictPageTest {
         assertTrue("there is no glued word to list", UserLearnEdit.list(learn).isEmpty())
         openUserDictPage()
 
-        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(s(R.string.user_dict_auto_clear_button)))
-        compose.onNodeWithTag("user_dict_auto_clear").assertIsEnabled().performClick()
+        requestLearnedClearFromTools()
         compose.waitForIdle()
         compose.onNodeWithText(s(R.string.user_dict_auto_clear_confirm)).performClick()
         assertEquals(s(R.string.user_dict_toast_auto_cleared), reported())
@@ -724,6 +800,7 @@ class UserDictPageTest {
         openUserDictPage()
 
         ShadowToast.reset()
+        openAddSheet()
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("幽灵词")
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("youlingci")
         compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
@@ -794,7 +871,7 @@ class UserDictPageTest {
         openUserDictPage()
 
         ShadowToast.reset()
-        compose.onNodeWithTag("user_dict_export").performClick()
+        startExportFromTools()
         settleEdits()
 
         scenario!!.onActivity { activity ->
@@ -815,6 +892,7 @@ class UserDictPageTest {
         compose.onNodeWithTag("user_dict_auto_count").assertDoesNotExist()
         compose.onNodeWithText(s(R.string.user_dict_auto_empty)).assertDoesNotExist()
         compose.onNodeWithTag("user_dict_count").assertExists()
+        openMoreSheet()
         compose.onNodeWithTag("user_dict_auto_clear").assertIsEnabled()
         assertTrue("the unreadable learning file is left as it was", learn.readText().startsWith("not a learning file"))
     }
@@ -861,6 +939,7 @@ class UserDictPageTest {
         openUserDictPage()
 
         ShadowToast.reset()
+        openAddSheet()
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("测试词")
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("ceshici")
         compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
@@ -899,8 +978,7 @@ class UserDictPageTest {
         openUserDictPage()
 
         ShadowToast.reset()
-        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(s(R.string.user_dict_auto_clear_button)))
-        compose.onNodeWithTag("user_dict_auto_clear").performClick()
+        requestLearnedClearFromTools()
         compose.waitForIdle()
         compose.onNodeWithText(s(R.string.user_dict_auto_clear_confirm)).performClick()
 
@@ -911,7 +989,7 @@ class UserDictPageTest {
         openUserDictPage()
 
         ShadowToast.reset()
-        compose.onNodeWithTag("user_dict_export").performClick()
+        startExportFromTools()
         settleEdits()
 
         assertEquals(s(R.string.user_dict_toast_export_empty), ShadowToast.getTextOfLatestToast())
@@ -932,7 +1010,7 @@ class UserDictPageTest {
         openUserDictPage()
 
         ShadowToast.reset()
-        compose.onNodeWithTag("user_dict_export").performClick()
+        startExportFromTools()
         settleEdits()
 
         assertEquals(s(R.string.user_dict_toast_export_blocked), ShadowToast.getTextOfLatestToast())
@@ -968,7 +1046,7 @@ class UserDictPageTest {
         UserDictHot.host = FlushWatchingHost(onMainThread)
         openUserDictPage()
 
-        compose.onNodeWithTag("user_dict_export").performClick()
+        startExportFromTools()
         settleEdits()
 
         assertNotNull("precondition: the export really did flush the store", onMainThread.get())
@@ -1007,7 +1085,7 @@ class UserDictPageTest {
         seed(0, "nihao" to "你好")
         UserDictHot.host = GatedFlushHost(gate)
         openUserDictPage()
-        compose.onNodeWithTag("user_dict_export").performClick()
+        startExportFromTools()
 
         scenario!!.close()
         scenario = null
@@ -1022,7 +1100,7 @@ class UserDictPageTest {
         seed(0, "nihao" to "你好")
         openUserDictPage()
 
-        compose.onNodeWithTag("user_dict_export").performClick()
+        startExportFromTools()
         settleEdits()
 
         scenario!!.onActivity { activity ->
@@ -1042,7 +1120,7 @@ class UserDictPageTest {
         openUserDictPage()
 
         ShadowToast.reset()
-        compose.onNodeWithTag("user_dict_export").performClick()
+        startExportFromTools()
         settleEdits()
         scenario!!.onActivity { activity ->
             val picked = shadowOf(activity).peekNextStartedActivityForResult()

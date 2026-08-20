@@ -52,6 +52,9 @@ class AppLocalizationTest {
         assertEquals("自动学习", ctx.getString(R.string.user_dict_auto_title))
         assertEquals("自动学习：3 个词", ctx.getString(R.string.user_dict_auto_count_format, 3))
         assertEquals("清空学习数据", ctx.getString(R.string.user_dict_auto_clear_button))
+        assertEquals("添加词", ctx.getString(R.string.user_dict_add_sheet_button))
+        assertEquals("更多", ctx.getString(R.string.user_dict_more_button))
+        assertEquals("已选 2 项", ctx.getString(R.string.user_dict_selected_count_format, 2))
         assertEquals("重输", ctx.getString(R.string.kbd_redo))
     }
 
@@ -80,6 +83,9 @@ class AppLocalizationTest {
         assertEquals("Auto learning", ctx.getString(R.string.user_dict_auto_title))
         assertEquals("Auto-learned words: 3", ctx.getString(R.string.user_dict_auto_count_format, 3))
         assertEquals("Clear learned data", ctx.getString(R.string.user_dict_auto_clear_button))
+        assertEquals("Add word", ctx.getString(R.string.user_dict_add_sheet_button))
+        assertEquals("More", ctx.getString(R.string.user_dict_more_button))
+        assertEquals("2 selected", ctx.getString(R.string.user_dict_selected_count_format, 2))
         assertEquals("Retype", ctx.getString(R.string.kbd_redo))
     }
 

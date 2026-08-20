@@ -138,6 +138,11 @@
     <string name="user_dict_import_overwrite">覆盖</string>
     <string name="user_dict_manual_title">我的词</string>
     <string name="user_dict_manual_description">添加一个词和它的拼音，输入该拼音时就会作为候选出现；也可删除某个词，让它不再出现在候选里。逐字拼出的词会自动加到这里。改动立即生效。</string>
+    <string name="user_dict_add_sheet_button">添加词</string>
+    <string name="user_dict_more_button">更多</string>
+    <string name="user_dict_more_title">词库工具</string>
+    <string name="user_dict_data_title">数据管理</string>
+    <string name="user_dict_selected_count_format">已选 %1$d 项</string>
     <string name="user_dict_search_hint">搜索：词或拼音</string>
     <string name="user_dict_count_format">词数：%1$d</string>
     <string name="user_dict_search_no_match">没有匹配的词。</string>
@@ -176,8 +181,8 @@
     <string name="user_dict_delete_dialog_body">将删除 %1$s。此操作不可撤销。</string>
     <string name="user_dict_delete_confirm">删除</string>
     <string name="user_dict_delete_cancel">取消</string>
-    <string name="user_dict_select_button">批量删除</string>
-    <string name="user_dict_select_all_button">全选</string>
+    <string name="user_dict_select_button">批量管理</string>
+    <string name="user_dict_select_all_button">全选当前结果</string>
     <string name="user_dict_select_cancel_button">取消</string>
     <string name="user_dict_delete_selected_button">删除所选</string>
     <string name="user_dict_batch_delete_dialog_title">删除所选的词</string>
