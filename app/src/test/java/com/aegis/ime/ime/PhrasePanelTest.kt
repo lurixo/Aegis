@@ -19,6 +19,7 @@ import com.aegis.ime.user.asClipEntries
 import com.aegis.ime.user.clipEntries
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.graphics.drawable.RippleDrawable
@@ -29,6 +30,7 @@ import android.view.ViewGroup
 import android.widget.HorizontalScrollView
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
@@ -634,9 +636,52 @@ class PhrasePanelTest {
         val v = phraseView().apply { onRenameCategory = { renamed = it }; onDeleteCategory = { deleted = it } }
         val chip = textViews(v).first { it.text?.toString() == "工作" && it.hasOnClickListeners() }
         assertTrue(chip.performLongClick())
-        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_rename_named, "工作"))); assertEquals("工作", renamed)
+        layout(v)
+        val renameAction = textViews(overlayOf(v)).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_rename) }
+        val deleteAction = textViews(overlayOf(v)).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_delete) }
+        val categoryNames = textViews(overlayOf(v)).filter { it.text?.toString() == "工作" }
+        assertEquals(2, categoryNames.size)
+        assertEquals(renameAction.width, deleteAction.width)
+        assertEquals(categoryNames[0].left, categoryNames[1].left)
+        assertEquals(dp(14), categoryNames[0].paddingLeft)
+        assertEquals(
+            Gravity.RIGHT,
+            Gravity.getAbsoluteGravity(categoryNames[0].gravity, categoryNames[0].layoutDirection) and Gravity.HORIZONTAL_GRAVITY_MASK,
+        )
+        val renameRow = renameAction.parent as View
+        val deleteRow = deleteAction.parent as View
+        assertTrue(v.isImmediateActionForTest(renameRow))
+        assertTrue(v.isImmediateActionForTest(deleteRow))
+        assertTrue((overlayOf(v) as ViewGroup).getChildAt(0).width < dp(320))
+        assertTrue(clickDesc(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_rename_named, "工作"))); assertEquals("工作", renamed)
         assertTrue(chip.performLongClick())
-        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete_named, "工作"))); assertEquals("工作", deleted)
+        assertTrue(clickDesc(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete_named, "工作"))); assertEquals("工作", deleted)
+    }
+
+    @Test fun categorybar_edit_uses_the_same_capsule_feedback_shape_as_category_chips() {
+        val v = phraseView()
+        val edit = allViews(v).single {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_manage_phrases)
+        }
+        val surface = edit.background as ImeKeySurface
+        assertTrue(v.isImmediateActionForTest(edit))
+        assertEquals(Color.TRANSPARENT, surface.faceColor)
+        assertEquals(ImeShapes.toolbarPillRadiusDp * ctx.resources.displayMetrics.density, surface.cornerRadiusPx, 0f)
+        assertNull(edit.foreground)
+    }
+
+    @Test fun categorybar_edit_long_press_opens_the_phrase_management_menu() {
+        val v = phraseView()
+        val edit = allViews(v).single {
+            it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_manage_phrases)
+        }
+
+        assertTrue(edit.performLongClick())
+        assertTrue(
+            textViews(overlayOf(v)).any {
+                it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_add_category)
+            },
+        )
     }
 
     @Test fun non_first_category_selection_retains_scroll_with_edit_pinned_outside() {
