@@ -55,7 +55,7 @@ class CandidateBarCompletenessTest {
 
     private fun CandidateView.dragToEnd(): Int {
         val y = height / 2f
-        val x0 = width.toFloat()
+        val x0 = expandControlBoundsForTest().left - 1f
         var dx = 0f
         var moves = 0
         dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, x0, y, 0))
@@ -108,7 +108,7 @@ class CandidateBarCompletenessTest {
 
     private fun CandidateView.hardFlick() {
         val y = height / 2f
-        val x0 = width.toFloat()
+        val x0 = expandControlBoundsForTest().left - 1f
         dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, x0, y, 0))
         for (k in 1..5) {
             dispatchTouchEvent(MotionEvent.obtain(0, 16L * k, MotionEvent.ACTION_MOVE, x0 - 200f * k, y, 0))

@@ -21,6 +21,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.RectF
 import android.os.Looper
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
@@ -89,6 +90,36 @@ class CandidateBarChevronTest {
         v.tapChevron()
         assertTrue("a tap on ⌄ expands the grid", expanded)
         assertFalse(collapsed)
+    }
+
+    @Test fun candidate_bar_keeps_the_down_target_and_resets_feedback_on_exit_or_cancel() {
+        val picked = ArrayList<Int>()
+        val view = barView().apply {
+            hapticEnabled = true
+            onPick = { picked += it }
+        }
+        val first = requireNotNull(view.centerOfCandidateForTest(0))
+        val second = requireNotNull(view.centerOfCandidateForTest(1))
+
+        view.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, first.first, first.second, 0))
+        assertEquals(HapticFeedbackConstants.KEYBOARD_TAP, Shadows.shadowOf(view).lastHapticFeedbackPerformed())
+        assertEquals("CANDIDATE", view.pressedTargetForTest())
+        view.dispatchTouchEvent(MotionEvent.obtain(0, 10, MotionEvent.ACTION_UP, second.first, second.second, 0))
+        assertTrue("lifting over another candidate must not pick either target", picked.isEmpty())
+        assertEquals(null, view.pressedTargetForTest())
+
+        view.dispatchTouchEvent(MotionEvent.obtain(20, 20, MotionEvent.ACTION_DOWN, first.first, first.second, 0))
+        view.dispatchTouchEvent(MotionEvent.obtain(20, 30, MotionEvent.ACTION_MOVE, first.first, -view.height.toFloat(), 0))
+        assertEquals("moving outside cancels the visible pressed state", null, view.pressedTargetForTest())
+        view.dispatchTouchEvent(MotionEvent.obtain(20, 40, MotionEvent.ACTION_MOVE, first.first, first.second, 0))
+        assertEquals("re-entering the original target restores only that target", "CANDIDATE", view.pressedTargetForTest())
+        view.dispatchTouchEvent(MotionEvent.obtain(20, 50, MotionEvent.ACTION_CANCEL, first.first, first.second, 0))
+        assertEquals("CANCEL clears all candidate feedback", null, view.pressedTargetForTest())
+        assertTrue(picked.isEmpty())
+
+        view.dispatchTouchEvent(MotionEvent.obtain(60, 60, MotionEvent.ACTION_DOWN, first.first, first.second, 0))
+        view.dispatchTouchEvent(MotionEvent.obtain(60, 70, MotionEvent.ACTION_UP, first.first, first.second, 0))
+        assertEquals(listOf(0), picked)
     }
 
     @Test fun expanded_state_chevron_reverses_and_collapses() {
@@ -625,12 +656,14 @@ class CandidateBarChevronTest {
         v.layout(0, 0, v.measuredWidth, v.measuredHeight)
         assertTrue("the candidate list overflows so there is room to fling", v.maxScrollForTest() > 0f)
         val y = v.height / 2f
+        val startX = v.expandControlBoundsForTest().left - 1f
         var t = 0L
         fun send(action: Int, x: Float) { v.dispatchTouchEvent(MotionEvent.obtain(0, t, action, x, y, 0)); t += 16 }
-        send(MotionEvent.ACTION_DOWN, 300f)
-        send(MotionEvent.ACTION_MOVE, 284f); send(MotionEvent.ACTION_MOVE, 268f); send(MotionEvent.ACTION_MOVE, 252f)
-        send(MotionEvent.ACTION_MOVE, 236f); send(MotionEvent.ACTION_MOVE, 220f)
-        v.dispatchTouchEvent(MotionEvent.obtain(0, t, MotionEvent.ACTION_UP, 220f, y, 0))
+        send(MotionEvent.ACTION_DOWN, startX)
+        send(MotionEvent.ACTION_MOVE, startX - 16f); send(MotionEvent.ACTION_MOVE, startX - 32f)
+        send(MotionEvent.ACTION_MOVE, startX - 48f); send(MotionEvent.ACTION_MOVE, startX - 64f)
+        send(MotionEvent.ACTION_MOVE, startX - 80f)
+        v.dispatchTouchEvent(MotionEvent.obtain(0, t, MotionEvent.ACTION_UP, startX - 80f, y, 0))
         assertTrue("a flick on the candidate strip starts a horizontal fling", v.isFlingingForTest())
         assertTrue("the windowed velocity reflects the leftward flick", v.flingVelocityForTest() < -300f)
     }
@@ -645,12 +678,14 @@ class CandidateBarChevronTest {
         )
         v.layout(0, 0, v.measuredWidth, v.measuredHeight)
         val y = v.height / 2f
+        val startX = v.expandControlBoundsForTest().left - 1f
         var t = 0L
         fun send(action: Int, x: Float) { v.dispatchTouchEvent(MotionEvent.obtain(0, t, action, x, y, 0)); t += 16 }
-        send(MotionEvent.ACTION_DOWN, 300f)
-        send(MotionEvent.ACTION_MOVE, 284f); send(MotionEvent.ACTION_MOVE, 268f); send(MotionEvent.ACTION_MOVE, 252f)
-        send(MotionEvent.ACTION_MOVE, 236f); send(MotionEvent.ACTION_MOVE, 220f)
-        v.dispatchTouchEvent(MotionEvent.obtain(0, t, MotionEvent.ACTION_UP, 220f, y, 0))
+        send(MotionEvent.ACTION_DOWN, startX)
+        send(MotionEvent.ACTION_MOVE, startX - 16f); send(MotionEvent.ACTION_MOVE, startX - 32f)
+        send(MotionEvent.ACTION_MOVE, startX - 48f); send(MotionEvent.ACTION_MOVE, startX - 64f)
+        send(MotionEvent.ACTION_MOVE, startX - 80f)
+        v.dispatchTouchEvent(MotionEvent.obtain(0, t, MotionEvent.ACTION_UP, startX - 80f, y, 0))
         assertTrue("precondition: a horizontal fling is running", v.isFlingingForTest())
         assertTrue("precondition: it scrolled away from the left edge", v.scrollXForTest() > 0f)
 

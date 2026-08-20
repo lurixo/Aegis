@@ -718,6 +718,7 @@ class AegisInputMethodServiceLifecycleTest {
         )
 
         f.view.setKeyHaptics(true)
+        assertTrue("the candidate bar receives the enabled toggle", f.view.candidateBarHapticsForTest())
         for ((name, panel) in panels) {
             val aware = panel as KeyHapticsAware
             f.view.showPanelImmediately(panel)
@@ -725,9 +726,11 @@ class AegisInputMethodServiceLifecycleTest {
 
             f.view.setKeyHaptics(false)
             assertFalse("$name receives a live disable", aware.hapticEnabled)
+            assertFalse("the candidate bar receives the same live disable", f.view.candidateBarHapticsForTest())
 
             f.view.setKeyHaptics(true)
             assertTrue("$name receives a live enable", aware.hapticEnabled)
+            assertTrue("the candidate bar receives the same live enable", f.view.candidateBarHapticsForTest())
         }
     }
 

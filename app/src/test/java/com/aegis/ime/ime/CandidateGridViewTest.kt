@@ -197,10 +197,13 @@ class CandidateGridViewTest {
         return RectF(left.toFloat(), top.toFloat(), (right + 1).toFloat(), (bottom + 1).toFloat())
     }
 
-    @Test fun selected_reading_uses_text_state_without_a_rectangular_background() {
+    @Test fun selected_reading_uses_text_state_with_a_transparent_shared_press_surface() {
         val v = CandidateGridView(ctx)
         v.setReadings(listOf("ni", "hao"), selected = 0)
-        assertNull("selected reading should not paint a mismatched rectangle", v.selectedReadingBackgroundForTest(0))
+        val surface = v.selectedReadingBackgroundForTest(0) as? ImeKeySurface
+        assertTrue("selected reading uses the same stateful surface as other IME keys", surface != null)
+        assertEquals("the shared surface has no idle rectangular face", Color.TRANSPARENT, requireNotNull(surface).faceColor)
+        assertNull("the shared surface replaces the old platform ripple", v.readingTileForTest(0)?.foreground)
     }
 
     @Test fun selected_reading_uses_accent_and_unselected_uses_default_text_color() {

@@ -21,6 +21,7 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
 import android.util.TypedValue
+import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -33,7 +34,9 @@ import kotlin.math.roundToInt
 
 enum class BarFunction { BRAND, EMOJI, LAYOUT, EDIT, CLIPBOARD, PHRASE }
 
-class CandidateView(context: Context) : View(context) {
+class CandidateView(context: Context) : View(context), KeyHapticsAware {
+
+    override var hapticEnabled = false
 
     var onPick: (Int) -> Unit = {}
     var onFunction: (BarFunction) -> Unit = {}
@@ -71,6 +74,9 @@ class CandidateView(context: Context) : View(context) {
     private data class PressTarget(val kind: PressKind, val index: Int = -1)
     private var pressedTarget: PressTarget? = null
     private var visualPressedTarget: PressTarget? = null
+    private var gestureTarget: PressTarget? = null
+    private var barActionGesture = false
+    private var barActionArmed = false
     private val pressFeedback = Motion.PressFeedback(this)
 
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
@@ -151,6 +157,7 @@ class CandidateView(context: Context) : View(context) {
 
     fun setGateStatus(text: String, failed: Boolean = false) {
         if (text == gateLabel && failed == gateFailed) return
+        resetTouchFeedback()
         gateLabel = text
         gateFailed = failed
         invalidate()
@@ -158,11 +165,13 @@ class CandidateView(context: Context) : View(context) {
 
     fun setRestoreNotice(label: String?) {
         if (label == restoreNoticeLabel) return
+        resetTouchFeedback()
         restoreNoticeLabel = label
         invalidate()
     }
 
     private fun applyContent(candidates: List<String>, composingText: String) {
+        resetTouchFeedback()
         items = candidates.toList()
         composing = composingText
         fling.forceFinish()
@@ -430,10 +439,16 @@ class CandidateView(context: Context) : View(context) {
                 downScroll = scrollX
                 dragging = false
                 fling.onDown()
-                setPressedTarget(targetAt(event.x, event.y))
+                gestureTarget = targetAt(event.x, event.y)
+                barActionGesture = (isGateMode() || isRestoreNoticeMode()) && insideView(event.x, event.y)
+                barActionArmed = barActionGesture
+                setPressedTarget(gestureTarget)
+                if ((gestureTarget != null || barActionArmed) && hapticEnabled) {
+                    performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                }
             }
             MotionEvent.ACTION_MOVE -> {
-                if (items.isNotEmpty()) {
+                if (items.isNotEmpty() && gestureTarget?.kind == PressKind.CANDIDATE) {
                     fling.addSample(event.eventTime, event.x)
                     val dx = event.x - downX
                     if (!dragging && abs(dx) > touchSlop) dragging = true
@@ -441,14 +456,25 @@ class CandidateView(context: Context) : View(context) {
                         releasePressedTarget()
                         scrollX = (downScroll - dx).coerceIn(0f, maxScroll())
                         invalidate()
+                    } else {
+                        setPressedTarget(gestureTarget.takeIf { targetAt(event.x, event.y) == it })
                     }
-                } else if (!dragging) {
-                    setPressedTarget(targetAt(event.x, event.y))
+                } else if (!dragging && gestureTarget != null) {
+                    setPressedTarget(gestureTarget.takeIf { targetAt(event.x, event.y) == it })
+                } else if (barActionGesture) {
+                    barActionArmed = insideView(event.x, event.y)
                 }
             }
             MotionEvent.ACTION_UP -> {
-                val downTarget = pressedTarget
+                val downTarget = gestureTarget
+                val acceptedTarget = downTarget?.takeIf {
+                    pressedTarget == it && targetAt(event.x, event.y) == it
+                }
+                val acceptedBarAction = barActionArmed && insideView(event.x, event.y)
                 releasePressedTarget()
+                gestureTarget = null
+                barActionGesture = false
+                barActionArmed = false
                 if (dragging) {
                     dragging = false
                     layoutCellsTo(fling.predictFinalOffset(scrollX) + (width - expandWidth()))
@@ -456,35 +482,58 @@ class CandidateView(context: Context) : View(context) {
                     return true
                 }
                 if (fling.stopArmed) return true
-                if (isGateMode()) { performClick(); onDictGate?.invoke(); return true }
-                if (isRestoreNoticeMode()) { performClick(); onRestoreNotice?.invoke(); return true }
-                if (isFunctionMode()) {
-                    val upTarget = toolbarTargetAt(event.x, event.y)
-                    if (downTarget == upTarget) {
-                        when (upTarget?.kind) {
-                            PressKind.COLLAPSE -> { performClick(); onCollapse() }
-                            PressKind.FUNCTION -> { performClick(); onFunction(functions[upTarget.index]) }
-                            else -> Unit
-                        }
-                    }
+                if (isGateMode()) {
+                    if (acceptedBarAction) { performClick(); onDictGate?.invoke() }
                     return true
                 }
-                if (items.isNotEmpty() && (downTarget?.kind == PressKind.EXPAND || isExpandTarget(event.x, event.y))) {
-                    if (downTarget?.kind == PressKind.EXPAND && isExpandTarget(event.x, event.y)) {
-                        performClick(); if (expanded) onCollapseExpanded() else onExpand()
-                    }
+                if (isRestoreNoticeMode()) {
+                    if (acceptedBarAction) { performClick(); onRestoreNotice?.invoke() }
                     return true
                 }
-                val cx = event.x + scrollX
-                val index = candidateIndexAt(cx)
-                if (index >= 0) {
-                    performClick()
-                    onPick(index)
+                when (acceptedTarget?.kind) {
+                    PressKind.COLLAPSE -> { performClick(); onCollapse() }
+                    PressKind.FUNCTION -> {
+                        performClick()
+                        onFunction(functions[acceptedTarget.index])
+                    }
+                    PressKind.EXPAND -> {
+                        performClick()
+                        if (expanded) onCollapseExpanded() else onExpand()
+                    }
+                    PressKind.CANDIDATE -> {
+                        performClick()
+                        onPick(acceptedTarget.index)
+                    }
+                    null -> Unit
                 }
             }
-            MotionEvent.ACTION_CANCEL -> releasePressedTarget()
+            MotionEvent.ACTION_CANCEL -> {
+                dragging = false
+                gestureTarget = null
+                barActionGesture = false
+                barActionArmed = false
+                releasePressedTarget()
+            }
         }
         return true
+    }
+
+    override fun onDetachedFromWindow() {
+        resetTouchFeedback()
+        super.onDetachedFromWindow()
+    }
+
+    private fun insideView(x: Float, y: Float): Boolean =
+        x >= 0f && x < width && y >= 0f && y < height
+
+    private fun resetTouchFeedback() {
+        dragging = false
+        gestureTarget = null
+        barActionGesture = false
+        barActionArmed = false
+        pressedTarget = null
+        visualPressedTarget = null
+        pressFeedback.reset()
     }
 
     private fun isFunctionMode(): Boolean = items.isEmpty() && composing.isEmpty()
@@ -506,7 +555,8 @@ class CandidateView(context: Context) : View(context) {
     internal fun restoreNoticeTextColorForTest(): Int = restoreNoticeColor()
 
     private fun targetAt(x: Float, y: Float): PressTarget? {
-        if (isRestoreNoticeMode()) return null
+        if (!insideView(x, y)) return null
+        if (isGateMode() || isRestoreNoticeMode()) return null
         if (isFunctionMode()) {
             return toolbarTargetAt(x, y)
         }
@@ -514,7 +564,7 @@ class CandidateView(context: Context) : View(context) {
             if (isExpandTarget(x, y)) return PressTarget(PressKind.EXPAND)
             val cx = x + scrollX
             val index = candidateIndexAt(cx)
-            if (index >= 0 && y >= 0f && y <= height) return PressTarget(PressKind.CANDIDATE, index)
+            if (index >= 0 && y >= 0f && y < height) return PressTarget(PressKind.CANDIDATE, index)
         }
         return null
     }
