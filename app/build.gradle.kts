@@ -19,8 +19,8 @@ android {
         applicationId = "com.aegis.ime"
         minSdk = 34
         targetSdk = 37
-        versionName = "0.1.0-beta.41"
-        versionCode = 117
+        versionName = "0.1.0-beta.42"
+        versionCode = 119
     }
 
     buildTypes {
