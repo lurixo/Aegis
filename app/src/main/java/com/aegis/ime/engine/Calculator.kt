@@ -70,9 +70,13 @@ object Calculator {
     }
 
     private fun format(v: Double): String {
+        val rounded = v.toBigDecimal().round(java.math.MathContext(12)).stripTrailingZeros()
+        if (v <= -EXACT_INTEGER_LIMIT || v >= EXACT_INTEGER_LIMIT) return rounded.toString()
         if (v == v.toLong().toDouble()) return v.toLong().toString()
-        return v.toBigDecimal().round(java.math.MathContext(12)).stripTrailingZeros().toPlainString()
+        return rounded.toPlainString()
     }
+
+    private const val EXACT_INTEGER_LIMIT = 9007199254740992.0
 
     private class Parser(private val s: String) {
         private var i = 0

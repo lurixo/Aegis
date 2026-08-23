@@ -94,6 +94,25 @@ class CalculatorTest {
         assertEquals("2.5", Calculator.detect("5/2")!!.result)
     }
 
+    @Test fun a_result_past_exact_integer_range_does_not_print_digits_it_does_not_have() {
+        assertEquals(
+            "the true product ends 635269, which no double carries",
+            "1.21932631113E+17",
+            Calculator.detect("123456789*987654321")!!.result,
+        )
+        assertEquals(
+            "2^53 is already past the last integer a double counts one by one",
+            "9.00719925474E+15",
+            Calculator.detect("9007199254740992+0")!!.result,
+        )
+        assertEquals(
+            "everything below it is still written out in full",
+            "9007199254740991",
+            Calculator.detect("9007199254740990+1")!!.result,
+        )
+        assertEquals("9000000000000", Calculator.detect("3000000*3000000")!!.result)
+    }
+
     @Test fun dates_phones_and_multi_dash_ranges_are_not_calculations() {
         assertNull("ISO date", Calculator.detect("2024-01-15"))
         assertNull("phone number", Calculator.detect("138-1234-5678"))
