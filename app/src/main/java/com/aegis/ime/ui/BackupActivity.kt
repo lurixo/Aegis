@@ -33,6 +33,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
@@ -49,6 +50,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
@@ -789,7 +791,7 @@ private fun ImportPasswordDialog(
 }
 
 @Composable
-private fun PasswordTextField(
+internal fun PasswordTextField(
     value: String,
     onValueChange: (String) -> Unit,
     labelRes: Int,
@@ -801,6 +803,7 @@ private fun PasswordTextField(
         label = { Text(stringResource(labelRes)) },
         singleLine = true,
         shape = AppShapes.section,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
         visualTransformation = if (visible) VisualTransformation.None else PasswordVisualTransformation(),
         trailingIcon = {
             TextButton(onClick = { visible = !visible }, shape = MaterialTheme.shapes.extraSmall) {
