@@ -1328,6 +1328,33 @@ class ModelDownloadTest {
     }
 
     @Test
+    fun aPackThatFinishedDownloadingIsNotSweptAwayWithTheOldGeneration() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val installedSha = "a".repeat(64)
+        val pendingSha = "b".repeat(64)
+        ModelDownload.DICT_PACK_FILES.forEachIndexed { index, name ->
+            File(downloaded, name).writeBytes(ByteArray(3_000) { (index + 1).toByte() })
+        }
+        File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText(installedSha)
+        assertEquals(
+            ModelDownload.PendingMarker.Recorded,
+            ModelDownload.recordPendingDictionarySha(base, pendingSha),
+        )
+        val zip = ModelDownload.dictZipFile(base).apply { writeBytes(ByteArray(4_000)) }
+
+        ModelDownload.reconcileInterruptedDownloads(base)
+
+        assertTrue("an update that was downloaded but not installed must survive", zip.exists())
+        assertEquals("the generation it replaces stays live until it does", installedSha, ModelDownload.installedDictionaryFileSha(base))
+        assertTrue(
+            "the marker the archive survives by must itself survive",
+            File(downloaded, ModelDownload.DICT_PENDING_SHA_NAME).exists(),
+        )
+        base.deleteRecursively()
+    }
+
+    @Test
     fun installRefusesAPackThatIsNotTheOneItWasPromised() {
         val base = tempFilesDir()
         val zip = ModelDownload.dictZipFile(base)
@@ -1444,4 +1471,23 @@ class ModelDownloadTest {
             putInt(40, 4)
             put(size - 1, marker)
         }.array()
+
+    @Test
+    fun aPackWhosePendingShaIsAlreadyInstalledIsSweptAsComplete() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val sha = "a".repeat(64)
+        ModelDownload.DICT_PACK_FILES.forEachIndexed { index, name ->
+            File(downloaded, name).writeBytes(ByteArray(3_000) { (index + 1).toByte() })
+        }
+        File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText(sha)
+        assertEquals(ModelDownload.PendingMarker.Recorded, ModelDownload.recordPendingDictionarySha(base, sha))
+        val zip = ModelDownload.dictZipFile(base).apply { writeBytes(ByteArray(4_000)) }
+
+        ModelDownload.reconcileInterruptedDownloads(base)
+
+        assertFalse("an archive for the generation already installed is complete and swept", zip.exists())
+        assertFalse("its marker goes with it", File(downloaded, ModelDownload.DICT_PENDING_SHA_NAME).exists())
+        base.deleteRecursively()
+    }
 }
