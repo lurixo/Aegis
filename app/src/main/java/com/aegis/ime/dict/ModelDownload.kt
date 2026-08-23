@@ -130,6 +130,10 @@ object ModelDownload {
                     resume.validator?.let { setRequestProperty("If-Range", it) }
                 }
             }
+            if (conn.responseCode == HTTP_RANGE_NOT_SATISFIABLE) {
+                tmp.delete()
+                meta.delete()
+            }
             if (conn.responseCode !in 200..299) throw HttpStatusException(conn.responseCode)
             val validator = trustworthyValidator(conn.getHeaderField("ETag"))
                 ?: trustworthyValidator(conn.getHeaderField("Last-Modified"))
@@ -311,6 +315,8 @@ object ModelDownload {
     }
 
     class HttpStatusException(val code: Int) : IOException("HTTP $code")
+
+    private const val HTTP_RANGE_NOT_SATISFIABLE = 416
 
     internal fun classifyRequestFailure(t: Throwable): CheckFailure =
         identifyRequestFailure(t) ?: CheckFailure.SERVER
