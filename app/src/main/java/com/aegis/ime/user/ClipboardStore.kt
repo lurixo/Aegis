@@ -381,7 +381,7 @@ class ClipboardStore(private val dir: File) {
         if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.TEXT, 1); return false }
         val after = synchronized(phraseCats) {
             val p = findPhrase(find(category), text) ?: return false
-            p.note = note.filterNot { Character.isISOControl(it) }.trim()
+            p.note = sanitizePhraseText(note)
             serialize(phraseCats)
         }
         writePhrases(PhraseEdit.TEXT, 1, 1, after)
@@ -391,7 +391,7 @@ class ClipboardStore(private val dir: File) {
     fun addCategory(name: String): Boolean {
         if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.CATEGORY, 1); return false }
         val after = synchronized(phraseCats) {
-            val n = name.trim()
+            val n = sanitizePhraseText(name)
             if (n.isEmpty() || phraseCats.any { it.name == n }) return false
             phraseCats.add(Category(n))
             serialize(phraseCats)
@@ -412,7 +412,7 @@ class ClipboardStore(private val dir: File) {
     fun renameCategory(old: String, new: String): Boolean {
         if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.TEXT, 1); return false }
         val after = synchronized(phraseCats) {
-            val n = new.trim()
+            val n = sanitizePhraseText(new)
             val c = find(old) ?: return false
             if (n.isEmpty() || (n != old && phraseCats.any { it.name == n })) return false
             c.name = n
@@ -424,15 +424,16 @@ class ClipboardStore(private val dir: File) {
 
     fun addPhrasesTo(category: String, texts: Collection<String>): Int {
         val requested = texts.size
-        if (category.isBlank()) return 0
+        val name = sanitizePhraseText(category)
+        if (name.isEmpty()) return 0
         if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.ADD, requested); return 0 }
         var added = 0
         val after = synchronized(phraseCats) {
-            val c = find(category) ?: Category(category).also { phraseCats.add(it) }
-            val seen = c.phrases.mapTo(HashSet()) { it.text }
+            val c = find(category) ?: find(name) ?: Category(name).also { phraseCats.add(it) }
+            val seen = c.phrases.mapTo(HashSet()) { sanitizePhraseText(it.text) }
             val fresh = ArrayList<Phrase>()
             for (raw in texts) {
-                val t = raw.trim()
+                val t = sanitizePhraseText(raw)
                 if (t.isEmpty() || !seen.add(t)) continue
                 fresh.add(Phrase(t))
             }
@@ -496,7 +497,7 @@ class ClipboardStore(private val dir: File) {
             val c = find(category) ?: return false
             val idx = c.phrases.indexOfFirst { it.text == oldText }
             if (idx < 0) return false
-            val n = newText.filterNot { Character.isISOControl(it) }.trim()
+            val n = sanitizePhraseText(newText)
             if (n.isEmpty()) return false
             if (c.phrases.withIndex().any { (j, p) -> j != idx && p.text == n }) return false
             c.phrases[idx].text = n
@@ -788,6 +789,12 @@ class ClipboardStore(private val dir: File) {
             entry.startsWith(LEGACY_IMG_PREFIX) && entry.contains(LEGACY_IMG_DIR)
 
         fun shouldCapture(historyEnabled: Boolean): Boolean = historyEnabled
+
+        fun sanitizePhraseText(s: String): String = s
+            .replace("\r\n", "\n")
+            .replace('\r', '\n')
+            .filterNot { it != '\n' && Character.isISOControl(it) }
+            .trim()
 
         private const val BIG_LINE = "B\t"
         const val BIG_THRESHOLD = 64 * 1024

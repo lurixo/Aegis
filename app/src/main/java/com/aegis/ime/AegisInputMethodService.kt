@@ -1142,7 +1142,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             InputPurpose.ADD_PHRASE -> { val t = text.trim(); if (t.isNotEmpty()) clipboardStore.addPhrasesTo(inputCat, listOf(t)) }
             InputPurpose.EDIT_NOTE -> clipboardStore.setPhraseNote(inputCat, inputOld, text)
             InputPurpose.ADD_CATEGORY -> {
-                val name = text.trim()
+                val name = com.aegis.ime.user.ClipboardStore.sanitizePhraseText(text)
                 if (name.isNotEmpty()) {
                     clipboardStore.addCategory(name)
                     if (pendingPhraseAdds.isNotEmpty()) clipboardStore.addPhrasesTo(name, pendingPhraseAdds)
@@ -1150,7 +1150,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                     inputCat = name
                 }
             }
-            InputPurpose.RENAME_CATEGORY -> { val n = text.trim(); if (clipboardStore.renameCategory(inputOld, n)) inputCat = n }
+            InputPurpose.RENAME_CATEGORY -> {
+                val n = com.aegis.ime.user.ClipboardStore.sanitizePhraseText(text)
+                if (clipboardStore.renameCategory(inputOld, n)) inputCat = n
+            }
             null -> {}
         }
         endInlineInput()
