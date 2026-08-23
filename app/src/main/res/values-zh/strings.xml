@@ -360,6 +360,8 @@
     <string name="edit_select_all">全选</string>
     <string name="edit_paragraph_end">段尾</string>
     <string name="edit_paste">粘贴</string>
+    <string name="edit_select_all_done">已全选</string>
+    <string name="edit_no_selection">没有选中内容</string>
     <string name="edit_copy_done">已复制</string>
     <string name="edit_copy_failed">复制失败</string>
     <string name="edit_cut_done">已剪切</string>
@@ -418,6 +420,8 @@
     <string name="clip_delete_clip_confirm">删除选中的剪贴板条目？</string>
     <string name="clip_delete_phrase_confirm">删除选中的常用语？</string>
     <string name="clip_split_title">拆分选词</string>
+    <string name="clip_history_resumed">已开启剪贴板记录</string>
+    <string name="clip_history_paused">已停止剪贴板记录</string>
     <string name="clip_history_recording_on">剪贴板记录:开</string>
     <string name="clip_history_recording_off">剪贴板记录:关</string>
     <string name="clip_pause_history">暂停剪贴板记录</string>

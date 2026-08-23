@@ -71,7 +71,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
-import org.robolectric.shadows.ShadowToast
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 
@@ -548,7 +547,6 @@ class AegisInputMethodServiceLifecycleTest {
     }
 
     @Test fun edit_paste_replaces_the_selection_with_the_latest_aegis_entry_without_system_paste() {
-        ShadowToast.reset()
         val f = fixture()
         val connection = RecordingInputConnection(FrameLayout(f.service))
         installInputConnection(f.service, connection)
@@ -568,11 +566,10 @@ class AegisInputMethodServiceLifecycleTest {
         assertEquals("before Aegis latest after", connection.editable.toString())
         assertEquals(listOf("Aegis latest"), connection.committedChunks)
         assertTrue(connection.contextMenuActions.isEmpty())
-        assertEquals(f.service.getString(R.string.edit_paste_done), ShadowToast.getTextOfLatestToast())
+        assertEquals(f.service.getString(R.string.edit_paste_done), f.service.toastTextForTest())
     }
 
     @Test fun edit_paste_keeps_large_aegis_entries_on_the_chunked_commit_path() {
-        ShadowToast.reset()
         val f = fixture()
         val connection = RecordingInputConnection(FrameLayout(f.service))
         installInputConnection(f.service, connection)
@@ -588,11 +585,10 @@ class AegisInputMethodServiceLifecycleTest {
         assertEquals(big, connection.committedChunks.joinToString(""))
         assertEquals(big, connection.editable.toString())
         assertTrue(connection.contextMenuActions.isEmpty())
-        assertEquals(f.service.getString(R.string.edit_paste_done), ShadowToast.getTextOfLatestToast())
+        assertEquals(f.service.getString(R.string.edit_paste_done), f.service.toastTextForTest())
     }
 
     @Test fun edit_paste_does_nothing_when_aegis_history_is_empty() {
-        ShadowToast.reset()
         val f = fixture()
         val connection = RecordingInputConnection(FrameLayout(f.service))
         installInputConnection(f.service, connection)
@@ -605,7 +601,7 @@ class AegisInputMethodServiceLifecycleTest {
         assertEquals("", connection.editable.toString())
         assertTrue(connection.committedChunks.isEmpty())
         assertTrue(connection.contextMenuActions.isEmpty())
-        assertEquals(f.service.getString(R.string.edit_paste_empty), ShadowToast.getTextOfLatestToast())
+        assertEquals(f.service.getString(R.string.edit_paste_empty), f.service.toastTextForTest())
     }
 
     @Test fun the_edit_panel_backspace_swipes_clear_and_restore_the_document() {
@@ -1178,7 +1174,6 @@ class AegisInputMethodServiceLifecycleTest {
             Triple(EditAction.CUT, android.R.id.cut, "cut from edit panel"),
         )
         for ((index, case) in cases.withIndex()) {
-            ShadowToast.reset()
             val (action, actionId, copiedText) = case
             val f = fixture()
             val connection = RecordingInputConnection(FrameLayout(f.service))
@@ -1217,7 +1212,7 @@ class AegisInputMethodServiceLifecycleTest {
             assertEquals(copiedText, store.historyText().firstOrNull())
             assertEquals(
                 f.service.getString(if (action == EditAction.COPY) R.string.edit_copy_done else R.string.edit_cut_done),
-                ShadowToast.getTextOfLatestToast(),
+                f.service.toastTextForTest(),
             )
 
             if (index == 0) {
@@ -1247,7 +1242,6 @@ class AegisInputMethodServiceLifecycleTest {
             EditAction.CUT to R.string.edit_cut_failed,
         )
         for ((action, expected) in cases) {
-            ShadowToast.reset()
             val f = fixture()
             val connection = RecordingInputConnection(FrameLayout(f.service)).apply {
                 commitText("selected text", 1)
@@ -1258,7 +1252,7 @@ class AegisInputMethodServiceLifecycleTest {
 
             handleEdit(f.service, action)
 
-            assertEquals(f.service.getString(expected), ShadowToast.getTextOfLatestToast())
+            assertEquals(f.service.getString(expected), f.service.toastTextForTest())
         }
     }
 

@@ -20,8 +20,13 @@ import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Outline
+import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
+import android.os.SystemClock
+import android.text.TextPaint
+import android.text.TextUtils
+import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -34,6 +39,7 @@ import kotlin.math.roundToInt
 import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
+import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ui.DictDownloadWork
 import com.aegis.ime.ui.DownloadCardSnapshot
 import com.aegis.ime.ui.LocalizedText
@@ -100,6 +106,26 @@ class InputView(context: Context) : LinearLayout(context) {
     private var cachedUnconstrainedHeightSpec: LandscapeDockSizing.HeightSpec? = null
     private var latestMeasuredSlotWidthPx = 0
 
+    private val toast = ImeToast()
+    private val toastTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, ImeType.body, resources.displayMetrics)
+        textAlign = Paint.Align.CENTER
+    }
+    private val toastBackgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val toastRect = RectF()
+    private val toastAreaRect = RectF()
+    private val toastTick = object : Runnable {
+        override fun run() {
+            if (toast.isShowing(SystemClock.uptimeMillis())) {
+                invalidate()
+                postOnAnimation(this)
+            } else {
+                toast.hide()
+                invalidate()
+            }
+        }
+    }
+
     fun applyPalette(p: ImePalette) {
         palette = p
         body.setBackgroundColor(p.keyboardBg)
@@ -113,6 +139,82 @@ class InputView(context: Context) : LinearLayout(context) {
     }
 
     fun palette(): ImePalette = palette
+
+    fun showToast(message: String) {
+        if (message.isEmpty()) return
+        toast.show(message, SystemClock.uptimeMillis())
+        removeCallbacks(toastTick)
+        postOnAnimation(toastTick)
+        invalidate()
+    }
+
+    fun hideToast() {
+        if (toast.message.isEmpty()) return
+        toast.hide()
+        removeCallbacks(toastTick)
+        invalidate()
+    }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        drawToast(canvas)
+    }
+
+    private fun toastAnchorArea(): RectF? {
+        val area = if (panelContainer.visibility == VISIBLE) panelContainer else keyboardView
+        if (area.visibility != VISIBLE || area.height <= 0 || area.width <= 0) return null
+        val left = (bodySlot.left + body.left + area.left).toFloat()
+        val top = (bodySlot.top + body.top + area.top).toFloat()
+        toastAreaRect.set(left, top, left + area.width, top + area.height)
+        return toastAreaRect
+    }
+
+    private fun drawToast(canvas: Canvas) {
+        val now = SystemClock.uptimeMillis()
+        if (!toast.isShowing(now)) return
+        val area = toastAnchorArea() ?: return
+        val padX = dp(16).toFloat()
+        val padY = dp(10).toFloat()
+        val margin = dp(24).toFloat()
+        val room = (area.width() - margin * 2 - padX * 2).coerceAtLeast(0f)
+        val label = TextUtils.ellipsize(toast.message, toastTextPaint, room, TextUtils.TruncateAt.END)
+        val metrics = toastTextPaint.fontMetrics
+        toastRect.set(
+            ImeToast.bounds(
+                area,
+                toastTextPaint.measureText(label, 0, label.length),
+                metrics.descent - metrics.ascent,
+                padX,
+                padY,
+                margin,
+            ),
+        )
+        val alpha = toast.alphaAt(now)
+        val radius = ImeShapes.cardRadiusDp * resources.displayMetrics.density
+        toastBackgroundPaint.color = Motion.withAlpha(palette.keyLabel, (0xF0 * alpha).toInt())
+        canvas.drawRoundRect(toastRect, radius, radius, toastBackgroundPaint)
+        toastTextPaint.color = Motion.withAlpha(palette.keyboardBg, (0xFF * alpha).toInt())
+        canvas.drawText(
+            label,
+            0,
+            label.length,
+            toastRect.centerX(),
+            toastRect.centerY() - (metrics.ascent + metrics.descent) / 2f,
+            toastTextPaint,
+        )
+    }
+
+    internal fun toastForTest(): ImeToast = toast
+
+    internal fun toastTextForTest(): String? = toast.takeIf { it.isShowing(SystemClock.uptimeMillis()) }?.message
+
+    internal fun clearToastForTest() { toast.hide() }
+
+    internal fun toastBoundsForTest(): RectF? {
+        if (!toast.isShowing(SystemClock.uptimeMillis())) return null
+        drawToast(Canvas())
+        return RectF(toastRect)
+    }
 
     fun showEditBar(active: Boolean) {
         editBarActive = active
@@ -334,6 +436,7 @@ class InputView(context: Context) : LinearLayout(context) {
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        hideToast()
         stopGateMonitoring()
         Motion.cancelCover(panelContainer)
         Motion.reset(keyboardView)
@@ -648,6 +751,7 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun isExpandedCandidatePanel(panel: View): Boolean = panel === gridView
 
     internal fun clearEditorTransientUiImmediately() {
+        hideToast()
         copyBarView.finishSplitSelection()
         val outgoing = currentPanel
         (outgoing as? ResettablePanel)?.resetToDefault()

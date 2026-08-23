@@ -363,6 +363,8 @@
     <string name="edit_select_all">Select all</string>
     <string name="edit_paragraph_end">To end</string>
     <string name="edit_paste">Paste</string>
+    <string name="edit_select_all_done">Selected all</string>
+    <string name="edit_no_selection">Nothing selected</string>
     <string name="edit_copy_done">Copied</string>
     <string name="edit_copy_failed">Could not copy</string>
     <string name="edit_cut_done">Cut</string>
@@ -422,6 +424,8 @@
     <string name="clip_delete_clip_confirm">Delete the selected clipboard item(s)?</string>
     <string name="clip_delete_phrase_confirm">Delete the selected phrase(s)?</string>
     <string name="clip_split_title">Split into words</string>
+    <string name="clip_history_resumed">Clipboard history on</string>
+    <string name="clip_history_paused">Clipboard history off</string>
     <string name="clip_history_recording_on">Clipboard history: On</string>
     <string name="clip_history_recording_off">Clipboard history: Off</string>
     <string name="clip_pause_history">Pause clipboard history</string>

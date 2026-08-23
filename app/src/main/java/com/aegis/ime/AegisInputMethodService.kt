@@ -28,7 +28,6 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
-import android.widget.Toast
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import com.aegis.ime.R
@@ -532,7 +531,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPanelClear = { controller.onPanelClear() }
             onExpandClosed = { controller.clearDrill() }
             onCollapse = { requestHideSelf(0) }
-            onCopyCommit = { t -> commitLargeText(t) }
+            onCopyCommit = { t ->
+                toast(getString(if (commitLargeText(t)) R.string.edit_paste_done else R.string.edit_paste_failed))
+            }
             onCopySelectionChanged = { text ->
                 controller.expireCandidateChoiceUndo()
                 updateSplitSelection(text)
@@ -810,12 +811,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 controller.onKey(Key(action = key))
                 resetSelectionAnchor()
             }
-            EditAction.COPY -> if (!editorReportsNoSelection()) {
+            EditAction.COPY -> if (editorReportsNoSelection()) {
+                toast(getString(R.string.edit_no_selection))
+            } else {
                 val copied = currentInputConnection
                     ?.performContextMenuAction(android.R.id.copy) == true
                 toast(getString(if (copied) R.string.edit_copy_done else R.string.edit_copy_failed))
             }
-            EditAction.CUT -> if (!editorReportsNoSelection()) {
+            EditAction.CUT -> if (editorReportsNoSelection()) {
+                toast(getString(R.string.edit_no_selection))
+            } else {
                 val cut = currentInputConnection
                     ?.performContextMenuAction(android.R.id.cut) == true
                 toast(getString(if (cut) R.string.edit_cut_done else R.string.edit_cut_failed))
@@ -827,6 +832,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                     sendKeyWithMeta(KeyEvent.KEYCODE_A, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON)
                 }
                 resetSelectionAnchor()
+                toast(getString(R.string.edit_select_all_done))
             }
             EditAction.PASTE -> {
                 val latest = clipboardStore.latest()
@@ -862,11 +868,19 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 editPanelView?.setSelecting(selecting)
             }
             EditAction.DELETE -> panelInput.backspace()
-            EditAction.SELECT_ALL -> panelInput.selectAll()
-            EditAction.COPY -> panelInput.selectedText()?.let { copyFromPanel(it) }
-            EditAction.CUT -> panelInput.selectedText()?.let {
-                copyFromPanel(it)
-                panelInput.deleteSelection()
+            EditAction.SELECT_ALL -> {
+                panelInput.selectAll()
+                toast(getString(R.string.edit_select_all_done))
+            }
+            EditAction.COPY -> {
+                val selected = panelInput.selectedText()
+                if (selected == null) toast(getString(R.string.edit_no_selection))
+                else copyFromPanel(selected, R.string.edit_copy_done)
+            }
+            EditAction.CUT -> {
+                val selected = panelInput.selectedText()
+                if (selected == null) toast(getString(R.string.edit_no_selection))
+                else if (copyFromPanel(selected, R.string.edit_cut_done)) panelInput.deleteSelection()
             }
             EditAction.PASTE -> {
                 val latest = clipboardStore.latest()
@@ -881,11 +895,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
 
-    private fun copyFromPanel(text: String) {
+    private fun copyFromPanel(text: String, notice: Int): Boolean {
         val copied = runCatching {
             clipboardManager.setPrimaryClip(android.content.ClipData.newPlainText(null, text))
         }.isSuccess
-        toast(getString(if (copied) R.string.edit_copy_done else R.string.edit_copy_failed))
+        toast(getString(if (copied) notice else R.string.edit_copy_failed))
+        return copied
     }
 
     internal fun takesRawKeys(info: EditorInfo?): Boolean =
@@ -1308,7 +1323,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
 
-    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    private fun toast(msg: String) { inputView?.showToast(msg) }
+
+    internal fun toastTextForTest(): String? = inputView?.toastTextForTest()
+
+    internal fun clearToastForTest() { inputView?.clearToastForTest() }
 
     private fun copyBlocksToAegis(blocks: List<String>) {
         if (LiveUserData.restoreInProgress) return
@@ -1338,8 +1357,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun historyEnabled() = getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true)
-    private fun setHistoryEnabled(on: Boolean) =
+    private fun setHistoryEnabled(on: Boolean) {
         getSharedPreferences("aegis", MODE_PRIVATE).edit().putBoolean("clip_history", on).apply()
+        toast(getString(if (on) R.string.clip_history_resumed else R.string.clip_history_paused))
+    }
 
     override fun onFinishInputView(finishingInput: Boolean) {
         super.onFinishInputView(finishingInput)

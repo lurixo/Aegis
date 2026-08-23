@@ -36,7 +36,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
-import org.robolectric.shadows.ShadowToast
 import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
@@ -48,7 +47,6 @@ class ClearRecentsNoticeTest {
     private val emojiFile = File(File(app.filesDir, "emoji"), "symbol_usage.txt")
 
     @Before fun start() {
-        ShadowToast.reset()
         readAgain()
         symbolFile.delete()
         emojiFile.delete()
@@ -58,7 +56,6 @@ class ClearRecentsNoticeTest {
         readAgain()
         symbolFile.delete()
         emojiFile.delete()
-        ShadowToast.reset()
     }
 
     private fun readAgain() {
@@ -126,7 +123,7 @@ class ClearRecentsNoticeTest {
         assertEquals(
             "a clear that never happened must not look to the user like one that did",
             notice(),
-            ShadowToast.getTextOfLatestToast(),
+            service.toastTextForTest(),
         )
     }
 
@@ -139,7 +136,7 @@ class ClearRecentsNoticeTest {
         panel.onClearRecents()
         settle()
 
-        assertNull("a clear that happened must not be reported as a failure", ShadowToast.getTextOfLatestToast())
+        assertNull("a clear that happened must not be reported as a failure", service.toastTextForTest())
     }
 
     @Test fun a_symbol_clear_that_could_not_be_written_leaves_the_recents_on_the_panel() {
@@ -160,7 +157,7 @@ class ClearRecentsNoticeTest {
         assertEquals(
             "a clear that never happened must not look to the user like one that did",
             notice(),
-            ShadowToast.getTextOfLatestToast(),
+            service.toastTextForTest(),
         )
         assertEquals(
             "what the notice says is still there must still be on the panel",
@@ -185,7 +182,7 @@ class ClearRecentsNoticeTest {
         panel.onDeleteRecent("★")
         settle()
 
-        assertEquals(notice(), ShadowToast.getTextOfLatestToast())
+        assertEquals(notice(), service.toastTextForTest())
         assertEquals("the failed asynchronous removal is restored before redraw", listOf("★"), panel.recentProvider())
         assertEquals("★\t符号\n", symbolFile.readText())
     }
@@ -201,7 +198,7 @@ class ClearRecentsNoticeTest {
         assertEquals(
             "a clear that never happened must not look to the user like one that did",
             notice(),
-            ShadowToast.getTextOfLatestToast(),
+            service.toastTextForTest(),
         )
     }
 
@@ -214,6 +211,6 @@ class ClearRecentsNoticeTest {
         panel.onClearRecents()
         settle()
 
-        assertNull("a clear that happened must not be reported as a failure", ShadowToast.getTextOfLatestToast())
+        assertNull("a clear that happened must not be reported as a failure", service.toastTextForTest())
     }
 }
