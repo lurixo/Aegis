@@ -30,6 +30,7 @@ object T9Pinyin {
         return sb.toString()
     }
 
+
     private val DIGIT_INITIAL: Map<Char, Char> = mapOf(
         '2' to 'a', '3' to 'd', '4' to 'g', '5' to 'j', '6' to 'm', '7' to 'p', '8' to 't', '9' to 'w',
     )
@@ -81,6 +82,8 @@ object T9Pinyin {
     ).withIndex().associate { (i, s) -> s to i }
 
     private const val DEFAULT_RANK = 1000
+    private const val FUZZY_VARIANT_CAP = 64
+    private const val MAX_FUZZY_DIGITS = 40
     private const val UNKNOWN_LEN_BONUS = 220
     private const val LEN_BONUS = 480
     private const val SYLLABLE_PENALTY = 50.0
@@ -94,6 +97,87 @@ object T9Pinyin {
     }
 
     private fun rankOf(s: String) = freqRank[s] ?: (DEFAULT_RANK - UNKNOWN_LEN_BONUS * s.length)
+
+    private val END_RULE_KEYS = setOf("ang", "eng", "ing")
+
+    private class PartnerTable(val enabled: Set<String>, val byDigit: Map<String, List<String>>)
+
+    @Volatile private var partnerCache: PartnerTable? = null
+
+    private fun partnersByDigit(enabled: Set<String>): Map<String, List<String>> {
+        partnerCache?.let { if (it.enabled == enabled) return it.byDigit }
+        val active = com.aegis.ime.dict.Fuzzy.RULES.filter { it.key in enabled }
+        val out = HashMap<String, MutableList<String>>()
+        for (s in SYLLABLES) {
+            for (rule in active) {
+                val swapped = if (rule.key in END_RULE_KEYS) {
+                    when {
+                        s.endsWith(rule.long) -> s.dropLast(rule.long.length) + rule.short
+                        s.endsWith(rule.short) -> s.dropLast(rule.short.length) + rule.long
+                        else -> null
+                    }
+                } else {
+                    when {
+                        s.startsWith(rule.long) -> rule.short + s.substring(rule.long.length)
+                        s.startsWith(rule.short) -> rule.long + s.substring(rule.short.length)
+                        else -> null
+                    }
+                }
+                if (swapped != null && swapped != s && swapped in SYLLABLES) {
+                    val d = toT9(s)
+                    val v = toT9(swapped)
+                    if (v != d) out.getOrPut(d) { ArrayList() }.add(v)
+                }
+            }
+        }
+        val table = out.mapValues { (_, v) -> v.distinct() }
+        partnerCache = PartnerTable(enabled, table)
+        return table
+    }
+
+    fun fuzzyVariants(digits: String, enabled: Set<String>, cap: Int = FUZZY_VARIANT_CAP): List<String> {
+        if (enabled.isEmpty() || digits.isEmpty() || digits.length > MAX_FUZZY_DIGITS) return emptyList()
+        if (digits.any { it < '2' || it > '9' }) return emptyList()
+        val pairs = partnersByDigit(enabled)
+        if (pairs.isEmpty()) return emptyList()
+        val out = LinkedHashSet<String>()
+        expandRuns(digits, 0, StringBuilder(), pairs, out, cap)
+        out.remove(digits)
+        return out.toList()
+    }
+
+    private fun expandRuns(
+        digits: String,
+        i: Int,
+        prefix: StringBuilder,
+        pairs: Map<String, List<String>>,
+        out: MutableSet<String>,
+        cap: Int,
+    ) {
+        if (out.size >= cap) return
+        if (i == digits.length) {
+            out.add(prefix.toString())
+            return
+        }
+        var matched = false
+        val hi = minOf(digits.length, i + maxDigits)
+        for (k in i + 1..hi) {
+            val run = digits.substring(i, k)
+            if (!byDigits.containsKey(run)) continue
+            matched = true
+            val keep = prefix.length
+            prefix.append(run)
+            expandRuns(digits, k, prefix, pairs, out, cap)
+            prefix.setLength(keep)
+            for (v in pairs[run].orEmpty()) {
+                if (out.size >= cap) return
+                prefix.append(v)
+                expandRuns(digits, k, prefix, pairs, out, cap)
+                prefix.setLength(keep)
+            }
+        }
+        if (!matched) out.add(prefix.toString() + digits.substring(i))
+    }
 
     fun segment(digits: String): List<String>? {
         val n = digits.length

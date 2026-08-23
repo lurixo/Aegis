@@ -19,6 +19,7 @@ import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.dict.TghGrading
+import com.aegis.ime.engine.T9_FUZZY_PENALTY
 import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -425,6 +426,115 @@ class ExhaustiveDecodeAuditExtTest {
         summary(File(outDir(), "ext_e4_summary.txt"), "E4 — fuzzy ON",
             "all-rules: ${syls.size} syllables; isolation: ${allKeys.size} rules x ${sentinels.size} sentinels", fails)
         assertTrue("E4 must be clean (label fixed under fuzzy, chars within variant class): ${fails.take(6)}",
+            fails.isEmpty())
+    }
+
+    private fun t9FuzzyDecoder(fuzzy: Set<String> = emptySet()): PinyinDecoder {
+        assumeTrue(
+            "T9 dict + 26-key dict + LM assets present",
+            FullDictTestAssets.available(dictFile, t9File, lmFile),
+        )
+        return PinyinDecoder(
+            BinaryDict.fromFile(t9File), CharBigramLM.fromFile(lmFile),
+            fuzzyRules = fuzzy, aliasDict = BinaryDict.fromFile(dictFile),
+            fuzzyVariants = { s, rules -> T9Pinyin.fuzzyVariants(s, rules) },
+            fuzzyPenalty = T9_FUZZY_PENALTY,
+        )
+    }
+
+    private val t9SyllableDigitKeys: List<String> by lazy {
+        runtimeSyllables().map { T9Pinyin.toT9(it) }.distinct()
+    }
+
+    private val t9SpanSinglesMap = HashMap<String, Set<String>>()
+    private fun t9SpanSingles(runKey: String): Set<String> = t9SpanSinglesMap.getOrPut(runKey) {
+        t9Singles(runKey) + PinyinDecoder.T9_INPUT_ALIASES[runKey].orEmpty().flatMap { dictSingles(it) }
+    }
+
+    private fun t9ParsesInto(word: String, key: String): Boolean {
+        val cps = ArrayList<String>(4)
+        var ci = 0
+        while (ci < word.length) {
+            val cp = word.codePointAt(ci); cps.add(String(Character.toChars(cp))); ci += Character.charCount(cp)
+        }
+        val n = key.length
+        val m = cps.size
+        val dp = Array(n + 1) { BooleanArray(m + 1) }
+        dp[0][0] = true
+        for (p in 0 until n) for (i in 0 until m) {
+            if (!dp[p][i]) continue
+            for (q in p + 1..minOf(n, p + 6)) {
+                if (cps[i] in t9SpanSingles(key.substring(p, q))) dp[q][i + 1] = true
+            }
+        }
+        return dp[n][m]
+    }
+
+    private fun inT9VariantClass(word: String, key: String, rules: Set<String>): Boolean {
+        for (v in T9Pinyin.fuzzyVariants(key, rules)) {
+            if (t9Dict.exact(v).any { it.word == word }) return true
+            if (isSingleChar(word) && t9SyllableDigitKeys.any { it.startsWith(v) && word in t9Singles(it) }) return true
+            if (t9Dict.prefixByFreq(v, PinyinDecoder.completionCap(30)).any { it.word == word }) return true
+            if (t9ParsesInto(word, v)) return true
+        }
+        return false
+    }
+
+    @Test fun e11_fuzzyOn_allSyllables_t9() {
+        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile))
+        val syls = runtimeSyllables()
+        val allKeys = Fuzzy.RULES.map { it.key }.toSet()
+        val fails = ArrayList<Fail>()
+
+        for (s in syls) {
+            val col = T9Pinyin.leftColumnReadings(T9Pinyin.toT9(s), 26)
+            if (s !in col) {
+                fails += Fail(T9Pinyin.toT9(s), "9key", "E11-column", s, sample(col),
+                    "9-key reading options for the syllable's own digits omit it")
+            }
+        }
+
+        val dOff = t9FuzzyDecoder()
+        val dOn = t9FuzzyDecoder(fuzzy = allKeys)
+        for (digits in t9SyllableDigitKeys) {
+            val segOff = dOff.syllables(digits).map { it.reading }
+            val segOn = dOn.syllables(digits).map { it.reading }
+            if (segOn != segOff) {
+                fails += Fail(digits, "9key", "E11-label", segOff.joinToString("+"), segOn.joinToString("+"),
+                    "fuzzy rewrote the shown reading")
+            }
+            for (i in segOff.indices) {
+                val drillOff = dOff.homophonesAt(digits, i)
+                val drillOn = dOn.homophonesAt(digits, i)
+                if (drillOn != drillOff) {
+                    fails += Fail(digits, "9key", "E11-drill", sample(drillOff), sample(drillOn),
+                        "fuzzy changed homophonesAt(digits, $i) (must stay identical to fuzzy-off)")
+                }
+            }
+            val offCands = dOff.decodeCovered(digits, 30)
+            val onCands = dOn.decodeCovered(digits, 30)
+            val offWords = offCands.mapTo(HashSet()) { it.word }
+            val onWords = onCands.mapTo(HashSet()) { it.word }
+            val lost = offCands.filter { isSingleChar(it.word) && it.word !in onWords }.map { it.word }
+            if (lost.isNotEmpty()) {
+                fails += Fail(digits, "9key", "E11-superset", "every fuzzy-off single still reachable", sample(lost),
+                    "fuzzy-on stream dropped singles reachable with fuzzy off")
+            }
+            for (c in onCands) {
+                if (c.word in offWords) continue
+                val key = digits.substring(0, c.coveredLen.coerceIn(1, digits.length))
+                if (!inT9VariantClass(c.word, key, allKeys)) {
+                    fails += Fail(digits, "9key", "E11-chars", "fuzzyVariants('$key')", "${c.word}@${c.coveredLen}",
+                        "fuzzy ADDED a candidate outside the digit variant class of its covered span")
+                }
+            }
+        }
+
+        writeTsv(File(outDir(), "ext_e11.tsv"), fails)
+        summary(File(outDir(), "ext_e11_summary.txt"), "E11 — 9-key fuzzy ON",
+            "syllables: ${syls.size}; distinct digit keys: ${t9SyllableDigitKeys.size}", fails)
+        assertTrue("E11 must be clean (reading column intact, label and drill fixed under fuzzy, " +
+            "fuzzy-off singles retained, additions within the digit variant class): ${fails.take(6)}",
             fails.isEmpty())
     }
 

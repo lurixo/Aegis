@@ -40,6 +40,8 @@ class PinyinDecoder(
     private val contextWeight: Double = DEFAULT_CONTEXT_WEIGHT,
     private val aliasDict: BinaryDict? = null,
     private val userLearning: UserLearning? = null,
+    private val fuzzyVariants: (String, Set<String>) -> List<String> = { s, rules -> Fuzzy.variants(s, rules).filter { it != s } },
+    private val fuzzyPenalty: Double = FUZZY_PENALTY,
 ) {
     private val grading = TghGrading.bundled
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
@@ -266,10 +268,9 @@ class PinyinDecoder(
         }
         if (exactFull || out.size >= edgeN) return out
         if (fuzzyRules.isNotEmpty()) {
-            for (variant in Fuzzy.variants(sub, fuzzyRules)) {
-                if (variant == sub) continue
+            for (variant in fuzzyVariants(sub, fuzzyRules)) {
                 for (wf in preferredExact(dict, variant, edgeN + seen.size)) {
-                    if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, FUZZY_PENALTY))
+                    if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, fuzzyPenalty))
                     if (out.size >= edgeN) return out
                 }
             }
@@ -520,9 +521,8 @@ class PinyinDecoder(
         dict.prefixByFreq(input, completionCap).forEach { offer(it, 0.0) }
         for (uw in userWordsFor(input)) offer(BinaryDict.WordFreq(uw, userWordFreq(uw, input).toInt().coerceAtLeast(1)), 0.0)
         if (fuzzyRules.isNotEmpty()) {
-            for (variant in Fuzzy.variants(input, fuzzyRules)) {
-                if (variant == input) continue
-                dict.prefixByFreq(variant, completionCap).forEach { offer(it, FUZZY_PENALTY) }
+            for (variant in fuzzyVariants(input, fuzzyRules)) {
+                dict.prefixByFreq(variant, completionCap).forEach { offer(it, fuzzyPenalty) }
             }
         }
         val reservedInitials = HashSet<String>()
