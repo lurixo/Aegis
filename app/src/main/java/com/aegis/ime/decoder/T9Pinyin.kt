@@ -30,6 +30,11 @@ object T9Pinyin {
         return sb.toString()
     }
 
+    val FUZZY_RULES: List<com.aegis.ime.dict.Fuzzy.Rule> =
+        com.aegis.ime.dict.Fuzzy.RULES.map {
+            com.aegis.ime.dict.Fuzzy.Rule(it.key, toT9(it.long), toT9(it.short), it.initial)
+        }
+
     private val DIGIT_INITIAL: Map<Char, Char> = mapOf(
         '2' to 'a', '3' to 'd', '4' to 'g', '5' to 'j', '6' to 'm', '7' to 'p', '8' to 't', '9' to 'w',
     )

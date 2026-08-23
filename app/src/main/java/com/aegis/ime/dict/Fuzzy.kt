@@ -48,20 +48,25 @@ object Fuzzy {
 
     fun normalize(s: String): String = collapse(s, FINAL_KEYS)
 
-    fun collapse(s: String, enabled: Set<String>): String {
+    fun collapse(s: String, enabled: Set<String>): String = collapseIn(RULES, s, enabled)
+
+    fun collapseIn(table: List<Rule>, s: String, enabled: Set<String>): String {
         var r = s
-        for (rule in RULES) if (rule.key in enabled) r = r.replace(rule.long, rule.short)
+        for (rule in table) if (rule.key in enabled) r = r.replace(rule.long, rule.short)
         return r
     }
 
-    fun variants(s: String, enabled: Set<String>, cap: Int = MAX_VARIANTS): List<String> {
-        val active = RULES.filter { it.key in enabled }
+    fun variants(s: String, enabled: Set<String>, cap: Int = MAX_VARIANTS): List<String> =
+        variantsIn(RULES, s, enabled, cap)
+
+    fun variantsIn(table: List<Rule>, s: String, enabled: Set<String>, cap: Int = MAX_VARIANTS): List<String> {
+        val active = table.filter { it.key in enabled }
         if (active.isEmpty() || s.length > MAX_FUZZY_LEN) return listOf(s)
         val finalRules = active.filter { !it.initial }
         val initialRules = active.filter { it.initial }
 
         val finalKeys = finalRules.mapTo(HashSet()) { it.key }
-        var finals: LinkedHashSet<String> = linkedSetOf(collapse(s, finalKeys))
+        var finals: LinkedHashSet<String> = linkedSetOf(collapseIn(table, s, finalKeys))
         for (rule in finalRules) {
             val next = LinkedHashSet<String>()
             for (v in finals) {

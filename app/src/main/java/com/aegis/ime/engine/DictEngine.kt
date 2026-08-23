@@ -18,6 +18,7 @@ package com.aegis.ime.engine
 import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.PinyinDecoder
 import com.aegis.ime.decoder.Syllable
+import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.EnglishKey
@@ -52,9 +53,11 @@ class DictEngine(
             it,
             lm,
             userModel = userModel,
+            fuzzyRules = fuzzyRules,
             octagram = octagram,
             aliasDict = pinyinDict,
             userLearning = userLearning,
+            fuzzyTable = T9Pinyin.FUZZY_RULES,
         )
     }
 
@@ -135,6 +138,7 @@ class DictEngine(
 
     override fun setFuzzyRules(rules: Set<String>) {
         decoder?.setFuzzyRules(rules)
+        t9Decoder?.setFuzzyRules(rules)
     }
 
     private companion object {
