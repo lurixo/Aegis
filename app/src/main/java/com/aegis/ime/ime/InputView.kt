@@ -59,6 +59,8 @@ class InputView(context: Context) : LinearLayout(context) {
     var onCopySelectionFinished: () -> Unit = {}
     var onCopyDismiss: () -> Unit = {}
     var onEditConfirm: () -> Unit = {}
+    var onEditTextChanged: (String) -> Unit = {}
+    var onEditSelectionChanged: (Boolean) -> Unit = {}
     var onEditCancel: () -> Unit = {}
     var onOverlayChanged: () -> Unit = {}
     var onRestoreNotice: () -> Unit = {}
@@ -118,7 +120,9 @@ class InputView(context: Context) : LinearLayout(context) {
             if (editBarView.visibility != VISIBLE || editBarView.alpha < 1f) {
                 Motion.showNow(editBarView)
             }
+            editBarView.focusField()
         } else {
+            editBarView.releaseField()
             Motion.hideNow(editBarView)
         }
         onOverlayChanged()
@@ -126,8 +130,10 @@ class InputView(context: Context) : LinearLayout(context) {
     fun isEditBarShowing(): Boolean = editBarView.visibility == VISIBLE
     fun setEditTitle(t: String) { editBarView.setTitle(t) }
     fun setEditText(t: String) { editBarView.setText(t) }
+    fun editEditable(): PanelEditable = editBarView.editable()
     internal fun dismissEditBarForPanelReturn() {
         editBarActive = false
+        editBarView.releaseField()
         Motion.reset(editBarView)
         editBarView.visibility = GONE
     }
@@ -154,12 +160,14 @@ class InputView(context: Context) : LinearLayout(context) {
         copyBarView.onDismiss = { hideCopyBar(); onCopyDismiss() }
         editBarView.onConfirm = { onEditConfirm() }
         editBarView.onCancel = { onEditCancel() }
+        editBarView.onTextChanged = { text -> onEditTextChanged(text) }
+        editBarView.onSelectionState = { has -> onEditSelectionChanged(has) }
         addView(preeditSlot, LayoutParams(LayoutParams.MATCH_PARENT, barTopInsetPx()))
 
         body.orientation = VERTICAL
         body.setBackgroundColor(palette.keyboardBg)
         editBarView.visibility = GONE
-        body.addView(editBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
+        body.addView(editBarView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         body.addView(candidateView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         copyBarView.visibility = GONE
         body.addView(copyBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
@@ -233,6 +241,7 @@ class InputView(context: Context) : LinearLayout(context) {
         } else {
             unconstrainedHeightSpec(preferredKeyboard, editBarView.visibility != GONE)
         }
+        editBarView.setFieldLineBudget(if (constrainedLandscape) 1 else EditBarView.MAX_FIELD_LINES)
         if (constrainedLandscape && heightMode == MeasureSpec.EXACTLY) {
             val exactHeight = MeasureSpec.getSize(heightMeasureSpec).coerceAtLeast(0)
             val surplus = (exactHeight - spec.rootHeight).coerceAtLeast(0)
@@ -282,7 +291,7 @@ class InputView(context: Context) : LinearLayout(context) {
         lastDockHeightSpec = spec
         measuredBottomExtraPx = spec.bottomExtra
         setHeight(preeditSlot, spec.preeditHeight)
-        setHeight(editBarView, spec.barHeight)
+        editBarView.minimumHeight = spec.barHeight
         setHeight(candidateView, spec.barHeight)
         setHeight(copyBarView, spec.barHeight)
         setHeight(keyboardView, spec.keyboardHeight)

@@ -553,9 +553,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 restorablePanel = classifyPanel(view, panel)
             }
         }
-        panelInput.onChange = { txt ->
-            panelTextSnapshot = txt
-            view.setEditText(txt)
+        view.onEditTextChanged = { txt -> panelTextSnapshot = txt }
+        view.onEditSelectionChanged = { has ->
+            if (panelInput.active) editPanelView?.setHasSelection(has)
         }
         controller.attachView(view)
         imePalette = computePalette()
@@ -621,10 +621,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             RestorablePanel.CUSTOM_OPERATORS -> customOperatorView?.let(view::showPanel) ?: showCustomOperatorPanel()
             null -> Unit
         }
-        if (panelInput.active) {
+        if (panelInput.active || inputPurpose != null) {
             view.setEditTitle(panelInputTitle)
-            view.setEditText(panelInput.text())
+            view.setEditText(panelTextSnapshot.orEmpty())
             view.showEditBar(true)
+            panelInput.begin(view.editEditable())
         }
     }
 
@@ -748,7 +749,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
         if (newSelStart >= 0 && newSelEnd >= 0) {
-            editPanelView?.setHasSelection(newSelStart != newSelEnd)
+            if (!panelInput.active) editPanelView?.setHasSelection(newSelStart != newSelEnd)
         }
     }
 
@@ -763,7 +764,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         ep.applyPalette(imePalette)
         ep.setSelecting(false)
-        ep.setHasSelection(hasSelection() || !editorReportsNoSelection())
+        ep.setHasSelection(
+            if (panelInput.active) panelInput.hasSelection()
+            else hasSelection() || !editorReportsNoSelection(),
+        )
         iv.showPanel(ep)
     }
 
@@ -789,9 +793,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun handleEdit(action: EditAction) {
+        if (panelInput.active && action != EditAction.BACK) { handleEditInPanel(action); return }
         val keyAction = action.keyAction
         if (keyAction == null) {
-            if (panelInput.active && action != EditAction.BACK) return
             controller.expireCandidateChoiceUndo()
         }
         when (action) {
@@ -840,9 +844,48 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun backspaceSwipe(up: Boolean) {
         if (!controller.onBackspaceSwipe(up)) {
-            if (panelInput.active) { if (up) panelInput.begin("") }
+            if (panelInput.active) { if (up) { panelInput.selectAll(); panelInput.deleteSelection() } }
             else handleBackspaceSwipe(up)
         }
+    }
+
+    private fun handleEditInPanel(action: EditAction) {
+        when (action) {
+            EditAction.UP -> panelInput.move(SelectionMath.Move.UP, selecting)
+            EditAction.DOWN -> panelInput.move(SelectionMath.Move.DOWN, selecting)
+            EditAction.LEFT -> panelInput.move(SelectionMath.Move.LEFT, selecting)
+            EditAction.RIGHT -> panelInput.move(SelectionMath.Move.RIGHT, selecting)
+            EditAction.HOME -> panelInput.move(SelectionMath.Move.HOME, selecting)
+            EditAction.END -> panelInput.move(SelectionMath.Move.END, selecting)
+            EditAction.START_SELECT -> {
+                selecting = !selecting
+                editPanelView?.setSelecting(selecting)
+            }
+            EditAction.DELETE -> panelInput.backspace()
+            EditAction.SELECT_ALL -> panelInput.selectAll()
+            EditAction.COPY -> panelInput.selectedText()?.let { copyFromPanel(it) }
+            EditAction.CUT -> panelInput.selectedText()?.let {
+                copyFromPanel(it)
+                panelInput.deleteSelection()
+            }
+            EditAction.PASTE -> {
+                val latest = clipboardStore.latest()
+                val message = when {
+                    latest == null -> R.string.edit_paste_empty
+                    panelInput.commit(latest) -> R.string.edit_paste_done
+                    else -> R.string.edit_paste_failed
+                }
+                toast(getString(message))
+            }
+            EditAction.BACK -> Unit
+        }
+    }
+
+    private fun copyFromPanel(text: String) {
+        val copied = runCatching {
+            clipboardManager.setPrimaryClip(android.content.ClipData.newPlainText(null, text))
+        }.isSuccess
+        toast(getString(if (copied) R.string.edit_copy_done else R.string.edit_copy_failed))
     }
 
     internal fun takesRawKeys(info: EditorInfo?): Boolean =
@@ -1129,10 +1172,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         inlineOriginPhrasesTab = clipboardView?.recreationState()?.phrasesTab == true
         iv.showPanel(null)
         panelInputTitle = title
-        panelInput.begin(initial)
+        panelTextSnapshot = initial
         iv.setEditTitle(title)
         iv.setEditText(initial)
         iv.showEditBar(true)
+        panelInput.begin(iv.editEditable())
     }
 
     private fun confirmInlineInput() {
@@ -1424,7 +1468,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     override fun textBeforeCursor(n: Int): CharSequence {
-        panelTextSnapshot?.let { s -> return s.substring(maxOf(0, s.length - n)) }
+        panelInput.textBefore(n)?.let { return it }
         return runCatching { currentInputConnection?.getTextBeforeCursor(n, 0) }.getOrNull() ?: ""
     }
 
@@ -1438,7 +1482,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     override fun hasSelection(): Boolean {
-        if (panelInput.active) return false
+        if (panelInput.active) return panelInput.hasSelection()
         val ic = currentInputConnection ?: return false
         if (!ic.getSelectedText(0).isNullOrEmpty()) return true
         val extracted = ic.getExtractedText(ExtractedTextRequest(), 0) ?: return false
@@ -1448,12 +1492,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     override fun deleteSelection() {
-        if (panelInput.backspace()) return
+        if (panelInput.active) { panelInput.deleteSelection(); return }
         sendKey(KeyEvent.KEYCODE_DEL, false)
     }
 
     override fun performEnter() {
-        if (panelInput.active) return
+        if (panelInput.newline()) return
         val ic = currentInputConnection ?: return
         val info = currentInputEditorInfo
         val action = (info?.imeOptions ?: 0) and EditorInfo.IME_MASK_ACTION
