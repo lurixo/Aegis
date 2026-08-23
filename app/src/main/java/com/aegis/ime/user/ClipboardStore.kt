@@ -57,6 +57,9 @@ class ClipEntry private constructor(
         return prefix
     }
 
+    internal fun bodySizeHint(): Long =
+        resident?.let { return it.length.toLong() } ?: source()?.length() ?: 0L
+
     internal fun pendingBody(): String? = if (hash == null) null else resident
 
     internal fun importSource(): File? = source()
@@ -334,6 +337,12 @@ class ClipboardStore(private val dir: File) {
         saveHistoryLater()
         return true
     }
+
+    fun clipBody(key: String): String? =
+        synchronized(history) { history.firstOrNull { it.key == key } }?.body()
+
+    fun clipBodySizeHint(key: String): Long =
+        synchronized(history) { history.firstOrNull { it.key == key } }?.bodySizeHint() ?: 0L
 
     fun editClip(key: String, newText: String): Boolean {
         settleChanges()

@@ -116,7 +116,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var selMoving = -1
     private var deletedSnapshot: CharSequence? = null
     private val panelInput = com.aegis.ime.ime.PanelTextInput()
-    private enum class InputPurpose { EDIT_PHRASE, ADD_PHRASE, EDIT_NOTE, ADD_CATEGORY, RENAME_CATEGORY }
+    private enum class InputPurpose { EDIT_PHRASE, EDIT_CLIP, ADD_PHRASE, EDIT_NOTE, ADD_CATEGORY, RENAME_CATEGORY }
     private var inputPurpose: InputPurpose? = null
     private var inputCat = ""
     private var inputOld = ""
@@ -1019,6 +1019,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onDeletePhrasesFrom = { cat, list -> clipboardStore.deletePhrasesFrom(cat, list) }
             it.onSaveAsPhrasesTo = { cat, list -> clipboardStore.addPhrasesTo(cat, list) }
             it.onEditPhrase = { cat, text -> beginInlineEdit(cat, text) }
+            it.onEditClip = { key -> beginInlineEditClip(key) }
             it.onMovePhrase = { from, text, to -> clipboardStore.movePhrase(from, text, to) }
             it.onMovePhrasesTo = { from, list, to -> clipboardStore.movePhrasesTo(from, list, to) }
             it.onReorderPhrase = { cat, fromIdx, toIdx -> clipboardStore.reorderPhrase(cat, fromIdx, toIdx) }
@@ -1152,8 +1153,26 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
 
     private fun beginInlineEdit(category: String, phrase: String) {
+        if (phrase.length > EDITABLE_CLIP_CHARS) {
+            toast(getString(R.string.phrase_edit_too_long))
+            return
+        }
         inputPurpose = InputPurpose.EDIT_PHRASE; inputCat = category; inputOld = phrase
         startInlineInput(getString(R.string.svc_edit_phrase), phrase)
+    }
+
+    private fun beginInlineEditClip(key: String) {
+        if (clipboardStore.clipBodySizeHint(key) > EDITABLE_CLIP_CHARS) {
+            toast(getString(R.string.clip_edit_too_long))
+            return
+        }
+        val body = clipboardStore.clipBody(key)
+        if (body == null) {
+            toast(getString(R.string.clip_entry_unreadable_body))
+            return
+        }
+        inputPurpose = InputPurpose.EDIT_CLIP; inputCat = ""; inputOld = key
+        startInlineInput(getString(R.string.svc_edit_clip), body)
     }
 
     private fun beginInlineAddPhrase(category: String) {
@@ -1198,6 +1217,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val text = panelInput.text()
         when (inputPurpose) {
             InputPurpose.EDIT_PHRASE -> clipboardStore.editPhrase(inputCat, inputOld, text)
+            InputPurpose.EDIT_CLIP -> clipboardStore.editClip(inputOld, text)
             InputPurpose.ADD_PHRASE -> { val t = text.trim(); if (t.isNotEmpty()) clipboardStore.addPhrasesTo(inputCat, listOf(t)) }
             InputPurpose.EDIT_NOTE -> clipboardStore.setPhraseNote(inputCat, inputOld, text)
             InputPurpose.ADD_CATEGORY -> {
@@ -1531,3 +1551,5 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
 }
+
+private const val EDITABLE_CLIP_CHARS = 4096L

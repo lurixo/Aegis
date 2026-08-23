@@ -466,7 +466,7 @@ class ClipboardViewInteractionTest {
         send(body, MotionEvent.ACTION_MOVE, 260f, 12f, 16)
         assertEquals(-60f, header.translationX, 0f)
         send(body, MotionEvent.ACTION_MOVE, 100f, 12f, 32)
-        assertEquals(-dp(156).toFloat(), header.translationX, 0f)
+        assertEquals(-dp(208).toFloat(), header.translationX, 0f)
         send(body, MotionEvent.ACTION_MOVE, 400f, 12f, 48)
         assertEquals(0f, header.translationX, 0f)
         send(body, MotionEvent.ACTION_UP, 400f, 12f, 64)
@@ -485,17 +485,17 @@ class ClipboardViewInteractionTest {
             val body = bodyOf(v, "第一条")
             val header = headerOf(v, "第一条")
             send(body, MotionEvent.ACTION_DOWN, 320f, 12f, 0)
-            send(body, MotionEvent.ACTION_MOVE, 230f, 12f, 16)
-            send(body, MotionEvent.ACTION_UP, 230f, 12f, 32)
+            send(body, MotionEvent.ACTION_MOVE, 190f, 12f, 16)
+            send(body, MotionEvent.ACTION_UP, 190f, 12f, 32)
             assertEquals("bookkeeping updates on release", "第一条", v.swipeRevealedForTest())
-            assertEquals("the settle starts from the drag position", -90f, header.translationX, 0f)
+            assertEquals("the settle starts from the drag position", -130f, header.translationX, 0f)
             flushMotion()
-            assertEquals(-dp(156).toFloat(), header.translationX, 0f)
+            assertEquals(-dp(208).toFloat(), header.translationX, 0f)
             assertEquals(1f, header.alpha, 0f)
             assertTrue("the settled row is not rebuilt", header === headerOf(v, "第一条"))
             v.refresh()
             layout(v)
-            assertEquals("a later rebuild pins the identical position", -dp(156).toFloat(), headerOf(v, "第一条").translationX, 0f)
+            assertEquals("a later rebuild pins the identical position", -dp(208).toFloat(), headerOf(v, "第一条").translationX, 0f)
         } finally {
             activity.pause().stop().destroy()
         }
@@ -522,10 +522,10 @@ class ClipboardViewInteractionTest {
         leftSwipe(body, dx = 200f)
         flushMotion()
         assertEquals("第一条", v.swipeRevealedForTest())
-        assertEquals(-dp(156).toFloat(), header.translationX, 0f)
+        assertEquals(-dp(208).toFloat(), header.translationX, 0f)
         send(body, MotionEvent.ACTION_DOWN, 100f, 12f, 0)
         send(body, MotionEvent.ACTION_MOVE, 180f, 12f, 16)
-        assertEquals(-dp(156) + 80f, header.translationX, 0f)
+        assertEquals(-dp(208) + 80f, header.translationX, 0f)
         send(body, MotionEvent.ACTION_MOVE, 220f, 12f, 32)
         send(body, MotionEvent.ACTION_UP, 220f, 12f, 48)
         flushMotion()
@@ -618,7 +618,7 @@ class ClipboardViewInteractionTest {
         assertEquals("第二条", v.swipeRevealedForTest())
         layout(v)
         assertEquals(0f, headerOf(v, "第一条").translationX, 0f)
-        assertEquals(-dp(156).toFloat(), headerOf(v, "第二条").translationX, 0f)
+        assertEquals(-dp(208).toFloat(), headerOf(v, "第二条").translationX, 0f)
     }
 
     @Test fun refresh_renders_new_history_items_without_reopening_panel() {
@@ -748,7 +748,7 @@ class ClipboardViewInteractionTest {
         }
     }
 
-    @Test fun clipboard_swipe_reveals_three_icon_actions_while_dropdown_reveals_labeled_actions() {
+    @Test fun clipboard_swipe_reveals_four_icon_actions_while_dropdown_reveals_labeled_actions() {
         val v = clipView(listOf("第一条", "第二条"))
         layout(v)
         rootSwipe(v, bodyOf(v, "第一条"), -200f)
@@ -758,6 +758,7 @@ class ClipboardViewInteractionTest {
             "第一条",
             listOf(
                 ctx.getString(com.aegis.ime.R.string.clip_add_phrase),
+                ctx.getString(com.aegis.ime.R.string.clip_edit),
                 ctx.getString(com.aegis.ime.R.string.clip_split_word),
                 ctx.getString(com.aegis.ime.R.string.clip_delete),
             ),
@@ -775,6 +776,7 @@ class ClipboardViewInteractionTest {
         assertEquals(
             listOf(
                 ctx.getString(com.aegis.ime.R.string.clip_phrases),
+                ctx.getString(com.aegis.ime.R.string.clip_edit),
                 ctx.getString(com.aegis.ime.R.string.clip_split_word),
                 ctx.getString(com.aegis.ime.R.string.clip_delete),
             ),
@@ -977,6 +979,32 @@ class ClipboardViewInteractionTest {
         }
     }
 
+    @Test fun the_clipboard_edit_action_hands_back_the_row_key_alone() {
+        val long = "很长的一条内容".repeat(40)
+        val v = clipView(listOf(long))
+        val seen = ArrayList<String>()
+        v.onEditClip = { key -> seen.add(key) }
+        layout(v)
+        rootSwipe(v, bodyOf(v, long), -300f)
+        layout(v)
+        val actions = swipeActions(v, long)
+        val edit = actions.single { it.contentDescription?.toString() == ctx.getString(com.aegis.ime.R.string.clip_edit) }
+        edit.performClick()
+        assertEquals("the row key alone identifies what to edit", listOf(long), seen)
+    }
+
+    @Test fun the_dropdown_edit_action_hands_back_the_row_key_alone() {
+        val v = clipView(listOf("第一条"))
+        val seen = ArrayList<String>()
+        v.onEditClip = { key -> seen.add(key) }
+        layout(v)
+        v.expandForTest("第一条")
+        layout(v)
+        val edit = actionButtons(v).single { it.text.toString() == ctx.getString(com.aegis.ime.R.string.clip_edit) }
+        edit.performClick()
+        assertEquals(listOf("第一条"), seen)
+    }
+
     @Test fun rtl_swipe_strips_keep_physical_action_order_and_right_edge_anchor() {
         val cases = listOf(
             Triple(
@@ -984,6 +1012,7 @@ class ClipboardViewInteractionTest {
                 "第一条",
                 listOf(
                     ctx.getString(com.aegis.ime.R.string.clip_add_phrase),
+                    ctx.getString(com.aegis.ime.R.string.clip_edit),
                     ctx.getString(com.aegis.ime.R.string.clip_split_word),
                     ctx.getString(com.aegis.ime.R.string.clip_delete),
                 ),
@@ -1018,6 +1047,7 @@ class ClipboardViewInteractionTest {
                 "第一条",
                 listOf(
                     ctx.getString(com.aegis.ime.R.string.clip_phrases),
+                    ctx.getString(com.aegis.ime.R.string.clip_edit),
                     ctx.getString(com.aegis.ime.R.string.clip_split_word),
                     ctx.getString(com.aegis.ime.R.string.clip_delete),
                 ),

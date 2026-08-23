@@ -371,6 +371,7 @@
     <string name="edit_paste_done">Pasted</string>
     <string name="edit_paste_failed">Could not paste</string>
     <string name="edit_paste_empty">Aegis clipboard is empty</string>
+    <string name="svc_edit_clip">Edit item</string>
     <string name="svc_edit_phrase">Edit phrase</string>
     <string name="svc_add_phrase">Add phrase</string>
     <string name="svc_note">Note</string>
@@ -445,6 +446,8 @@
     <string name="clip_phrase_change_not_saved">This change could not be written to your saved phrases, so it will come back</string>
     <string name="clip_entry_lost_body">This clip is no longer stored on this device</string>
     <string name="clip_entry_unreadable_body">This clip is still on this device but could not be read</string>
+    <string name="clip_edit_too_long">This clip is too long to edit on the keyboard</string>
+    <string name="phrase_edit_too_long">This phrase is too long to edit on the keyboard</string>
     <string name="clip_entries_unreadable_count">%1$d of the selected clips could not be read and were left out</string>
     <string name="clip_phrases_saved">Saved %1$d to your phrases</string>
     <plurals name="clip_phrases_saved_existing">

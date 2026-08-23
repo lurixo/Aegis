@@ -368,6 +368,7 @@
     <string name="edit_paste_done">已粘贴</string>
     <string name="edit_paste_failed">粘贴失败</string>
     <string name="edit_paste_empty">Aegis 剪贴板为空</string>
+    <string name="svc_edit_clip">编辑内容</string>
     <string name="svc_edit_phrase">编辑常用语</string>
     <string name="svc_add_phrase">添加常用语</string>
     <string name="svc_note">备注</string>
@@ -441,6 +442,8 @@
     <string name="clip_phrase_change_not_saved">这次改动没能写进常用语，稍后会恢复原样</string>
     <string name="clip_entry_lost_body">这条剪贴的内容已不在此设备上</string>
     <string name="clip_entry_unreadable_body">这条剪贴的内容还在此设备上，但读不出来</string>
+    <string name="clip_edit_too_long">这条剪贴太长，无法在键盘上编辑</string>
+    <string name="phrase_edit_too_long">这条常用语太长，无法在键盘上编辑</string>
     <string name="clip_entries_unreadable_count">选中的内容里有 %1$d 条读不出来，已略过</string>
     <string name="clip_phrases_saved">已存 %1$d 条到常用语</string>
     <plurals name="clip_phrases_saved_existing">
