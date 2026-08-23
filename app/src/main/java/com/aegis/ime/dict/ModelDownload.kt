@@ -115,6 +115,7 @@ object ModelDownload {
         var resumedFrom = 0L
         return try {
             dest.parentFile?.mkdirs()
+            val wanted = normalizeSha256(expectedSha256)
             val resume = resumeIdentity(tmp, meta, url, expectedSha256)
             if (resume == null) {
                 tmp.delete()
@@ -156,7 +157,7 @@ object ModelDownload {
                 val identity = PartialIdentity(
                     url = url,
                     sizeBytes = total,
-                    sha256 = normalizeSha256(expectedSha256),
+                    sha256 = wanted,
                     validator = validator?.takeIf { !it.startsWith("W/") },
                 )
                 if (total > 0L && (identity.sha256 != null || identity.validator != null)) {
@@ -183,6 +184,11 @@ object ModelDownload {
                     DownloadResult(false, null, TransferFailure.INCOMPLETE, done, total, resumedFrom = resumedFrom)
                 done <= 1024L ->
                     DownloadResult(false, null, bytesRead = done, contentLength = total, resumedFrom = resumedFrom)
+                wanted != null && !sha256Of(tmp).equals(wanted, ignoreCase = true) -> {
+                    tmp.delete()
+                    meta.delete()
+                    DownloadResult(false, null, TransferFailure.INCOMPLETE, done, total, resumedFrom = resumedFrom)
+                }
                 else -> installStaged(tmp, validator, done, total, resumedFrom, install)
             }
         } catch (e: Exception) {
