@@ -71,44 +71,53 @@ internal class SettingsHotApply(
             ENGINE_PACK_TOUCH_PREF,
         )
 
+        private fun SharedPreferences.text(key: String, def: String): String =
+            runCatching { getString(key, def) }.getOrNull() ?: def
+
+        private fun SharedPreferences.flag(key: String, def: Boolean): Boolean =
+            runCatching { getBoolean(key, def) }.getOrDefault(def)
+
+        private fun SharedPreferences.count(key: String, def: Long): Long =
+            runCatching { getLong(key, def) }.getOrDefault(def)
+
         fun noteEnginePackChanged(prefs: SharedPreferences) {
-            prefs.edit().putLong(ENGINE_PACK_TOUCH_PREF, prefs.getLong(ENGINE_PACK_TOUCH_PREF, 0L) + 1L).apply()
+            prefs.edit().putLong(ENGINE_PACK_TOUCH_PREF, prefs.count(ENGINE_PACK_TOUCH_PREF, 0L) + 1L).apply()
         }
 
         fun cnLayout(prefs: SharedPreferences): LayoutId =
-            if (prefs.getString(CN_LAYOUT_PREF, "nine") == "alpha") LayoutId.ALPHA else LayoutId.NINE
+            if (prefs.text(CN_LAYOUT_PREF, "nine") == "alpha") LayoutId.ALPHA else LayoutId.NINE
 
         fun defaultLang(prefs: SharedPreferences): Lang =
             com.aegis.ime.ui.defaultLangOf(
-                prefs.getString(com.aegis.ime.ui.PREF_DEFAULT_LANG, com.aegis.ime.ui.DEFAULT_LANG_DEFAULT),
+                prefs.text(com.aegis.ime.ui.PREF_DEFAULT_LANG, com.aegis.ime.ui.DEFAULT_LANG_DEFAULT),
             )
 
         fun associationsOn(prefs: SharedPreferences): Boolean =
-            prefs.getBoolean(com.aegis.ime.ui.PREF_ASSOCIATIONS_ON, com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON)
+            prefs.flag(com.aegis.ime.ui.PREF_ASSOCIATIONS_ON, com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON)
 
         fun autoLearnOn(prefs: SharedPreferences): Boolean =
-            prefs.getBoolean(com.aegis.ime.ui.PREF_AUTO_LEARN_ON, com.aegis.ime.ui.AUTO_LEARN_DEFAULT_ON)
+            prefs.flag(com.aegis.ime.ui.PREF_AUTO_LEARN_ON, com.aegis.ime.ui.AUTO_LEARN_DEFAULT_ON)
 
         fun keyHaptics(prefs: SharedPreferences): Boolean =
-            prefs.getBoolean(com.aegis.ime.ui.PREF_KEY_HAPTICS, com.aegis.ime.ui.KEY_HAPTICS_DEFAULT)
+            prefs.flag(com.aegis.ime.ui.PREF_KEY_HAPTICS, com.aegis.ime.ui.KEY_HAPTICS_DEFAULT)
 
         fun keyPreviewMaster(prefs: SharedPreferences): Boolean =
-            prefs.getBoolean(com.aegis.ime.ui.PREF_KEY_PREVIEW_MASTER, com.aegis.ime.ui.KEY_PREVIEW_MASTER_DEFAULT)
+            prefs.flag(com.aegis.ime.ui.PREF_KEY_PREVIEW_MASTER, com.aegis.ime.ui.KEY_PREVIEW_MASTER_DEFAULT)
 
         fun keyPreviewNine(prefs: SharedPreferences): Boolean =
             keyPreviewMaster(prefs) &&
-                prefs.getBoolean(com.aegis.ime.ui.PREF_KEY_PREVIEW_NINE, com.aegis.ime.ui.KEY_PREVIEW_SUB_DEFAULT)
+                prefs.flag(com.aegis.ime.ui.PREF_KEY_PREVIEW_NINE, com.aegis.ime.ui.KEY_PREVIEW_SUB_DEFAULT)
 
         fun keyPreviewAlpha(prefs: SharedPreferences): Boolean =
             keyPreviewMaster(prefs) &&
-                prefs.getBoolean(com.aegis.ime.ui.PREF_KEY_PREVIEW_ALPHA, com.aegis.ime.ui.KEY_PREVIEW_SUB_DEFAULT)
+                prefs.flag(com.aegis.ime.ui.PREF_KEY_PREVIEW_ALPHA, com.aegis.ime.ui.KEY_PREVIEW_SUB_DEFAULT)
 
         fun letterCase(prefs: SharedPreferences): com.aegis.ime.ui.LetterCase =
-            com.aegis.ime.ui.letterCaseOf(prefs.getString(com.aegis.ime.ui.PREF_LETTER_CASE, com.aegis.ime.ui.LETTER_CASE_DEFAULT))
+            com.aegis.ime.ui.letterCaseOf(prefs.text(com.aegis.ime.ui.PREF_LETTER_CASE, com.aegis.ime.ui.LETTER_CASE_DEFAULT))
 
         fun fuzzyRules(prefs: SharedPreferences): Set<String> =
-            Fuzzy.activeRules(prefs.getBoolean(FUZZY_MASTER_PREF, Fuzzy.DEFAULT_ON)) {
-                prefs.getBoolean(Fuzzy.prefKey(it), true)
+            Fuzzy.activeRules(prefs.flag(FUZZY_MASTER_PREF, Fuzzy.DEFAULT_ON)) {
+                prefs.flag(Fuzzy.prefKey(it), true)
             }
     }
 }
