@@ -16,12 +16,15 @@
 package com.aegis.ime.ime
 
 import android.graphics.drawable.GradientDrawable
+import android.text.InputType
 import android.view.View
 import android.view.ViewGroup
+import android.widget.EditText
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -40,7 +43,7 @@ class EditBarViewTest {
         fun walk(x: View) { if (x is TextView) out.add(x); if (x is ViewGroup) for (i in 0 until x.childCount) walk(x.getChildAt(i)) }
         walk(root); return out
     }
-    private fun field(v: EditBarView): TextView = textViews(v).first { it.text?.toString()?.endsWith("▏") == true }
+    private fun field(v: EditBarView): EditText = v.fieldForTest()
     private fun action(v: EditBarView, text: String): TextView = textViews(v).single { it.text?.toString() == text }
 
     private fun layout(v: View, w: Int = 480) {
@@ -51,11 +54,82 @@ class EditBarViewTest {
         v.layout(0, 0, v.measuredWidth, v.measuredHeight)
     }
 
+    @Test fun the_field_is_a_real_editor_that_never_summons_another_ime() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        val f = field(v)
+        assertTrue("a caret can blink only in an editable field", f.isCursorVisible)
+        assertTrue("tapping the field must be able to move the caret", f.isFocusableInTouchMode)
+        assertFalse("focusing it must not open a second keyboard", f.showSoftInputOnFocus)
+        assertNotEquals(
+            "the field accepts line breaks",
+            0,
+            f.inputType and InputType.TYPE_TEXT_FLAG_MULTI_LINE,
+        )
+    }
+
+    @Test fun the_field_carries_no_placeholder_caret_character() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        v.setText("工作")
+        assertEquals("工作", field(v).text.toString())
+    }
+
+    @Test fun seeding_the_field_parks_the_caret_at_the_end() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        v.setText("家庭住址")
+        assertEquals(4, field(v).selectionStart)
+        assertEquals(4, field(v).selectionEnd)
+    }
+
+    @Test fun the_exposed_editable_reads_and_writes_the_real_field() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        v.setText("abcd")
+        val e = v.editable()
+        e.setSelection(1, 3)
+        assertEquals("abcd", e.snapshot())
+        assertEquals(1, e.selectionStart())
+        assertEquals(3, e.selectionEnd())
+        e.replace(1, 3, "XY")
+        assertEquals("aXYd", field(v).text.toString())
+        assertEquals("the caret lands after the replacement", 3, field(v).selectionStart)
+    }
+
+    @Test fun edits_report_out_but_seeding_does_not() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        val seen = ArrayList<String>()
+        v.onTextChanged = { seen.add(it) }
+        v.setText("seed")
+        assertTrue("seeding the field is not a user edit", seen.isEmpty())
+        v.editable().replace(4, 4, "!")
+        assertEquals(listOf("seed!"), seen)
+    }
+
     @Test fun field_viewport_is_capped_at_four_lines() {
         val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT); setTitle("编辑常用语"); setText("短") }
         val f = field(v)
         assertEquals("the viewport is capped at 4 lines (maxHeight, not maxLines)",
             f.lineHeight * 4 + f.paddingTop + f.paddingBottom, f.maxHeight)
+    }
+
+    @Test fun a_one_line_budget_keeps_the_bar_at_a_single_row() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT); setTitle("编辑常用语") }
+        v.setFieldLineBudget(1)
+        v.setText((1..20).joinToString("\n") { "第${it}行内容" })
+        layout(v)
+        val f = field(v)
+        assertEquals("a constrained bar shows exactly one line",
+            f.lineHeight + f.paddingTop + f.paddingBottom, f.maxHeight)
+        val tall = f.height
+        v.setText("一行")
+        layout(v)
+        assertEquals("twenty lines take no more room than one", tall, field(v).height)
+    }
+
+    @Test fun restoring_the_budget_lets_the_field_grow_again() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        v.setFieldLineBudget(1)
+        v.setFieldLineBudget(EditBarView.MAX_FIELD_LINES)
+        val f = field(v)
+        assertEquals(f.lineHeight * 4 + f.paddingTop + f.paddingBottom, f.maxHeight)
     }
 
     @Test fun long_content_overflows_four_lines_and_becomes_scrollable() {
@@ -64,7 +138,6 @@ class EditBarViewTest {
         layout(v)
         val f = field(v)
         assertTrue("the full text lays out to more than 4 lines", f.lineCount > 4)
-        assertTrue("scrollable via ScrollingMovementMethod", f.movementMethod is android.text.method.ScrollingMovementMethod)
         assertTrue("the viewport is capped near 4 lines, not the full content",
             f.height <= f.lineHeight * 4 + f.paddingTop + f.paddingBottom + 1)
         val contentHeight = f.layout.height + f.paddingTop + f.paddingBottom
