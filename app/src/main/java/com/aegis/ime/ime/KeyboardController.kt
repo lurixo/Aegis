@@ -384,7 +384,7 @@ class KeyboardController(
         val cand = candidates[index]
         when {
             cand === calcCand -> {
-                val live = if (learningBlocked) null else Calculator.detect(host.textBeforeCursor(CALC_SCAN_LEN))
+                val live = if (learningBlocked) null else calcMatch(host)
                 if (live != null && live.expr == calcExpr && live.result == calcResult && !host.hasSelection()) {
                     host.commitText(live.append)
                 }
@@ -882,7 +882,7 @@ class KeyboardController(
                 words
             }
             req.composingEmpty && req.committedPrefixEmpty -> {
-                val match = if (req.learningBlocked || req.calcDismissed) null else Calculator.detect(req.host.textBeforeCursor(CALC_SCAN_LEN))
+                val match = if (req.learningBlocked || req.calcDismissed) null else calcMatch(req.host)
                 when {
                     match != null -> {
                         val cand = Cand(match.append, 0)
@@ -1248,6 +1248,11 @@ class KeyboardController(
         drillChoices.clear()
         refreshCandidates()
         render()
+    }
+
+    private fun calcMatch(host: ImeHost): Calculator.Match? {
+        val window = host.textBeforeCursor(CALC_SCAN_LEN + 1)
+        return Calculator.detect(window, moreTextMayPrecede = window.length > CALC_SCAN_LEN)
     }
 
     private companion object {

@@ -157,6 +157,26 @@ class AssociationsAndCalcTest {
         assertTrue("no candidate lingers after committing the result", c.candidateWords().isEmpty())
     }
 
+    @Test fun u25_an_expression_longer_than_the_scan_window_is_not_answered_from_its_tail() {
+        val h = EditorHost()
+        val c = KeyboardController(h, emptyEngine)
+        h.preset("1".repeat(40))
+        "+1".forEach { c.onKey(digit(it.toString())) }
+        assertTrue(
+            "an operand cut off by the window must not be answered as if it were whole, was ${c.candidateWords()}",
+            c.candidateWords().isEmpty(),
+        )
+    }
+
+    @Test fun u25_an_expression_that_exactly_fills_the_scan_window_is_still_answered() {
+        val h = EditorHost()
+        val c = KeyboardController(h, emptyEngine)
+        h.preset("11" + "+1".repeat(14))
+        "+1".forEach { c.onKey(digit(it.toString())) }
+        assertEquals("thirty-two characters still fit", 32, h.text.length)
+        assertEquals(listOf("=26"), c.candidateWords())
+    }
+
     @Test fun u25_plain_numbers_are_not_treated_as_a_calculation() {
         val h = EditorHost()
         val c = KeyboardController(h, emptyEngine)

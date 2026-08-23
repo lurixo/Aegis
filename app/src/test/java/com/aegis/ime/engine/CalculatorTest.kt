@@ -16,6 +16,7 @@
 package com.aegis.ime.engine
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Test
 
@@ -56,6 +57,21 @@ class CalculatorTest {
         assertEquals("12+34*2", m.expr)
         assertEquals("80", m.result)
         assertEquals(7, m.length)
+    }
+
+    @Test fun detect_refuses_a_run_that_reaches_the_edge_of_a_window() {
+        assertNull(
+            "the operand may carry on before the window",
+            Calculator.detect("3456789012+1", moreTextMayPrecede = true),
+        )
+        assertNotNull(
+            "a run the window fully contains is still answered",
+            Calculator.detect(" 3456789012+1", moreTextMayPrecede = true),
+        )
+        assertNotNull(
+            "a run bounded by other text is still answered",
+            Calculator.detect("total:12+3", moreTextMayPrecede = true),
+        )
     }
 
     @Test fun detect_keeps_a_preceding_space_or_label_out_of_the_replaced_run() {
