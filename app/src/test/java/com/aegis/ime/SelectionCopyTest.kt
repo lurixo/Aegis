@@ -34,6 +34,8 @@ import com.aegis.ime.ime.EditAction
 import com.aegis.ime.ime.EditorUndoHistory
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.ime.PanelEditable
+import com.aegis.ime.ime.PanelTextInput
 import com.aegis.ime.user.ClipboardStore
 import java.time.Duration
 import org.junit.Assert.assertEquals
@@ -455,6 +457,99 @@ class SelectionCopyTest {
         assertEquals(app.getString(R.string.edit_copy_done), f.service.toastTextForTest())
         assertEquals(3, refusedWrites())
         assertNull(systemClip())
+    }
+
+    private class PanelEditor : PanelEditable {
+        var value = "abcdef"
+        var from = 1
+        var to = 4
+        override fun snapshot() = value
+        override fun selectionStart() = from
+        override fun selectionEnd() = to
+        override fun setSelection(start: Int, end: Int) { from = start; to = end }
+        override fun replace(start: Int, end: Int, text: CharSequence) {
+            value = value.replaceRange(start, end, text)
+            from = start + text.length; to = from
+        }
+    }
+
+    private fun panelFixture(): Pair<Fixture, PanelEditor> {
+        val f = fixture()
+        val target = PanelEditor()
+        val panel = f.service.javaClass.getDeclaredField("panelInput").run {
+            isAccessible = true
+            get(f.service) as PanelTextInput
+        }
+        panel.begin(target)
+        return f to target
+    }
+
+    @Test fun copying_and_cutting_in_the_panel_also_sync_the_system_clipboard() {
+        val (f, target) = panelFixture()
+        edit(f.service, EditAction.COPY)
+        assertEquals("bcd", systemClip())
+        assertEquals("abcdef", target.value)
+        target.setSelection(0, 1)
+        edit(f.service, EditAction.CUT)
+        assertEquals("a", systemClip())
+        assertEquals("a", stored(f.service))
+        assertEquals("bcdef", target.value)
+    }
+
+    @Test
+    @Config(shadows = [RefusingClipboard::class])
+    fun a_refused_system_write_does_not_interrupt_any_panel_edit_flow() {
+        val (f, target) = panelFixture()
+        edit(f.service, EditAction.COPY)
+        assertEquals("bcd", stored(f.service))
+        assertEquals(app.getString(R.string.edit_copy_done), f.service.toastTextForTest())
+        edit(f.service, EditAction.CUT)
+        assertEquals("aef", target.value)
+        assertEquals(app.getString(R.string.edit_cut_done), f.service.toastTextForTest())
+        edit(f.service, EditAction.PASTE)
+        assertEquals("abcdef", target.value)
+        assertEquals(app.getString(R.string.edit_paste_done), f.service.toastTextForTest())
+        edit(f.service, EditAction.LEFT)
+        edit(f.service, EditAction.START_SELECT)
+        edit(f.service, EditAction.RIGHT)
+        assertEquals(3, target.from)
+        assertEquals(4, target.to)
+        edit(f.service, EditAction.SELECT_ALL)
+        edit(f.service, EditAction.DELETE)
+        assertEquals("", target.value)
+        assertEquals(2, refusedWrites())
+        assertNull(systemClip())
+    }
+
+
+    @Test fun panel_copy_and_cut_with_history_off_still_publish_to_the_system() {
+        val (f, target) = panelFixture()
+        app.getSharedPreferences("aegis", Context.MODE_PRIVATE).edit().putBoolean("clip_history", false).commit()
+        edit(f.service, EditAction.COPY)
+        assertEquals("bcd", systemClip())
+        assertNull(stored(f.service))
+        edit(f.service, EditAction.CUT)
+        assertEquals("aef", target.value)
+        assertEquals("bcd", systemClip())
+        assertNull(stored(f.service))
+    }
+
+    @Test
+    @Config(shadows = [RefusingClipboard::class])
+    fun failed_system_cut_with_history_off_is_silent_and_preserves_the_only_copy() {
+        val f = fixture()
+        app.getSharedPreferences("aegis", Context.MODE_PRIVATE).edit().putBoolean("clip_history", false).commit()
+        select(f, "abcdef", 1, 4)
+        edit(f.service, EditAction.CUT)
+        assertEquals("abcdef", f.editor.held())
+        assertNull(stored(f.service))
+        assertNull(systemClip())
+        assertTrue(f.service.toastTextForTest().isNullOrEmpty())
+        val (panel, target) = panelFixture()
+        edit(panel.service, EditAction.CUT)
+        assertEquals("abcdef", target.value)
+        assertNull(stored(panel.service))
+        assertTrue(panel.service.toastTextForTest().isNullOrEmpty())
     }
 
 }

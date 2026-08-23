@@ -712,6 +712,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPreeditEditDone = { controller.onPreeditEditDone() }
         }
         inputView = view
+        view.onEditSelectionChanged = { has ->
+            if (panelInput.active) editPanelView?.setHasSelection(has)
+            refreshPanelEmailContext(view)
+        }
         view.onTranslateTextChanged = { text ->
             scheduleTranslation(text)
             refreshPanelEmailContext(view)
@@ -721,6 +725,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             scheduleTranslation(view.translateText())
         }
         view.onTranslateSelectionChanged = { has ->
+            if (panelInput.active) editPanelView?.setHasSelection(has)
             refreshPanelEmailContext(view)
         }
         controller.attachView(view)
@@ -941,6 +946,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             EditAction.SELECT_ALL, EditAction.COPY, EditAction.CUT, EditAction.PASTE -> stopSelecting()
             else -> Unit
         }
+        if (panelInput.active && action != EditAction.BACK) { handleEditInPanel(action); return }
         if (action == EditAction.UNDO && (editorUndo.hasPendingUndo || editorUndo.hasPendingInsertion || largeEdit) && !restoring) {
             queuedUndos = minOf(queuedUndos + 1, MAX_QUEUED_UNDOS)
             return
@@ -1011,6 +1017,61 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             if (panelInput.active) { if (up) { panelInput.selectAll(); panelInput.deleteSelection() } }
             else handleBackspaceSwipe(up)
         }
+    }
+
+    private fun handleEditInPanel(action: EditAction) {
+        when (action) {
+            EditAction.UNDO -> undoEditing()
+            EditAction.UP -> panelInput.move(SelectionMath.Move.UP, selecting)
+            EditAction.DOWN -> panelInput.move(SelectionMath.Move.DOWN, selecting)
+            EditAction.LEFT -> panelInput.move(SelectionMath.Move.LEFT, selecting)
+            EditAction.RIGHT -> panelInput.move(SelectionMath.Move.RIGHT, selecting)
+            EditAction.HOME -> panelInput.move(SelectionMath.Move.HOME, selecting)
+            EditAction.END -> panelInput.move(SelectionMath.Move.END, selecting)
+            EditAction.START_SELECT -> {
+                selecting = !selecting
+                editPanelView?.setSelecting(selecting)
+            }
+            EditAction.DELETE -> panelInput.backspace()
+            EditAction.TAB -> panelInput.commit("\t")
+            EditAction.FORWARD_DELETE -> panelInput.deleteForward()
+            EditAction.SELECT_ALL -> {
+                if (panelInput.text().isEmpty()) {
+                    toast(uiString(R.string.edit_no_selection))
+                } else {
+                    panelInput.selectAll()
+                    toast(uiString(R.string.edit_select_all_done))
+                }
+            }
+            EditAction.COPY -> {
+                val selected = panelInput.selectedText()
+                if (selected == null) toast(uiString(R.string.edit_no_selection))
+                else copyFromPanel(selected, R.string.edit_copy_done)
+            }
+            EditAction.CUT -> {
+                val selected = panelInput.selectedText()
+                if (selected == null) toast(uiString(R.string.edit_no_selection))
+                else if (copyFromPanel(selected, R.string.edit_cut_done)) panelInput.deleteSelection()
+            }
+            EditAction.PASTE -> {
+                pasteClipboard()
+            }
+            EditAction.BACK -> Unit
+        }
+        refreshUndoAvailability()
+    }
+
+    private fun copyFromPanel(text: String, notice: Int): Boolean {
+        val keep = keepsCopies()
+        val previousOrder = if (keep) clipboardStore.latestEntry()?.captureOrder else null
+        val publication = syncSystemClipboard(text)
+        if (keep) {
+            clipboardStore.record(text)
+            rememberUnpublishedClipboard(publication, previousOrder)
+        }
+        if (!keep && !publication.published) return false
+        toast(uiString(notice))
+        return true
     }
 
     private data class SystemClipboardIdentity(val timestamp: Long, val fingerprint: String)

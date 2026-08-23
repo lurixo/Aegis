@@ -823,6 +823,33 @@ class AegisEditCombinationTest {
         }
     }
 
+    @Test
+    @Config(shadows = [RefusingLargeClipboard::class])
+    fun failed_panel_copy_keeps_the_local_large_clip_over_unchanged_system_whitespace() {
+        val large = "abcdefghij\n".repeat(13_000)
+        for (choice in listOf(LayoutChoice.CN_ALPHA, LayoutChoice.CN_NINE)) {
+            val f = Fixture(choice, true)
+            try {
+                f.reset("leftright", 4, 4, "\n\n")
+                f.service.getSharedPreferences("aegis", Context.MODE_PRIVATE).edit().putBoolean("clip_history", true).commit()
+                val copied = f.service.javaClass.getDeclaredMethod("copyFromPanel", String::class.java, Int::class.javaPrimitiveType)
+                    .apply { isAccessible = true }.invoke(f.service, large, R.string.edit_copy_done)
+                assertEquals("$choice panel copy retains local content", true, copied)
+                assertNotNull("$choice panel copy tracks the failed publication", f.field("unpublishedClipboard"))
+                f.call("onSystemClipChanged")
+                f.edit(EditAction.PASTE)
+                assertEquals("$choice panel copy uses the local large clip", "left${large}right", f.text())
+                f.edit(EditAction.UNDO)
+                assertEquals("$choice Undo restores the original", "leftright", f.text())
+                assertSelection(f, 4 to 4, "$choice Undo")
+                assertFalse("$choice Undo is exhausted", f.undoEnabled())
+            } finally {
+                f.service.getSharedPreferences("aegis", Context.MODE_PRIVATE).edit().putBoolean("clip_history", false).commit()
+                f.service.onFinishInput()
+            }
+        }
+    }
+
     @Test fun partial_extractions_use_window_history_for_small_selected_edits() {
         val failures = ArrayList<String>()
         var cases = 0
