@@ -335,6 +335,32 @@ class ClipboardStore(private val dir: File) {
         return true
     }
 
+    fun editClip(key: String, newText: String): Boolean {
+        settleChanges()
+        if (!clipWritesAllowed()) { reportClipWrite(false); return false }
+        val text = newText.trim()
+        if (text.isEmpty()) { reportClipWrite(false); return false }
+        val replacement = adopt(text)
+        var missing = false
+        val changed = synchronized(history) {
+            val at = history.indexOfFirst { it.key == key }
+            if (at < 0) { missing = true; false }
+            else if (history[at].key == replacement.key) false
+            else {
+                val duplicate = history.indexOfFirst { it.key == replacement.key }
+                if (duplicate < 0 || duplicate == at) history[at] = replacement
+                else {
+                    history[minOf(at, duplicate)] = replacement
+                    history.removeAt(maxOf(at, duplicate))
+                }
+                true
+            }
+        }
+        if (missing) { reportClipWrite(false); return false }
+        if (changed) saveHistoryLater()
+        return true
+    }
+
     fun clearHistory(): Boolean {
         settleChanges()
         if (!clipWritesAllowed()) { reportClipWrite(false); return false }
