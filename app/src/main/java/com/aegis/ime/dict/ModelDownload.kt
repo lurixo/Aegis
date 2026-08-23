@@ -606,7 +606,10 @@ object ModelDownload {
             val transactionFiles = DICT_MANAGED_FILES + DICT_INSTALLED_SHA_NAME
             val backups = transactionFiles.associateWith { dictBackupFile(filesDir, it) }
             val hadBackups = backups.values.any(File::exists)
-            val completeNewGeneration = isDictDownloaded(filesDir) && installedDictionaryFileSha(filesDir) != null
+            val installedSha = installedDictionaryFileSha(filesDir)
+            val pendingSha = pendingDictionarySha(filesDir)
+            val completeNewGeneration = isDictDownloaded(filesDir) && installedSha != null &&
+                (pendingSha == null || pendingSha == installedSha)
             val recoveryRequired = hadBackups && !completeNewGeneration
             if (recoveryRequired) {
                 backups.forEach { (name, backup) ->

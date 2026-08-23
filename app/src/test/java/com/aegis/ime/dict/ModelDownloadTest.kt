@@ -1323,6 +1323,29 @@ class ModelDownloadTest {
     }
 
     @Test
+    fun aPackThatFinishedDownloadingIsNotSweptAwayWithTheOldGeneration() {
+        val base = tempFilesDir()
+        val downloaded = File(base, "downloaded").apply { mkdirs() }
+        val installedSha = "a".repeat(64)
+        val pendingSha = "b".repeat(64)
+        ModelDownload.DICT_PACK_FILES.forEachIndexed { index, name ->
+            File(downloaded, name).writeBytes(ByteArray(3_000) { (index + 1).toByte() })
+        }
+        File(downloaded, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText(installedSha)
+        assertEquals(
+            ModelDownload.PendingMarker.Recorded,
+            ModelDownload.recordPendingDictionarySha(base, pendingSha),
+        )
+        val zip = ModelDownload.dictZipFile(base).apply { writeBytes(ByteArray(4_000)) }
+
+        ModelDownload.reconcileInterruptedDownloads(base)
+
+        assertTrue("an update that was downloaded but not installed must survive", zip.exists())
+        assertEquals("the generation it replaces stays live until it does", installedSha, ModelDownload.installedDictionaryFileSha(base))
+        base.deleteRecursively()
+    }
+
+    @Test
     fun installRefusesAPackThatIsNotTheOneItWasPromised() {
         val base = tempFilesDir()
         val zip = ModelDownload.dictZipFile(base)
