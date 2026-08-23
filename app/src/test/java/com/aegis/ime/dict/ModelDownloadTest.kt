@@ -1235,7 +1235,7 @@ class ModelDownloadTest {
     }
 
     @Test
-    fun aSplicedArchiveThatEvadesTransportChecksFailsTheDigestGate() {
+    fun aSplicedArchiveThatEvadesTheTransportChecksIsRefusedByItsDigest() {
         val base = tempFilesDir()
         val source = File(base, "origin.zip")
         writeZip(
@@ -1268,17 +1268,21 @@ class ModelDownloadTest {
 
             val second = ModelDownload.download(url, zip, expectedSha) { _, _ -> }
 
-            assertTrue("the transport layer alone cannot see the swap", second.ok)
-            assertEquals(cut.toLong(), second.resumedFrom)
+            assertEquals("the whole entity arrived, so the transport layer is satisfied", cut.toLong(), second.resumedFrom)
             assertEquals("bytes=$cut-", ranges[1])
+            assertFalse("but the digest says it is not the asset that was asked for", second.ok)
+            assertEquals(
+                "a wrong asset that arrived whole is corruption, not an incomplete transfer",
+                ModelDownload.TransferFailure.CORRUPT,
+                second.failure,
+            )
 
-            assertFalse("the digest gate has the last word", ModelDownload.installDictPack(base, expectedSha))
+            assertFalse("nothing is left that a resume could build on", ModelDownload.dictPartFile(base).exists())
+            assertFalse(zip.exists())
             assertFalse(ModelDownload.isDictDownloaded(base))
             ModelDownload.DICT_PACK_FILES.forEach { name ->
                 assertFalse(File(File(base, "downloaded"), name).exists())
             }
-            assertFalse(zip.exists())
-            assertFalse(ModelDownload.dictPartFile(base).exists())
         } finally {
             server.stop(0)
             base.deleteRecursively()
@@ -1321,6 +1325,25 @@ class ModelDownloadTest {
             server.stop(0)
             base.deleteRecursively()
         }
+    }
+
+    @Test
+    fun installRefusesAPackThatIsNotTheOneItWasPromised() {
+        val base = tempFilesDir()
+        val zip = ModelDownload.dictZipFile(base)
+        writeZip(
+            zip,
+            ModelDownload.DICT_PACK_FILES.mapIndexed { index, name ->
+                name to ByteArray(3_000) { (index + 1).toByte() }
+            }.toMap(),
+        )
+
+        assertFalse(ModelDownload.installDictPack(base, "f".repeat(64)))
+        assertFalse(ModelDownload.isDictDownloaded(base))
+        ModelDownload.DICT_PACK_FILES.forEach { name ->
+            assertFalse(File(File(base, "downloaded"), name).exists())
+        }
+        base.deleteRecursively()
     }
 
     @Test

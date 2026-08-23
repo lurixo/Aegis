@@ -44,6 +44,7 @@
     <string name="download_cause_timeout">connection timed out</string>
     <string name="download_cause_server">server unavailable or unexpected response</string>
     <string name="download_cause_incomplete">the transfer ended before the file was complete</string>
+    <string name="download_cause_corrupt">the downloaded file failed its integrity check</string>
     <string name="download_cause_install">the downloaded file could not be installed</string>
 
     <string name="gram_card_title">Enhancement model (Wanxiang offline model)</string>

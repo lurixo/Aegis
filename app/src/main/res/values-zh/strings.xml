@@ -44,6 +44,7 @@
     <string name="download_cause_timeout">连接超时</string>
     <string name="download_cause_server">服务器不可用或响应异常</string>
     <string name="download_cause_incomplete">传输在文件完整前中断</string>
+    <string name="download_cause_corrupt">下载的文件未通过完整性校验</string>
     <string name="download_cause_install">下载的文件无法安装</string>
 
     <string name="gram_card_title">增强模型（万象离线大模型）</string>

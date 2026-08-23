@@ -40,6 +40,7 @@ private fun transferFailureStatus(
         ModelDownload.TransferFailure.TIMEOUT -> R.string.download_cause_timeout
         ModelDownload.TransferFailure.SERVER -> R.string.download_cause_server
         ModelDownload.TransferFailure.INCOMPLETE -> R.string.download_cause_incomplete
+        ModelDownload.TransferFailure.CORRUPT -> R.string.download_cause_corrupt
         ModelDownload.TransferFailure.INSTALL -> R.string.download_cause_install
         null -> return LocalizedText.Resource(fallback)
     }
