@@ -28,6 +28,10 @@ class OctagramReader private constructor(
 ) {
     private val labelMask = (1 shl 31) or 0xFF
 
+    private val unitCount = (buf.limit() - imageStart) / 4
+
+    private fun inImage(id: Int): Boolean = id >= 0 && id < unitCount
+
     private fun unit(id: Int): Int = buf.getInt(imageStart + id * 4)
     private fun offset(u: Int): Int = (u ushr 10) shl ((u and (1 shl 9)) ushr 6)
     private fun hasLeaf(u: Int): Boolean = ((u ushr 8) and 1) == 1
@@ -39,11 +43,14 @@ class OctagramReader private constructor(
         for (b in encoded) {
             val c = b.toInt() and 0xFF
             id = id xor offset(u) xor c
+            if (!inImage(id)) return null
             u = unit(id)
             if ((u and labelMask) != c) return null
         }
         if (!hasLeaf(u)) return null
-        return value(unit(id xor offset(u)))
+        val leaf = id xor offset(u)
+        if (!inImage(leaf)) return null
+        return value(unit(leaf))
     }
 
     fun rawScore(text: String): Double? = lookup(encode(text))?.let { it / VALUE_SCALE }

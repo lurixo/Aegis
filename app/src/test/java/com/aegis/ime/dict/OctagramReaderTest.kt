@@ -15,14 +15,42 @@
 
 package com.aegis.ime.dict
 
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 
 class OctagramReaderTest {
 
+    @get:Rule
+    val tmp = TemporaryFolder()
+
     private val gram = System.getenv("AEGIS_GRAM")?.let { File(it) }
+
+    private fun runawayImage(units: Int): File {
+        val size = 44 + units * 4
+        val b = ByteBuffer.allocate(size).order(ByteOrder.LITTLE_ENDIAN)
+        val format = "Rime::Grammar/1.0".toByteArray(Charsets.US_ASCII)
+        b.put(format).put(ByteArray(32 - format.size))
+        b.putInt(32, 0)
+        b.putInt(36, units)
+        b.putInt(40, 4)
+        for (i in 0 until units) b.putInt(44 + i * 4, -1)
+        return File(tmp.newFolder(), "runaway.gram").apply { writeBytes(b.array()) }
+    }
+
+    @Test
+    fun aRunawayImageIsRefusedInsteadOfReadingPastItself() {
+        val reader = OctagramReader.fromFile(runawayImage(8))
+        assertNull("a jump outside the image is not an answer", reader.rawScore("中国"))
+        assertNull(reader.rawScore("的"))
+        assertNull(reader.rawScore("一个词组"))
+    }
 
     @Test
     fun loadsAndScores() {
