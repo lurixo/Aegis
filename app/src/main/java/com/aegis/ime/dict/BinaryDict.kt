@@ -36,18 +36,28 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
 
     init {
         buf.order(ByteOrder.LITTLE_ENDIAN)
+        val size = buf.limit().toLong()
+        require(size >= HEADER_SIZE) { "truncated header" }
         require(buf.get(0) == 'A'.code.toByte() && buf.get(1) == 'E'.code.toByte() &&
             buf.get(2) == 'G'.code.toByte() && buf.get(3) == 'D'.code.toByte()) { "bad magic" }
+        val version = buf.getInt(4)
+        require(version == FORMAT_VERSION) { "unsupported dictionary format $version" }
         numKeys = buf.getInt(8)
         numEntries = buf.getInt(12)
+        require(numKeys >= 0 && numEntries >= 0) { "bad counts $numKeys/$numEntries" }
         totalFreq = buf.getLong(16)
         val keyBlobLen = buf.getInt(24)
-        keyBlobOff = 28
-        val wordBlobLenPos = 28 + keyBlobLen
+        require(keyBlobLen >= 0 && HEADER_SIZE + keyBlobLen.toLong() + 4L <= size) { "bad key blob length" }
+        keyBlobOff = HEADER_SIZE
+        val wordBlobLenPos = HEADER_SIZE + keyBlobLen
         val wordBlobLen = buf.getInt(wordBlobLenPos)
+        require(wordBlobLen >= 0) { "bad word blob length" }
+        val keyArrStart = wordBlobLenPos.toLong() + 4L + wordBlobLen.toLong()
+        val entryArrStart = keyArrStart + numKeys.toLong() * KEY_RECORD_BYTES
+        require(entryArrStart <= size) { "dictionary ends before its key table does" }
         wordBlobOff = wordBlobLenPos + 4
-        keyArrOff = wordBlobOff + wordBlobLen
-        entryArrOff = keyArrOff + numKeys * 12
+        keyArrOff = keyArrStart.toInt()
+        entryArrOff = entryArrStart.toInt()
         shortPrefixTop = buildShortPrefixTop()
     }
 
@@ -314,6 +324,10 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
     }
 
     companion object {
+        private const val FORMAT_VERSION = 2
+        private const val HEADER_SIZE = 28
+        private const val KEY_RECORD_BYTES = 12
+
         private const val SHORT_PREFIX_TOP_N = 128
         private const val SHORT_PREFIX_BUCKETS = 128
 

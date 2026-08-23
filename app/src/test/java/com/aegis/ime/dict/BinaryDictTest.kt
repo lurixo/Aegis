@@ -17,15 +17,72 @@ package com.aegis.ime.dict
 
 import com.aegis.ime.decoder.EngineFixture
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
 import java.io.File
 
 class BinaryDictTest {
 
     private val dictFile = File("src/main/assets/aegis_dict.bin")
     private val t9File = File("src/main/assets/aegis_t9.bin")
+
+    @get:Rule
+    val tmp = TemporaryFolder()
+
+    private fun dictBytes(
+        version: Int = 2,
+        numKeys: Int = 0,
+        numEntries: Int = 0,
+        keyBlob: ByteArray = ByteArray(0),
+        wordBlob: ByteArray = ByteArray(0),
+        keyBlobLen: Int = keyBlob.size,
+        wordBlobLen: Int = wordBlob.size,
+    ): File {
+        val out = java.io.ByteArrayOutputStream()
+        fun le(v: Int) { out.write(v); out.write(v ushr 8); out.write(v ushr 16); out.write(v ushr 24) }
+        out.write("AEGD".toByteArray(Charsets.US_ASCII))
+        le(version); le(numKeys); le(numEntries)
+        for (shift in 0 until 64 step 8) out.write(((1L ushr shift).toInt()) and 0xFF)
+        le(keyBlobLen); out.write(keyBlob)
+        le(wordBlobLen); out.write(wordBlob)
+        return File(tmp.newFolder(), "dict.bin").apply { writeBytes(out.toByteArray()) }
+    }
+
+    @Test
+    fun anEmptyButWellFormedDictionaryLoads() {
+        val dict = BinaryDict.fromFile(dictBytes())
+        assertEquals(emptyList<String>(), dict.query("a", 5))
+    }
+
+    @Test
+    fun aDictionaryFromAnotherFormatIsRefused() {
+        assertThrows(IllegalArgumentException::class.java) { BinaryDict.fromFile(dictBytes(version = 3)) }
+    }
+
+    @Test
+    fun lengthsThatRunPastTheFileAreRefused() {
+        assertThrows("a key blob longer than the file", IllegalArgumentException::class.java) {
+            BinaryDict.fromFile(dictBytes(keyBlobLen = 1 shl 20))
+        }
+        assertThrows("a negative key blob length", IllegalArgumentException::class.java) {
+            BinaryDict.fromFile(dictBytes(keyBlobLen = -1))
+        }
+        assertThrows("a word blob longer than the file", IllegalArgumentException::class.java) {
+            BinaryDict.fromFile(dictBytes(wordBlobLen = 1 shl 20))
+        }
+    }
+
+    @Test
+    fun aKeyCountThatOverflowsItsTableIsRefused() {
+        assertThrows(
+            "numKeys * 12 must not wrap into a negative offset",
+            IllegalArgumentException::class.java,
+        ) { BinaryDict.fromFile(dictBytes(numKeys = 200_000_000)) }
+    }
 
     @Test
     fun looksUpCommonWords() {
