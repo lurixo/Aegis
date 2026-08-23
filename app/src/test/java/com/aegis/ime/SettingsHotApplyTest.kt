@@ -80,6 +80,31 @@ class SettingsHotApplyTest {
         onLetterCase = { letterCases += it },
     )
 
+    @Test fun a_setting_carrying_the_wrong_type_reads_as_its_default_instead_of_throwing() {
+        prefs.edit().clear()
+            .putInt(SettingsHotApply.CN_LAYOUT_PREF, 7)
+            .putInt(PREF_DEFAULT_LANG, 1)
+            .putString(PREF_AUTO_LEARN_ON, "yes")
+            .putString(PREF_ASSOCIATIONS_ON, "no")
+            .putString(PREF_KEY_HAPTICS, "on")
+            .putString(PREF_KEY_PREVIEW_MASTER, "on")
+            .putInt(PREF_LETTER_CASE, 2)
+            .putString(SettingsHotApply.FUZZY_MASTER_PREF, "on")
+            .putString(SettingsHotApply.ENGINE_PACK_TOUCH_PREF, "many")
+            .commit()
+        drain()
+
+        assertEquals(LayoutId.NINE, SettingsHotApply.cnLayout(prefs))
+        assertEquals(com.aegis.ime.ui.defaultLangOf(com.aegis.ime.ui.DEFAULT_LANG_DEFAULT), SettingsHotApply.defaultLang(prefs))
+        assertEquals(AUTO_LEARN_DEFAULT_ON, SettingsHotApply.autoLearnOn(prefs))
+        assertEquals(ASSOCIATIONS_DEFAULT_ON, SettingsHotApply.associationsOn(prefs))
+        assertEquals(KEY_HAPTICS_DEFAULT, SettingsHotApply.keyHaptics(prefs))
+        assertEquals(KEY_PREVIEW_MASTER_DEFAULT, SettingsHotApply.keyPreviewMaster(prefs))
+        assertEquals(com.aegis.ime.ui.letterCaseOf(LETTER_CASE_DEFAULT), SettingsHotApply.letterCase(prefs))
+        assertEquals(Fuzzy.activeRules(Fuzzy.DEFAULT_ON) { true }, SettingsHotApply.fuzzyRules(prefs))
+        SettingsHotApply.noteEnginePackChanged(prefs)
+    }
+
     @Before fun register() {
         prefs.edit().clear().commit()
         drain()
