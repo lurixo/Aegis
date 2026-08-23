@@ -137,7 +137,6 @@
     <string name="user_dict_import_merge">Merge (recommended)</string>
     <string name="user_dict_import_overwrite">Overwrite</string>
     <string name="user_dict_manual_title">Your words</string>
-    <string name="user_dict_manual_description">Add a word and its pinyin so it is offered whenever you type that pinyin, or delete a word to drop it from suggestions. Words you assemble character by character are added here automatically. Changes take effect immediately.</string>
     <string name="user_dict_add_sheet_button">Add word</string>
     <string name="user_dict_more_button">More</string>
     <string name="user_dict_more_title">Dictionary tools</string>
@@ -426,8 +425,6 @@
     <string name="clip_split_title">Split into words</string>
     <string name="clip_history_resumed">Clipboard history on</string>
     <string name="clip_history_paused">Clipboard history off</string>
-    <string name="clip_history_recording_on">Clipboard history: On</string>
-    <string name="clip_history_recording_off">Clipboard history: Off</string>
     <string name="clip_pause_history">Pause clipboard history</string>
     <string name="clip_resume_history">Resume clipboard history</string>
     <string name="clip_choose_category">Choose category</string>

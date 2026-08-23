@@ -137,7 +137,6 @@
     <string name="user_dict_import_merge">合并（推荐）</string>
     <string name="user_dict_import_overwrite">覆盖</string>
     <string name="user_dict_manual_title">我的词</string>
-    <string name="user_dict_manual_description">添加一个词和它的拼音，输入该拼音时就会作为候选出现；也可删除某个词，让它不再出现在候选里。逐字拼出的词会自动加到这里。改动立即生效。</string>
     <string name="user_dict_add_sheet_button">添加词</string>
     <string name="user_dict_more_button">更多</string>
     <string name="user_dict_more_title">词库工具</string>
@@ -422,8 +421,6 @@
     <string name="clip_split_title">拆分选词</string>
     <string name="clip_history_resumed">已开启剪贴板记录</string>
     <string name="clip_history_paused">已停止剪贴板记录</string>
-    <string name="clip_history_recording_on">剪贴板记录:开</string>
-    <string name="clip_history_recording_off">剪贴板记录:关</string>
     <string name="clip_pause_history">暂停剪贴板记录</string>
     <string name="clip_resume_history">继续剪贴板记录</string>
     <string name="clip_choose_category">选择分类</string>
