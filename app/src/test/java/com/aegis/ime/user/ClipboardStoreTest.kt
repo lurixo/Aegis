@@ -411,10 +411,10 @@ class ClipboardStoreTest {
         assertEquals(listOf("一", "贰", "三"), reloaded.phrasesIn("工作"))
     }
 
-    @Test fun edit_phrase_strips_iso_control_chars() {
+    @Test fun edit_phrase_keeps_newlines_and_strips_other_control_chars() {
         val s = ClipboardStore(newDir()).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("一")) }
         assertTrue(s.editPhrase("工作", "一", "a\tb\nc"))
-        assertEquals(listOf("abc"), s.phrasesIn("工作"))
+        assertEquals(listOf("ab\nc"), s.phrasesIn("工作"))
     }
 
     @Test fun edit_phrase_rejects_empty_or_control_only_and_leaves_store_unchanged() {
