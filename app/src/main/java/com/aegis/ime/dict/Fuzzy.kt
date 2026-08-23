@@ -84,6 +84,8 @@ object Fuzzy {
         return Table(enabled.toSet(), active, inputs).also { cache = it }
     }
 
+    fun inputSyllables(enabled: Set<String>): Set<String> = table(enabled).inputs
+
     fun syllableVariants(s: String, enabled: Set<String>, cap: Int = MAX_VARIANTS): List<String> {
         if (cap <= 0) return emptyList()
         val t = table(enabled)
