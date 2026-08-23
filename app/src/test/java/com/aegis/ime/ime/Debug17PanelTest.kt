@@ -256,7 +256,7 @@ class Debug17PanelTest {
     }
 
 
-    @Test fun clipboard_left_swipe_reveals_add_split_delete_icon_strip() {
+    @Test fun clipboard_left_swipe_reveals_add_edit_split_delete_icon_strip() {
         val v = clipView()
         v.revealSwipeForTest("hello")
         assertEquals("hello", v.swipeRevealedForTest())
@@ -265,6 +265,7 @@ class Debug17PanelTest {
             "hello",
             listOf(
                 ctx.getString(com.aegis.ime.R.string.clip_add_phrase),
+                ctx.getString(com.aegis.ime.R.string.clip_edit),
                 ctx.getString(com.aegis.ime.R.string.clip_split_word),
                 ctx.getString(com.aegis.ime.R.string.clip_delete),
             ),
@@ -282,7 +283,12 @@ class Debug17PanelTest {
         assertNull(v.swipeRevealedForTest())
         assertTrue(ctx.getString(com.aegis.ime.R.string.clip_collapse) in descs(v))
         assertEquals(
-            listOf(ctx.getString(com.aegis.ime.R.string.clip_phrases), ctx.getString(com.aegis.ime.R.string.clip_split_word), ctx.getString(com.aegis.ime.R.string.clip_delete)),
+            listOf(
+                ctx.getString(com.aegis.ime.R.string.clip_phrases),
+                ctx.getString(com.aegis.ime.R.string.clip_edit),
+                ctx.getString(com.aegis.ime.R.string.clip_split_word),
+                ctx.getString(com.aegis.ime.R.string.clip_delete),
+            ),
             actionButtons(v).map { it.text.toString() },
         )
         assertTrue(clickDesc(v, ctx.getString(com.aegis.ime.R.string.clip_collapse)))
@@ -877,6 +883,6 @@ class Debug17PanelTest {
         val openBody = textViews(v).first { it.text?.toString() == "a long clip" }
         assertEquals(0f, (openBody.parent as View).translationX, 0f)
         assertEquals(2, openBody.maxLines)
-        assertEquals(3, actionButtons(v).size)
+        assertEquals(4, actionButtons(v).size)
     }
 }

@@ -329,6 +329,31 @@ class ClipboardFailureNoticeTest {
         }
     }
 
+    @Test fun a_clip_with_nothing_behind_it_is_offered_no_edit_action() {
+        val dir = Files.createTempDirectory("clipeditlost").toFile()
+        val clips = File(dir, "clips").apply { mkdirs() }
+        val sidecar = File(clips, "${"c".repeat(64)}.txt").apply { writeText("still here") }
+        try {
+            val lost = ClipEntry.stored(File(dir, "gone"), "a".repeat(64))
+            val held = ClipEntry.stored(clips, "c".repeat(64))
+            assertFalse("precondition: the first clip has nothing behind it", lost.available)
+            assertTrue("precondition: the second clip is still on the device", held.available)
+            val v = view(listOf(lost, held))
+            layout(v)
+
+            val edit = text(R.string.clip_edit)
+            val descriptions = allViews(v).mapNotNull { it.contentDescription?.toString() }
+            assertEquals(
+                "only the clip that still has contents may be edited",
+                1,
+                descriptions.count { it == edit },
+            )
+        } finally {
+            sidecar.setReadable(true)
+            dir.deleteRecursively()
+        }
+    }
+
     @Test fun tapping_a_clip_the_device_still_holds_but_cannot_read_does_not_call_it_gone() {
         val dir = Files.createTempDirectory("clipunreadable").toFile()
         val clips = File(dir, "clips").apply { mkdirs() }

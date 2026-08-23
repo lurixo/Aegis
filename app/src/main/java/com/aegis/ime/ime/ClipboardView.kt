@@ -75,6 +75,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     var onDeletePhrasesFrom: (String, List<String>) -> Boolean = { _, _ -> true }
     var onSaveAsPhrasesTo: (String, List<String>) -> Unit = { _, _ -> }
     var onEditPhrase: (String, String) -> Unit = { _, _ -> }
+    var onEditClip: (String) -> Unit = {}
     var onMovePhrase: (String, String, String) -> Unit = { _, _, _ -> }
     var onMovePhrasesTo: (String, List<String>, String) -> Unit = { _, _, _ -> }
     var onReorderPhrase: (String, Int, Int) -> Unit = { _, _, _ -> }
@@ -442,6 +443,12 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     private fun entryBodies(keys: List<String>): List<String> = keys.mapNotNull(::entryBody)
+
+    private fun entryEditable(key: String): Boolean {
+        if (!clipTab()) return true
+        if (!ClipEntry.isReferenceKey(key)) return true
+        return clipIndex[key]?.available == true
+    }
 
     private var clipsLeftOut = 0
 
@@ -1110,7 +1117,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         val expanded = st.expanded == text
         val phrase = st.tab == Tab.PHRASE
         val display = if (phrase) phraseDisplayText(category, text) else entryDisplay(text)
-        val revealWidthDp = swipeRevealWidthDp(phrase)
+        val revealWidthDp = swipeRevealWidthDp(text, phrase)
         lateinit var header: LinearLayout
         val headerFrame = object : FrameLayout(context) {
             override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
@@ -1189,8 +1196,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         return column
     }
 
-    private fun swipeRevealWidthDp(phrase: Boolean): Int {
-        val count = if (phrase) 4 else 3
+    private fun swipeRevealWidthDp(text: String, phrase: Boolean): Int {
+        val count = if (phrase || entryEditable(text)) 4 else 3
         return count * (SWIPE_ACTION_SIZE_DP + SWIPE_ACTION_GAP_DP)
     }
 
@@ -1222,6 +1229,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             addGlyphSwipeAction(context.getString(R.string.clip_delete), { confirmDelete(listOf(text)) }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }
         } else {
             addGlyphSwipeAction(context.getString(R.string.clip_add_phrase), { chooseCategoryThen(listOf(text)) }) { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }
+            if (entryEditable(text)) {
+                addGlyphSwipeAction(context.getString(R.string.clip_edit), { onEditClip(text) }) { c, p, x, y, s -> Glyphs.drawEditSquare(c, p, x, y, s) }
+            }
             addCharSwipeAction(context.getString(R.string.clip_split_word), splitSymbol) { showSplit(text) }
             addGlyphSwipeAction(context.getString(R.string.clip_delete), { confirmDelete(listOf(text)) }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }
         }
@@ -1233,6 +1243,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(8), dp(4), dp(8), dp(8))
         addActionButton(glyphAction(context.getString(R.string.clip_phrases), render = { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }) { chooseCategoryThen(listOf(text)) })
+        if (entryEditable(text)) {
+            addActionButton(glyphAction(context.getString(R.string.clip_edit), render = { c, p, x, y, s -> Glyphs.drawEditSquare(c, p, x, y, s) }) { onEditClip(text) })
+        }
         addActionButton(charAction(splitSymbol, context.getString(R.string.clip_split_word)) { showSplit(text) }.apply { tag = splitSymbol })
         addActionButton(glyphAction(context.getString(R.string.clip_delete), render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { confirmDelete(listOf(text)) })
     }
