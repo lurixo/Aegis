@@ -98,6 +98,11 @@ object T9Pinyin {
 
     private fun rankOf(s: String) = freqRank[s] ?: (DEFAULT_RANK - UNKNOWN_LEN_BONUS * s.length)
 
+    private fun runRank(s: String): Int {
+        val best = byDigits[toT9(s)]?.firstOrNull() ?: s
+        return rankOf(best) - LEN_BONUS * s.length
+    }
+
     private val END_RULE_KEYS = setOf("ang", "eng", "ing")
 
     private class PartnerTable(val enabled: Set<String>, val byDigit: Map<String, List<String>>)
@@ -422,6 +427,8 @@ object T9Pinyin {
             if (requireReach && !reachable[k]) continue
             byDigits[digits.substring(0, k)]?.let { out.addAll(it) }
         }
-        return out.toList().sortedBy { rankOf(it) - LEN_BONUS * it.length }.take(limit)
+        return out.toList()
+            .sortedWith(compareBy({ runRank(it) }, { freqRank[it] ?: DEFAULT_RANK }))
+            .take(limit)
     }
 }
