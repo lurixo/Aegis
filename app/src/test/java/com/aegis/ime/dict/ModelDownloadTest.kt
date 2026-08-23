@@ -1323,6 +1323,50 @@ class ModelDownloadTest {
         }
     }
 
+    @Test
+    fun aRangeTheServerRefusesDoesNotStrandThePartialForever() {
+        val base = tempFilesDir()
+        val body = ByteArray(80_000) { (it % 251).toByte() }
+        val ranges = CopyOnWriteArrayList<String?>()
+        val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server.createContext("/asset") { exchange ->
+            ranges += exchange.requestHeaders.getFirst("Range")
+            when (ranges.size) {
+                1 -> serveTruncated(exchange, body, 20_000)
+                2 -> {
+                    exchange.sendResponseHeaders(416, -1)
+                    exchange.close()
+                }
+                else -> serveFull(exchange, body)
+            }
+        }
+        server.start()
+        try {
+            val zip = ModelDownload.dictZipFile(base)
+            val url = "http://127.0.0.1:${server.address.port}/asset"
+            val part = ModelDownload.dictPartFile(base)
+            val meta = File(part.parentFile, "${part.name}.meta")
+            val sha = sha256Hex(body)
+
+            assertFalse(ModelDownload.download(url, zip, sha) { _, _ -> }.ok)
+            assertTrue("the cut transfer leaves something to resume from", part.exists())
+
+            assertFalse(ModelDownload.download(url, zip, sha) { _, _ -> }.ok)
+            assertEquals("bytes=20000-", ranges[1])
+            assertFalse("a range the server refuses must not be asked for again", part.exists())
+            assertFalse(meta.exists())
+
+            val third = ModelDownload.download(url, zip, sha) { _, _ -> }
+            assertTrue("the next attempt starts over and finishes", third.ok)
+            assertEquals(0L, third.resumedFrom)
+            assertNull("the fresh attempt asks for the whole asset", ranges[2])
+            assertArrayEquals(body, zip.readBytes())
+        } finally {
+            server.stop(0)
+            base.deleteRecursively()
+        }
+    }
+
     private fun serveTruncated(exchange: HttpExchange, body: ByteArray, cut: Int, etag: String? = null) {
         if (etag != null) exchange.responseHeaders.add("ETag", etag)
         exchange.sendResponseHeaders(200, body.size.toLong())
