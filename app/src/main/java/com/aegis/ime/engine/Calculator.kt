@@ -23,7 +23,7 @@ object Calculator {
 
     private val DATE_LIKE = Regex("""\d+(-\d+){2,}""")
 
-    fun detect(textBeforeCursor: CharSequence): Match? {
+    fun detect(textBeforeCursor: CharSequence, moreTextMayPrecede: Boolean = false): Match? {
         val s = textBeforeCursor.toString()
         if (s.isEmpty()) return null
         var end = s.length
@@ -32,6 +32,7 @@ object Calculator {
         if (endsWithEquals) end--
         var start = end
         while (start > 0 && isExprChar(s[start - 1])) start--
+        if (moreTextMayPrecede && start == 0) return null
         while (start < end && s[start] == ' ') start++
         val expr = s.substring(start, end)
         if (expr.isBlank()) return null
