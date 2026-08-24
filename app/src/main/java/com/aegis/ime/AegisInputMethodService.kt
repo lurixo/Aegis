@@ -190,6 +190,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var restorablePanel: RestorablePanel? = null
 
     private var panelCacheDensityDpi = 0
+    private var panelCacheFontScale = 0f
+    private var panelCacheLocales = ""
     private var clipboardRecreationState: ClipboardView.RecreationState? = null
     private var restoreClipboardWithoutCapture = false
     private var splitSelectionInputConnection: InputConnection? = null
@@ -223,9 +225,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         unregisterBackCallback()
         val previousInputView = inputView
         val nextDensityDpi = newConfig.densityDpi.takeIf { it > 0 } ?: resources.displayMetrics.densityDpi
-        val densityChanged = panelCacheDensityDpi > 0 && panelCacheDensityDpi != nextDensityDpi
+        val nextFontScale = newConfig.fontScale.takeIf { it > 0f } ?: resources.configuration.fontScale
+        val nextLocales = newConfig.locales.toLanguageTags()
+        val densityChanged = panelCacheDensityDpi > 0 &&
+            (panelCacheDensityDpi != nextDensityDpi ||
+                panelCacheFontScale != nextFontScale ||
+                panelCacheLocales != nextLocales)
         if (densityChanged) invalidateDensityBoundPanelCaches(nextDensityDpi)
         else panelCacheDensityDpi = nextDensityDpi
+        panelCacheFontScale = nextFontScale
+        panelCacheLocales = nextLocales
         super.onConfigurationChanged(newConfig)
         applyPaletteEverywhere()
 
@@ -521,6 +530,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
         unregisterBackCallback()
         if (panelCacheDensityDpi == 0) panelCacheDensityDpi = resources.displayMetrics.densityDpi
+        if (panelCacheFontScale == 0f) panelCacheFontScale = resources.configuration.fontScale
+        if (panelCacheLocales.isEmpty()) panelCacheLocales = resources.configuration.locales.toLanguageTags()
         val view = InputView(this).apply {
             onKey = { key -> controller.onKey(key) }
             onPickCandidate = { index -> controller.onPickCandidate(index) }
