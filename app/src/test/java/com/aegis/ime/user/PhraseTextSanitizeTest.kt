@@ -30,18 +30,18 @@ class PhraseTextSanitizeTest {
 
     private fun newDir(): File = tmp.newFolder()
 
-    @Test fun newlines_survive_but_other_control_characters_are_removed() {
+    @Test fun format_whitespace_survives_but_other_control_characters_are_removed() {
         assertEquals("a\nb", ClipboardStore.sanitizePhraseText("a\nb"))
-        assertEquals("a\nb", ClipboardStore.sanitizePhraseText("a\r\nb"))
-        assertEquals("a\nb", ClipboardStore.sanitizePhraseText("a\rb"))
-        assertEquals("ab", ClipboardStore.sanitizePhraseText("a\tb"))
+        assertEquals("a\r\nb", ClipboardStore.sanitizePhraseText("a\r\nb"))
+        assertEquals("a\tb", ClipboardStore.sanitizePhraseText("a\tb"))
         assertEquals("ab", ClipboardStore.sanitizePhraseText("a\u0000b"))
-        assertEquals("a\nb", ClipboardStore.sanitizePhraseText("  a\nb \n"))
+        assertEquals("ab", ClipboardStore.sanitizePhraseText("a\u0001b"))
+        assertEquals("  a\nb \n", ClipboardStore.sanitizePhraseText("  a\nb \n"))
     }
 
     @Test fun every_phrase_write_path_applies_the_same_rule() {
-        val raw = " head\ttab\r\nbody "
-        val cleaned = "headtab\nbody"
+        val raw = " head\ttab\u0000body "
+        val cleaned = " head\ttabbody "
         val dir = newDir()
         val s = ClipboardStore(dir).apply { load() }
 
@@ -54,11 +54,11 @@ class PhraseTextSanitizeTest {
         s.setPhraseNote(cleaned, cleaned, raw)
         assertEquals("setPhraseNote sanitizes", cleaned, s.noteFor(cleaned, cleaned))
 
-        s.editPhrase(cleaned, cleaned, " edited\ttext\r\nline ")
-        assertEquals("editPhrase sanitizes", listOf("editedtext\nline"), s.phrasesIn(cleaned))
+        s.editPhrase(cleaned, cleaned, " edited\u0000text ")
+        assertEquals("editPhrase sanitizes", listOf(" editedtext "), s.phrasesIn(cleaned))
 
-        s.renameCategory(cleaned, " renamed\tcat\r\nname ")
-        assertTrue("renameCategory sanitizes", s.categories().contains("renamedcat\nname"))
+        s.renameCategory(cleaned, " renamed\u0000cat ")
+        assertTrue("renameCategory sanitizes", s.categories().contains(" renamedcat "))
     }
 
     @Test fun an_edit_that_collides_with_a_legacy_phrase_through_the_rule_is_refused() {
@@ -77,8 +77,8 @@ class PhraseTextSanitizeTest {
     }
 
     @Test fun a_raw_category_name_never_splits_the_category_in_two() {
-        val raw = "work\r\ntemp"
-        val cleaned = "work\ntemp"
+        val raw = "work\u0001temp"
+        val cleaned = "worktemp"
         val s = ClipboardStore(newDir()).apply { load() }
 
         s.addCategory(raw)
@@ -120,6 +120,20 @@ class PhraseTextSanitizeTest {
         val reloaded = ClipboardStore(dir).apply { load() }
         assertTrue(reloaded.categories().contains("work\ntemp"))
         assertEquals(listOf("x"), reloaded.phrasesIn("work\ntemp"))
+    }
+
+    @Test fun phrase_edge_whitespace_and_crlf_survive_persist_roundtrip() {
+        val dir = newDir()
+        ClipboardStore(dir).apply {
+            load()
+            addCategory("cat")
+            addPhrasesTo("cat", listOf(" line1\r\nline2\t "))
+            setPhraseNote("cat", " line1\r\nline2\t ", " note\twith edges ")
+            flushPendingWrites()
+        }
+        val reloaded = ClipboardStore(dir).apply { load() }
+        assertEquals(listOf(" line1\r\nline2\t "), reloaded.phrasesIn("cat"))
+        assertEquals(" note\twith edges ", reloaded.noteFor("cat", " line1\r\nline2\t "))
     }
 
     @Test fun a_name_stored_before_the_rule_existed_still_reaches_its_own_category() {

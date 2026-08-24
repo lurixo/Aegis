@@ -123,9 +123,9 @@ class InlineEditGateTest {
         beginRename(service, legacy)
         panelInput(service).selectAll()
         service.javaClass.getDeclaredMethod("commitExternalText", CharSequence::class.java)
-            .apply { isAccessible = true }.invoke(service, " new\tname ")
+            .apply { isAccessible = true }.invoke(service, " new\u0000name ")
         confirm(service)
-        assertTrue("the new name passes the rule", "newname" in store(service).categories())
+        assertTrue("the new name passes the rule", " newname " in store(service).categories())
         assertFalse("the old name is gone", legacy in store(service).categories())
     }
 

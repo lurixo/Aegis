@@ -324,18 +324,19 @@ class ClipboardStoreTest {
         dir.deleteRecursively()
     }
 
-    @Test fun batch_add_phrases_dedupes_trims_and_persists() {
+    @Test fun batch_add_phrases_dedupes_exact_text_and_persists() {
         val dir = newDir()
         val s = ClipboardStore(dir).apply { load() }
         val before = s.phrases().size
-        val added = s.addPhrases(listOf("自定义短语", "  自定义短语  ", "", "另一条"))
-        assertEquals("blank + duplicate dropped", 2, added)
+        val added = s.addPhrases(listOf("自定义短语", "  自定义短语  ", "自定义短语", "", "另一条"))
+        assertEquals("blank + exact duplicate dropped, the spaced twin kept", 3, added)
         assertTrue("自定义短语" in s.phrases())
+        assertTrue("  自定义短语  " in s.phrases())
         assertTrue("另一条" in s.phrases())
         s.flushPendingWrites()
         val reloaded = ClipboardStore(dir).apply { load() }
-        assertTrue("自定义短语" in reloaded.phrases())
-        assertEquals(before + 2, reloaded.phrases().size)
+        assertTrue("  自定义短语  " in reloaded.phrases())
+        assertEquals(before + 3, reloaded.phrases().size)
     }
 
     @Test fun added_phrases_land_at_front_preserving_batch_order() {
@@ -417,16 +418,18 @@ class ClipboardStoreTest {
         val dir = newDir()
         val s = ClipboardStore(dir).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("一", "二", "三")) }
         assertTrue(s.editPhrase("工作", "二", "  贰  "))
-        assertEquals(listOf("一", "贰", "三"), s.phrasesIn("工作"))
+        assertEquals(listOf("一", "  贰  ", "三"), s.phrasesIn("工作"))
         s.flushPendingWrites()
         val reloaded = ClipboardStore(dir).apply { load() }
-        assertEquals(listOf("一", "贰", "三"), reloaded.phrasesIn("工作"))
+        assertEquals(listOf("一", "  贰  ", "三"), reloaded.phrasesIn("工作"))
     }
 
-    @Test fun edit_phrase_keeps_newlines_and_strips_other_control_chars() {
+    @Test fun edit_phrase_keeps_format_whitespace_and_strips_other_control_chars() {
         val s = ClipboardStore(newDir()).apply { load(); addCategory("工作"); addPhrasesTo("工作", listOf("一")) }
         assertTrue(s.editPhrase("工作", "一", "a\tb\nc"))
-        assertEquals(listOf("ab\nc"), s.phrasesIn("工作"))
+        assertEquals(listOf("a\tb\nc"), s.phrasesIn("工作"))
+        assertTrue(s.editPhrase("工作", "a\tb\nc", "a\u0000b"))
+        assertEquals(listOf("ab"), s.phrasesIn("工作"))
     }
 
     @Test fun edit_phrase_rejects_empty_or_control_only_and_leaves_store_unchanged() {

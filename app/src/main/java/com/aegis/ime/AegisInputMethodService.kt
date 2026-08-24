@@ -1243,11 +1243,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         when (inputPurpose) {
             InputPurpose.EDIT_PHRASE -> clipboardStore.editPhrase(inputCat, inputOld, text)
             InputPurpose.EDIT_CLIP -> clipboardStore.editClip(inputOld, text)
-            InputPurpose.ADD_PHRASE -> { val t = text.trim(); if (t.isNotEmpty()) clipboardStore.addPhrasesTo(inputCat, listOf(t)) }
+            InputPurpose.ADD_PHRASE -> if (text.isNotBlank()) clipboardStore.addPhrasesTo(inputCat, listOf(text))
             InputPurpose.EDIT_NOTE -> clipboardStore.setPhraseNote(inputCat, inputOld, text)
             InputPurpose.ADD_CATEGORY -> {
                 val name = com.aegis.ime.user.ClipboardStore.sanitizePhraseText(text)
-                if (name.isNotEmpty()) {
+                if (name.isNotBlank()) {
                     clipboardStore.addCategory(name)
                     if (pendingPhraseAdds.isNotEmpty()) clipboardStore.addPhrasesTo(name, pendingPhraseAdds)
                     if (pendingMoveTexts.isNotEmpty()) clipboardStore.movePhrasesTo(pendingMoveFrom, pendingMoveTexts, name)

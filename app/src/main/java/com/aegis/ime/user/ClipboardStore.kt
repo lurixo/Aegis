@@ -414,7 +414,8 @@ class ClipboardStore(private val dir: File) {
         if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.TEXT, 1); return false }
         val after = synchronized(phraseCats) {
             val p = findPhrase(find(category), text) ?: return false
-            p.note = sanitizePhraseText(note)
+            val n = sanitizePhraseText(note)
+            p.note = if (n.isBlank()) "" else n
             serialize(phraseCats)
         }
         writePhrases(PhraseEdit.TEXT, 1, 1, after)
@@ -425,7 +426,7 @@ class ClipboardStore(private val dir: File) {
         if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.CATEGORY, 1); return false }
         val after = synchronized(phraseCats) {
             val n = sanitizePhraseText(name)
-            if (n.isEmpty() || phraseCats.any { it.name == n }) return false
+            if (n.isBlank() || phraseCats.any { it.name == n }) return false
             phraseCats.add(Category(n))
             serialize(phraseCats)
         }
@@ -447,7 +448,7 @@ class ClipboardStore(private val dir: File) {
         val after = synchronized(phraseCats) {
             val n = sanitizePhraseText(new)
             val c = find(old) ?: return false
-            if (n.isEmpty() || (n != old && phraseCats.any { it.name == n })) return false
+            if (n.isBlank() || (n != old && phraseCats.any { it.name == n })) return false
             c.name = n
             serialize(phraseCats)
         }
@@ -458,7 +459,7 @@ class ClipboardStore(private val dir: File) {
     fun addPhrasesTo(category: String, texts: Collection<String>): Int {
         val requested = texts.size
         val name = sanitizePhraseText(category)
-        if (name.isEmpty()) return 0
+        if (name.isBlank()) return 0
         if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.ADD, requested); return 0 }
         var added = 0
         val after = synchronized(phraseCats) {
@@ -467,7 +468,7 @@ class ClipboardStore(private val dir: File) {
             val fresh = ArrayList<Phrase>()
             for (raw in texts) {
                 val t = sanitizePhraseText(raw)
-                if (t.isEmpty() || !seen.add(t)) continue
+                if (t.isBlank() || !seen.add(t)) continue
                 fresh.add(Phrase(t))
             }
             if (fresh.isEmpty()) null
@@ -531,7 +532,7 @@ class ClipboardStore(private val dir: File) {
             val idx = c.phrases.indexOfFirst { it.text == oldText }
             if (idx < 0) return false
             val n = sanitizePhraseText(newText)
-            if (n.isEmpty()) return false
+            if (n.isBlank()) return false
             if (c.phrases.withIndex().any { (j, p) -> j != idx && sanitizePhraseText(p.text) == n }) return false
             c.phrases[idx].text = n
             serialize(phraseCats)
@@ -825,11 +826,8 @@ class ClipboardStore(private val dir: File) {
 
         fun shouldCapture(historyEnabled: Boolean): Boolean = historyEnabled
 
-        fun sanitizePhraseText(s: String): String = s
-            .replace("\r\n", "\n")
-            .replace('\r', '\n')
-            .filterNot { it != '\n' && Character.isISOControl(it) }
-            .trim()
+        fun sanitizePhraseText(s: String): String =
+            s.filterNot { it != '\n' && it != '\r' && it != '\t' && Character.isISOControl(it) }
 
         private const val BIG_LINE = "B\t"
         const val BIG_THRESHOLD = 64 * 1024
