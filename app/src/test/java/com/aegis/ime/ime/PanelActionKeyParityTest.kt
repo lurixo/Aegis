@@ -278,7 +278,7 @@ class PanelActionKeyParityTest {
     @Test fun emoji_and_symbol_grids_adapt_columns_to_keep_full_48dp_input_targets() {
         for (width in listOf(280, 320, 360, 411, 480)) {
             val emoji = EmojiView(context).apply {
-                recentProvider = { (1..14).map { "emoji-$it" } }
+                recentProvider = { EmojiCatalog.categories.first().emoji.take(14) }
                 refresh()
             }
             layout(emoji, width)
@@ -302,7 +302,7 @@ class PanelActionKeyParityTest {
     @Test fun sparse_emoji_and_symbol_rows_keep_the_same_cell_width_as_full_grids() {
         for (width in listOf(280, 320, 360, 411, 480)) {
             val fullEmoji = EmojiView(context).apply {
-                recentProvider = { (1..14).map { "emoji-$it" } }
+                recentProvider = { EmojiCatalog.categories.first().emoji.take(14) }
                 refresh()
             }
             layout(fullEmoji, width)
@@ -311,7 +311,7 @@ class PanelActionKeyParityTest {
 
             for (count in listOf(1, (emojiColumns - 1).coerceAtLeast(1))) {
                 val sparse = EmojiView(context).apply {
-                    recentProvider = { (1..count).map { "emoji-$it" } }
+                    recentProvider = { EmojiCatalog.categories.first().emoji.take(count) }
                     refresh()
                 }
                 layout(sparse, width)
