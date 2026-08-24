@@ -179,6 +179,76 @@ class AsyncDecodeEquivalenceTest {
         assertEquals("drilled homophone grid matches", sync.decodeStateForTest(), async.decodeStateForTest())
     }
 
+    @Test fun a_reading_tap_lands_and_locks_while_the_remainder_decode_is_in_flight() {
+        val engine = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) =
+                candidatesCovered(composing, t9).map { it.word }
+
+            override fun candidatesCovered(
+                composing: String,
+                t9: Boolean,
+                cuts: Set<Int>,
+                context: CharSequence,
+            ): List<Cand> = when (composing) {
+                "nihao" -> listOf(Cand("你好", 5), Cand("你", 2))
+                "hao" -> listOf(Cand("好", 3), Cand("号", 3))
+                else -> emptyList()
+            }
+
+            override fun candidatesForLockedReadingCovered(
+                letters: String,
+                cuts: Set<Int>,
+                context: CharSequence,
+            ): List<Cand> = if (letters == "hao") listOf(Cand("好", 3), Cand("号", 3)) else emptyList()
+
+            override fun syllablesForReading(letters: String) = when (letters) {
+                "nihao" -> listOf(
+                    Syllable("ni", 0, 2),
+                    Syllable("hao", 2, 5),
+                )
+                "hao" -> listOf(Syllable("hao", 0, 3))
+                else -> emptyList()
+            }
+
+            override fun homophonesForReadingAt(letters: String, index: Int): List<String> =
+                if (letters == "nihao" && index == 0) listOf("你", "尼", "泥") else emptyList()
+        }
+        val host = object : Host() {
+            val commits = mutableListOf<String>()
+            override fun commitText(text: CharSequence) { commits.add(text.toString()) }
+        }
+        val lane = TestLane()
+        val view = InputView(ctx)
+        val controller = KeyboardController(host, engine, lane.lane)
+        view.onPickCandidate = { controller.onPickCandidate(it) }
+        view.onPickReading = { controller.onPickReadingIndex(it) }
+        controller.attachView(view)
+        switchTo(controller, false)
+        type(controller, "nihao")
+        lane.drain()
+        controller.onPickReadingIndex(0)
+        lane.drain()
+        controller.onPickReadingIndex(controller.expandedReadings().indexOf("ni"))
+        lane.drain()
+        view.showExpandedCandidates()
+        val grid = view.expandedGridForTest()
+        assertTrue(grid.tapCandidateForTest(controller.candidateWords().indexOf("你")))
+        assertTrue("the remainder decode is in flight", lane.lane.pending)
+        val queued = lane.workerQ.size
+
+        assertTrue(grid.tapReadingForTest(grid.renderedReadingTextsForTest().indexOf("hao")))
+
+        assertEquals("the tap is not dropped: it queues its own decode", queued + 1, lane.workerQ.size)
+        assertEquals("你hao", controller.preeditForTest())
+        assertEquals("你", controller.composingPrefix())
+
+        lane.drain()
+
+        assertEquals("the locked reading serves its candidates", listOf("好", "👍", "号"), controller.candidateWords())
+        assertEquals(controller.candidateWords(), grid.renderedCandidateTextsForTest())
+        assertTrue(host.commits.isEmpty())
+    }
+
     @Test fun partial_homophone_pick_keeps_the_expanded_candidates_stable() {
         var remainderDecodes = 0
         var restoredDrillDecodes = 0
@@ -250,56 +320,13 @@ class AsyncDecodeEquivalenceTest {
         assertTrue(grid.tapCandidateForTest(candidatesBefore.indexOf("尼")))
         assertTrue(lane.lane.pending)
 
-        val readingsBeforePendingReadingPick = Triple(
-            controller.expandedReadings(),
-            grid.renderedReadingTextsForTest(),
-            controller.drilledSyllableForTest(),
-        )
-        val laneBeforePendingReadingPick = lane.lane.pending to lane.workerQ.size
-        val rebuildsBeforePendingReadingPick =
-            grid.candidateRebuildsForTest() to grid.readingRebuildsForTest()
-        val allocationsBeforePendingReadingPick =
-            grid.chipsAllocatedForTest() to grid.readingsAllocatedForTest()
-        val panelBeforePendingReadingPick = panelChanges to view.isPanelShowing(grid)
-        val candidatesBeforePendingReadingPick =
-            controller.candidateWords() to grid.renderedCandidateTextsForTest()
-        val compositionBeforePendingReadingPick =
-            controller.preeditForTest() to controller.composingPrefix()
-
-        assertEquals("hao", readingsBeforePendingReadingPick.first.first())
-        assertEquals(readingsBeforePendingReadingPick.first, readingsBeforePendingReadingPick.second)
-        assertTrue(grid.tapReadingForTest(readingsBeforePendingReadingPick.second.indexOf("hao")))
-
-        assertEquals(
-            readingsBeforePendingReadingPick,
-            Triple(
-                controller.expandedReadings(),
-                grid.renderedReadingTextsForTest(),
-                controller.drilledSyllableForTest(),
-            ),
-        )
-        assertEquals(laneBeforePendingReadingPick, lane.lane.pending to lane.workerQ.size)
-        assertEquals(
-            rebuildsBeforePendingReadingPick,
-            grid.candidateRebuildsForTest() to grid.readingRebuildsForTest(),
-        )
-        assertEquals(
-            allocationsBeforePendingReadingPick,
-            grid.chipsAllocatedForTest() to grid.readingsAllocatedForTest(),
-        )
-        assertEquals(panelBeforePendingReadingPick, panelChanges to view.isPanelShowing(grid))
-        assertEquals(
-            candidatesBeforePendingReadingPick,
-            controller.candidateWords() to grid.renderedCandidateTextsForTest(),
-        )
-        assertEquals(
-            compositionBeforePendingReadingPick,
-            controller.preeditForTest() to controller.composingPrefix(),
-        )
+        val readingsAfterInFlightPicks = controller.expandedReadings()
+        assertEquals("hao", readingsAfterInFlightPicks.first())
+        assertEquals(readingsAfterInFlightPicks, grid.renderedReadingTextsForTest())
+        assertEquals(-1, controller.drilledSyllableForTest())
 
         assertEquals("你hao", controller.preeditForTest())
         assertEquals("你", controller.composingPrefix())
-        assertEquals("hao", controller.expandedReadings().first())
         assertTrue(host.commits.isEmpty())
         assertEquals(0, remainderDecodes)
         assertTrue(controller.candidateWords().isNotEmpty())
@@ -319,7 +346,7 @@ class AsyncDecodeEquivalenceTest {
         assertEquals(1, remainderDecodes)
         assertEquals("你hao", controller.preeditForTest())
         assertEquals("你", controller.composingPrefix())
-        assertEquals(readingsBeforePendingReadingPick.first, controller.expandedReadings())
+        assertEquals(readingsAfterInFlightPicks, controller.expandedReadings())
         assertEquals("好", controller.candidateWords().first())
         assertEquals(controller.candidateWords(), grid.renderedCandidateTextsForTest())
         assertTrue(view.shownCandidateCount() > 0)

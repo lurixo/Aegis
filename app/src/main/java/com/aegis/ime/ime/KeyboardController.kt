@@ -93,6 +93,8 @@ class KeyboardController(
 
     private var drillSyllable = -1
 
+    private var candidatesSuperseded = false
+
     private val drillChoices = HashMap<Int, String>()
 
     private var customSymbols: List<String> = emptyList()
@@ -373,11 +375,12 @@ class KeyboardController(
     }
 
     fun onPickCandidate(index: Int) {
-        if (decodeLane?.pending == true) return
+        if (candidatesSuperseded) return
         if (index !in candidates.indices) return
         if (drillSyllable >= 0) {
             pickDrilledHomophone(candidates[index].word)
             refreshCandidates()
+            if (decodeLane?.pending == true) candidatesSuperseded = true
             render()
             return
         }
@@ -848,6 +851,7 @@ class KeyboardController(
     }
 
     private fun applyDecodeResult(r: DecodeResult) {
+        candidatesSuperseded = false
         candidates = r.candidates
         directCommitCands = r.directCommitCands
         predictionCands = r.predictionCands
@@ -983,6 +987,7 @@ class KeyboardController(
         drillChoices.clear(); drillChoices.putAll(snap.drillChoices)
         deferredLearnEvents.clear(); deferredLearnEvents.addAll(snap.deferredLearnEvents)
         lastWord = snap.lastWord
+        if (decodeLane != null) candidatesSuperseded = true
         return true
     }
 
@@ -1180,7 +1185,6 @@ class KeyboardController(
     internal fun preeditForTest(): String = preeditText()
 
     fun onPickReadingIndex(index: Int) {
-        if (decodeLane?.pending == true) return
         val readings = expandedReadings()
         if (index !in readings.indices) return
         val reading = readings[index]
