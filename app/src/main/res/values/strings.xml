@@ -307,6 +307,8 @@
     <string name="lang_en">EN</string>
     <string name="panel_back">Back</string>
     <string name="panel_lock">Lock</string>
+    <string name="backspace_bubble_clear">Swipe up to clear</string>
+    <string name="backspace_bubble_undo">Swipe down to undo</string>
     <string name="emoji_clear_recent">Clear recent emoji</string>
     <string name="emoji_clear_recent_confirm">Clear recent emoji?</string>
     <string name="emoji_delete_recent_confirm">Delete "%1$s" from recent emoji?</string>

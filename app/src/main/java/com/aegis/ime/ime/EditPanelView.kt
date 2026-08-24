@@ -51,7 +51,8 @@ enum class EditAction(val keyAction: KeyAction? = null) {
     BACK,
 }
 
-class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar, KeyHapticsAware {
+class EditPanelView(context: Context) :
+    LinearLayout(context), ResettablePanel, CoversToolbar, KeyHapticsAware, BackspaceBubbleSource {
 
     var onAction: (EditAction) -> Unit = {}
 
@@ -82,6 +83,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
     private val actionColumn: LinearLayout
     private val actionScroll: ScrollView
     private val backspaceTouch: ImeBackspaceTouch
+    private var backspaceBubbleObserver: Runnable? = null
 
     fun applyPalette(p: ImePalette) {
         palette = p
@@ -171,6 +173,7 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
             { hapticEnabled },
             { onAction(EditAction.DELETE) },
             { onBackspaceSwipe(it) },
+            { backspaceBubbleObserver?.run() },
         )
         val rightActions = listOf(deleteBtn, copyBtn, cutBtn)
         val rightCol = LinearLayout(context).apply { orientation = VERTICAL }
@@ -341,6 +344,14 @@ class EditPanelView(context: Context) : LinearLayout(context), ResettablePanel, 
             if (action != EditAction.DELETE) feedback.reset()
         }
     }
+
+    override fun bindBackspaceBubbleObserver(observer: Runnable) {
+        backspaceBubbleObserver = observer
+    }
+
+    override fun backspaceBubbleDirectionUp(): Boolean? = backspaceTouch.bubbleDirectionUp()
+
+    override fun backspaceBubbleAnchor(): View = requireNotNull(actionViews[EditAction.DELETE])
 
     internal fun selectingLabelForTest(): CharSequence = selectBtn.text
     internal fun selectionTintAnimatingForTest(): Boolean = tintAnimators.values.any { it.isRunning }

@@ -298,6 +298,16 @@ object Glyphs {
         c.drawCircle(l + s * 0.3f, cy, s * 0.13f, paint)
     }
 
+    fun drawUndo(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val left = cx - s * 0.85f
+        val topY = cy - s * 0.30f
+        c.drawLine(left + s * 0.52f, topY - s * 0.52f, left, topY, paint)
+        c.drawLine(left, topY, left + s * 0.52f, topY + s * 0.52f, paint)
+        c.drawLine(left, topY, cx + s * 0.32f, topY, paint)
+        c.drawArc(cx - s * 0.20f, topY, cx + s * 0.84f, topY + s * 1.04f, 270f, 180f, false, paint)
+        c.drawLine(cx + s * 0.32f, topY + s * 1.04f, cx - s * 0.16f, topY + s * 1.04f, paint)
+    }
+
     fun drawAppMark(c: Canvas, cx: Float, cy: Float, sizePx: Float, mono: Boolean, monoColor: Int) {
         val scale = sizePx / 58f
         c.save()

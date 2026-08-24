@@ -246,6 +246,12 @@ class ImeKeyFeedback(
     internal fun drawableForTest(): Drawable = surface
 }
 
+internal interface BackspaceBubbleSource {
+    fun backspaceBubbleDirectionUp(): Boolean?
+    fun backspaceBubbleAnchor(): View
+    fun bindBackspaceBubbleObserver(observer: Runnable)
+}
+
 class ImeBackspaceTouch(
     private val view: View,
     private val feedback: ImeKeyFeedback,
@@ -253,6 +259,7 @@ class ImeBackspaceTouch(
     private val hapticsEnabled: () -> Boolean,
     onRepeat: () -> Unit,
     onSwipe: (Boolean) -> Unit,
+    private val onBubbleChanged: () -> Unit = {},
 ) {
     private val gesture = BackspaceGesture(density).apply {
         this.onRepeat = onRepeat
@@ -260,6 +267,17 @@ class ImeBackspaceTouch(
     }
     private var pointerId = MotionEvent.INVALID_POINTER_ID
     private var pointerInside = false
+    private var lastBubble: Boolean? = null
+
+    fun bubbleDirectionUp(): Boolean? = gesture.swipeDirectionUp
+
+    private fun notifyBubble() {
+        val next = gesture.swipeDirectionUp
+        if (next != lastBubble) {
+            lastBubble = next
+            onBubbleChanged()
+        }
+    }
 
     init {
         view.setOnTouchListener { _, event -> onTouch(event) }
@@ -267,6 +285,7 @@ class ImeBackspaceTouch(
 
     fun cancel() {
         gesture.cancel()
+        notifyBubble()
         feedback.reset()
         pointerId = MotionEvent.INVALID_POINTER_ID
         pointerInside = false
@@ -293,6 +312,7 @@ class ImeBackspaceTouch(
                     pointerInside = feedback.inside(x, y)
                     feedback.move(pointerInside)
                     gesture.move(x, y, pointerInside)
+                    notifyBubble()
                 }
             }
             MotionEvent.ACTION_POINTER_UP -> {
@@ -319,6 +339,7 @@ class ImeBackspaceTouch(
         pointerInside = true
         feedback.begin(hapticsEnabled())
         gesture.begin(x, y)
+        notifyBubble()
     }
 
     private fun settle(x: Float, y: Float, inside: Boolean): Boolean {
@@ -326,6 +347,7 @@ class ImeBackspaceTouch(
         pointerInside = false
         gesture.move(x, y, inside)
         val tap = gesture.finish(y)
+        notifyBubble()
         feedback.release()
         return tap && inside
     }

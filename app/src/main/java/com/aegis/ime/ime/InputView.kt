@@ -128,6 +128,19 @@ class InputView(context: Context) : LinearLayout(context) {
         }
     }
 
+    private val bubbleTextPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+        textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 14f, resources.displayMetrics)
+        typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL)
+    }
+    private val bubbleBackgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG)
+    private val bubbleBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE }
+    private val bubbleIconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+    private val bubbleRect = RectF()
+
     fun applyPalette(p: ImePalette) {
         palette = p
         body.setBackgroundColor(p.keyboardBg)
@@ -159,6 +172,7 @@ class InputView(context: Context) : LinearLayout(context) {
 
     override fun dispatchDraw(canvas: Canvas) {
         super.dispatchDraw(canvas)
+        drawBackspaceBubble(canvas)
         drawToast(canvas)
     }
 
@@ -240,6 +254,86 @@ class InputView(context: Context) : LinearLayout(context) {
     private fun isNightUi(): Boolean =
         resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
 
+    private fun backspaceBubbleState(): Pair<Boolean, RectF>? {
+        if (keyboardView.visibility == VISIBLE) {
+            val up = keyboardView.backspaceBubbleDirectionUp() ?: return null
+            val rect = keyboardView.backspaceKeyBounds() ?: return null
+            rect.offset(keyboardVisualLeftPx().toFloat(), keyboardVisualTopPx().toFloat())
+            return up to rect
+        }
+        if (panelContainer.visibility != VISIBLE) return null
+        val panel = currentPanel as? BackspaceBubbleSource ?: return null
+        val up = panel.backspaceBubbleDirectionUp() ?: return null
+        val anchor = panel.backspaceBubbleAnchor()
+        if (anchor.width <= 0 || anchor.height <= 0) return null
+        return up to RectF(boundsInRoot(anchor))
+    }
+
+    private fun drawBackspaceBubble(canvas: Canvas) {
+        val state = backspaceBubbleState() ?: return
+        val density = resources.displayMetrics.density
+        val padX = dp(14).toFloat()
+        val padY = dp(12).toFloat()
+        val iconSize = dp(18).toFloat()
+        val iconGap = dp(7).toFloat()
+        val clearance = dp(10).toFloat()
+        val edge = dp(4).toFloat()
+        val up = state.first
+        val anchor = state.second
+        val raw = context.getString(
+            if (up) R.string.backspace_bubble_clear else R.string.backspace_bubble_undo,
+        )
+        val labelRoom = width - edge * 2 - padX * 2 - iconSize - iconGap
+        val label =
+            if (labelRoom > 0f) TextUtils.ellipsize(raw, bubbleTextPaint, labelRoom, TextUtils.TruncateAt.END).toString()
+            else raw
+        val metrics = bubbleTextPaint.fontMetrics
+        val bubbleWidth = padX * 2 + iconSize + iconGap + bubbleTextPaint.measureText(label)
+        val bubbleHeight = padY * 2 + maxOf(metrics.descent - metrics.ascent, iconSize)
+        val left = (anchor.centerX() - bubbleWidth / 2f)
+            .coerceIn(edge, (width - edge - bubbleWidth).coerceAtLeast(edge))
+        val top = (if (up) anchor.top - clearance - bubbleHeight else anchor.bottom + clearance)
+            .coerceIn(0f, (height - bubbleHeight).coerceAtLeast(0f))
+        bubbleRect.set(left, top, left + bubbleWidth, top + bubbleHeight)
+        val radius = ImeShapes.bubbleRadiusDp * density
+        canvas.save()
+        canvas.translate(0f, density * 1.5f)
+        bubbleBackgroundPaint.color = palette.shadow
+        canvas.drawRoundRect(bubbleRect, radius, radius, bubbleBackgroundPaint)
+        canvas.restore()
+        bubbleBackgroundPaint.color = palette.floatSurface
+        canvas.drawRoundRect(bubbleRect, radius, radius, bubbleBackgroundPaint)
+        bubbleBackgroundPaint.color = Motion.stateLayerColor(palette.keyLabel, 1f)
+        canvas.drawRoundRect(bubbleRect, radius, radius, bubbleBackgroundPaint)
+        bubbleBorderPaint.color = palette.separator
+        bubbleBorderPaint.strokeWidth = density
+        canvas.drawRoundRect(bubbleRect, radius, radius, bubbleBorderPaint)
+        bubbleIconPaint.color = palette.keyLabelSecondary
+        bubbleIconPaint.strokeWidth = density * 2f
+        val iconCx = bubbleRect.left + padX + iconSize / 2f
+        val glyphScale = iconSize * 0.55f
+        if (up) {
+            Glyphs.drawTrash(canvas, bubbleIconPaint, iconCx, bubbleRect.centerY() - glyphScale * 0.06f, glyphScale)
+        } else {
+            Glyphs.drawUndo(canvas, bubbleIconPaint, iconCx, bubbleRect.centerY(), glyphScale)
+        }
+        bubbleTextPaint.color = palette.keyLabel
+        canvas.drawText(
+            label,
+            bubbleRect.left + padX + iconSize + iconGap,
+            bubbleRect.centerY() - (metrics.ascent + metrics.descent) / 2f,
+            bubbleTextPaint,
+        )
+    }
+
+    internal fun backspaceBubbleDirectionUpForTest(): Boolean? = backspaceBubbleState()?.first
+
+    internal fun backspaceBubbleBoundsForTest(): RectF? {
+        if (backspaceBubbleState() == null) return null
+        drawBackspaceBubble(Canvas())
+        return RectF(bubbleRect)
+    }
+
     internal fun toastTextForTest(): String? = toast.takeIf { it.isShowing(SystemClock.uptimeMillis()) }?.message
 
     internal fun toastBoundsForTest(): RectF? {
@@ -289,6 +383,7 @@ class InputView(context: Context) : LinearLayout(context) {
         gridView.onClear = { onPanelClear() }
         keyboardView.onKey = { key -> onKey(key) }
         keyboardView.onBackspaceSwipe = { up -> onBackspaceSwipe(up) }
+        keyboardView.bindBackspaceBubbleObserver(Runnable { invalidate() })
         copyBarView.onCommit = { t -> onCopyCommit(t) }
         copyBarView.onSelectionChanged = { text -> onCopySelectionChanged(text) }
         copyBarView.onSelectionFinished = { onCopySelectionFinished() }
@@ -778,6 +873,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private fun attachPanel(panel: View) {
         panelContainer.removeAllViews()
         (panel.parent as? ViewGroup)?.removeView(panel)
+        if (panel is BackspaceBubbleSource) panel.bindBackspaceBubbleObserver(Runnable { invalidate() })
         panelContainer.addView(
             panel,
             FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT),

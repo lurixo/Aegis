@@ -304,6 +304,8 @@
     <string name="lang_en">EN</string>
     <string name="panel_back">返回</string>
     <string name="panel_lock">锁定</string>
+    <string name="backspace_bubble_clear">上滑清空</string>
+    <string name="backspace_bubble_undo">下滑撤销</string>
     <string name="emoji_clear_recent">清空常用表情</string>
     <string name="emoji_clear_recent_confirm">清空常用表情？</string>
     <string name="emoji_delete_recent_confirm">从常用表情中删除「%1$s」？</string>

@@ -24,4 +24,5 @@ object ImeShapes {
     const val toolbarPillRadiusDp = 999f
     const val surfaceTopRadiusDp = 12f
     const val floatRadiusDp = 12f
+    const val bubbleRadiusDp = 14f
 }

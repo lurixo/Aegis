@@ -32,6 +32,9 @@ class BackspaceGesture(density: Float) {
     private var repeating = false
     private var swiped = false
 
+    var swipeDirectionUp: Boolean? = null
+        private set
+
     private val repeatRunnable = object : Runnable {
         override fun run() {
             if (!active) return
@@ -46,6 +49,7 @@ class BackspaceGesture(density: Float) {
         active = true
         repeating = false
         swiped = false
+        swipeDirectionUp = null
         downX = x
         downY = y
         handler.postDelayed(repeatRunnable, REPEAT_DELAY_MS)
@@ -60,10 +64,12 @@ class BackspaceGesture(density: Float) {
         } else if (!inBounds) {
             stopRepeat()
         }
+        if (swiped) swipeDirectionUp = if (abs(dy) > swipeThreshold) dy < 0f else null
     }
 
     fun finish(y: Float): Boolean {
         stopRepeat()
+        swipeDirectionUp = null
         if (!active) return false
         active = false
         if (swiped) {
@@ -78,6 +84,7 @@ class BackspaceGesture(density: Float) {
         active = false
         repeating = false
         swiped = false
+        swipeDirectionUp = null
     }
 
     private fun stopRepeat() {

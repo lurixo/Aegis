@@ -46,7 +46,8 @@ import com.aegis.ime.layout.EmojiVariants
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar, KeyHapticsAware {
+class EmojiView(context: Context) :
+    LinearLayout(context), ResettablePanel, CoversToolbar, KeyHapticsAware, BackspaceBubbleSource {
 
     var onEmoji: (String) -> Unit = {}
     var onClearRecents: () -> Unit = {}
@@ -130,7 +131,17 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         { hapticEnabled },
         { onBackspace() },
         { onBackspaceSwipe(it) },
+        { backspaceBubbleObserver?.run() },
     )
+    private var backspaceBubbleObserver: Runnable? = null
+
+    override fun bindBackspaceBubbleObserver(observer: Runnable) {
+        backspaceBubbleObserver = observer
+    }
+
+    override fun backspaceBubbleDirectionUp(): Boolean? = backspaceTouch.bubbleDirectionUp()
+
+    override fun backspaceBubbleAnchor(): View = backspaceBtn
 
     private val emojiPool = ArrayList<TextView>()
     private val emojiFeedback = HashMap<TextView, ImeKeyFeedback>()

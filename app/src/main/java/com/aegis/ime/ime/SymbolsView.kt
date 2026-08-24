@@ -43,7 +43,8 @@ import com.aegis.ime.layout.SymbolCatalog
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar, KeyHapticsAware {
+class SymbolsView(context: Context) :
+    LinearLayout(context), ResettablePanel, CoversToolbar, KeyHapticsAware, BackspaceBubbleSource {
 
     var onSymbol: (String, String?) -> Unit = { _, _ -> }
     var onClearRecents: () -> Unit = {}
@@ -115,7 +116,17 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
         { hapticEnabled },
         { onBackspace() },
         { onBackspaceSwipe(it) },
+        { backspaceBubbleObserver?.run() },
     )
+    private var backspaceBubbleObserver: Runnable? = null
+
+    override fun bindBackspaceBubbleObserver(observer: Runnable) {
+        backspaceBubbleObserver = observer
+    }
+
+    override fun backspaceBubbleDirectionUp(): Boolean? = backspaceTouch.bubbleDirectionUp()
+
+    override fun backspaceBubbleAnchor(): View = backspaceBtn
     private val tileFeedback = HashMap<FrameLayout, ImeKeyFeedback>()
     private val tileSpans = HashMap<FrameLayout, Int>()
     private val netFeedback = HashMap<View, ImeKeyFeedback>()
