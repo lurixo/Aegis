@@ -53,7 +53,7 @@ data class ImePalette(
             keySurfacePressed = 0xFFD9DEE5.toInt(),
             keyLabel = 0xFF202124.toInt(),
             keyLabelSecondary = 0xFF37474F.toInt(),
-            keyHint = 0xFF90A4AE.toInt(),
+            keyHint = 0xFF5A676D.toInt(),
             accentBottom = 0xFF57A35B.toInt(),
             accentLabel = 0xFFFFFFFF.toInt(),
             candidateFirst = 0xFF29702D.toInt(),
