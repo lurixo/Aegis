@@ -33,7 +33,7 @@ class PinyinDecoder(
     private val lm: CharBigramLM? = null,
     private val lambda: Double = DEFAULT_LAMBDA,
     private val userModel: UserModel? = null,
-    private var fuzzyRules: Set<String> = emptySet(),
+    fuzzyRules: Set<String> = emptySet(),
     private val initialsDict: BinaryDict? = null,
     private val octagram: com.aegis.ime.dict.OctagramReader? = null,
     private val octagramWeight: Double = DEFAULT_OCTAGRAM_WEIGHT,
@@ -45,7 +45,10 @@ class PinyinDecoder(
 ) {
     private val grading = TghGrading.bundled
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
-    private var edgeN =
+
+    @Volatile private var fuzzyRules: Set<String> = fuzzyRules
+
+    @Volatile private var edgeN =
         if (lm != null || fuzzyRules.isNotEmpty() || initialsDict != null || octagram != null) EDGE_N else 1
 
     private var userIndexVersion = Long.MIN_VALUE
