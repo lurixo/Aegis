@@ -55,10 +55,30 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         val keyArrStart = wordBlobLenPos.toLong() + 4L + wordBlobLen.toLong()
         val entryArrStart = keyArrStart + numKeys.toLong() * KEY_RECORD_BYTES
         require(entryArrStart <= size) { "dictionary ends before its key table does" }
+        require(entryArrStart + numEntries.toLong() * 12L <= size) { "dictionary ends before its entry table does" }
         wordBlobOff = wordBlobLenPos + 4
         keyArrOff = keyArrStart.toInt()
         entryArrOff = entryArrStart.toInt()
+        validateRecords(keyBlobLen, wordBlobLen)
         shortPrefixTop = buildShortPrefixTop()
+    }
+
+    private fun validateRecords(keyBlobLen: Int, wordBlobLen: Int) {
+        var i = 0
+        while (i < numKeys) {
+            val ko = keyOffset(i).toLong()
+            val kl = keyLen(i).toLong()
+            require(ko >= 0 && kl >= 0 && ko + kl <= keyBlobLen) { "key $i leaves its blob" }
+            require(entryStart(i) in 0..numEntries) { "key $i points outside the entry table" }
+            i++
+        }
+        var j = 0
+        while (j < numEntries) {
+            val wo = buf.getInt(entryArrOff + j * 12).toLong()
+            val wl = buf.getInt(entryArrOff + j * 12 + 4).toLong()
+            require(wo >= 0 && wl >= 0 && wo + wl <= wordBlobLen) { "entry $j leaves its blob" }
+            j++
+        }
     }
 
     data class WordFreq(val word: String, val freq: Int)

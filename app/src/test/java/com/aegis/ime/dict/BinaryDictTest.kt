@@ -41,6 +41,8 @@ class BinaryDictTest {
         wordBlob: ByteArray = ByteArray(0),
         keyBlobLen: Int = keyBlob.size,
         wordBlobLen: Int = wordBlob.size,
+        keyRecords: IntArray = IntArray(0),
+        entryRecords: IntArray = IntArray(0),
     ): File {
         val out = java.io.ByteArrayOutputStream()
         fun le(v: Int) { out.write(v); out.write(v ushr 8); out.write(v ushr 16); out.write(v ushr 24) }
@@ -49,6 +51,8 @@ class BinaryDictTest {
         for (shift in 0 until 64 step 8) out.write(((1L ushr shift).toInt()) and 0xFF)
         le(keyBlobLen); out.write(keyBlob)
         le(wordBlobLen); out.write(wordBlob)
+        for (v in keyRecords) le(v)
+        for (v in entryRecords) le(v)
         return File(tmp.newFolder(), "dict.bin").apply { writeBytes(out.toByteArray()) }
     }
 
@@ -74,6 +78,91 @@ class BinaryDictTest {
         assertThrows("a word blob longer than the file", IllegalArgumentException::class.java) {
             BinaryDict.fromFile(dictBytes(wordBlobLen = 1 shl 20))
         }
+    }
+
+    @Test
+    fun aKeyRecordThatLeavesItsBlobIsRefused() {
+        assertThrows("a key length past the blob", IllegalArgumentException::class.java) {
+            BinaryDict.fromFile(
+                dictBytes(
+                    numKeys = 1,
+                    keyBlob = byteArrayOf('a'.code.toByte()),
+                    keyRecords = intArrayOf(0, 1 shl 20, 0),
+                ),
+            )
+        }
+        assertThrows("a negative key offset", IllegalArgumentException::class.java) {
+            BinaryDict.fromFile(
+                dictBytes(
+                    numKeys = 1,
+                    keyBlob = byteArrayOf('a'.code.toByte()),
+                    keyRecords = intArrayOf(-8, 1, 0),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun aKeyPointingOutsideTheEntryTableIsRefused() {
+        assertThrows(IllegalArgumentException::class.java) {
+            BinaryDict.fromFile(
+                dictBytes(
+                    numKeys = 1,
+                    numEntries = 1,
+                    keyBlob = byteArrayOf('a'.code.toByte()),
+                    wordBlob = "啊".toByteArray(Charsets.UTF_8),
+                    keyRecords = intArrayOf(0, 1, 5),
+                    entryRecords = intArrayOf(0, 3, 100),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun anEntryThatLeavesTheWordBlobIsRefused() {
+        assertThrows(IllegalArgumentException::class.java) {
+            BinaryDict.fromFile(
+                dictBytes(
+                    numKeys = 1,
+                    numEntries = 1,
+                    keyBlob = byteArrayOf('a'.code.toByte()),
+                    wordBlob = "啊".toByteArray(Charsets.UTF_8),
+                    keyRecords = intArrayOf(0, 1, 0),
+                    entryRecords = intArrayOf(0, 1 shl 20, 100),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun aDictionaryEndingBeforeItsEntryTableIsRefused() {
+        assertThrows(IllegalArgumentException::class.java) {
+            BinaryDict.fromFile(
+                dictBytes(
+                    numKeys = 1,
+                    numEntries = 1,
+                    keyBlob = byteArrayOf('a'.code.toByte()),
+                    keyRecords = intArrayOf(0, 1, 0),
+                ),
+            )
+        }
+    }
+
+    @Test
+    fun aFullyValidatedSingleWordDictionaryStillAnswers() {
+        val word = "啊".toByteArray(Charsets.UTF_8)
+        val dict = BinaryDict.fromFile(
+            dictBytes(
+                numKeys = 1,
+                numEntries = 1,
+                keyBlob = byteArrayOf('a'.code.toByte()),
+                wordBlob = word,
+                keyRecords = intArrayOf(0, 1, 0),
+                entryRecords = intArrayOf(0, word.size, 7),
+            ),
+        )
+        assertEquals(listOf("啊"), dict.query("a", 5))
+        assertEquals(7, requireNotNull(dict.exactWordFreq("a", "啊")))
     }
 
     @Test
