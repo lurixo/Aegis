@@ -178,7 +178,14 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         gridFrame.addView(gridScroll, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         gridFrame.addView(variantScrim, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         variantCard.addView(variantGenderRow)
-        variantCard.addView(variantSkinRow)
+        variantCard.addView(
+            object : android.widget.HorizontalScrollView(context) {
+                override fun shouldDelayChildPressedState(): Boolean = false
+            }.apply {
+                isHorizontalScrollBarEnabled = false
+                addView(variantSkinRow)
+            },
+        )
         val content = LinearLayout(context).apply {
             orientation = HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LTR
