@@ -1641,4 +1641,17 @@ class ClipboardViewInteractionTest {
         assertNull("a missing body must never be committed as a substitute", picked)
         dir.deleteRecursively()
     }
+
+    @Test fun a_category_chip_keeps_a_multiline_name_to_one_line() {
+        val broken = "多行\n名字"
+        val v = ClipboardView(ctx).apply {
+            categoriesProvider = { listOf("默认", broken) }
+            phrasesInProvider = { emptyList() }
+            applyPalette(pal); forcePhrasesStateForTest("默认"); refresh()
+        }
+        layout(v)
+        val chip = textViews(v).single { it.text?.toString() == broken }
+        assertEquals("the chip may not grow a second line", 1, chip.maxLines)
+        assertTrue("an overlong name is ellipsized, not clipped", chip.ellipsize != null)
+    }
 }

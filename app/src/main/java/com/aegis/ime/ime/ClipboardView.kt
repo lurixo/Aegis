@@ -2023,6 +2023,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun catChip(name: String, on: Boolean): View = TextView(context).apply {
         text = displayCat(name)
         gravity = Gravity.CENTER
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
         includeFontPadding = false
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
         setPadding(dp(10), dp(6), dp(10), dp(6))
