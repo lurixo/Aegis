@@ -323,4 +323,15 @@ class UserModelForgettingTest {
         assertEquals(explicit, back.userWordEntries().size)
         assertEquals(automatic, back.forgottenCount)
     }
+
+    @Test fun aClockJumpThatWouldWipeEverythingIsIgnored() {
+        val file = db()
+        UserModel { t0 }.apply {
+            recordWord("jia", "甲", t0, incrementCount = true)
+            recordWord("yi", "乙", t0, incrementCount = true)
+        }.save(file)
+        val m = at(t0 + 1000L * onceSeenDies, file)
+        assertEquals("a jump past every horizon wipes nothing", 2, m.userWordEntries().size)
+        assertEquals(0, m.forgottenCount)
+    }
 }

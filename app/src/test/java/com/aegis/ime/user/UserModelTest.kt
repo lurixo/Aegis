@@ -220,4 +220,17 @@ class UserModelTest {
         m.removeWord("zhang", "长")
         assertEquals("boost gone once no reading recalls it", 0.0, m.wordBoost("长"), 0.0)
     }
+
+    @Test
+    fun mergingTheDiskFileKeepsUnsavedLearningDirty() {
+        val file = File.createTempFile("userdb", ".txt")
+        UserModel().apply { record(null, "落盘", 1000) }.save(file)
+        val m = UserModel()
+        m.record(null, "未存", 2000)
+        assertTrue(m.dirty)
+        m.load(file)
+        assertTrue("the merge holds words the file does not, so it stays dirty", m.dirty)
+        assertTrue(m.wordBoost("未存") > 0.0)
+        file.delete()
+    }
 }

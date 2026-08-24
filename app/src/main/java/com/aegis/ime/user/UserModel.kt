@@ -283,6 +283,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         partiallyRead = true
         applyParsed(parsed)
         partiallyRead = false
+        dirty = false
         sourceReadable = true
         unreadableSource = null
         version++
@@ -312,6 +313,12 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     @Synchronized
     fun forgetStale(now: Long): Int {
         if (readings.isEmpty()) return 0
+        val newestUsed = lastUsed.values.maxOrNull()
+        if (newestUsed != null &&
+            MAX_COUNT * exp(-LN_2 * (now - newestUsed).coerceAtLeast(0L).toDouble() / FORGET_HALF_LIFE_MILLIS) < FORGET_FLOOR
+        ) {
+            return 0
+        }
         val verdict = HashMap<String, Boolean>()
         val emptied = ArrayList<String>()
         var removed = 0
@@ -367,7 +374,6 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
             manual.getOrPut(reading) { LinkedHashSet() }.addAll(words)
         }
         tombstones.addAll(parsed.tombstones)
-        dirty = false
     }
 
     @Synchronized
