@@ -40,10 +40,6 @@ internal fun AppVersionCard() {
         ) {
             Text(stringResource(R.string.app_version_card_title), style = MaterialTheme.typography.titleMedium)
             Text(
-                stringResource(R.string.app_version_card_description),
-                style = MaterialTheme.typography.bodySmall,
-            )
-            Text(
                 appReleaseLabel(context),
                 style = MaterialTheme.typography.labelLarge,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,

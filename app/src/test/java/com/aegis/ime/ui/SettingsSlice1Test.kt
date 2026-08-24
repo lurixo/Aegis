@@ -96,7 +96,6 @@ class SettingsSlice1Test {
         assertEquals("Check dictionary updates", ctx.getString(R.string.check_dict_update_button))
         assertFalse(ctx.getString(R.string.gram_status_update_current).contains("app", ignoreCase = true))
         assertFalse(ctx.getString(R.string.dict_status_update_current).contains("app", ignoreCase = true))
-        assertTrue(ctx.getString(R.string.app_version_card_description).contains("separate"))
     }
 
 
