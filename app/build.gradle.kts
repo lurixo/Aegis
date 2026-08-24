@@ -257,7 +257,6 @@ tasks.register("verifyExternalModelsNotPackaged") {
                 val entries = zip.entries()
                 while (entries.hasMoreElements()) {
                     val name = entries.nextElement().name
-                    if (!name.startsWith("assets/")) continue
                     val basename = name.substringAfterLast('/')
                     if (
                         basename in exactForbidden ||
@@ -269,7 +268,7 @@ tasks.register("verifyExternalModelsNotPackaged") {
                 }
             }
             check(leaked.isEmpty()) { "external test models leaked into ${apk.name}: $leaked" }
-            logger.lifecycle("verified ${apk.name}: no external dictionary, English, or grammar model assets")
+            logger.lifecycle("verified ${apk.name}: no external dictionary, English, or grammar model files on any entry path")
         }
     }
 }
