@@ -37,7 +37,7 @@ import com.aegis.ime.ui.theme.AppSpacing
 internal fun LayoutChoiceCard() {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
-    var choice by remember { mutableStateOf(prefs.getString("cn_layout", "nine") ?: "nine") }
+    var choice by remember { mutableStateOf(prefs.textOr("cn_layout", "nine")) }
 
     AppSection {
         Column(

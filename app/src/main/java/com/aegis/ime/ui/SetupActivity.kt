@@ -155,7 +155,7 @@ internal fun SettingsHomePage(onOpenGroup: (String) -> Unit) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
 
-    var showDownloadHint by remember { mutableStateOf(!prefs.getBoolean("dl_hint_dismissed", false)) }
+    var showDownloadHint by remember { mutableStateOf(!prefs.flagOr("dl_hint_dismissed", false)) }
 
     Column(
         modifier = Modifier

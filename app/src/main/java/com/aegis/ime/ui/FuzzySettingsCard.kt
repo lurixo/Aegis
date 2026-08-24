@@ -52,10 +52,10 @@ internal fun FuzzySettingsCard() {
         "k_g" to (R.string.fuzzy_rule_k_g_title to R.string.fuzzy_rule_k_g_desc),
     )
 
-    var master by remember { mutableStateOf(prefs.getBoolean("fuzzy", Fuzzy.DEFAULT_ON)) }
+    var master by remember { mutableStateOf(prefs.flagOr("fuzzy", Fuzzy.DEFAULT_ON)) }
     val ruleOn = remember {
         mutableStateMapOf<String, Boolean>().apply {
-            for (rule in Fuzzy.RULES) put(rule.key, prefs.getBoolean(Fuzzy.prefKey(rule.key), true))
+            for (rule in Fuzzy.RULES) put(rule.key, prefs.flagOr(Fuzzy.prefKey(rule.key), true))
         }
     }
 

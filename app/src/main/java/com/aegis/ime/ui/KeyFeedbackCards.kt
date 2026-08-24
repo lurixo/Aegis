@@ -49,7 +49,7 @@ internal const val KEY_PREVIEW_SUB_DEFAULT = true
 private fun FeedbackToggleCard(prefKey: String, default: Boolean, titleRes: Int, descRes: Int) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
-    var on by remember { mutableStateOf(prefs.getBoolean(prefKey, default)) }
+    var on by remember { mutableStateOf(prefs.flagOr(prefKey, default)) }
 
     AppSection {
         AppSettingRow(
@@ -76,9 +76,9 @@ internal fun KeyVibrationToggleCard() =
 internal fun KeyPreviewCard() {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
-    var master by remember { mutableStateOf(prefs.getBoolean(PREF_KEY_PREVIEW_MASTER, KEY_PREVIEW_MASTER_DEFAULT)) }
-    var nine by remember { mutableStateOf(prefs.getBoolean(PREF_KEY_PREVIEW_NINE, KEY_PREVIEW_SUB_DEFAULT)) }
-    var alpha by remember { mutableStateOf(prefs.getBoolean(PREF_KEY_PREVIEW_ALPHA, KEY_PREVIEW_SUB_DEFAULT)) }
+    var master by remember { mutableStateOf(prefs.flagOr(PREF_KEY_PREVIEW_MASTER, KEY_PREVIEW_MASTER_DEFAULT)) }
+    var nine by remember { mutableStateOf(prefs.flagOr(PREF_KEY_PREVIEW_NINE, KEY_PREVIEW_SUB_DEFAULT)) }
+    var alpha by remember { mutableStateOf(prefs.flagOr(PREF_KEY_PREVIEW_ALPHA, KEY_PREVIEW_SUB_DEFAULT)) }
 
     AppSection {
         AppSettingRow(

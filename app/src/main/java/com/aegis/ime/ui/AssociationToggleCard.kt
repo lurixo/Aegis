@@ -35,7 +35,7 @@ internal const val ASSOCIATIONS_DEFAULT_ON = false
 internal fun AssociationToggleCard() {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
-    var on by remember { mutableStateOf(prefs.getBoolean(PREF_ASSOCIATIONS_ON, ASSOCIATIONS_DEFAULT_ON)) }
+    var on by remember { mutableStateOf(prefs.flagOr(PREF_ASSOCIATIONS_ON, ASSOCIATIONS_DEFAULT_ON)) }
 
     AppSection {
         AppSettingRow(

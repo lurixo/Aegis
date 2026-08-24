@@ -16,6 +16,8 @@
 package com.aegis.ime.user
 
 import com.aegis.ime.AegisInputMethodService
+import com.aegis.ime.ui.flagOr
+import com.aegis.ime.ui.textOr
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -43,5 +45,15 @@ class PrefTypeToleranceTest {
             .apply { isAccessible = true }
             .invoke(service)
         assertEquals(true, enabled)
+    }
+
+    @Test fun the_settings_read_helpers_survive_wrong_typed_values() {
+        val prefs = app.getSharedPreferences("aegis-ui", 0)
+        prefs.edit().putString("flag", "not a flag").putInt("text", 5).commit()
+        assertEquals(true, prefs.flagOr("flag", true))
+        assertEquals("fallback", prefs.textOr("text", "fallback"))
+        prefs.edit().putBoolean("flag", false).putString("text", "kept").commit()
+        assertEquals(false, prefs.flagOr("flag", true))
+        assertEquals("kept", prefs.textOr("text", "fallback"))
     }
 }

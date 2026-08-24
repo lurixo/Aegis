@@ -58,7 +58,7 @@ internal fun AutoLearnToggleCard(resumeSignal: Int) {
     val userLearn = File(context.filesDir, "userlearn.txt")
     val clearedToast = stringResource(R.string.user_dict_toast_auto_cleared)
     val writeFailedToast = stringResource(R.string.user_dict_toast_write_failed)
-    var on by remember { mutableStateOf(prefs.getBoolean(PREF_AUTO_LEARN_ON, AUTO_LEARN_DEFAULT_ON)) }
+    var on by remember { mutableStateOf(prefs.flagOr(PREF_AUTO_LEARN_ON, AUTO_LEARN_DEFAULT_ON)) }
     var learnedView by remember { mutableStateOf(UserLearnEdit.view(userLearn)) }
     val learnedHasData = learnedView.hasData
     var pendingClear by remember { mutableStateOf(false) }

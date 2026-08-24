@@ -48,7 +48,7 @@ private val DEFAULT_LANG_CHOICES = listOf(
 internal fun DefaultLangCard() {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
-    var choice by remember { mutableStateOf(prefs.getString(PREF_DEFAULT_LANG, DEFAULT_LANG_DEFAULT) ?: DEFAULT_LANG_DEFAULT) }
+    var choice by remember { mutableStateOf(prefs.textOr(PREF_DEFAULT_LANG, DEFAULT_LANG_DEFAULT)) }
 
     AppSection {
         Column(

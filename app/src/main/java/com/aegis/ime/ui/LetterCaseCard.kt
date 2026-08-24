@@ -54,7 +54,7 @@ private val LETTER_CASE_CHOICES = listOf(
 internal fun LetterCaseCard() {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
-    var choice by remember { mutableStateOf(prefs.getString(PREF_LETTER_CASE, LETTER_CASE_DEFAULT) ?: LETTER_CASE_DEFAULT) }
+    var choice by remember { mutableStateOf(prefs.textOr(PREF_LETTER_CASE, LETTER_CASE_DEFAULT)) }
 
     AppSection {
         Column(
