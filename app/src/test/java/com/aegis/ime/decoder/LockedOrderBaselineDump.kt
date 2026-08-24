@@ -112,17 +112,17 @@ class LockedOrderBaselineDump {
     private companion object {
         val LOCKED_CONTEXTS = listOf("", "\u6211", "\u6211\u4eec")
         const val HEADER =
-            "# locked-sequence baseline of the whole-reading locked arm, generated on 7907381b\n" +
+            "# locked-sequence baseline of the whole-reading locked arm\n" +
                 "# key=sha256_64(layout|tag) value=sha256_64(word U+0001 coveredLen U+0000 ...)\n" +
-                "# regenerate: check out 7907381b, copy this test in, keep app/src/main untouched,\n" +
-                "# then AEGIS_LOCKED_DUMP=<path> gradlew :app:testDebugUnitTest --tests '*LockedOrderBaselineDump*'\n"
+                "# regenerate at the revision that introduces this file, app/src/main untouched:\n" +
+                "# AEGIS_LOCKED_DUMP=<path> gradlew :app:testDebugUnitTest --tests '*LockedOrderBaselineDump*'\n"
     }
 }
 
 internal object LockedOrderDigest {
-    const val RESOURCE = "/locked-sequence-7907381b.tsv"
+    const val RESOURCE = "/locked-sequence-2.tsv"
     const val CELLS = 1254
-    const val SHA256 = "4cb59eacb498886263e262d25a0d306a9f351eb7bee30a0173033bf084a01219"
+    const val SHA256 = "6a5c032ac32abaa58422e6286f4cc1dbce9ed65b50b7a7656c63ce3a0ea888cd"
 
     fun sha256(bytes: ByteArray): String =
         MessageDigest.getInstance("SHA-256").digest(bytes)

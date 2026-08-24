@@ -84,7 +84,7 @@ object T9Pinyin {
     private const val DEFAULT_RANK = 1000
     private const val FUZZY_VARIANT_CAP = 64
     private const val MAX_FUZZY_DIGITS = 40
-    private const val UNKNOWN_LEN_BONUS = 220
+    private const val UNKNOWN_LEN_BONUS = 240
     private const val LEN_BONUS = 480
     private const val SYLLABLE_PENALTY = 50.0
     private val maxDigits: Int = SYLLABLES.maxOf { toT9(it).length }

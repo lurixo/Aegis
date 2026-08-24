@@ -205,4 +205,13 @@ class T9PinyinTest {
         assertTrue(T9Pinyin.leftColumnReadings("", 4).isEmpty())
         assertTrue(T9Pinyin.leftColumnReadings("1", 4).isEmpty())
     }
+
+    @Test fun a_whole_unlisted_syllable_beats_a_pair_of_frequent_fragments() {
+        assertEquals(listOf("ying"), T9Pinyin.segment("9464"))
+        assertEquals(listOf("zhei"), T9Pinyin.segment("9434"))
+        assertEquals(listOf("zhua"), T9Pinyin.segment("9482"))
+        assertEquals(listOf("feng"), T9Pinyin.segment("3364"))
+        assertEquals(listOf("mang"), T9Pinyin.segment("6264"))
+        assertEquals(listOf("ying"), T9Pinyin.segmentLetters("ying"))
+    }
 }
