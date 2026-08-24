@@ -23,7 +23,7 @@ class CustomSymbolStore(
 ) {
 
     fun list(): List<String> =
-        prefs.getString(key, "").orEmpty().split("\n").filter { it.isNotEmpty() }
+        runCatching { prefs.getString(key, "") }.getOrNull().orEmpty().split("\n").filter { it.isNotEmpty() }
 
     fun add(symbol: String): Boolean {
         val s = symbol.filterNot { it.isISOControl() }.trim()

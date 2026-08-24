@@ -1356,7 +1356,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (inputView?.isPanelShowing(cv) == true) cv.refresh()
     }
 
-    private fun historyEnabled() = getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true)
+    private fun historyEnabled() =
+        runCatching { getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true) }.getOrDefault(true)
     private fun setHistoryEnabled(on: Boolean) {
         getSharedPreferences("aegis", MODE_PRIVATE).edit().putBoolean("clip_history", on).apply()
         toast(getString(if (on) R.string.clip_history_resumed else R.string.clip_history_paused))
