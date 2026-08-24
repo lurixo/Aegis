@@ -61,6 +61,8 @@ import com.aegis.ime.backup.BackupError
 import com.aegis.ime.backup.BackupItem
 import com.aegis.ime.backup.BackupException
 import com.aegis.ime.backup.BackupManager
+import java.io.File
+import java.io.FileOutputStream
 import java.util.concurrent.Executors
 
 class BackupActivity : ComponentActivity() {
@@ -289,11 +291,16 @@ class BackupActivity : ComponentActivity() {
     }
 
     private fun writeExport(uri: Uri, password: CharArray): BackupManager.ExportReport? {
-        val out = contentResolver.openOutputStream(uri, "wt") ?: return null
-        return try {
-            BackupManager.export(filesDir, aegisPrefs(), password, out)
+        val staged = File.createTempFile("aegis-export", ".tmp", cacheDir.apply { mkdirs() })
+        try {
+            val report = FileOutputStream(staged).use { fileOut ->
+                BackupManager.export(filesDir, aegisPrefs(), password, fileOut)
+            }
+            val out = contentResolver.openOutputStream(uri, "wt") ?: return null
+            out.use { staged.inputStream().use { archive -> archive.copyTo(it) } }
+            return report
         } finally {
-            runCatching { out.close() }
+            staged.delete()
         }
     }
 
