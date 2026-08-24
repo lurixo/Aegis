@@ -99,8 +99,8 @@ class RestoreRollbackTest {
             flushPendingWrites()
             stopSaving()
         }
-        SymbolUsageStore(filesDir).apply { load(); record("§", "备份") }
-        SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).apply { load(); record("🎉", "备份") }
+        SymbolUsageStore(filesDir).apply { load(); record("§", "备份"); awaitPendingWrites() }
+        SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).apply { load(); record("🎉", "备份"); awaitPendingWrites() }
         prefs.edit().clear().putString("cn_layout", "备份布局").commit()
     }
 
@@ -117,8 +117,8 @@ class RestoreRollbackTest {
             flushPendingWrites()
             stopSaving()
         }
-        SymbolUsageStore(filesDir).apply { load(); record("★", "本地") }
-        SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).apply { load(); record("😀", "本地") }
+        SymbolUsageStore(filesDir).apply { load(); record("★", "本地"); awaitPendingWrites() }
+        SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).apply { load(); record("😀", "本地"); awaitPendingWrites() }
         prefs.edit().clear().putString("cn_layout", "本机布局").putInt("some_int", 7).commit()
     }
 

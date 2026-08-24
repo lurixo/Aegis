@@ -84,8 +84,8 @@ class BackupExportOmitsUnreadableStoresTest {
             record("剪贴内容一")
             flushPendingWrites()
         }
-        SymbolUsageStore(filesDir).apply { load(); record("！", "math") }
-        SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).apply { load(); record("😀", "smileys") }
+        SymbolUsageStore(filesDir).apply { load(); record("！", "math"); awaitPendingWrites() }
+        SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).apply { load(); record("😀", "smileys"); awaitPendingWrites() }
         prefs.edit().putString("cn_layout", "alpha").commit()
     }
 

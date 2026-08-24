@@ -65,8 +65,8 @@ class StoreHealthTest {
             flushPendingWrites()
             stopSaving()
         }
-        SymbolUsageStore(root).apply { load(); record("★", "符号") }
-        SymbolUsageStore(File(root, "emoji").apply { mkdirs() }).apply { load(); record("😀", "smileys") }
+        SymbolUsageStore(root).apply { load(); record("★", "符号"); awaitPendingWrites() }
+        SymbolUsageStore(File(root, "emoji").apply { mkdirs() }).apply { load(); record("😀", "smileys"); awaitPendingWrites() }
         SymbolUsageStore.flushPendingWrites()
     }
 

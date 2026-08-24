@@ -74,8 +74,8 @@ class RestoreJournalTest {
             flushPendingWrites()
             stopSaving()
         }
-        SymbolUsageStore(filesDir).apply { load(); record("★", "本地") }
-        SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).apply { load(); record("😀", "smileys") }
+        SymbolUsageStore(filesDir).apply { load(); record("★", "本地"); awaitPendingWrites() }
+        SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).apply { load(); record("😀", "smileys"); awaitPendingWrites() }
         SymbolUsageStore.flushPendingWrites()
         prefs.edit().putString("cn_layout", "本机布局").putInt("some_int", 7).commit()
     }

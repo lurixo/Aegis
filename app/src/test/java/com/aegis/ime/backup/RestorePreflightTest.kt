@@ -80,8 +80,8 @@ class RestorePreflightTest {
             flushPendingWrites()
             stopSaving()
         }
-        SymbolUsageStore(filesDir).apply { load(); record("★", "本地") }
-        SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).apply { load(); record("😀", "smileys") }
+        SymbolUsageStore(filesDir).apply { load(); record("★", "本地"); awaitPendingWrites() }
+        SymbolUsageStore(File(filesDir, "emoji").apply { mkdirs() }).apply { load(); record("😀", "smileys"); awaitPendingWrites() }
         prefs.edit().putString("cn_layout", "本机布局").putInt("some_int", 7).commit()
     }
 
@@ -118,8 +118,8 @@ class RestorePreflightTest {
             flushPendingWrites()
             stopSaving()
         }
-        SymbolUsageStore(carrier).apply { load(); record("§", "备份") }
-        SymbolUsageStore(File(carrier, "emoji").apply { mkdirs() }).apply { load(); record("🎉", "备份") }
+        SymbolUsageStore(carrier).apply { load(); record("§", "备份"); awaitPendingWrites() }
+        SymbolUsageStore(File(carrier, "emoji").apply { mkdirs() }).apply { load(); record("🎉", "备份"); awaitPendingWrites() }
         val out = LinkedHashMap<String, ByteArray>()
         for (item in BackupItem.entries) {
             val f = File(carrier, item.relativePath)
