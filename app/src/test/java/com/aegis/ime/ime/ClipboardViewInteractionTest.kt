@@ -197,7 +197,8 @@ class ClipboardViewInteractionTest {
     private fun headerOf(v: ClipboardView, text: String): View = bodyOf(v, text).parent as View
 
     private fun swipeActions(v: ClipboardView, text: String): List<View> {
-        val strip = (headerOf(v, text).parent as ViewGroup).getChildAt(0) as ViewGroup
+        val scroller = (headerOf(v, text).parent as ViewGroup).getChildAt(0) as ViewGroup
+        val strip = scroller.getChildAt(0) as ViewGroup
         return (0 until strip.childCount).map(strip::getChildAt)
     }
 
@@ -333,10 +334,12 @@ class ClipboardViewInteractionTest {
             assertTrue(left.right <= right.left)
         }
         val header = bodyOf(v, text).parent as View
-        val frame = strip.parent as View
+        val scroller = strip.parent as View
+        val frame = scroller.parent as View
+        val stripLeft = scroller.left + strip.left - scroller.scrollX
         assertEquals(-strip.width.toFloat(), header.translationX, 0f)
-        assertEquals(gap.toFloat(), strip.left + actions.first().left - (header.right + header.translationX), 0f)
-        assertEquals(frame.width, strip.right)
+        assertEquals(gap.toFloat(), stripLeft + actions.first().left - (header.right + header.translationX), 0f)
+        assertEquals(frame.width, stripLeft + strip.width)
         return actions
     }
 
@@ -1034,9 +1037,11 @@ class ClipboardViewInteractionTest {
             layout(view)
             val actions = assertSwipeActionStrip(view, text, expected)
             val strip = actions.first().parent as View
-            val frame = strip.parent as View
+            val scroller = strip.parent as View
+            val frame = scroller.parent as View
             assertEquals(expected, actions.sortedBy { it.left }.map { it.contentDescription?.toString() })
-            assertEquals(frame.width, strip.right)
+            assertEquals(frame.width, scroller.right)
+            assertEquals(scroller.width, strip.right)
         }
     }
 

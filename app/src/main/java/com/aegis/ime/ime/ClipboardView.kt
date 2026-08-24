@@ -1173,9 +1173,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         header.addView(chevron, ll(dp(30), MP))
         if (!expanded) {
             headerFrame.addView(
-                swipeActionStrip(text, category, phrase, header, headerFrame, revealWidthDp),
+                swipeActionScroller(text, category, phrase, header, headerFrame, revealWidthDp),
                 FrameLayout.LayoutParams(
-                    dp(revealWidthDp),
+                    MP,
                     MP,
                     Gravity.getAbsoluteGravity(Gravity.END, View.LAYOUT_DIRECTION_LTR),
                 ),
@@ -1199,6 +1199,37 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun swipeRevealWidthDp(text: String, phrase: Boolean): Int {
         val count = if (phrase || entryEditable(text)) 4 else 3
         return count * (SWIPE_ACTION_SIZE_DP + SWIPE_ACTION_GAP_DP)
+    }
+
+    private fun swipeActionScroller(text: String, category: String, phrase: Boolean, header: View, frame: View, revealWidthDp: Int): HorizontalScrollView {
+        val scroller = object : HorizontalScrollView(context) {
+            private var downX = 0f
+
+            override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+                val cap = min(MeasureSpec.getSize(widthMeasureSpec), dp(revealWidthDp))
+                super.onMeasure(MeasureSpec.makeMeasureSpec(cap, MeasureSpec.EXACTLY), heightMeasureSpec)
+            }
+
+            override fun shouldDelayChildPressedState(): Boolean = false
+
+            override fun onInterceptTouchEvent(ev: MotionEvent): Boolean {
+                val content = getChildAt(0) ?: return false
+                if (content.width <= width - paddingLeft - paddingRight) return false
+                when (ev.actionMasked) {
+                    MotionEvent.ACTION_DOWN -> downX = ev.x
+                    MotionEvent.ACTION_MOVE -> if (scrollX == 0 && ev.x - downX > 0f) return false
+                }
+                return super.onInterceptTouchEvent(ev)
+            }
+        }
+        scroller.layoutDirection = View.LAYOUT_DIRECTION_LTR
+        scroller.isHorizontalScrollBarEnabled = false
+        scroller.overScrollMode = View.OVER_SCROLL_NEVER
+        scroller.addView(
+            swipeActionStrip(text, category, phrase, header, frame, revealWidthDp),
+            FrameLayout.LayoutParams(WC, MP),
+        )
+        return scroller
     }
 
     private fun swipeActionStrip(text: String, category: String, phrase: Boolean, header: View, frame: View, revealWidthDp: Int): LinearLayout = LinearLayout(context).apply {

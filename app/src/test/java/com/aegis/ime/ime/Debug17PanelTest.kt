@@ -91,7 +91,8 @@ class Debug17PanelTest {
     private fun dp(value: Int): Int = (value * ctx.resources.displayMetrics.density).toInt()
     private fun swipeActions(v: ClipboardView, text: String): List<View> {
         val body = textViews(v).first { it.text?.toString() == text }
-        val strip = ((body.parent as View).parent as ViewGroup).getChildAt(0) as ViewGroup
+        val scroller = ((body.parent as View).parent as ViewGroup).getChildAt(0) as ViewGroup
+        val strip = scroller.getChildAt(0) as ViewGroup
         return (0 until strip.childCount).map(strip::getChildAt)
     }
 
@@ -273,6 +274,28 @@ class Debug17PanelTest {
         assertTrue(actionButtons(v).isEmpty())
         assertTrue(ctx.getString(com.aegis.ime.R.string.clip_expand) in descs(v))
         assertFalse(ctx.getString(com.aegis.ime.R.string.clip_collapse) in descs(v))
+    }
+
+    @Test fun a_narrow_card_scrolls_the_swipe_strip_to_reach_every_action() {
+        val v = clipView()
+        v.revealSwipeForTest("hello")
+        layout(v, width = dp(160))
+        val actions = swipeActions(v, "hello")
+        val strip = actions.first().parent as View
+        val scroller = strip.parent as HorizontalScrollView
+        assertEquals("the strip keeps every action at full size", 4 * (dp(48) + dp(4)), strip.width)
+        assertTrue("the scroller is capped to the card, not the strip", scroller.width < strip.width)
+        assertFalse("the platform scrollbar stays off", scroller.isHorizontalScrollBarEnabled)
+        val range = strip.width - scroller.width
+        scroller.scrollTo(range, 0)
+        assertEquals("the far edge of the strip lands inside the viewport", strip.width, scroller.scrollX + scroller.width)
+        assertEquals(ctx.getString(com.aegis.ime.R.string.clip_delete), actions.last().contentDescription?.toString())
+
+        val wide = clipView()
+        wide.revealSwipeForTest("hello")
+        layout(wide)
+        val wideStrip = swipeActions(wide, "hello").first().parent as View
+        assertEquals("a wide card shows the whole strip with nothing to scroll", wideStrip.width, (wideStrip.parent as View).width)
     }
 
     @Test fun clipboard_arrow_expansion_replaces_swipe_with_labeled_actions() {
