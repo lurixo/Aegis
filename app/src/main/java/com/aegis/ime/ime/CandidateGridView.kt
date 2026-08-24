@@ -109,7 +109,11 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private val readingFeedback = HashMap<TextView, ImeKeyFeedback>()
     private val chipFeedback = HashMap<TextView, ImeKeyFeedback>()
     private val chipClick = OnClickListener { v -> onPick(v.tag as Int) }
-    private val readingClick = OnClickListener { v -> onPickReading(v.tag as Int) }
+    private val readingClick = OnClickListener { v ->
+        val reading = v.tag as? String ?: return@OnClickListener
+        val index = renderedReadings?.indexOf(reading) ?: -1
+        if (index >= 0) onPickReading(index)
+    }
     private val candidateAdapter = CandidateAdapter()
     private val returnFeedback: ImeKeyFeedback
     private val backspaceFeedback: ImeKeyFeedback
@@ -356,7 +360,8 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         for (i in readings.indices) {
             val tile = obtainReading(i)
             readingFeedback[tile]?.reset()
-            tile.tag = i
+            val swappedUnderPress = tile.isPressed && tile.text != readings[i]
+            tile.tag = if (swappedUnderPress) null else readings[i]
             if (tile.text != readings[i]) {
                 tile.text = readings[i]
             }
@@ -727,6 +732,9 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         (readingColumn.getChildAt(index) as? TextView)?.background
 
     private class RailScrollView(context: Context, private val density: Float) : ScrollView(context) {
+
+    override fun shouldDelayChildPressedState(): Boolean = false
+
         private val radius = ImeShapes.keyRadiusDp * density
         private val bg = GradientDrawable().apply { cornerRadius = radius }
         private val separatorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = density }
