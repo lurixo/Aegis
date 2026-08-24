@@ -1229,7 +1229,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                     inputCat = name
                 }
             }
-            InputPurpose.RENAME_CATEGORY -> {
+            InputPurpose.RENAME_CATEGORY -> if (text != inputOld) {
                 val n = com.aegis.ime.user.ClipboardStore.sanitizePhraseText(text)
                 if (clipboardStore.renameCategory(inputOld, n)) inputCat = n
             }

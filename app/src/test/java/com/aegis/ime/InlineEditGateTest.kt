@@ -87,4 +87,45 @@ class InlineEditGateTest {
         assertTrue("a phrase at the limit is editable", panelInput(service).active)
         assertNull("an accepted edit needs no notice", service.toastTextForTest())
     }
+
+    private fun store(service: AegisInputMethodService): com.aegis.ime.user.ClipboardStore {
+        val delegate = service.javaClass.getDeclaredField("clipboardStore\$delegate").run {
+            isAccessible = true
+            get(service) as Lazy<*>
+        }
+        return delegate.value as com.aegis.ime.user.ClipboardStore
+    }
+
+    private fun beginRename(service: AegisInputMethodService, old: String) {
+        service.javaClass.getDeclaredMethod("beginInlineRenameCategory", String::class.java)
+            .apply { isAccessible = true }.invoke(service, old)
+    }
+
+    private fun confirm(service: AegisInputMethodService) {
+        service.javaClass.getDeclaredMethod("confirmInlineInput")
+            .apply { isAccessible = true }.invoke(service)
+    }
+
+    @Test fun confirming_an_untouched_rename_rewrites_nothing() {
+        val service = started()
+        val legacy = "a\u0001b"
+        store(service).importPhrasesText("C\t" + legacy + "\nP\tx\n", merge = false)
+        beginRename(service, legacy)
+        confirm(service)
+        assertTrue("the legacy name stays exactly as it was", legacy in store(service).categories())
+        assertFalse("no cleaned twin appears", "ab" in store(service).categories())
+    }
+
+    @Test fun an_actual_rename_still_cleans_the_new_name() {
+        val service = started()
+        val legacy = "a\u0001b"
+        store(service).importPhrasesText("C\t" + legacy + "\nP\tx\n", merge = false)
+        beginRename(service, legacy)
+        panelInput(service).selectAll()
+        service.javaClass.getDeclaredMethod("commitExternalText", CharSequence::class.java)
+            .apply { isAccessible = true }.invoke(service, " new\tname ")
+        confirm(service)
+        assertTrue("the new name passes the rule", "newname" in store(service).categories())
+        assertFalse("the old name is gone", legacy in store(service).categories())
+    }
 }
