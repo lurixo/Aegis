@@ -31,7 +31,7 @@ class NgDedupFixTest {
     private val jianpinFile = File("src/main/assets/aegis_jianpin.bin")
 
     private fun decoder(): PinyinDecoder {
-        assumeTrue("assets present", dictFile.exists() && lmFile.exists() && jianpinFile.exists())
+        assertTrue("assets present", dictFile.exists() && lmFile.exists() && jianpinFile.exists())
         return PinyinDecoder(
             BinaryDict.fromFile(dictFile), CharBigramLM.fromFile(lmFile),
             initialsDict = BinaryDict.fromFile(jianpinFile),
@@ -57,7 +57,7 @@ class NgDedupFixTest {
     @Test fun nPlusGInitial_offersNCoveringCandidate() {
         val d = decoder()
         val nChars = singlesOf(dict, "n")
-        assumeTrue("dict has n singles", nChars.isNotEmpty())
+        assertTrue("dict has n singles", nChars.isNotEmpty())
         assertTrue("expected the 19 g-initial syllables, got ${gInitials.size}", gInitials.size == 19)
         val bad = ArrayList<String>()
         for (g in gInitials) {

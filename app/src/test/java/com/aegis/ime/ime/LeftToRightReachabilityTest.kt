@@ -23,7 +23,6 @@ import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -88,10 +87,10 @@ class LeftToRightReachabilityTest {
     }
 
     @Test fun nine_key_with_two_locked_readings_reaches_every_character_left_to_right() {
-        assumeTrue(assetsPresent())
+        assertTrue(assetsPresent())
         val ni = dictSingles("ni")
         val hao = dictSingles("hao")
-        assumeTrue("the pack holds more ni characters than the candidate limit", ni.size > 30)
+        assertTrue("the pack holds more ni characters than the candidate limit", ni.size > 30)
 
         val c = controller()
         c.switchTextLayoutForTest(nine = true)
@@ -113,10 +112,10 @@ class LeftToRightReachabilityTest {
     }
 
     @Test fun alpha_layout_reaches_every_character_left_to_right() {
-        assumeTrue(assetsPresent())
+        assertTrue(assetsPresent())
         val ni = dictSingles("ni")
         val hao = dictSingles("hao")
-        assumeTrue("the pack holds more ni characters than the candidate limit", ni.size > 30)
+        assertTrue("the pack holds more ni characters than the candidate limit", ni.size > 30)
 
         val c = controller()
         type(c, "nihao")
@@ -130,9 +129,9 @@ class LeftToRightReachabilityTest {
     }
 
     @Test fun a_character_past_the_candidate_limit_can_still_be_committed() {
-        assumeTrue(assetsPresent())
+        assertTrue(assetsPresent())
         val ni = dictSingles("ni")
-        assumeTrue("the pack holds more ni characters than the candidate limit", ni.size > 30)
+        assertTrue("the pack holds more ni characters than the candidate limit", ni.size > 30)
 
         val host = Host()
         val c = KeyboardController(host, realEngine()).apply { attachView(InputView(ctx)) }

@@ -24,7 +24,6 @@ import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
 
@@ -74,14 +73,14 @@ class PartialCommitLockTest {
 
     @Test
     fun partialCommit_keepsTheRemainingLockedSegmentation() {
-        assumeTrue("T9 dict + LM assets present", assetsPresent())
+        assertTrue("T9 dict + LM assets present", assetsPresent())
         val c = nineController()
         T9Pinyin.toT9("yougailvchuxian").forEach { c.onKey(Key(it.toString(), output = it.toString())) }
         listOf("you", "gai", "lv", "chu", "xian").forEach { lock(c, it) }
         assertEquals("locked preedit", "you'gai'lv'chu'xian", c.preeditForTest())
 
         val yi = c.candidateWords().indexOf("有")
-        assumeTrue("有 offered as a candidate for the locked buffer", yi >= 0)
+        assertTrue("有 offered as a candidate for the locked buffer", yi >= 0)
         c.onPickCandidate(yi)
 
         assertEquals("有", c.composingPrefix())
@@ -91,7 +90,7 @@ class PartialCommitLockTest {
 
     @Test
     fun drillPartialCommit_26key_keepsTheRemainingLetterSegmentation() {
-        assumeTrue("26-key dict + LM assets present",
+        assertTrue("26-key dict + LM assets present",
             File(assets + "aegis_dict.bin").exists() && File(assets + "aegis_lm.bin").exists())
         val c = alphaController()
         "yougailvchuxian".forEach { c.onKey(Key(it.toString(), output = it.toString())) }
@@ -101,7 +100,7 @@ class PartialCommitLockTest {
         assertEquals("drilled into syllable 0", 0, c.drilledSyllableForTest())
 
         val yi = c.candidateWords().indexOf("有")
-        assumeTrue("有 offered as a 同音字 of the drilled syllable", yi >= 0)
+        assertTrue("有 offered as a 同音字 of the drilled syllable", yi >= 0)
         c.onPickCandidate(yi)
 
         assertEquals("有", c.composingPrefix())

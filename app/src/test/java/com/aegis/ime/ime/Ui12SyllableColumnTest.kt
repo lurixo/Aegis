@@ -27,7 +27,6 @@ import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -644,7 +643,7 @@ class Ui12SyllableColumnTest {
     private fun biangChar(): String = String(Character.toChars(0x30EDD))
 
     @Test fun tapping_the_drilled_reading_again_leaves_every_locked_reading_alone() {
-        val eng = realEngine(); assumeTrue("dict assets present", eng != null)
+        val eng = realEngine(); assertTrue("dict assets present", eng != null)
         for (letters in listOf("niniu", "guguo")) {
             val c = KeyboardController(RecordingHost(), eng!!)
             c.switchTextLayoutForTest(nine = false)
@@ -669,10 +668,10 @@ class Ui12SyllableColumnTest {
     }
 
     @Test fun real_dict_drill_surfaces_every_homophone_the_dict_holds() {
-        val eng = realEngine(); assumeTrue("dict assets present", eng != null)
+        val eng = realEngine(); assertTrue("dict assets present", eng != null)
         val dict = BinaryDict.fromFile(File("src/main/assets/aegis_dict.bin"))
         val heSet = dict.exact("he").filter { isSingleChar(it.word) }.map { it.word }.toSet()
-        assumeTrue("dict has a meaningful he set", heSet.size > 8)
+        assertTrue("dict has a meaningful he set", heSet.size > 8)
 
         val c = KeyboardController(RecordingHost(), eng!!)
         c.switchTextLayoutForTest(nine = false)
@@ -688,7 +687,7 @@ class Ui12SyllableColumnTest {
 
 
     @Test fun real_dict_biang_is_available_in_expanded_reading_paths() {
-        val eng = realEngine(); assumeTrue("dict assets present", eng != null)
+        val eng = realEngine(); assertTrue("dict assets present", eng != null)
         val engine = eng!!
         val rare = biangChar()
         val alpha = KeyboardController(RecordingHost(), engine)
@@ -710,7 +709,7 @@ class Ui12SyllableColumnTest {
     }
 
     @Test fun real_dict_jiangzhi_expand_and_reset_track_the_current_reading() {
-        val eng = realEngine(); assumeTrue("dict assets present", eng != null)
+        val eng = realEngine(); assertTrue("dict assets present", eng != null)
         val c = KeyboardController(RecordingHost(), eng!!)
         c.switchTextLayoutForTest(nine = false)
         "jiangzhi".forEach { c.onKey(out(it.toString())) }

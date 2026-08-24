@@ -28,12 +28,12 @@ class PinyinDecoderTest {
     private val t9File = File("src/main/assets/aegis_t9.bin")
 
     private fun decoder(): PinyinDecoder {
-        assumeTrue("demo dict asset present", dictFile.exists())
+        assertTrue("demo dict asset present", dictFile.exists())
         return PinyinDecoder(BinaryDict.fromFile(dictFile))
     }
 
     private fun t9Decoder(): PinyinDecoder {
-        assumeTrue("T9 dict asset present", t9File.exists())
+        assertTrue("T9 dict asset present", t9File.exists())
         return PinyinDecoder(BinaryDict.fromFile(t9File))
     }
 
@@ -90,7 +90,7 @@ class PinyinDecoderTest {
     fun rareBiangReadingIsSegmentableAndNavigable() {
         val rare = biangChar()
         val d = decoder()
-        assumeTrue("dict has the biang rare character", rare in dictSingles("biang"))
+        assertTrue("dict has the biang rare character", rare in dictSingles("biang"))
 
         assertEquals(listOf("biang"), d.syllables("biang").map { it.reading })
         assertTrue("biang free typing recalls the rare character", d.decodeCovered("biang", 30).any { it.word == rare && it.coveredLen == 5 })
@@ -101,7 +101,7 @@ class PinyinDecoderTest {
     fun t9BiangReadingIsLockableAndNavigable() {
         val rare = biangChar()
         val digits = T9Pinyin.toT9("biang")
-        assumeTrue("T9 dict asset present", t9File.exists())
+        assertTrue("T9 dict asset present", t9File.exists())
         val t9 = BinaryDict.fromFile(t9File)
         assumeTrue("T9 dict has the biang rare character", t9.exact(digits).any { it.word == rare })
 

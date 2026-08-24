@@ -20,7 +20,6 @@ import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeTrue
 import org.junit.Test
 import java.io.File
 
@@ -31,13 +30,13 @@ class UserAdaptTest {
 
     @Test
     fun userBoostReranks() {
-        assumeTrue(dictFile.exists() && lmFile.exists())
+        assertTrue(dictFile.exists() && lmFile.exists())
         val dict = BinaryDict.fromFile(dictFile)
         val lm = CharBigramLM.fromFile(lmFile)
 
         val base = PinyinDecoder(dict, lm).decodeCovered("shi", 30).map { it.word }
         val homophones = base.filter { it.codePointCount(0, it.length) == 1 }
-        assumeTrue("need >=2 homophones", homophones.size >= 2)
+        assertTrue("need >=2 homophones", homophones.size >= 2)
         val target = homophones[1]
 
         val um = UserModel()
@@ -49,12 +48,12 @@ class UserAdaptTest {
 
     @Test
     fun boostIsPerceptibleWithinAFewUses() {
-        assumeTrue(dictFile.exists() && lmFile.exists())
+        assertTrue(dictFile.exists() && lmFile.exists())
         val dict = BinaryDict.fromFile(dictFile)
         val lm = CharBigramLM.fromFile(lmFile)
         val base = PinyinDecoder(dict, lm).decodeCovered("shi", 30).map { it.word }
         val homophones = base.filter { it.codePointCount(0, it.length) == 1 }
-        assumeTrue("need >=2 homophones", homophones.size >= 2)
+        assertTrue("need >=2 homophones", homophones.size >= 2)
         val target = homophones[1]
 
         var uses = -1
