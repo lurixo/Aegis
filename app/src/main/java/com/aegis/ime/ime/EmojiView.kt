@@ -61,7 +61,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
-    private val surfaceMetrics = ImePanelSurfaceMetrics.resolve(density)
+    private val surfaceMetrics = ImePanelSurfaceMetrics.resolve(density, resources.displayMetrics.density * resources.configuration.fontScale)
 
     private var palette = ImePalette.STATIC_LIGHT
     private var selected = 0
@@ -354,7 +354,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
 
     private fun bindGrid(index: Int) {
         grid.removeAllViews()
-        val emoji = if (index == 0) recentProvider() else EmojiCatalog.categories[index - 1].emoji
+        val emoji = if (index == 0) recentProvider() else EmojiCatalog.supported[index - 1].emoji
         if (emoji.isEmpty()) { grid.addView(obtainEmptyHint()); return }
         for (i in emoji.indices) {
             val cell = obtainEmojiCell(i)
@@ -411,6 +411,7 @@ class EmojiView(context: Context) : LinearLayout(context), ResettablePanel, Cove
         if (index < emojiPool.size) return emojiPool[index]
         val tv = TextView(context).apply {
             gravity = Gravity.CENTER
+            maxLines = 1
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.display)
             val p = dp(8)
             setPadding(0, p, 0, p)

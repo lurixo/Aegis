@@ -23,6 +23,13 @@ object EmojiCatalog {
 
     data class Category(val id: String, val titleRes: Int, val emoji: List<String>)
 
+    val supported: List<Category> by lazy {
+        val paint = android.graphics.Paint()
+        val probe = runCatching { paint.hasGlyph("\uD83D\uDE00") }.getOrDefault(false)
+        if (!probe) categories
+        else categories.map { c -> Category(c.id, c.titleRes, c.emoji.filter { paint.hasGlyph(it) }) }
+    }
+
     val categories: List<Category> = listOf(
         Category("face", R.string.emoji_cat_face, tokens(
                 "😀 😃 😄 😁 😆 😅 🤣 😂 🙂 🙃 🫠 😉 😊 😇 🥰 😍 🤩 😘 😗 ☺️ 😚 😙 🥲 😋 😛 😜 🤪 😝 🤑 🤗 " +

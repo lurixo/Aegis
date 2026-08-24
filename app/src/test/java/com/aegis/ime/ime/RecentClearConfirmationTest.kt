@@ -307,7 +307,7 @@ class RecentClearConfirmationTest {
         assertEquals(listOf(ctx.getString(R.string.emoji_empty_hint)), view.gridCellTextsForTest())
 
         view.openCategoryForTest(1)
-        assertEquals(EmojiCatalog.categories.first().emoji, view.gridCellTextsForTest())
+        assertEquals(EmojiCatalog.supported.first().emoji, view.gridCellTextsForTest())
     }
 
     @Test fun symbol_recent_item_delete_requires_confirmation_and_removes_only_that_item() {

@@ -47,8 +47,8 @@ class PanelRecyclingTest {
         val afterSweep1 = v.emojiCellsAllocatedForTest()
         for (i in 0..EmojiCatalog.categories.size) v.openCategoryForTest(i)
         assertEquals("a second full sweep must allocate zero new cells", afterSweep1, v.emojiCellsAllocatedForTest())
-        val peak = EmojiCatalog.categories.maxOf { it.emoji.size }
-        val total = EmojiCatalog.categories.sumOf { it.emoji.size }
+        val peak = EmojiCatalog.supported.maxOf { it.emoji.size }
+        val total = EmojiCatalog.supported.sumOf { it.emoji.size }
         assertEquals("the pool tops out at the largest category", peak, afterSweep1)
         assertTrue("recycling beats the old per-sweep total ($total) of cell allocations", peak < total)
     }
@@ -56,8 +56,8 @@ class PanelRecyclingTest {
     @Test fun emoji_grid_content_and_tap_are_correct_after_recycling() {
         var picked = ""
         val v = EmojiView(ctx).apply { applyPalette(light); onEmoji = { picked = it } }
-        val cat1 = EmojiCatalog.categories[0].emoji
-        val cat2 = EmojiCatalog.categories[1].emoji
+        val cat1 = EmojiCatalog.supported[0].emoji
+        val cat2 = EmojiCatalog.supported[1].emoji
         v.openCategoryForTest(2)
         v.openCategoryForTest(1)
         assertEquals("recycled grid shows category 1's glyphs", cat1, v.gridCellTextsForTest())
