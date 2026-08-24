@@ -1393,6 +1393,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         clearEditorTransientState(resetController = false)
         layoutSessionPackage = null
         if (::controller.isInitialized) controller.restoreBaseKeyboard()
+        if (LiveUserData.restoreInProgress) return
+        liveUserDictHost.scheduleSave()
     }
 
     override fun onUnbindInput() {
