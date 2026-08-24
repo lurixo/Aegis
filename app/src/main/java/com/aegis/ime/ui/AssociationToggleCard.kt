@@ -16,7 +16,6 @@
 package com.aegis.ime.ui
 
 import android.content.Context
-import androidx.compose.material3.Switch
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -36,18 +35,20 @@ internal fun AssociationToggleCard() {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
     var on by remember { mutableStateOf(prefs.flagOr(PREF_ASSOCIATIONS_ON, ASSOCIATIONS_DEFAULT_ON)) }
+    val toggle = {
+        on = !on
+        prefs.edit { putBoolean(PREF_ASSOCIATIONS_ON, on) }
+    }
 
     AppSection {
         AppSettingRow(
             title = stringResource(R.string.association_title),
             description = stringResource(R.string.association_description),
+            onClick = toggle,
             trailing = {
-                Switch(
+                AegisSwitch(
                     checked = on,
-                    onCheckedChange = {
-                        on = it
-                        prefs.edit { putBoolean(PREF_ASSOCIATIONS_ON, it) }
-                    },
+                    onCheckedChange = { toggle() },
                 )
             },
         )

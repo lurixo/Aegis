@@ -220,6 +220,19 @@ class InputSettingsActivityTest {
         assertTrue("turning it back on is written down", prefs.getBoolean(PREF_AUTO_LEARN_ON, false))
     }
 
+    @Test fun tapping_a_toggle_row_body_flips_its_preference() {
+        val prefs = compose.activity.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+        compose.onNodeWithText(ctxString(R.string.association_title)).performScrollTo().performClick()
+        compose.waitForIdle()
+        assertTrue(
+            "tapping the row body turns the toggle on",
+            prefs.getBoolean(PREF_ASSOCIATIONS_ON, ASSOCIATIONS_DEFAULT_ON),
+        )
+        compose.onNodeWithText(ctxString(R.string.association_title)).performClick()
+        compose.waitForIdle()
+        assertFalse("tapping again turns it back off", prefs.getBoolean(PREF_ASSOCIATIONS_ON, true))
+    }
+
     @Test fun the_clear_button_is_dead_while_there_is_nothing_learned() {
         compose.onNodeWithTag("auto_learn_clear").performScrollTo().assertIsNotEnabled()
         val zero = RuntimeEnvironment.getApplication().getString(R.string.user_dict_auto_count_format, 0)

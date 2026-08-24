@@ -18,7 +18,6 @@ package com.aegis.ime.ui
 import android.content.Context
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -69,33 +68,38 @@ internal fun FuzzySettingsCard() {
                 top = AppSpacing.sectionPadding,
             ),
         )
+        val toggleMaster = {
+            master = !master
+            prefs.edit { putBoolean("fuzzy", master) }
+        }
         AppSettingRow(
             title = stringResource(R.string.fuzzy_master_title),
             description = stringResource(R.string.fuzzy_master_description),
+            onClick = toggleMaster,
             trailing = {
-                Switch(
+                AegisSwitch(
                     checked = master,
-                    onCheckedChange = {
-                        master = it
-                        prefs.edit { putBoolean("fuzzy", it) }
-                    },
+                    onCheckedChange = { toggleMaster() },
                 )
             },
         )
         for (rule in Fuzzy.RULES) {
             val resourcePair = labels[rule.key]
+            val toggleRule = {
+                val next = !(ruleOn[rule.key] == true)
+                ruleOn[rule.key] = next
+                prefs.edit { putBoolean(Fuzzy.prefKey(rule.key), next) }
+            }
             AppSectionDivider()
             AppSettingRow(
                 title = if (resourcePair == null) rule.key else stringResource(resourcePair.first),
                 description = resourcePair?.let { stringResource(it.second) },
+                onClick = if (master) toggleRule else null,
                 trailing = {
-                    Switch(
+                    AegisSwitch(
                         checked = ruleOn[rule.key] == true,
                         enabled = master,
-                        onCheckedChange = {
-                            ruleOn[rule.key] = it
-                            prefs.edit { putBoolean(Fuzzy.prefKey(rule.key), it) }
-                        },
+                        onCheckedChange = { toggleRule() },
                     )
                 },
             )

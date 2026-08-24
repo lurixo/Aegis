@@ -16,13 +16,13 @@
 package com.aegis.ime.ui
 
 import android.content.Context
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.core.content.edit
@@ -50,18 +51,20 @@ private fun FeedbackToggleCard(prefKey: String, default: Boolean, titleRes: Int,
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
     var on by remember { mutableStateOf(prefs.flagOr(prefKey, default)) }
+    val toggle = {
+        on = !on
+        prefs.edit { putBoolean(prefKey, on) }
+    }
 
     AppSection {
         AppSettingRow(
             title = stringResource(titleRes),
             description = stringResource(descRes),
+            onClick = toggle,
             trailing = {
-                Switch(
+                AegisSwitch(
                     checked = on,
-                    onCheckedChange = {
-                        on = it
-                        prefs.edit { putBoolean(prefKey, it) }
-                    },
+                    onCheckedChange = { toggle() },
                 )
             },
         )
@@ -79,18 +82,20 @@ internal fun KeyPreviewCard() {
     var master by remember { mutableStateOf(prefs.flagOr(PREF_KEY_PREVIEW_MASTER, KEY_PREVIEW_MASTER_DEFAULT)) }
     var nine by remember { mutableStateOf(prefs.flagOr(PREF_KEY_PREVIEW_NINE, KEY_PREVIEW_SUB_DEFAULT)) }
     var alpha by remember { mutableStateOf(prefs.flagOr(PREF_KEY_PREVIEW_ALPHA, KEY_PREVIEW_SUB_DEFAULT)) }
+    val toggleMaster = {
+        master = !master
+        prefs.edit { putBoolean(PREF_KEY_PREVIEW_MASTER, master) }
+    }
 
     AppSection {
         AppSettingRow(
             title = stringResource(R.string.key_preview_title),
             description = stringResource(R.string.key_preview_description),
+            onClick = toggleMaster,
             trailing = {
-                Switch(
+                AegisSwitch(
                     checked = master,
-                    onCheckedChange = {
-                        master = it
-                        prefs.edit { putBoolean(PREF_KEY_PREVIEW_MASTER, it) }
-                    },
+                    onCheckedChange = { toggleMaster() },
                 )
             },
         )
@@ -113,11 +118,13 @@ private fun KeyPreviewSubRow(labelRes: Int, checked: Boolean, enabled: Boolean, 
         modifier = Modifier
             .fillMaxWidth()
             .heightIn(min = AppSpacing.rowMinHeight)
+            .clip(MaterialTheme.shapes.extraSmall)
+            .clickable(enabled = enabled) { onCheckedChange(!checked) }
             .padding(horizontal = AppSpacing.rowHorizontal),
         horizontalArrangement = Arrangement.spacedBy(AppSpacing.contentGap),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(stringResource(labelRes), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
-        Switch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
+        AegisSwitch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
     }
 }

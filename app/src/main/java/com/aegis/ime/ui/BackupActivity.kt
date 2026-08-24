@@ -48,7 +48,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -829,11 +831,14 @@ internal fun PasswordTextField(
 @Composable
 private fun ModeOption(selected: Boolean, titleRes: Int, descRes: Int, onSelect: () -> Unit) {
     Row(
-        modifier = Modifier.fillMaxWidth().selectable(selected = selected, onClick = onSelect),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.extraSmall)
+            .selectable(selected = selected, role = Role.RadioButton, onClick = onSelect),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        RadioButton(selected = selected, onClick = onSelect)
+        RadioButton(selected = selected, onClick = null)
         Column(modifier = Modifier.weight(1f)) {
             Text(stringResource(titleRes), style = MaterialTheme.typography.bodyMedium)
             Text(
