@@ -304,8 +304,17 @@ class KeyboardView(context: Context) : View(context) {
                     pk.y * h + verticalGap
                 }
                 val bottom = if (layout.id == LayoutId.ALPHA) top + alphaFaceHeight else (pk.y + pk.h) * h - verticalGap
-                val hitTop = if (layout.id == LayoutId.ALPHA) top - verticalGap / 2f else pk.y * h
-                val hitBottom = if (layout.id == LayoutId.ALPHA) bottom + verticalGap / 2f else (pk.y + pk.h) * h
+                val rowIndex = (pk.y * layout.rowCount).roundToInt()
+                val hitTop = when {
+                    layout.id != LayoutId.ALPHA -> pk.y * h
+                    rowIndex == 0 -> 0f
+                    else -> top - verticalGap / 2f
+                }
+                val hitBottom = when {
+                    layout.id != LayoutId.ALPHA -> (pk.y + pk.h) * h
+                    rowIndex == layout.rowCount - 1 -> h
+                    else -> bottom + verticalGap / 2f
+                }
                 placed.add(
                     Placed(
                         RectF(

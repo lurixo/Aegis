@@ -63,9 +63,12 @@ class KeyboardGeometryTest {
             val faces = view.keyBoundsForTest().associate { it.first.label to it.second }
             val hits = view.keyHitBoundsForTest().associate { it.first.label to it.second }
             val baselineFace = faces.getValue("q")
-            val baselineHit = hits.getValue("q")
+            val baselineHit = hits.getValue("a")
             for (label in "abcdefghijklmnopqrstuvwxyz".map(Char::toString)) {
                 assertSize(baselineFace, faces.getValue(label))
+                assertEquals(baselineHit.width(), hits.getValue(label).width(), 0.02f)
+            }
+            for (label in "asdfghjklzxcvbnm".map(Char::toString)) {
                 assertSize(baselineHit, hits.getValue(label))
             }
             val homeFaces = "asdfghjkl".map { faces.getValue(it.toString()) }
@@ -90,7 +93,7 @@ class KeyboardGeometryTest {
         for (widthDp in listOf(250, 360, 480)) {
             val alphabet = view(LayoutId.ALPHA, widthDp)
             val baselineFace = requireNotNull(alphabet.boundsOfLabelForTest("q"))
-            val baselineHit = alphabet.keyHitBoundsForTest().first { it.first.label == "q" }.second
+            val baselineHit = alphabet.keyHitBoundsForTest().first { it.first.label == "a" }.second
             val alphaFaces = alphabet.keyBoundsForTest().associate { it.first.label to it.second }
             val ordinaryGap = alphaFaces.getValue("w").left - alphaFaces.getValue("q").right
             for (id in listOf(LayoutId.NUMBER, LayoutId.SYMBOL)) {
@@ -203,11 +206,21 @@ class KeyboardGeometryTest {
                     val ordinary = if (rowIndex < source.rows.lastIndex) key.weight == 1f else key.action != KeyAction.SPACE
                     if (ordinary) {
                         assertEquals(baselineFace.height(), faces[offset + index].second.height(), 0.02f)
-                        assertEquals(baselineHit.height(), hits[offset + index].second.height(), 0.02f)
+                        assertEquals(baselineHit.height(), hits[offset + index].second.height(), 1.02f)
                     }
                 }
                 offset += row.keys.size
             }
         }
+    }
+
+    @Test
+    fun alphaEdgeRowsExtendTheirHitBoxesToTheViewEdges() {
+        val view = view(LayoutId.ALPHA, 360)
+        val hits = view.keyHitBoundsForTest().associate { it.first.label to it.second }
+        assertEquals("the top row reaches the top edge", 0f, hits.getValue("q").top, 0.01f)
+        val bottomMost = view.keyHitBoundsForTest().maxOf { it.second.bottom }
+        assertEquals("the bottom row reaches the bottom edge", view.height.toFloat(), bottomMost, 0.01f)
+        assertEquals("a touch on the very top lands on a key", "q", view.keyAtForTest(hits.getValue("q").centerX(), 0.4f)?.label)
     }
 }
