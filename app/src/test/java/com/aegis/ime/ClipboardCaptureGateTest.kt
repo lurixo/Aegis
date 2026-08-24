@@ -130,6 +130,15 @@ class ClipboardCaptureGateTest {
         assertEquals(listOf("系统剪贴板上的"), store(service).historyText())
     }
 
+    @Test fun a_copy_keeps_its_whitespace_exactly_as_copied() {
+        val service = startedIn(ordinary())
+        systemClip(" \u524d\u540e\u6709\u7a7a\u767d\t\n")
+
+        service.javaClass.getDeclaredMethod("onSystemClipChanged").apply { isAccessible = true }.invoke(service)
+
+        assertEquals(listOf(" \u524d\u540e\u6709\u7a7a\u767d\t\n"), store(service).historyText())
+    }
+
     @Test fun a_copy_made_while_an_ordinary_field_is_open_is_still_kept() {
         val service = startedIn(ordinary())
         systemClip("在普通框里复制的")

@@ -278,9 +278,8 @@ class ClipboardStore(private val dir: File) {
     }
 
     fun record(text: String?) {
-        val t = text?.trim().orEmpty()
-        if (t.isEmpty()) return
-        onChangeLane { recordHere(t) }
+        if (text.isNullOrBlank()) return
+        onChangeLane { recordHere(text) }
     }
 
     private fun recordHere(text: String) {
@@ -323,8 +322,8 @@ class ClipboardStore(private val dir: File) {
             return if (pending != null) ClipEntry.pending(clipsDir(), hash, pending)
             else ClipEntry.rehomed(clipsDir(), hash, entry.importSource())
         }
-        val body = entry.body()?.trim().orEmpty()
-        return if (body.isEmpty()) null else adopt(body)
+        val body = entry.body().orEmpty()
+        return if (body.isBlank()) null else adopt(body)
     }
 
     fun delete(text: String) = deleteAll(listOf(text))
@@ -347,9 +346,8 @@ class ClipboardStore(private val dir: File) {
     fun editClip(key: String, newText: String): Boolean {
         settleChanges()
         if (!clipWritesAllowed()) { reportClipWrite(false); return false }
-        val text = newText.trim()
-        if (text.isEmpty()) { reportClipWrite(false); return false }
-        val replacement = adopt(text)
+        if (newText.isBlank()) { reportClipWrite(false); return false }
+        val replacement = adopt(newText)
         var missing = false
         val changed = synchronized(history) {
             val at = history.indexOfFirst { it.key == key }

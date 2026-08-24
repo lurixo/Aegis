@@ -58,6 +58,14 @@ class CopyBarControllerTest {
         assertEquals("你好hello,world!", c.content)
     }
 
+    @Test fun the_bar_keeps_and_commits_the_copied_text_verbatim() {
+        val c = ctl()
+        c.show(" \u4f60\u597d\thello\n")
+        assertEquals(" \u4f60\u597d\thello\n", c.content)
+        c.tapContent()
+        assertEquals(listOf(" \u4f60\u597d\thello\n"), commits)
+    }
+
     @Test fun split_uses_clipsplitter_blocks() {
         val c = ctl()
         c.show("你好hello,world!")

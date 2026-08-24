@@ -448,6 +448,15 @@ class ClipboardViewInteractionTest {
         assertEquals("…which 上屏s the clip", "第一条", picked)
     }
 
+    @Test fun a_tap_commits_the_clip_body_verbatim_including_edge_whitespace() {
+        var picked: String? = null
+        val text = " \u7b2c\u4e00\u6761\t\u6362\n\u884c "
+        val v = clipView(listOf(text)).apply { onPick = { picked = it } }
+        layout(v)
+        assertTrue(bodyOf(v, text).performClick())
+        assertEquals(text, picked)
+    }
+
     @Test fun a_clearly_vertical_drag_scrolls_and_neither_reveals_nor_commits() {
         var picked: String? = null
         val v = clipView(listOf("第一条", "第二条")).apply { onPick = { picked = it } }

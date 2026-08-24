@@ -100,6 +100,18 @@ class ClipboardStoreTest {
         assertEquals("line1\r\nline2", reloaded.historyText().first())
     }
 
+    @Test fun edge_whitespace_on_a_clip_survives_recording_and_reloading() {
+        val dir = newDir()
+        ClipboardStore(dir).apply { load(); record(" \tline1\nline2 \n"); flushPendingWrites() }
+        assertEquals(" \tline1\nline2 \n", ClipboardStore(dir).apply { load() }.historyText().first())
+    }
+
+    @Test fun clips_that_differ_only_in_edge_whitespace_stay_distinct_and_dedupe_exactly() {
+        val s = ClipboardStore(newDir()).apply { load() }
+        s.record(" x "); s.record("x"); s.record(" x ")
+        assertEquals(listOf(" x ", "x"), s.historyText())
+    }
+
     @Test fun multi_delete_and_clear_persist() {
         val dir = newDir()
         val s = ClipboardStore(dir).apply { load() }

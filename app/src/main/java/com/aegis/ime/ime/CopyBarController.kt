@@ -33,10 +33,9 @@ class CopyBarController(
     val active: Boolean get() = content != null
 
     fun show(text: String) {
-        val t = text.trim()
-        if (t.isEmpty()) return
+        if (text.isBlank()) return
         finishSelection()
-        content = t
+        content = text
         splitMode = false
         selection = null
     }

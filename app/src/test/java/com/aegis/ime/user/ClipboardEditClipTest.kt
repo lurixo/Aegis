@@ -126,4 +126,27 @@ class ClipboardEditClipTest {
             File(dir, "clips").listFiles().orEmpty().isEmpty(),
         )
     }
+
+    @Test fun a_row_with_edge_whitespace_is_its_own_clip_beside_the_trimmed_text() {
+        val dir = newDir()
+        File(dir, "clipboard.txt").writeText(" x \n")
+        val s = ClipboardStore(dir).apply { load() }
+        s.record("x")
+        s.flushPendingWrites()
+        assertEquals("texts that differ only in whitespace are distinct clips", listOf("x", " x "), s.keys())
+    }
+
+    @Test fun rows_that_differ_only_in_whitespace_both_load_verbatim() {
+        val dir = newDir()
+        File(dir, "clipboard.txt").writeText(" x \nx\n")
+        val s = ClipboardStore(dir).apply { load() }
+        assertEquals(listOf(" x ", "x"), s.bodies())
+    }
+
+    @Test fun an_edit_that_only_changes_whitespace_still_lands() {
+        val s = ClipboardStore(newDir()).apply { load() }
+        s.record("a")
+        assertTrue(s.editClip("a", " a "))
+        assertEquals(listOf(" a "), s.bodies())
+    }
 }

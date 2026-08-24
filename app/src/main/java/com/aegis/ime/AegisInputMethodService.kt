@@ -1335,8 +1335,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (clip.itemCount == 0) return
         val item = clip.getItemAt(0)
         if (item.uri != null && item.text == null) return
-        val t = runCatching { item.coerceToText(this)?.toString() }.getOrNull()?.trim().orEmpty()
-        if (t.isNotEmpty()) recordTextClip(t)
+        val t = runCatching { item.coerceToText(this)?.toString() }.getOrNull().orEmpty()
+        if (t.isNotBlank()) recordTextClip(t)
     }
 
     private fun recordTextClip(t: String) {
