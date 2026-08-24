@@ -18,6 +18,7 @@ package com.aegis.ime.ui
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -46,6 +47,7 @@ import com.aegis.ime.R
 import com.aegis.ime.SettingsHotApply
 import com.aegis.ime.dict.ModelDownload
 import com.aegis.ime.ui.theme.AppSpacing
+import com.aegis.ime.ui.theme.SettingsMotion
 
 internal data class DownloadCardPreview(val present: Boolean, val checking: Boolean = false, val status: String? = null)
 
@@ -168,7 +170,11 @@ internal fun GramDownloadCard(
                     style = MaterialTheme.typography.labelLarge,
                 )
             }
-            if (downloading) {
+            AnimatedVisibility(
+                visible = downloading,
+                enter = SettingsMotion.revealEnter(),
+                exit = SettingsMotion.collapseExit(),
+            ) {
                 val currentProgress = progress
                 if (currentProgress == null) {
                     LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
