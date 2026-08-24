@@ -80,6 +80,7 @@ object Calculator {
 
     private class Parser(private val s: String) {
         private var i = 0
+        private var percentOperand = false
 
         fun atEnd(): Boolean = i >= s.length
         fun skipSpace() { while (i < s.length && s[i] == ' ') i++ }
@@ -92,7 +93,8 @@ object Calculator {
                 if (op != '+' && op != '-') break
                 i++
                 val rhs = parseTerm()
-                v = if (op == '+') v + rhs else v - rhs
+                val delta = if (percentOperand) v * rhs else rhs
+                v = if (op == '+') v + delta else v - delta
             }
             return v
         }
@@ -109,6 +111,7 @@ object Calculator {
                     if (rhs == 0.0) throw ArithmeticException("÷0")
                     v /= rhs
                 }
+                percentOperand = false
             }
             return v
         }
@@ -120,7 +123,9 @@ object Calculator {
             if (c == '-') { i++; return -parseFactor() }
             var v = parsePrimary()
             skipSpace()
-            while (peek() == '%') { i++; v /= 100.0; skipSpace() }
+            var pct = false
+            while (peek() == '%') { i++; v /= 100.0; pct = true; skipSpace() }
+            percentOperand = pct
             return v
         }
 

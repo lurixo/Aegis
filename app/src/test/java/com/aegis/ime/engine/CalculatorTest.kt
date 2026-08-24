@@ -126,6 +126,17 @@ class CalculatorTest {
         assertEquals("-1", Calculator.detect("1-2")!!.result)
     }
 
+    @Test fun percent_after_plus_or_minus_takes_that_share_of_the_left_side() {
+        assertEquals(110.0, Calculator.evaluate("100+10%")!!, 1e-9)
+        assertEquals(90.0, Calculator.evaluate("100-10%")!!, 1e-9)
+        assertEquals(121.0, Calculator.evaluate("100+10%+10%")!!, 1e-9)
+        assertEquals(0.75, Calculator.evaluate("50%+50%")!!, 1e-9)
+        assertEquals("a multiplicative term keeps its plain value", 100.5, Calculator.evaluate("100+5*10%")!!, 1e-9)
+        assertEquals("parentheses seal a sum away from the share reading", 210.0, Calculator.evaluate("100+(100+10%)")!!, 1e-9)
+        assertEquals("division still divides by the plain fraction", 1000.0, Calculator.evaluate("100/10%")!!, 1e-9)
+        assertEquals("110", Calculator.detect("100+10%")!!.result)
+    }
+
     @Test fun f3_percent_is_a_postfix_divide_by_100() {
         assertEquals(0.15, Calculator.evaluate("15%")!!, 1e-9)
         assertEquals(30.0, Calculator.evaluate("200×15%")!!, 1e-9)
