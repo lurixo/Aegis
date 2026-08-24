@@ -276,26 +276,30 @@ class AegisInputMethodServicePersistenceTest {
         assertTrue(UserModel { 10L }.apply { load(userDb) }.wordBoost("排队") > 0.0)
     }
 
-    @Test fun a_store_that_could_not_be_read_is_never_written_back() {
+    @Test fun a_damaged_store_is_quarantined_and_learning_carries_on() {
         userDb.writeText("aegis-userdb 99\nW\t坏\t1\t1\n")
         val service = started()
-        assertFalse("a store that failed to load must say so", model(service).readable)
-        model(service).record(null, "不可写回", 1L)
+        assertTrue("a fresh store serves once the damaged one is moved aside", model(service).readable)
+        val aside = filesDir.listFiles().orEmpty().single { it.name.startsWith("userdb.txt.corrupt-") }
+        model(service).record(null, "重新学习", 1L)
 
         service.onFinishInput()
+        drainWriteLane(service)
         service.onDestroy()
 
+        assertTrue("learning carries on into a fresh store", userDb.exists())
+        assertTrue(UserModel { 10L }.apply { load(userDb) }.wordBoost("重新学习") > 0.0)
         assertEquals(
-            "a store that failed to load must be left exactly as it was found",
+            "the damaged bytes survive untouched in the quarantine file",
             "aegis-userdb 99\nW\t坏\t1\t1\n",
-            userDb.readText(),
+            aside.readText(),
         )
     }
 
-    @Test fun a_learning_file_changed_outside_is_picked_up_although_the_dictionary_could_not_be_read() {
+    @Test fun a_learning_file_changed_outside_is_picked_up_although_the_dictionary_was_damaged() {
         userDb.writeText("aegis-userdb 99\nW\t坏\t1\t1\n")
         val service = started()
-        assertFalse("precondition: the dictionary really could not be read", model(service).readable)
+        assertTrue("the damaged dictionary is quarantined, not left blocking", model(service).readable)
 
         val recently = System.currentTimeMillis()
         UserLearning().apply {
@@ -314,27 +318,23 @@ class AegisInputMethodServicePersistenceTest {
         drainWriteLane(service)
 
         assertEquals(
-            "one store that could not be read must not stop the other from being picked up",
+            "one damaged store must not stop the other from being picked up",
             listOf("你呢嗯"),
             learning(service).formedWordsFor("ninen"),
         )
     }
 
-    @Test fun a_dictionary_that_could_not_be_read_is_reparsed_once_not_on_every_input_session() {
+    @Test fun a_damaged_dictionary_is_quarantined_once_not_on_every_input_session() {
         userDb.writeText("aegis-userdb 99\nW\t坏\t1\t1\n")
         val service = started()
-        assertFalse("precondition: the dictionary really could not be read", model(service).readable)
-
-        val watermark = service.javaClass.getDeclaredField("userDbMtime").apply { isAccessible = true }
-        assertEquals("precondition: the failed cold-start load left the watermark behind", 0L, watermark.getLong(service))
+        fun quarantined() = filesDir.listFiles().orEmpty().count { it.name.startsWith("userdb.txt.corrupt-") }
+        assertEquals("the damaged file is moved aside exactly once at the cold start", 1, quarantined())
+        assertTrue("a fresh store serves in its place", model(service).readable)
 
         service.onStartInput(editor(), false)
+        service.onStartInput(editor(), false)
 
-        assertEquals(
-            "the watermark must move even when the file would not parse, or every focused field reparses it whole on the main thread",
-            userDb.lastModified(),
-            watermark.getLong(service),
-        )
+        assertEquals("focusing more fields must not quarantine anything further", 1, quarantined())
     }
 
     @Test fun an_outside_change_must_not_wipe_out_words_the_keyboard_has_not_written_yet() {
@@ -413,13 +413,10 @@ class AegisInputMethodServicePersistenceTest {
         }
     }
 
-    @Test fun a_dictionary_repaired_from_outside_is_picked_up_even_after_the_keyboard_gave_up_on_it() {
+    @Test fun a_dictionary_replaced_from_outside_is_picked_up_after_the_damaged_one_was_quarantined() {
         userDb.writeText("aegis-userdb 99\nW\t坏\t1\t1\n")
         val service = started()
-        assertFalse("precondition: the dictionary could not be read", model(service).readable)
-
-        model(service).record(null, "打过字", 1L)
-        assertTrue("precondition: one keystroke pins dirty, and a refused save can never clear it", model(service).dirty)
+        assertTrue("the damaged dictionary was quarantined at the cold start", model(service).readable)
         service.onStartInput(editor(), false)
 
         UserModel().apply { addManualWord("xiu", "修好", 1L) }.save(userDb)
@@ -427,7 +424,7 @@ class AegisInputMethodServicePersistenceTest {
         service.onStartInput(editor(), false)
         drainWriteLane(service)
 
-        assertTrue("a store nobody can write to must not also refuse to read a repaired file", model(service).readable)
+        assertTrue(model(service).readable)
         assertEquals(listOf("修好"), model(service).readingSnapshot()["xiu"])
     }
 
@@ -452,12 +449,12 @@ class AegisInputMethodServicePersistenceTest {
         )
     }
 
-    @Test fun a_user_dictionary_that_could_not_be_read_does_not_take_the_learning_store_down_with_it() {
+    @Test fun a_damaged_user_dictionary_does_not_take_the_learning_store_down_with_it() {
         userDb.writeText("aegis-userdb 99\nW\t坏\t1\t1\n")
         val service = started()
-        assertFalse("precondition: the dictionary really did fail to load", model(service).readable)
+        assertTrue("the damaged dictionary is quarantined, not left blocking", model(service).readable)
         assertTrue(
-            "a dictionary that could not be read must still leave the keyboard serving as the single writer",
+            "the keyboard must still serve as the single writer",
             UserDictHot.host === liveHost(service),
         )
         glue(learning(service))
@@ -469,9 +466,9 @@ class AegisInputMethodServicePersistenceTest {
         assertTrue("the healthy learning store must still be written", userLearn.exists())
         assertFalse("and it must not still be waiting to be written", learning(service).dirty)
         assertEquals(
-            "the unreadable dictionary is still left exactly as it was found",
+            "the damaged dictionary sits quarantined exactly as it was found",
             "aegis-userdb 99\nW\t坏\t1\t1\n",
-            userDb.readText(),
+            filesDir.listFiles().orEmpty().single { it.name.startsWith("userdb.txt.corrupt-") }.readText(),
         )
     }
 

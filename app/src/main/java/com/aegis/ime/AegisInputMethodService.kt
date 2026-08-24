@@ -345,11 +345,21 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 runCatching {
                     userModel.load(userDbFile)
                     userDbMtime = userDbFile.lastModified()
-                }.onFailure { Log.e("Aegis", "userdb load failed", it) }
+                }.onFailure {
+                    Log.e("Aegis", "userdb load failed", it)
+                    if (quarantineCorruptStore(userDbFile)) {
+                        runCatching { userModel.load(userDbFile) }
+                    }
+                }
                 runCatching {
                     userLearning.load(userLearnFile)
                     userLearnMtime = userLearnFile.lastModified()
-                }.onFailure { Log.e("Aegis", "userlearn load failed", it) }
+                }.onFailure {
+                    Log.e("Aegis", "userlearn load failed", it)
+                    if (quarantineCorruptStore(userLearnFile)) {
+                        runCatching { userLearning.load(userLearnFile) }
+                    }
+                }
                 if (UserDeletionPromises.keep(userModel, userDbFile, userLearning, userLearnFile)) {
                     userDbMtime = userDbFile.lastModified()
                     userLearnMtime = userLearnFile.lastModified()
@@ -1571,3 +1581,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 }
 
 private const val EDITABLE_CLIP_CHARS = 4096L
+
+internal fun quarantineCorruptStore(file: java.io.File): Boolean {
+    if (!file.exists()) return false
+    val aside = java.io.File(file.parentFile, file.name + ".corrupt-" + System.currentTimeMillis())
+    return file.renameTo(aside)
+}
