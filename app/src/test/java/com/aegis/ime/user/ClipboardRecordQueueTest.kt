@@ -238,6 +238,10 @@ class ClipboardRecordQueueTest {
         s.stopSaving()
         release?.countDown()
         assertTrue(
+            "the change lane must be allowed to finish what it was given",
+            changer(s).awaitTermination(10, TimeUnit.SECONDS),
+        )
+        assertTrue(
             "the writer must be allowed to finish what it was given",
             writer(s).awaitTermination(10, TimeUnit.SECONDS),
         )
