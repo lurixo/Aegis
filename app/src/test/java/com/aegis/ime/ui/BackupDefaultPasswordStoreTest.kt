@@ -39,6 +39,23 @@ class BackupDefaultPasswordStoreTest {
         assertEquals("secret1", store.read())
         val storedValues = prefs.all.values.joinToString("|") { it.toString() }
         assertFalse(storedValues.contains("secret1"))
+        val reversed = "secret1".encodeToByteArray().reversedArray()
+        val stored = prefs.all.values.map { it.toString().trim() }
+        assertTrue(
+            "the cipher's output is what lands in the preferences",
+            stored.any {
+                it == android.util.Base64.encodeToString(reversed, android.util.Base64.NO_WRAP) ||
+                    it == android.util.Base64.encodeToString(reversed, android.util.Base64.DEFAULT).trim()
+            },
+        )
+        val iv = byteArrayOf(1, 2, 3)
+        assertTrue(
+            "the iv is persisted alongside the ciphertext",
+            stored.any {
+                it == android.util.Base64.encodeToString(iv, android.util.Base64.NO_WRAP) ||
+                    it == android.util.Base64.encodeToString(iv, android.util.Base64.DEFAULT).trim()
+            },
+        )
     }
 
     @Test fun clear_removes_saved_state_and_key_material() {

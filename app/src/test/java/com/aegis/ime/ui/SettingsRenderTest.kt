@@ -32,6 +32,7 @@ import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
 import com.aegis.ime.R
 import com.aegis.ime.ui.theme.AegisTheme
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -72,8 +73,22 @@ class SettingsRenderTest {
         bmp.eraseColor(Color.MAGENTA)
         compose.draw(Canvas(bmp))
         FileOutputStream(File(outDir, name)).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        val px = IntArray(wPx); bmp.getPixels(px, 0, wPx, 0, hPx / 2, wPx, 1)
-        assertTrue("$name rendered nothing (still magenta)", px.any { it != Color.MAGENTA })
+        var drawn = 0
+        val px = IntArray(wPx)
+        for (band in 1..5) {
+            bmp.getPixels(px, 0, wPx, 0, hPx * band / 6, wPx, 1)
+            val row = px.count { it != Color.MAGENTA }
+            assertTrue("$name band $band rendered nothing (still magenta)", row > 0)
+            drawn += row
+        }
+        assertTrue("$name painted almost nothing: $drawn", drawn > wPx / 2)
+    }
+
+
+    private fun assertThemedPairDiffers(base: String) {
+        val light = File(outDir, base + "light.png").readBytes()
+        val dark = File(outDir, base + "dark.png").readBytes()
+        assertFalse(base + " light and dark rendered identically", light.contentEquals(dark))
     }
 
     @Test fun settings_download_cards_and_toggle() {
@@ -85,6 +100,7 @@ class SettingsRenderTest {
                 AssociationToggleCard()
             }
         }
+        assertThemedPairDiffers("settings_")
     }
 
     @Test fun download_card_update_states() {
@@ -97,6 +113,7 @@ class SettingsRenderTest {
                 GramDownloadCard(DownloadCardPreview(present = true, status = ctx.getString(R.string.download_toast_update_offline)))
             }
         }
+        assertThemedPairDiffers("dlcard_states_")
     }
 
     @Test fun settings_home_renders() {
@@ -106,6 +123,7 @@ class SettingsRenderTest {
                 SettingsHomePage(onOpenGroup = {})
             }
         }
+        assertThemedPairDiffers("settings_home_")
     }
 
     @Test fun user_dict_page_renders() {
@@ -118,6 +136,7 @@ class SettingsRenderTest {
                     UserDictPage(onBack = {})
                 }
             }
+            assertThemedPairDiffers("userdict_page_")
         } finally {
             db.delete()
         }
