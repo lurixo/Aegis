@@ -94,10 +94,11 @@ internal data class ImePanelSurfaceMetrics(
         const val TOP_FACE_OFFSET_DP = 8
         const val MINIMUM_GRID_CELL_WIDTH_DP = 48
 
-        fun resolve(density: Float): ImePanelSurfaceMetrics {
+        fun resolve(density: Float, scaledDensity: Float = density): ImePanelSurfaceMetrics {
             fun dp(value: Int): Int = (value * density).toInt()
             val faceInsetPx = dp(FACE_INSET_DP)
-            val faceHeightPx = dp(FACE_HEIGHT_DP)
+            val glyphLinePx = (com.aegis.ime.ime.theme.ImeType.display * scaledDensity * 1.25f).toInt()
+            val faceHeightPx = maxOf(dp(FACE_HEIGHT_DP), glyphLinePx)
             val topFaceOffsetPx = dp(TOP_FACE_OFFSET_DP)
             return ImePanelSurfaceMetrics(
                 railWidthPx = dp(RAIL_WIDTH_DP),

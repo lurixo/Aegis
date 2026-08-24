@@ -57,7 +57,7 @@ class SymbolsView(context: Context) : LinearLayout(context), ResettablePanel, Co
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
-    private val surfaceMetrics = ImePanelSurfaceMetrics.resolve(density)
+    private val surfaceMetrics = ImePanelSurfaceMetrics.resolve(density, resources.displayMetrics.density * resources.configuration.fontScale)
     private val cellHeightPx = surfaceMetrics.gridCellHeightPx
 
     private val titles: List<String> =
