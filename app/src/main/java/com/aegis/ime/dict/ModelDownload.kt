@@ -177,6 +177,7 @@ object ModelDownload {
                         done += n
                         onProgress(done, total)
                     }
+                    out.fd.sync()
                 }
             }
             when {
@@ -573,7 +574,7 @@ object ModelDownload {
             runCatching {
                 val sha256 = requireNotNull(normalizeSha256(value)) { "unrecognised dictionary sha256" }
                 downloadedDir(filesDir).mkdirs()
-                dictPendingShaFile(filesDir).writeText(sha256)
+                syncWrite(dictPendingShaFile(filesDir), sha256)
                 PendingMarker.Recorded
             }.getOrElse { PendingMarker.NotWritten(it) }
         }
@@ -724,7 +725,7 @@ object ModelDownload {
                 name in produced && File(staging, name).let { it.exists() && it.length() > 1024 }
             }
             if (!complete) return false
-            File(staging, DICT_INSTALLED_SHA_NAME).writeText(normalizedSha)
+            syncWrite(File(staging, DICT_INSTALLED_SHA_NAME), normalizedSha)
 
             val backedUp = ArrayList<String>()
             val installed = ArrayList<String>()
@@ -878,7 +879,10 @@ object ModelDownload {
                     val part = File(dir, "$target.part")
                     part.delete()
                     try {
-                        part.outputStream().use { out -> zin.copyTo(out) }
+                        FileOutputStream(part).use { out ->
+                            zin.copyTo(out)
+                            out.fd.sync()
+                        }
                         moveReplacing(part, finalFile)
                         produced.add(target)
                     } catch (t: Throwable) {
@@ -912,6 +916,13 @@ object ModelDownload {
             while (true) { val n = ins.read(buf); if (n < 0) break; md.update(buf, 0, n) }
         }
         return md.digest().joinToString("") { "%02x".format(it.toInt() and 0xFF) }
+    }
+
+    private fun syncWrite(file: File, text: String) {
+        FileOutputStream(file).use { out ->
+            out.write(text.toByteArray())
+            out.fd.sync()
+        }
     }
 
     private fun moveReplacing(source: File, target: File) {
