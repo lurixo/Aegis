@@ -57,7 +57,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
-import org.robolectric.shadows.ShadowToast
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -664,7 +663,7 @@ class ResourceUpdateCardTest {
 
     @After
     fun clean() {
-        ShadowToast.reset()
+        AegisToast.reset()
         prefs.edit()
             .remove(ModelDownload.VALIDATOR_PREF)
             .remove(ModelDownload.GRAM_SHA256_PREF)
@@ -703,7 +702,7 @@ class ResourceUpdateCardTest {
                 writeBytes(ByteArray(2_048))
             }
             prefs.edit().putInt(ModelDownload.VALIDATOR_PREF, 7).commit()
-            ShadowToast.reset()
+            AegisToast.reset()
             compose.runOnUiThread {
                 compose.activity.setContent {
                     AegisTheme {
@@ -717,13 +716,13 @@ class ResourceUpdateCardTest {
             compose.waitForIdle()
 
             compose.onNodeWithText(context.getString(R.string.check_model_update_button)).assertIsEnabled().performClick()
-            awaitMain { ShadowToast.shownToastCount() == 1 }
+            awaitMain { AegisToast.shownCountForTest() == 1 }
 
             assertEquals(listOf("HEAD", "HEAD"), requests.toList())
             assertNull("an unreadable local validator is not a newer file", downloaded.get())
             assertEquals(
                 context.getString(R.string.download_toast_update_unknown),
-                ShadowToast.getTextOfLatestToast(),
+                AegisToast.textForTest(),
             )
             compose.onNodeWithText(context.getString(R.string.download_button)).assertIsEnabled()
             compose.onNodeWithText(context.getString(R.string.check_model_update_button)).assertIsEnabled()
@@ -740,7 +739,7 @@ class ResourceUpdateCardTest {
             writeBytes(ByteArray(2_048))
         }
         prefs.edit().putString(ModelDownload.VALIDATOR_PREF, "installed-model").commit()
-        ShadowToast.reset()
+        AegisToast.reset()
         compose.runOnUiThread {
             compose.activity.setContent {
                 AegisTheme {
@@ -761,7 +760,7 @@ class ResourceUpdateCardTest {
         assertEquals(ModelDownload.GRAM_URL, downloaded.get())
         assertEquals(
             context.getString(R.string.download_toast_update_found),
-            ShadowToast.getTextOfLatestToast(),
+            AegisToast.textForTest(),
         )
         compose.onNodeWithText(context.getString(R.string.check_model_update_button)).assertIsEnabled()
     }
@@ -774,7 +773,7 @@ class ResourceUpdateCardTest {
             writeBytes(ByteArray(2_048))
         }
         prefs.edit().remove(ModelDownload.VALIDATOR_PREF).commit()
-        ShadowToast.reset()
+        AegisToast.reset()
         compose.runOnUiThread {
             compose.activity.setContent {
                 AegisTheme {
@@ -789,14 +788,14 @@ class ResourceUpdateCardTest {
 
         compose.onNodeWithText(context.getString(R.string.download_button)).assertIsNotEnabled()
         compose.onNodeWithText(context.getString(R.string.check_model_update_button)).performClick()
-        awaitMain { ShadowToast.shownToastCount() == 1 }
+        awaitMain { AegisToast.shownCountForTest() == 1 }
 
         assertEquals("no local validator is not a newer file", 0, downloads.get())
         assertFalse(prefs.contains(ModelDownload.VALIDATOR_PREF))
         assertTrue(ModelDownload.isDownloaded(context.filesDir))
         assertEquals(
             context.getString(R.string.download_toast_update_unknown),
-            ShadowToast.getTextOfLatestToast(),
+            AegisToast.textForTest(),
         )
         compose.onNodeWithText(context.getString(R.string.download_button))
             .assertIsEnabled()
@@ -832,7 +831,7 @@ class ResourceUpdateCardTest {
                 .putString(ModelDownload.DICT_SHA256_PREF, "1".repeat(64))
                 .putInt(ModelDownload.DICT_RELEASE_PUBLISHED_PREF, 7)
                 .commit()
-            ShadowToast.reset()
+            AegisToast.reset()
             compose.runOnUiThread {
                 compose.activity.setContent {
                     AegisTheme {
@@ -854,7 +853,7 @@ class ResourceUpdateCardTest {
             assertEquals(DICT_ASSET_URL, downloaded.get().url)
             assertEquals(DICT_SHA, downloaded.get().sha256)
             assertNull(downloaded.get().publishedAt)
-            assertEquals(context.getString(R.string.download_toast_update_found), ShadowToast.getTextOfLatestToast())
+            assertEquals(context.getString(R.string.download_toast_update_found), AegisToast.textForTest())
             compose.onNodeWithText(context.getString(R.string.check_dict_update_button)).assertIsEnabled()
         } finally {
             server.stop(0)
@@ -868,7 +867,7 @@ class ResourceUpdateCardTest {
         val dir = ModelDownload.destFile(context.filesDir).parentFile!!.apply { mkdirs() }
         ModelDownload.DICT_PACK_FILES.forEach { File(dir, it).writeBytes(ByteArray(2_048)) }
         prefs.edit().remove(ModelDownload.DICT_SHA256_PREF).commit()
-        ShadowToast.reset()
+        AegisToast.reset()
         compose.runOnUiThread {
             compose.activity.setContent {
                 AegisTheme {
@@ -886,7 +885,7 @@ class ResourceUpdateCardTest {
 
         compose.onNodeWithText(context.getString(R.string.download_button)).assertIsNotEnabled()
         compose.onNodeWithText(context.getString(R.string.check_dict_update_button)).performClick()
-        awaitMain { checked.get() != null && ShadowToast.shownToastCount() == 1 }
+        awaitMain { checked.get() != null && AegisToast.shownCountForTest() == 1 }
 
         assertNull(checked.get()!!.sha256)
         assertEquals("an unidentified pack is not an out-of-date pack", 0, downloads.get())
@@ -894,7 +893,7 @@ class ResourceUpdateCardTest {
         assertTrue(ModelDownload.isDictDownloaded(context.filesDir))
         assertEquals(
             context.getString(R.string.download_toast_update_unknown),
-            ShadowToast.getTextOfLatestToast(),
+            AegisToast.textForTest(),
         )
         compose.onNodeWithText(context.getString(R.string.download_button))
             .assertIsEnabled()
@@ -909,7 +908,7 @@ class ResourceUpdateCardTest {
         val dir = ModelDownload.destFile(context.filesDir).parentFile!!.apply { mkdirs() }
         ModelDownload.DICT_BIN_FILES.forEach { File(dir, it).writeBytes(ByteArray(2_048)) }
         File(dir, ModelDownload.DICT_INSTALLED_SHA_NAME).writeText(DICT_SHA)
-        ShadowToast.reset()
+        AegisToast.reset()
         compose.runOnUiThread {
             compose.activity.setContent {
                 AegisTheme {
@@ -933,7 +932,7 @@ class ResourceUpdateCardTest {
         assertTrue(ModelDownload.isDictDownloaded(context.filesDir))
         assertEquals(
             context.getString(R.string.download_toast_update_found),
-            ShadowToast.getTextOfLatestToast(),
+            AegisToast.textForTest(),
         )
     }
 
@@ -950,7 +949,7 @@ class ResourceUpdateCardTest {
             .putString(ModelDownload.DICT_RELEASE_TAG_PREF, "old")
             .putString(ModelDownload.DICT_RELEASE_PUBLISHED_PREF, "2026-01-01T00:00:00Z")
             .commit()
-        ShadowToast.reset()
+        AegisToast.reset()
         compose.runOnUiThread {
             compose.activity.setContent {
                 AegisTheme {
@@ -966,14 +965,14 @@ class ResourceUpdateCardTest {
         compose.waitForIdle()
 
         compose.onNodeWithText(context.getString(R.string.check_dict_update_button)).performClick()
-        awaitMain { checked.get() != null && ShadowToast.shownToastCount() == 1 }
+        awaitMain { checked.get() != null && AegisToast.shownCountForTest() == 1 }
 
         assertNull(checked.get()!!.sha256)
         assertNull(checked.get()!!.publishedAt)
         assertFalse(prefs.contains(ModelDownload.DICT_SHA256_PREF))
         assertFalse(prefs.contains(ModelDownload.DICT_ASSET_NAME_PREF))
         assertFalse(prefs.contains(ModelDownload.DICT_RELEASE_PUBLISHED_PREF))
-        assertEquals(context.getString(R.string.download_toast_up_to_date), ShadowToast.getTextOfLatestToast())
+        assertEquals(context.getString(R.string.download_toast_up_to_date), AegisToast.textForTest())
     }
 
     @Test
@@ -985,7 +984,7 @@ class ResourceUpdateCardTest {
             writeBytes(ByteArray(2_048))
         }
         prefs.edit().putString(ModelDownload.VALIDATOR_PREF, "local-model").commit()
-        ShadowToast.reset()
+        AegisToast.reset()
         compose.runOnUiThread {
             compose.activity.setContent {
                 AegisTheme {
@@ -1003,13 +1002,13 @@ class ResourceUpdateCardTest {
 
         val button = compose.onNodeWithText(context.getString(R.string.check_model_update_button))
         button.assertIsEnabled().performClick()
-        awaitMain { probes.get() == 1 && ShadowToast.shownToastCount() == 1 }
+        awaitMain { probes.get() == 1 && AegisToast.shownCountForTest() == 1 }
         compose.onNodeWithText(context.getString(R.string.download_toast_update_timeout)).assertExists()
         button.assertIsEnabled().performClick()
-        awaitMain { probes.get() == 2 && ShadowToast.shownToastCount() == 2 }
+        awaitMain { probes.get() == 2 && AegisToast.shownCountForTest() == 2 }
 
         assertEquals(0, downloads.get())
-        assertEquals(context.getString(R.string.download_toast_update_timeout), ShadowToast.getTextOfLatestToast())
+        assertEquals(context.getString(R.string.download_toast_update_timeout), AegisToast.textForTest())
         button.assertIsEnabled()
     }
 
@@ -1020,7 +1019,7 @@ class ResourceUpdateCardTest {
             parentFile?.mkdirs()
             writeBytes(ByteArray(2_048))
         }
-        ShadowToast.reset()
+        AegisToast.reset()
         compose.runOnUiThread {
             compose.activity.setContent {
                 AegisTheme {
@@ -1038,13 +1037,13 @@ class ResourceUpdateCardTest {
 
         val button = compose.onNodeWithText(context.getString(R.string.check_model_update_button))
         button.assertIsEnabled().performClick()
-        awaitMain { calls.get() == 1 && ShadowToast.shownToastCount() == 1 }
+        awaitMain { calls.get() == 1 && AegisToast.shownCountForTest() == 1 }
         compose.onNodeWithText(context.getString(R.string.download_toast_update_parse_error)).assertExists()
-        assertEquals(context.getString(R.string.download_toast_update_parse_error), ShadowToast.getTextOfLatestToast())
+        assertEquals(context.getString(R.string.download_toast_update_parse_error), AegisToast.textForTest())
         button.assertIsEnabled().performClick()
-        awaitMain { calls.get() == 2 && ShadowToast.shownToastCount() == 2 }
+        awaitMain { calls.get() == 2 && AegisToast.shownCountForTest() == 2 }
 
-        assertEquals(context.getString(R.string.download_toast_update_parse_error), ShadowToast.getTextOfLatestToast())
+        assertEquals(context.getString(R.string.download_toast_update_parse_error), AegisToast.textForTest())
         button.assertIsEnabled()
     }
 
@@ -1053,7 +1052,7 @@ class ResourceUpdateCardTest {
         val calls = AtomicInteger()
         val dir = ModelDownload.destFile(context.filesDir).parentFile!!.apply { mkdirs() }
         ModelDownload.DICT_PACK_FILES.forEach { File(dir, it).writeBytes(ByteArray(2_048)) }
-        ShadowToast.reset()
+        AegisToast.reset()
         compose.runOnUiThread {
             compose.activity.setContent {
                 AegisTheme {
@@ -1071,14 +1070,14 @@ class ResourceUpdateCardTest {
 
         val button = compose.onNodeWithText(context.getString(R.string.check_dict_update_button))
         button.assertIsEnabled().performClick()
-        awaitMain { calls.get() == 1 && ShadowToast.shownToastCount() == 1 }
+        awaitMain { calls.get() == 1 && AegisToast.shownCountForTest() == 1 }
         compose.onNodeWithText(context.getString(R.string.download_toast_update_unknown)).assertExists()
-        assertEquals(context.getString(R.string.download_toast_update_unknown), ShadowToast.getTextOfLatestToast())
+        assertEquals(context.getString(R.string.download_toast_update_unknown), AegisToast.textForTest())
         compose.onNodeWithText(context.getString(R.string.download_button)).assertIsEnabled()
         button.assertIsEnabled().performClick()
-        awaitMain { calls.get() == 2 && ShadowToast.shownToastCount() == 2 }
+        awaitMain { calls.get() == 2 && AegisToast.shownCountForTest() == 2 }
 
-        assertEquals(context.getString(R.string.download_toast_update_unknown), ShadowToast.getTextOfLatestToast())
+        assertEquals(context.getString(R.string.download_toast_update_unknown), AegisToast.textForTest())
         button.assertIsEnabled()
     }
 
@@ -1087,7 +1086,7 @@ class ResourceUpdateCardTest {
         val calls = AtomicInteger()
         val dir = ModelDownload.destFile(context.filesDir).parentFile!!.apply { mkdirs() }
         ModelDownload.DICT_PACK_FILES.forEach { File(dir, it).writeBytes(ByteArray(2_048)) }
-        ShadowToast.reset()
+        AegisToast.reset()
         compose.runOnUiThread {
             compose.activity.setContent {
                 AegisTheme {
@@ -1104,8 +1103,8 @@ class ResourceUpdateCardTest {
         compose.waitForIdle()
 
         compose.onNodeWithText(context.getString(R.string.check_dict_update_button)).assertIsEnabled().performClick()
-        awaitMain { calls.get() == 1 && ShadowToast.shownToastCount() == 1 }
-        assertEquals(context.getString(R.string.download_toast_update_timeout), ShadowToast.getTextOfLatestToast())
+        awaitMain { calls.get() == 1 && AegisToast.shownCountForTest() == 1 }
+        assertEquals(context.getString(R.string.download_toast_update_timeout), AegisToast.textForTest())
     }
 
     private fun requestOf(exchange: HttpExchange): Triple<String, String?, String?> =

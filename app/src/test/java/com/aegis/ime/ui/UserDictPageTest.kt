@@ -62,7 +62,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
-import org.robolectric.shadows.ShadowToast
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.ExecutorService
@@ -96,7 +95,7 @@ class UserDictPageTest {
 
     @Before fun reset() {
         UserDictHot.host = null
-        ShadowToast.reset()
+        AegisToast.reset()
         db.delete()
         learn.delete()
     }
@@ -139,8 +138,8 @@ class UserDictPageTest {
     }
 
     private fun reported(): String? {
-        settled("the page reported what became of the edit") { ShadowToast.getTextOfLatestToast() != null }
-        return ShadowToast.getTextOfLatestToast()
+        settled("the page reported what became of the edit") { AegisToast.textForTest() != null }
+        return AegisToast.textForTest()
     }
 
     private fun seedLearned(vararg steps: Pair<String, String>) {
@@ -287,7 +286,7 @@ class UserDictPageTest {
 
         assertTrue("cancelling keeps the word", UserDictEdit.list(db).any { it.word == "你好" })
         compose.onNodeWithText(row("你好", "nihao")).assertExists()
-        assertNull("nothing may be reported when nothing was done", ShadowToast.getTextOfLatestToast())
+        assertNull("nothing may be reported when nothing was done", AegisToast.textForTest())
     }
 
     @Test fun deleting_a_learned_word_asks_first_and_cancelling_keeps_it() {
@@ -756,7 +755,7 @@ class UserDictPageTest {
 
         compose.onNodeWithTag("user_dict_select").performClick()
         compose.onNodeWithTag("user_dict_select_all").performClick()
-        ShadowToast.reset()
+        AegisToast.reset()
         compose.onNodeWithTag("user_dict_delete_selected").performClick()
         compose.waitForIdle()
         compose.onNodeWithText(
@@ -772,7 +771,7 @@ class UserDictPageTest {
         db.writeText("aegis-userdb 1\nW\t自动词\t3\t$used\nR\tzidongci\t自动词\n")
         openUserDictPage()
 
-        ShadowToast.reset()
+        AegisToast.reset()
         openAddSheet()
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("自动词")
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("zidongci")
@@ -785,7 +784,7 @@ class UserDictPageTest {
         )
         compose.onNodeWithText(ctx.getString(R.string.user_dict_count_format, 1)).assertExists()
 
-        ShadowToast.reset()
+        AegisToast.reset()
         openAddSheet()
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("全新词")
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("quanxinci")
@@ -801,14 +800,15 @@ class UserDictPageTest {
         seed(0)
         openUserDictPage()
 
-        ShadowToast.reset()
+        AegisToast.reset()
         openAddSheet()
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("词".repeat(257))
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("ceshi")
         compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
         compose.waitForIdle()
 
-        assertEquals(s(R.string.user_dict_toast_add_rejected), ShadowToast.getTextOfLatestToast())
+        assertEquals(s(R.string.user_dict_toast_add_rejected), AegisToast.textForTest())
+        compose.onNodeWithTag("user_dict_add_sheet_toast").assertExists()
         assertTrue("a word that cannot be stored must not be listed as though it had been", UserDictEdit.list(db).isEmpty())
     }
 
@@ -907,7 +907,7 @@ class UserDictPageTest {
         UserDictHot.host = unreadableDictionaryHost()
         openUserDictPage()
 
-        ShadowToast.reset()
+        AegisToast.reset()
         openAddSheet()
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("幽灵词")
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("youlingci")
@@ -956,14 +956,14 @@ class UserDictPageTest {
         openUserDictPage()
         compose.onNodeWithTag("user_dict_search").performTextInput("shanchu")
         compose.onNodeWithText(row("删除词", "shanchu")).assertExists()
-        ShadowToast.reset()
+        AegisToast.reset()
 
         compose.onNodeWithText(s(R.string.user_dict_delete_button)).performClick()
         compose.waitForIdle()
         compose.onNodeWithTag("user_dict_delete_confirm").performClick()
 
         assertFalse("the tap must come back before the store has been touched", reached.get())
-        assertNull("and nothing may be reported before there is anything to report", ShadowToast.getTextOfLatestToast())
+        assertNull("and nothing may be reported before there is anything to report", AegisToast.textForTest())
         compose.onNodeWithTag("user_dict_search").performTextClearance()
         compose.onNodeWithTag("user_dict_search").performTextInput("shan")
 
@@ -978,7 +978,7 @@ class UserDictPageTest {
         UserDictHot.host = unreadableDictionaryHost()
         openUserDictPage()
 
-        ShadowToast.reset()
+        AegisToast.reset()
         startExportFromTools()
         settleEdits()
 
@@ -1046,7 +1046,7 @@ class UserDictPageTest {
         UserDictHot.host = RefusingHost(emptyList(), emptyList())
         openUserDictPage()
 
-        ShadowToast.reset()
+        AegisToast.reset()
         openAddSheet()
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("测试词")
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("ceshici")
@@ -1064,14 +1064,14 @@ class UserDictPageTest {
         )
         openUserDictPage()
 
-        ShadowToast.reset()
+        AegisToast.reset()
         compose.onNodeWithTag("user_dict_search").performTextInput("shanchu")
         compose.onNodeWithText(s(R.string.user_dict_delete_button)).performClick()
         compose.waitForIdle()
         compose.onNodeWithTag("user_dict_delete_confirm").performClick()
         assertEquals(s(R.string.user_dict_toast_write_failed), reported())
 
-        ShadowToast.reset()
+        AegisToast.reset()
         compose.onNodeWithTag("user_dict_search").performTextClearance()
         compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(row("你呢嗯", "ninen")))
         compose.onNodeWithText(row("你呢嗯", "ninen")).assertExists()
@@ -1085,7 +1085,7 @@ class UserDictPageTest {
         UserDictHot.host = RefusingHost(emptyList(), listOf(UserLearning.Formed("你呢嗯", "ninen")))
         openUserDictPage()
 
-        ShadowToast.reset()
+        AegisToast.reset()
         requestLearnedClearFromTools()
         compose.waitForIdle()
         compose.onNodeWithText(s(R.string.user_dict_auto_clear_confirm)).performClick()
@@ -1096,14 +1096,14 @@ class UserDictPageTest {
     @Test fun an_export_with_nothing_behind_it_says_so_instead_of_blaming_the_picked_file() {
         openUserDictPage()
 
-        ShadowToast.reset()
+        AegisToast.reset()
         startExportFromTools()
         settleEdits()
 
-        assertEquals(s(R.string.user_dict_toast_export_empty), ShadowToast.getTextOfLatestToast())
+        assertEquals(s(R.string.user_dict_toast_export_empty), AegisToast.textForTest())
         assertFalse(
             "a device with no word list must not be told its file could not be written",
-            s(R.string.user_dict_toast_export_failed) == ShadowToast.getTextOfLatestToast(),
+            s(R.string.user_dict_toast_export_failed) == AegisToast.textForTest(),
         )
         scenario!!.onActivity { activity ->
             assertNull(
@@ -1117,11 +1117,11 @@ class UserDictPageTest {
         UserDictHot.host = RefusingHost(listOf(UserModel.Entry("nihao", "你好", 1)), emptyList())
         openUserDictPage()
 
-        ShadowToast.reset()
+        AegisToast.reset()
         startExportFromTools()
         settleEdits()
 
-        assertEquals(s(R.string.user_dict_toast_export_blocked), ShadowToast.getTextOfLatestToast())
+        assertEquals(s(R.string.user_dict_toast_export_blocked), AegisToast.textForTest())
         scenario!!.onActivity { activity ->
             assertEquals(
                 "no document picker may open when the dictionary on disk is out of date",
@@ -1201,7 +1201,7 @@ class UserDictPageTest {
         drainEdits()
 
         shadowOf(Looper.getMainLooper()).idle()
-        assertNull("nobody is there to be told anything either", ShadowToast.getTextOfLatestToast())
+        assertNull("nobody is there to be told anything either", AegisToast.textForTest())
     }
 
     @Test fun an_export_opens_the_document_picker_once_the_flush_succeeded() {
@@ -1227,7 +1227,7 @@ class UserDictPageTest {
         seed(0, "nihao" to "你好")
         openUserDictPage()
 
-        ShadowToast.reset()
+        AegisToast.reset()
         startExportFromTools()
         settleEdits()
         scenario!!.onActivity { activity ->

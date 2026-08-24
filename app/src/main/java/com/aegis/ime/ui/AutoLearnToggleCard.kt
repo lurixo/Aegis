@@ -18,7 +18,6 @@ package com.aegis.ime.ui
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -70,11 +69,7 @@ internal fun AutoLearnToggleCard(resumeSignal: Int) {
             val next = UserLearnEdit.view(userLearn)
             mainHandler.post {
                 learnedView = next
-                Toast.makeText(
-                    context,
-                    if (landed) clearedToast else writeFailedToast,
-                    Toast.LENGTH_SHORT,
-                ).show()
+                AegisToast.show(if (landed) clearedToast else writeFailedToast)
             }
         }
     }

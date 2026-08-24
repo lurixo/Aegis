@@ -18,7 +18,6 @@ package com.aegis.ime.ui
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
-import android.widget.Toast
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -67,6 +66,14 @@ internal fun GramDownloadCard(
     var downloading by remember { mutableStateOf(if (preview == null) initial.downloading else false) }
     var checking by remember { mutableStateOf(preview?.checking ?: false) }
     var redownloadOffered by remember { mutableStateOf(false) }
+    val updateUnknownToast = stringResource(R.string.download_toast_update_unknown)
+    val updateOfflineToast = stringResource(R.string.download_toast_update_offline)
+    val updateTimeoutToast = stringResource(R.string.download_toast_update_timeout)
+    val updateServerErrorToast = stringResource(R.string.download_toast_update_server_error)
+    val updateParseErrorToast = stringResource(R.string.download_toast_update_parse_error)
+    val upToDateToast = stringResource(R.string.download_toast_up_to_date)
+    val updateFoundToast = stringResource(R.string.download_toast_update_found)
+    val downloadFailedToast = stringResource(R.string.gram_status_download_failed)
 
     val handler = remember { Handler(Looper.getMainLooper()) }
 
@@ -88,9 +95,9 @@ internal fun GramDownloadCard(
         if (preview == null) downloader(context, url)
     }
 
-    fun showCheckFailure(msgRes: Int) {
+    fun showCheckFailure(msgRes: Int, message: String) {
         status = LocalizedText.Resource(msgRes)
-        Toast.makeText(context, msgRes, Toast.LENGTH_SHORT).show()
+        AegisToast.show(message)
     }
 
     fun checkUpdate() {
@@ -112,17 +119,17 @@ internal fun GramDownloadCard(
                 redownloadOffered = action == ModelDownload.UpdateCheck.UNKNOWN
                 when (action) {
                     null -> {}
-                    ModelDownload.UpdateCheck.UNKNOWN -> showCheckFailure(R.string.download_toast_update_unknown)
-                    ModelDownload.UpdateCheck.OFFLINE -> showCheckFailure(R.string.download_toast_update_offline)
-                    ModelDownload.UpdateCheck.TIMEOUT -> showCheckFailure(R.string.download_toast_update_timeout)
-                    ModelDownload.UpdateCheck.SERVER_ERROR -> showCheckFailure(R.string.download_toast_update_server_error)
-                    ModelDownload.UpdateCheck.PARSE_ERROR -> showCheckFailure(R.string.download_toast_update_parse_error)
+                    ModelDownload.UpdateCheck.UNKNOWN -> showCheckFailure(R.string.download_toast_update_unknown, updateUnknownToast)
+                    ModelDownload.UpdateCheck.OFFLINE -> showCheckFailure(R.string.download_toast_update_offline, updateOfflineToast)
+                    ModelDownload.UpdateCheck.TIMEOUT -> showCheckFailure(R.string.download_toast_update_timeout, updateTimeoutToast)
+                    ModelDownload.UpdateCheck.SERVER_ERROR -> showCheckFailure(R.string.download_toast_update_server_error, updateServerErrorToast)
+                    ModelDownload.UpdateCheck.PARSE_ERROR -> showCheckFailure(R.string.download_toast_update_parse_error, updateParseErrorToast)
                     ModelDownload.UpdateCheck.UP_TO_DATE -> {
                         status = LocalizedText.Resource(R.string.gram_status_update_current)
-                        Toast.makeText(context, R.string.download_toast_up_to_date, Toast.LENGTH_SHORT).show()
+                        AegisToast.show(upToDateToast)
                     }
                     ModelDownload.UpdateCheck.UPDATE -> {
-                        Toast.makeText(context, R.string.download_toast_update_found, Toast.LENGTH_SHORT).show()
+                        AegisToast.show(updateFoundToast)
                         startDownload(ModelDownload.GRAM_URL)
                     }
                 }
@@ -130,7 +137,7 @@ internal fun GramDownloadCard(
         }.apply { isDaemon = true }
         if (runCatching { task.start() }.isFailure) {
             checking = false
-            showCheckFailure(R.string.gram_status_download_failed)
+            showCheckFailure(R.string.gram_status_download_failed, downloadFailedToast)
         }
     }
 

@@ -60,7 +60,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
-import org.robolectric.shadows.ShadowToast
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.TimeUnit
 
@@ -248,6 +247,7 @@ class InputSettingsAutoLearnClearTest {
         LiveUserDictHost(model, userDb, userLearning, userLearnFile, onSaved).also { hosts += it }
 
     @Before fun reset() {
+        AegisToast.reset()
         UserDictHot.host = null
         learn.delete()
     }
@@ -269,8 +269,8 @@ class InputSettingsAutoLearnClearTest {
     }
 
     private fun reported(): String? {
-        settled("the page reported what became of the edit") { ShadowToast.getTextOfLatestToast() != null }
-        return ShadowToast.getTextOfLatestToast()
+        settled("the page reported what became of the edit") { AegisToast.textForTest() != null }
+        return AegisToast.textForTest()
     }
 
     private fun settled(what: String, condition: () -> Boolean) {
@@ -449,13 +449,13 @@ class InputSettingsAutoLearnClearTest {
         UserDictHot.host = HoldingHost(gate, reached)
 
         scenario = ActivityScenario.launch(InputSettingsActivity::class.java)
-        ShadowToast.reset()
+        AegisToast.reset()
         compose.onNodeWithTag("auto_learn_clear").performScrollTo().performClick()
         compose.waitForIdle()
         compose.onNodeWithText(ctxString(R.string.user_dict_auto_clear_confirm)).performClick()
 
         assertFalse("the tap must come back before the store has been touched", reached.get())
-        assertEquals("and nothing may be reported before there is anything to report", null, ShadowToast.getTextOfLatestToast())
+        assertEquals("and nothing may be reported before there is anything to report", null, AegisToast.textForTest())
 
         gate.countDown()
 
@@ -480,15 +480,15 @@ class InputSettingsAutoLearnClearTest {
         }
 
         scenario = ActivityScenario.launch(InputSettingsActivity::class.java)
-        ShadowToast.reset()
+        AegisToast.reset()
         compose.onNodeWithTag("auto_learn_clear").performScrollTo().assertIsEnabled().performClick()
         compose.waitForIdle()
         compose.onNodeWithText(ctxString(R.string.user_dict_auto_clear_confirm)).performClick()
-        settled("the refused clear is reported") { ShadowToast.getTextOfLatestToast() != null }
+        settled("the refused clear is reported") { AegisToast.textForTest() != null }
 
         assertEquals(
             ctxString(R.string.user_dict_toast_write_failed),
-            ShadowToast.getTextOfLatestToast(),
+            AegisToast.textForTest(),
         )
     }
 }
