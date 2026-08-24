@@ -13,7 +13,7 @@
     <string name="setup_steps_title">启用步骤</string>
     <string name="setup_enable_button">1 · 在系统设置中启用 Aegis</string>
     <string name="setup_switch_button">2 · 切换到 Aegis 输入法</string>
-    <string name="setup_try_field_label">3 · 在此试打</string>
+    <string name="setup_try_field_label">在此试打</string>
 
     <string name="settings_group_input_title">输入设置</string>
     <string name="settings_group_input_desc">键盘模式、模糊拼音、联想</string>

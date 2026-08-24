@@ -13,7 +13,7 @@
     <string name="setup_steps_title">Setup steps</string>
     <string name="setup_enable_button">1 · Enable Aegis in system settings</string>
     <string name="setup_switch_button">2 · Switch to Aegis IME</string>
-    <string name="setup_try_field_label">3 · Try typing here</string>
+    <string name="setup_try_field_label">Try typing here</string>
 
     <string name="settings_group_input_title">Input settings</string>
     <string name="settings_group_input_desc">Keyboard mode, fuzzy Pinyin, next-word suggestions</string>
