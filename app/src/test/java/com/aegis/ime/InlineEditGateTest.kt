@@ -128,4 +128,31 @@ class InlineEditGateTest {
         assertTrue("the new name passes the rule", "newname" in store(service).categories())
         assertFalse("the old name is gone", legacy in store(service).categories())
     }
+
+    private fun editInPanel(service: AegisInputMethodService, action: com.aegis.ime.ime.EditAction) {
+        service.javaClass.getDeclaredMethod("handleEditInPanel", com.aegis.ime.ime.EditAction::class.java)
+            .apply { isAccessible = true }.invoke(service, action)
+    }
+
+    private fun beginAdd(service: AegisInputMethodService) {
+        service.javaClass.getDeclaredMethod("beginInlineAddPhrase", String::class.java)
+            .apply { isAccessible = true }.invoke(service, "default")
+    }
+
+    @Test fun select_all_on_an_empty_field_reports_nothing_to_select() {
+        val service = started()
+        beginAdd(service)
+        editInPanel(service, com.aegis.ime.ime.EditAction.SELECT_ALL)
+        assertEquals(app.getString(R.string.edit_no_selection), service.toastTextForTest())
+    }
+
+    @Test fun select_all_with_text_still_reports_it_selected() {
+        val service = started()
+        beginAdd(service)
+        service.javaClass.getDeclaredMethod("commitExternalText", CharSequence::class.java)
+            .apply { isAccessible = true }.invoke(service, "abc")
+        editInPanel(service, com.aegis.ime.ime.EditAction.SELECT_ALL)
+        assertEquals(app.getString(R.string.edit_select_all_done), service.toastTextForTest())
+        assertTrue("the field really is selected", panelInput(service).hasSelection())
+    }
 }

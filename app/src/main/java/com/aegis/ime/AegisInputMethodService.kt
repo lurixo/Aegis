@@ -869,8 +869,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             }
             EditAction.DELETE -> panelInput.backspace()
             EditAction.SELECT_ALL -> {
-                panelInput.selectAll()
-                toast(getString(R.string.edit_select_all_done))
+                if (panelInput.text().isEmpty()) {
+                    toast(getString(R.string.edit_no_selection))
+                } else {
+                    panelInput.selectAll()
+                    toast(getString(R.string.edit_select_all_done))
+                }
             }
             EditAction.COPY -> {
                 val selected = panelInput.selectedText()
