@@ -637,7 +637,12 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
     internal fun rowColumnCountsForTest(): List<Int> = rowCounts.toList()
     internal fun chipTextSizeSpForTest(index: Int): Float = chipTextSizes[index]
-    internal fun chipEllipsizeForTest(index: Int): TextUtils.TruncateAt? = TextUtils.TruncateAt.END
+    internal fun chipEllipsizeForTest(index: Int): TextUtils.TruncateAt? {
+        val row = rowStarts.indexOfLast { it <= index }
+        val rowView = table.getChildAt(row - table.firstVisiblePosition) as? CandidateRow
+            ?: candidateAdapter.getView(row, null, table) as CandidateRow
+        return (rowView.getChildAt(index - rowStarts[row]) as TextView).ellipsize
+    }
     internal fun chipCellWidthForTest(index: Int): Int = chipWidths[index]
     internal fun readingTextSizeSpForTest(index: Int): Float = readingPool[index].textSize / spPx(1f)
     internal fun railLayoutForTest(): IntArray {
