@@ -298,6 +298,66 @@ object Glyphs {
         c.drawCircle(l + s * 0.3f, cy, s * 0.13f, paint)
     }
 
+    fun drawAppMark(c: Canvas, cx: Float, cy: Float, sizePx: Float, mono: Boolean, monoColor: Int) {
+        val scale = sizePx / 58f
+        c.save()
+        c.translate(cx, cy)
+        c.scale(scale, scale)
+        c.translate(-54f, -56.5f)
+        if (mono) drawMonoAppMark(c, monoColor) else drawFilledAppMark(c)
+        c.restore()
+    }
+
+    private fun drawFilledAppMark(c: Canvas) {
+        val black = appMarkFill(0xFF000000.toInt())
+        val white = appMarkFill(0xFFFFFFFF.toInt())
+        val shield = Path().apply {
+            moveTo(35f, 31f); lineTo(73f, 31f); lineTo(73f, 54f)
+            cubicTo(73f, 68f, 64f, 78f, 54f, 82f)
+            cubicTo(44f, 78f, 35f, 68f, 35f, 54f)
+            close()
+        }
+        c.drawPath(shield, black)
+        c.drawRoundRect(45f, 39f, 63f, 55f, 4f, 4f, white)
+        c.drawPath(appMarkIPath(), black)
+        c.drawRoundRect(44f, 60f, 64f, 67f, 3f, 3f, white)
+    }
+
+    private fun drawMonoAppMark(c: Canvas, color: Int) {
+        val wide = appMarkStroke(color, 5f)
+        val thin = appMarkStroke(color, 4f)
+        val shield = Path().apply {
+            moveTo(37f, 33f); lineTo(71f, 33f); lineTo(71f, 53f)
+            cubicTo(71f, 66f, 63f, 76f, 54f, 80f)
+            cubicTo(45f, 76f, 37f, 66f, 37f, 53f)
+            close()
+        }
+        c.drawPath(shield, wide)
+        c.drawRoundRect(45f, 39f, 63f, 55f, 4f, 4f, thin)
+        c.drawPath(appMarkIPath(), appMarkFill(color))
+        c.drawRoundRect(44f, 60f, 64f, 67f, 3f, 3f, thin)
+    }
+
+    private fun appMarkIPath(): Path = Path().apply {
+        moveTo(51f, 42f); lineTo(57f, 42f); lineTo(57f, 44f); lineTo(55.5f, 44f); lineTo(55.5f, 50f)
+        lineTo(57f, 50f); lineTo(57f, 52f); lineTo(51f, 52f); lineTo(51f, 50f); lineTo(52.5f, 50f)
+        lineTo(52.5f, 44f); lineTo(51f, 44f)
+        close()
+    }
+
+    private fun appMarkFill(color: Int): Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        this.color = color
+    }
+
+    private fun appMarkStroke(color: Int, width: Float): Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = width
+        strokeJoin = Paint.Join.ROUND
+        strokeCap = Paint.Cap.ROUND
+        this.color = color
+    }
+
     fun drawRadio(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, on: Boolean) {
         c.drawCircle(cx, cy, s * 0.72f, paint)
         if (on) {

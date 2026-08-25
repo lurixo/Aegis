@@ -44,6 +44,7 @@ data class ImePalette(
     val disabled: Int,
     val scrim: Int,
     val shadow: Int,
+    val floatSurface: Int,
 ) {
     companion object {
         val STATIC_LIGHT = ImePalette(
@@ -69,6 +70,7 @@ data class ImePalette(
             disabled = 0xFFB0BEC5.toInt(),
             scrim = 0x66000000,
             shadow = 0x22000000,
+            floatSurface = 0xFFFAFBFD.toInt(),
         )
 
         val STATIC_DARK = ImePalette(
@@ -94,6 +96,7 @@ data class ImePalette(
             disabled = 0xFF5A5E62.toInt(),
             scrim = 0x99000000.toInt(),
             shadow = 0x40000000,
+            floatSurface = 0xFF25282C.toInt(),
         )
 
         fun from(ctx: Context, dark: Boolean): ImePalette = runCatching {
@@ -121,6 +124,7 @@ data class ImePalette(
                 disabled = cs.outline.toArgb(),
                 scrim = withAlpha(cs.scrim.toArgb(), 0x66),
                 shadow = withAlpha(cs.scrim.toArgb(), if (dark) 0x40 else 0x22),
+                floatSurface = cs.surfaceContainer.toArgb(),
             )
         }.getOrElse { if (dark) STATIC_DARK else STATIC_LIGHT }
 

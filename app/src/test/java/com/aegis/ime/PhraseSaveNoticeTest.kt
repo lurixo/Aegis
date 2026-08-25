@@ -40,7 +40,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
-import org.robolectric.shadows.ShadowToast
 import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
@@ -52,7 +51,6 @@ class PhraseSaveNoticeTest {
     private val historyFile = File(app.filesDir, "clipboard.txt")
 
     @Before fun start() {
-        ShadowToast.reset()
         LiveUserData.clipboardHost = null
         phraseFile.setReadable(true, false)
         phraseFile.delete()
@@ -64,7 +62,6 @@ class PhraseSaveNoticeTest {
         phraseFile.setReadable(true, false)
         phraseFile.delete()
         historyFile.delete()
-        ShadowToast.reset()
     }
 
     private fun sealPhrases() {
@@ -182,12 +179,12 @@ class PhraseSaveNoticeTest {
 
         assertNull(
             "the panel may not promise the file took it before the writer got there",
-            ShadowToast.getTextOfLatestToast(),
+            service.toastTextForTest(),
         )
 
         settle(service)
 
-        assertEquals(label(R.string.clip_phrases_saved, 1), ShadowToast.getTextOfLatestToast())
+        assertEquals(label(R.string.clip_phrases_saved, 1), service.toastTextForTest())
     }
 
     @Test fun a_phrase_the_panel_already_holds_is_still_reported_as_one_that_exists() {
@@ -201,7 +198,7 @@ class PhraseSaveNoticeTest {
 
         assertEquals(
             quantityLabel(R.plurals.clip_phrases_exist, 1, 1),
-            ShadowToast.getTextOfLatestToast(),
+            service.toastTextForTest(),
         )
     }
 
@@ -217,7 +214,7 @@ class PhraseSaveNoticeTest {
         assertEquals(
             "the clip that was already in the category is not one the write left out",
             quantityLabel(R.plurals.clip_phrases_saved_existing, 1, 1, 1),
-            ShadowToast.getTextOfLatestToast(),
+            service.toastTextForTest(),
         )
     }
 
@@ -248,7 +245,7 @@ class PhraseSaveNoticeTest {
                 "a phrase that only reached the list must not be reported as one that was saved",
                 quantityLabel(R.plurals.clip_phrases_not_saved, 1, 1) in labels(panel),
             )
-            assertNull(ShadowToast.getTextOfLatestToast())
+            assertNull(service.toastTextForTest())
         } finally {
             blocker.deleteRecursively()
         }
@@ -261,7 +258,7 @@ class PhraseSaveNoticeTest {
         addInline(service, "手打的常用语")
         settle(service)
 
-        assertEquals(label(R.string.clip_phrases_saved, 1), ShadowToast.getTextOfLatestToast())
+        assertEquals(label(R.string.clip_phrases_saved, 1), service.toastTextForTest())
     }
 
     @Test fun a_typed_phrase_that_is_already_there_is_still_reported_as_one_that_exists() {
@@ -275,7 +272,7 @@ class PhraseSaveNoticeTest {
 
         assertEquals(
             quantityLabel(R.plurals.clip_phrases_exist, 1, 1),
-            ShadowToast.getTextOfLatestToast(),
+            service.toastTextForTest(),
         )
     }
 
@@ -327,7 +324,7 @@ class PhraseSaveNoticeTest {
         )
         assertFalse(
             "and it must not be a bare success the user has nothing to go back to",
-            ShadowToast.getTextOfLatestToast() == label(R.string.clip_phrases_saved, 1),
+            service.toastTextForTest() == label(R.string.clip_phrases_saved, 1),
         )
     }
 

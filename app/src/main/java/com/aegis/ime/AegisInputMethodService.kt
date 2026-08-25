@@ -28,7 +28,6 @@ import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
-import android.widget.Toast
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import com.aegis.ime.R
@@ -1230,7 +1229,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
 
-    private fun toast(msg: String) = Toast.makeText(this, msg, Toast.LENGTH_SHORT).show()
+    private fun toast(msg: String) { inputView?.showToast(msg) }
+
+    internal fun toastTextForTest(): String? = inputView?.toastTextForTest()
 
     private fun copyBlocksToAegis(blocks: List<String>) {
         if (LiveUserData.restoreInProgress) return
