@@ -126,8 +126,7 @@ internal fun DictDownloadCard(
         if (preview == null) downloader(context, asset)
     }
 
-    fun showCheckFailure(msgRes: Int, message: String) {
-        status = LocalizedText.Resource(msgRes)
+    fun showCheckFailure(message: String) {
         AegisToast.show(message)
     }
 
@@ -152,15 +151,12 @@ internal fun DictDownloadCard(
                 redownloadOffered = action == ModelDownload.UpdateCheck.UNKNOWN
                 when (action) {
                     null -> {}
-                    ModelDownload.UpdateCheck.UNKNOWN -> showCheckFailure(R.string.download_toast_update_unknown, updateUnknownToast)
-                    ModelDownload.UpdateCheck.OFFLINE -> showCheckFailure(R.string.download_toast_update_offline, updateOfflineToast)
-                    ModelDownload.UpdateCheck.TIMEOUT -> showCheckFailure(R.string.download_toast_update_timeout, updateTimeoutToast)
-                    ModelDownload.UpdateCheck.SERVER_ERROR -> showCheckFailure(R.string.download_toast_update_server_error, updateServerErrorToast)
-                    ModelDownload.UpdateCheck.PARSE_ERROR -> showCheckFailure(R.string.download_toast_update_parse_error, updateParseErrorToast)
-                    ModelDownload.UpdateCheck.UP_TO_DATE -> {
-                        status = LocalizedText.Resource(R.string.dict_status_update_current)
-                        AegisToast.show(upToDateToast)
-                    }
+                    ModelDownload.UpdateCheck.UNKNOWN -> showCheckFailure(updateUnknownToast)
+                    ModelDownload.UpdateCheck.OFFLINE -> showCheckFailure(updateOfflineToast)
+                    ModelDownload.UpdateCheck.TIMEOUT -> showCheckFailure(updateTimeoutToast)
+                    ModelDownload.UpdateCheck.SERVER_ERROR -> showCheckFailure(updateServerErrorToast)
+                    ModelDownload.UpdateCheck.PARSE_ERROR -> showCheckFailure(updateParseErrorToast)
+                    ModelDownload.UpdateCheck.UP_TO_DATE -> AegisToast.show(upToDateToast)
                     ModelDownload.UpdateCheck.UPDATE -> {
                         AegisToast.show(updateFoundToast)
                         startDownload(result.asset)
@@ -170,7 +166,7 @@ internal fun DictDownloadCard(
         }.apply { isDaemon = true }
         if (runCatching { task.start() }.isFailure) {
             checking = false
-            showCheckFailure(R.string.dict_status_download_failed, downloadFailedToast)
+            showCheckFailure(downloadFailedToast)
         }
     }
 
@@ -242,7 +238,7 @@ internal fun DictDownloadCard(
                 }
             }
             Text(
-                if (checking) stringResource(R.string.download_status_checking_update) else status.asString(),
+                status.asString(),
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -259,7 +255,9 @@ internal fun DictDownloadCard(
                 )
                 if (present) {
                     AppPrimaryButton(
-                        text = stringResource(R.string.check_dict_update_button),
+                        text = stringResource(
+                            if (checking) R.string.download_status_checking_update else R.string.check_dict_update_button,
+                        ),
                         enabled = !downloading && !checking,
                         onClick = { checkUpdate() },
                         modifier = Modifier.weight(2f).fillMaxHeight(),

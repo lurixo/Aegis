@@ -1042,6 +1042,8 @@ class ResourceUpdateCardTest {
         assertFalse(prefs.contains(ModelDownload.DICT_ASSET_NAME_PREF))
         assertFalse(prefs.contains(ModelDownload.DICT_RELEASE_PUBLISHED_PREF))
         assertEquals(context.getString(R.string.download_toast_up_to_date), AegisToast.textForTest())
+        compose.onNodeWithText(context.getString(R.string.dict_status_update_current)).assertDoesNotExist()
+        compose.onNodeWithText(context.getString(R.string.check_dict_update_button)).assertIsEnabled()
     }
 
     @Test
@@ -1072,7 +1074,6 @@ class ResourceUpdateCardTest {
         val button = compose.onNodeWithText(context.getString(R.string.check_model_update_button))
         button.assertIsEnabled().performClick()
         awaitMain { probes.get() == 1 && AegisToast.shownCountForTest() == 1 }
-        compose.onNodeWithText(context.getString(R.string.download_toast_update_timeout)).assertExists()
         button.assertIsEnabled().performClick()
         awaitMain { probes.get() == 2 && AegisToast.shownCountForTest() == 2 }
 
@@ -1107,7 +1108,6 @@ class ResourceUpdateCardTest {
         val button = compose.onNodeWithText(context.getString(R.string.check_model_update_button))
         button.assertIsEnabled().performClick()
         awaitMain { calls.get() == 1 && AegisToast.shownCountForTest() == 1 }
-        compose.onNodeWithText(context.getString(R.string.download_toast_update_parse_error)).assertExists()
         assertEquals(context.getString(R.string.download_toast_update_parse_error), AegisToast.textForTest())
         button.assertIsEnabled().performClick()
         awaitMain { calls.get() == 2 && AegisToast.shownCountForTest() == 2 }
@@ -1140,7 +1140,6 @@ class ResourceUpdateCardTest {
         val button = compose.onNodeWithText(context.getString(R.string.check_dict_update_button))
         button.assertIsEnabled().performClick()
         awaitMain { calls.get() == 1 && AegisToast.shownCountForTest() == 1 }
-        compose.onNodeWithText(context.getString(R.string.download_toast_update_unknown)).assertExists()
         assertEquals(context.getString(R.string.download_toast_update_unknown), AegisToast.textForTest())
         compose.onNodeWithText(context.getString(R.string.download_button)).assertIsEnabled()
         button.assertIsEnabled().performClick()
