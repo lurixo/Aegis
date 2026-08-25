@@ -1831,11 +1831,21 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             setPadding(dp(12), dp(4), dp(12), dp(4))
             addView(TextView(context).apply {
                 text = context.getString(R.string.clip_drag_sort)
+                maxLines = 1
                 setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setTypeface(null, android.graphics.Typeface.BOLD)
+                androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
+                    this,
+                    10,
+                    ImeType.body.toInt(),
+                    1,
+                    TypedValue.COMPLEX_UNIT_SP,
+                )
             }, ll(0, WC, 1f))
             addView(TextView(context).apply {
                 text = if (cat.isEmpty()) "" else cat
+                maxLines = 1
+                ellipsize = android.text.TextUtils.TruncateAt.END
                 gravity = Gravity.CENTER; setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
             }, ll(0, WC, 1f))
             addView(TextView(context).apply {
@@ -1904,10 +1914,17 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             setPadding(dp(22), dp(4), dp(8), dp(4))
             addView(TextView(context).apply {
                 text = context.getString(R.string.clip_drag_category)
+                maxLines = 1
                 setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setTypeface(null, android.graphics.Typeface.BOLD)
-            }, ll(WC, WC))
-            addView(View(context), ll(0, dp(1), 1f))
+                androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
+                    this,
+                    10,
+                    ImeType.body.toInt(),
+                    1,
+                    TypedValue.COMPLEX_UNIT_SP,
+                )
+            }, ll(0, WC, 1f))
             addView(TextView(context).apply {
                 text = context.getString(R.string.clip_done); gravity = Gravity.CENTER_VERTICAL or Gravity.END
                 setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
@@ -1974,6 +1991,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         addView(TextView(context).apply {
             text = context.getString(R.string.clip_edit)
             gravity = Gravity.CENTER
+            maxLines = 1
             includeFontPadding = false
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setTextColor(TEXT_DARK)
