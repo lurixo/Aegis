@@ -168,11 +168,23 @@ class KeyboardView(context: Context) : View(context) {
     private var previewKey: Key? = null
     private var previewFromScroll = false
     private val previewRect = RectF()
+    private var previewHost: View? = null
     private var previewTopLimit: () -> Float = { 0f }
     private val dismissPreview = Runnable { hidePreview() }
 
+    internal fun bindPreviewHost(host: View, topLimit: () -> Float) {
+        hidePreview()
+        clearCaseBox()
+        previewHost = host
+        previewTopLimit = topLimit
+    }
+
     private fun invalidatePreview() {
-        invalidate()
+        (previewHost ?: this).invalidate()
+    }
+
+    internal fun drawPreviewOverlay(canvas: Canvas) {
+        if (visibility == VISIBLE) drawPreview(canvas)
     }
 
     private var caseBoxKey: Key? = null
@@ -564,7 +576,7 @@ class KeyboardView(context: Context) : View(context) {
 
         drawContent(canvas)
 
-        drawPreview(canvas)
+        if (previewHost == null) drawPreview(canvas)
     }
 
     private fun drawContent(canvas: Canvas) {

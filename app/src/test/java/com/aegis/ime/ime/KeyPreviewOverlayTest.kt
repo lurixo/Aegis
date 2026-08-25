@@ -17,6 +17,7 @@ package com.aegis.ime.ime
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.RectF
 import com.aegis.ime.ime.theme.ImePalette
 import android.os.Looper
 import android.view.MotionEvent
@@ -119,6 +120,104 @@ class KeyPreviewOverlayTest {
         activity.finish()
     }
 
+    @Test fun first_row_previews_draw_above_the_toolbar_and_clear_on_cancel_for_both_layouts() {
+        for (id in listOf(LayoutId.ALPHA, LayoutId.NINE)) {
+            val input = input(id)
+            val keyboard = requireNotNull(keyboard(input))
+            val label = if (id == LayoutId.ALPHA) "q" else "ABC"
+            val (x, y) = requireNotNull(input.keyboardLabelBoundsForTest(label)?.let { it.centerX() to it.centerY() })
+            val before = input.capture()
+            input.send(MotionEvent.ACTION_DOWN, x, y)
+            val shown = input.capture()
+            assertTrue(keyboard.previewActiveForTest())
+            var changed = 0
+            for (py in 0 until input.keyboardVisualTopPx()) for (px in 0 until input.width) {
+                if (before.getPixel(px, py) != shown.getPixel(px, py)) changed++
+            }
+            assertTrue("$id bubble must be painted over the toolbar: $changed", changed > 100)
+            input.send(MotionEvent.ACTION_CANCEL, x, y)
+            val cleared = input.capture()
+            assertFalse(keyboard.previewActiveForTest())
+            for (py in 0 until input.keyboardVisualTopPx()) for (px in 0 until input.width) {
+                assertEquals(before.getPixel(px, py), cleared.getPixel(px, py))
+            }
+        }
+    }
+
+    @Test fun all_nine_key_long_press_choices_commit_one_literal_through_parent_dispatch() {
+        for (width in listOf(280, 360)) for (block in listOf("ABC", "DEF", "GHI", "JKL", "MNO", "PQRS", "TUV", "WXYZ")) {
+            val digit = (listOf("ABC", "DEF", "GHI", "JKL", "MNO", "PQRS", "TUV", "WXYZ").indexOf(block) + 2).toString()
+            val choices = block.map { it.toString() } + digit + block.map { it.lowercase() }
+            for ((index, choice) in choices.withIndex()) {
+                val input = input(LayoutId.NINE, width)
+                val keyboard = requireNotNull(keyboard(input))
+                val emitted = mutableListOf<Key>()
+                input.onKey = { emitted.add(it) }
+                val (x, y) = requireNotNull(input.keyboardLabelBoundsForTest(block)?.let { it.centerX() to it.centerY() })
+                input.send(MotionEvent.ACTION_DOWN, x, y)
+                shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(350))
+                assertEquals(choices, keyboard.caseBoxLabelsForTest())
+                val box = requireNotNull(keyboard.caseBoxBoundsForTest())
+                val targetX = input.keyboardVisualLeftPx() + box.left + box.width() * (index + 0.5f) / choices.size
+                val targetY = input.keyboardVisualTopPx() + box.centerY()
+                input.send(MotionEvent.ACTION_MOVE, targetX, targetY, 380)
+                input.send(MotionEvent.ACTION_UP, targetX, targetY, 400)
+                assertEquals("$block $choice at $width dp", listOf(choice), emitted.map { it.output })
+                assertTrue(emitted.single().direct && emitted.single().verbatim)
+                assertFalse(keyboard.caseBoxActiveForTest())
+            }
+        }
+    }
+
+    @Test fun long_press_is_slightly_taller_and_spans_three_normal_keys_for_both_layouts() {
+        for (width in listOf(280, 360, 600)) for (id in listOf(LayoutId.NINE, LayoutId.ALPHA)) for (lang in Lang.entries) {
+            val input = input(id, width, lang)
+            val keyboard = requireNotNull(keyboard(input))
+            val labels = if (id == LayoutId.NINE) listOf("ABC", "GHI", "WXYZ") else listOf("q", "t", "p", "a", "m")
+            for (label in labels) {
+                val key = requireNotNull(input.keyboardLabelBoundsForTest(label))
+                input.send(MotionEvent.ACTION_DOWN, key.centerX(), key.centerY())
+                shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(350))
+                val box = requireNotNull(keyboard.caseBoxBoundsForTest())
+                val first = requireNotNull(keyboard.boundsOfLabelForTest(if (id == LayoutId.NINE) "GHI" else "q"))
+                val third = requireNotNull(keyboard.boundsOfLabelForTest(if (id == LayoutId.NINE) "MNO" else "e"))
+                assertEquals("$id $label height", key.height() + 4f * density, box.height(), 0.01f)
+                assertEquals("$id $label width", third.right - first.left, box.width(), 0.01f)
+                if (id == LayoutId.NINE) assertEquals(first.left, box.left, 0.01f)
+                assertTrue(box.left >= 0 && box.right <= keyboard.width)
+                assertEquals(-1, keyboard.caseBoxSelectedForTest())
+                val count = requireNotNull(keyboard.caseBoxLabelsForTest()).size
+                val y = input.keyboardVisualTopPx() + box.centerY()
+                for (index in 0 until count) {
+                    val x = input.keyboardVisualLeftPx() + box.left + box.width() * (index + 0.5f) / count
+                    input.send(MotionEvent.ACTION_MOVE, x, y, 380)
+                    assertEquals(index, keyboard.caseBoxSelectedForTest())
+                }
+                input.send(MotionEvent.ACTION_CANCEL, key.centerX(), key.centerY(), 400)
+                assertFalse(keyboard.caseBoxActiveForTest())
+            }
+        }
+    }
+
+    @Test fun all_alpha_long_press_choices_commit_from_the_compact_panel() {
+        for (lang in Lang.entries) for (label in listOf("q", "t", "p", "a", "m")) for (index in 0..2) {
+            val input = input(LayoutId.ALPHA, lang = lang)
+            val keyboard = requireNotNull(keyboard(input))
+            val emitted = mutableListOf<Key>()
+            input.onKey = { emitted.add(it) }
+            val key = requireNotNull(input.keyboardLabelBoundsForTest(label))
+            input.send(MotionEvent.ACTION_DOWN, key.centerX(), key.centerY())
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(350))
+            val box = requireNotNull(keyboard.caseBoxBoundsForTest())
+            val choice = requireNotNull(keyboard.caseBoxLabelsForTest())[index]
+            val x = input.keyboardVisualLeftPx() + box.left + box.width() * (index + 0.5f) / 3
+            val y = input.keyboardVisualTopPx() + box.centerY()
+            input.send(MotionEvent.ACTION_MOVE, x, y, 380)
+            input.send(MotionEvent.ACTION_UP, x, y, 400)
+            assertEquals(listOf(choice), emitted.map { it.output })
+        }
+    }
+
     @Test fun number_pages_keep_the_preview_toggle_of_the_text_layout() {
         val keyboard = requireNotNull(keyboard(input(LayoutId.NINE)))
         keyboard.previewAlphaEnabled = false
@@ -128,6 +227,25 @@ class KeyPreviewOverlayTest {
             keyboard.send(MotionEvent.ACTION_DOWN, bounds.centerX(), bounds.centerY())
             assertTrue("$id inherits nine-key preview", keyboard.previewActiveForTest())
             keyboard.send(MotionEvent.ACTION_CANCEL, bounds.centerX(), bounds.centerY())
+        }
+    }
+
+    @Test fun numpad_digits_have_slightly_wider_upright_previews_centered_above_the_key() {
+        for (width in listOf(280, 360, 600)) for (digit in '0'..'9') {
+            val input = input(LayoutId.NUMPAD, width)
+            val keyboard = requireNotNull(keyboard(input))
+            val key = requireNotNull(keyboard.boundsOfLabelForTest(digit.toString()))
+            val x = key.centerX() + input.keyboardVisualLeftPx()
+            val y = key.centerY() + input.keyboardVisualTopPx()
+            input.send(MotionEvent.ACTION_DOWN, x, y)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(350))
+            val preview = requireNotNull(keyboard.previewBoundsForTest())
+            assertEquals(key.width() * .6f, preview.width(), .01f)
+            assertEquals(maxOf(key.height() + 8f * density, key.width() / 2f + 8f * density), preview.height(), .01f)
+            assertEquals(key.centerX(), preview.centerX(), .01f)
+            assertTrue(preview.bottom <= key.top)
+            input.send(MotionEvent.ACTION_CANCEL, x, y)
+            assertFalse(keyboard.previewActiveForTest())
         }
     }
 
@@ -352,6 +470,79 @@ class KeyPreviewOverlayTest {
         keyboard.send(MotionEvent.ACTION_DOWN, region.centerX(), region.top + keyboard.scrollCellHeightForTest() / 2f)
         assertEquals(".", keyboard.previewLabelForTest())
         keyboard.send(MotionEvent.ACTION_CANCEL, region.centerX(), region.centerY())
+    }
+
+    private fun popupBitmap(keyboard: KeyboardView, box: RectF): Bitmap =
+        Bitmap.createBitmap(kotlin.math.ceil(box.width()).toInt(), kotlin.math.ceil(box.height()).toInt(), Bitmap.Config.ARGB_8888).also {
+            val canvas = Canvas(it)
+            canvas.translate(-box.left, -box.top)
+            keyboard.drawPreviewOverlay(canvas)
+        }
+
+    private fun colorBounds(bitmap: Bitmap, color: Int): RectF {
+        val rect = RectF(bitmap.width.toFloat(), bitmap.height.toFloat(), 0f, 0f)
+        for (y in 0 until bitmap.height) for (x in 0 until bitmap.width) {
+            if (bitmap.getPixel(x, y) == color) {
+                rect.left = minOf(rect.left, x.toFloat()); rect.top = minOf(rect.top, y.toFloat())
+                rect.right = maxOf(rect.right, x + 1f); rect.bottom = maxOf(rect.bottom, y + 1f)
+            }
+        }
+        assertFalse("the rendered color must be present", rect.isEmpty)
+        return rect
+    }
+
+    @Test fun highlighted_letters_and_digits_use_the_enter_foreground_in_both_themes() {
+        for (palette in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
+            for (id in listOf(LayoutId.NINE, LayoutId.ALPHA)) {
+                val keyboard = requireNotNull(keyboard(input(id)))
+                keyboard.applyPalette(palette)
+                val key = requireNotNull(keyboard.boundsOfLabelForTest(if (id == LayoutId.NINE) "ABC" else "q"))
+                keyboard.send(MotionEvent.ACTION_DOWN, key.centerX(), key.centerY())
+                shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(350))
+                val box = requireNotNull(keyboard.caseBoxBoundsForTest())
+                val count = requireNotNull(keyboard.caseBoxLabelsForTest()).size
+                for (index in 0 until count) {
+                    keyboard.send(MotionEvent.ACTION_MOVE, box.left + box.width() * (index + .5f) / count, box.centerY(), 380)
+                    assertEquals(index, keyboard.caseBoxSelectedForTest())
+                    val bitmap = popupBitmap(keyboard, box)
+                    val fill = colorBounds(bitmap, palette.accentBottom)
+                    val text = colorBounds(bitmap, palette.accentLabel)
+                    assertTrue("Enter foreground is confined to the selected cell", fill.contains(text))
+                    colorBounds(bitmap, palette.keyLabel)
+                    bitmap.recycle()
+                }
+                keyboard.send(MotionEvent.ACTION_CANCEL, key.centerX(), key.centerY())
+            }
+        }
+    }
+
+    @Test fun retype_zero_uses_a_vertical_highlight_and_only_that_region_can_be_selected() {
+        for (width in listOf(280, 360, 600)) for (palette in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
+            val keyboard = requireNotNull(keyboard(input(LayoutId.NINE, width)))
+            keyboard.applyPalette(palette)
+            val emitted = mutableListOf<Key>()
+            keyboard.onKey = { emitted.add(it) }
+            val key = requireNotNull(keyboard.boundsOfActionForTest(com.aegis.ime.layout.KeyAction.CLEAR_COMPOSING))
+            keyboard.send(MotionEvent.ACTION_DOWN, key.centerX(), key.centerY())
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(350))
+            val box = requireNotNull(keyboard.caseBoxBoundsForTest())
+            keyboard.send(MotionEvent.ACTION_MOVE, box.centerX(), box.centerY(), 380)
+            assertEquals(0, keyboard.caseBoxSelectedForTest())
+            val bitmap = popupBitmap(keyboard, box)
+            val highlight = colorBounds(bitmap, palette.accentBottom)
+            assertTrue(highlight.height() > highlight.width())
+            assertEquals(box.width() / 2f, highlight.centerX(), 1f)
+            assertTrue(highlight.contains(colorBounds(bitmap, palette.accentLabel)))
+            bitmap.recycle()
+            for (x in listOf(box.left + highlight.left - 2f * density, box.left + highlight.right + 2f * density)) {
+                keyboard.send(MotionEvent.ACTION_MOVE, x, box.centerY(), 390)
+                assertEquals("blank space beside zero is not selectable", -1, keyboard.caseBoxSelectedForTest())
+                keyboard.send(MotionEvent.ACTION_MOVE, box.centerX(), box.centerY(), 395)
+                assertEquals(0, keyboard.caseBoxSelectedForTest())
+            }
+            keyboard.send(MotionEvent.ACTION_UP, box.left + highlight.left - 2f * density, box.centerY(), 400)
+            assertTrue(emitted.isEmpty())
+        }
     }
 
 }

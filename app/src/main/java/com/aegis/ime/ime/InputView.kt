@@ -99,6 +99,16 @@ class InputView(context: Context) : LinearLayout(context) {
 
     fun palette(): ImePalette = palette
 
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        if (keyboardView.visibility == VISIBLE) {
+            canvas.save()
+            canvas.translate(keyboardVisualLeftPx().toFloat(), keyboardVisualTopPx().toFloat())
+            keyboardView.drawPreviewOverlay(canvas)
+            canvas.restore()
+        }
+    }
+
     fun showEditBar(active: Boolean) {
         if (active) {
             if (editBarView.visibility != VISIBLE || editBarView.alpha < 1f) {
@@ -129,6 +139,7 @@ class InputView(context: Context) : LinearLayout(context) {
         gridView.onClear = { onPanelClear() }
         keyboardView.onKey = { key -> onKey(key) }
         keyboardView.onBackspaceSwipe = { up -> onBackspaceSwipe(up) }
+        keyboardView.bindPreviewHost(this) { -keyboardVisualTopPx().toFloat() }
         editBarView.onConfirm = { onEditConfirm() }
         editBarView.onCancel = { onEditCancel() }
         editBarView.onTextChanged = { text -> onEditTextChanged(text) }
