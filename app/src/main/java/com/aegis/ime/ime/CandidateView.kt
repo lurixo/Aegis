@@ -20,6 +20,8 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.RectF
+import android.text.TextPaint
+import android.text.TextUtils
 import android.util.TypedValue
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -111,7 +113,7 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
         textSize = sp(18f)
         typeface = android.graphics.Typeface.DEFAULT_BOLD
     }
-    private val gatePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    private val gatePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         color = palette.candidateFirst
         textSize = sp(18f)
     }
@@ -322,8 +324,18 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
     private fun drawBarNotice(canvas: Canvas, baseline: Float, text: String, color: Int) {
         if (text.isEmpty()) return
         gatePaint.color = color
-        val x = ((width - gatePaint.measureText(text)) / 2f).coerceAtLeast(padding)
-        canvas.drawText(text, x, baseline, gatePaint)
+        val base = gatePaint.textSize
+        val available = width - 2f * padding
+        val measured = gatePaint.measureText(text)
+        if (available > 0f && measured > available) {
+            gatePaint.textSize = (base * available / measured).coerceAtLeast(sp(12f))
+        }
+        val shown =
+            if (available > 0f) TextUtils.ellipsize(text, gatePaint, available, TextUtils.TruncateAt.END).toString()
+            else text
+        val x = ((width - gatePaint.measureText(shown)) / 2f).coerceAtLeast(padding)
+        canvas.drawText(shown, x, baseline, gatePaint)
+        gatePaint.textSize = base
     }
 
     private fun gateColor(): Int = if (gateFailed) palette.deletable else palette.candidateFirst
