@@ -351,6 +351,8 @@
     <string name="csp_section_all_punctuation">全部标点</string>
     <string name="csp_section_all_operators">全部运算符</string>
     <string name="csp_remove_symbol">移除 %1$s</string>
+    <string name="csp_remove_symbol_confirm">移除「%1$s」？</string>
+    <string name="csp_remove">移除</string>
     <string name="edit_title">文字编辑</string>
     <string name="edit_start_select">开始选择</string>
     <string name="edit_end_select">结束选择</string>

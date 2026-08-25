@@ -28,6 +28,7 @@ import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
+import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -47,6 +48,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
     private val paletteRows = LinearLayout(context).apply { orientation = VERTICAL }
     private val contentColumn = LinearLayout(context).apply { orientation = VERTICAL }
     private val contentScroll = ScrollView(context).apply { addView(contentColumn) }
+    private val removeDialog = PanelConfirmationOverlay(context)
     private val headerBar = LinearLayout(context).apply {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
@@ -85,7 +87,6 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         setBackgroundColor(colors.keyboardBg)
         headerBar.setBackgroundColor(colors.keyboardBg)
         headerBar.addView(titleText, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
-        addView(headerBar, LayoutParams(LayoutParams.MATCH_PARENT, headerHeight))
 
         contentColumn.addView(addedLabel, columnParams(dp(GAP_DP)))
         contentColumn.addView(addedRows, columnParams(dp(GAP_DP)))
@@ -96,10 +97,20 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         contentColumn.addView(paletteLabel, columnParams(dp(SECTION_GAP_DP)))
         contentColumn.addView(paletteRows, columnParams(dp(GAP_DP)))
         contentColumn.setPadding(0, 0, 0, dp(GAP_DP))
-        addView(contentScroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        val panelColumn = LinearLayout(context).apply {
+            orientation = VERTICAL
+            addView(headerBar, LayoutParams(LayoutParams.MATCH_PARENT, headerHeight))
+            addView(contentScroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        }
+        val panelFrame = FrameLayout(context).apply {
+            addView(panelColumn, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+            addView(removeDialog, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
+        }
+        addView(panelFrame, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
     }
 
     override fun resetToDefault() {
+        removeDialog.dismissImmediately()
         Motion.reset(contentColumn)
         contentScroll.scrollTo(0, 0)
         contentScroll.fling(0)
@@ -193,6 +204,10 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         )
     }
 
+    internal fun removeDialogVisibleForTest(): Boolean = removeDialog.visibility == View.VISIBLE
+    internal fun confirmRemoveForTest(): Boolean = removeDialog.confirmForTest()
+    internal fun cancelRemoveForTest(): Boolean = removeDialog.cancelForTest()
+    internal fun dismissRemoveForTest(): Boolean = removeDialog.performClick()
     internal fun contentCanScrollForwardForTest(): Boolean = contentScroll.canScrollVertically(1)
     internal fun contentScrollForTest(y: Int) {
 
@@ -252,6 +267,15 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         setOnClickListener { onAdd(symbol) }
     }
 
+    private fun showRemoveConfirmation(symbol: String) {
+        removeDialog.show(
+            context.getString(R.string.csp_remove_symbol_confirm, symbol),
+            context.getString(R.string.csp_remove),
+            context.getString(R.string.clip_cancel),
+            colors,
+        ) { onRemove(symbol) }
+    }
+
     private fun addedChip(symbol: String): View {
         val label = TextView(context).apply {
             text = symbol
@@ -273,7 +297,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
                 removeMark(),
                 LayoutParams(dp(REMOVE_MARK_DP), dp(REMOVE_MARK_DP)).apply { marginStart = dp(GAP_DP) },
             )
-            setOnClickListener { onRemove(symbol) }
+            setOnClickListener { showRemoveConfirmation(symbol) }
         }
     }
 

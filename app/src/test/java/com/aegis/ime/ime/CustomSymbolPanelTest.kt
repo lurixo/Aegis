@@ -96,7 +96,49 @@ class CustomSymbolPanelTest {
             addedChip.contentDescription,
         )
         assertTrue(addedChip.performClick())
+        assertTrue("a tap only opens the confirmation", p.removeDialogVisibleForTest())
+        assertEquals(listOf("、"), backing)
+        assertTrue(p.confirmRemoveForTest())
         assertTrue("removed", backing.isEmpty())
+    }
+
+    @Test fun added_chips_remove_only_after_confirmation_for_punctuation_and_operators() {
+        for (operators in listOf(false, true)) {
+            val symbol = if (operators) "×" else "、"
+            val backing = mutableListOf(symbol)
+            val removed = mutableListOf<String>()
+            val p = laidOut(CustomSymbolPanel(ctx).apply {
+                if (operators) {
+                    backTitle = ctx.getString(R.string.csp_operators_title)
+                    paletteTitle = ctx.getString(R.string.csp_section_all_operators)
+                }
+                current = { backing.toList() }
+                onRemove = { removed += it; backing.remove(it) }
+                addPalette = if (operators) listOf("×", "÷") else listOf("、", "，")
+                applyPalette(ImePalette.STATIC_LIGHT)
+            })
+            val chip = requireNotNull(p.addedChipForTest(symbol))
+            assertFalse(p.removeDialogVisibleForTest())
+            assertTrue(chip.performClick())
+            assertTrue(p.removeDialogVisibleForTest())
+            assertTrue(removed.isEmpty())
+
+            assertTrue(p.cancelRemoveForTest())
+            assertFalse(p.removeDialogVisibleForTest())
+            assertTrue(removed.isEmpty())
+            assertEquals(listOf(symbol), backing)
+
+            assertTrue(chip.performClick())
+            assertTrue(p.dismissRemoveForTest())
+            assertFalse(p.removeDialogVisibleForTest())
+            assertTrue(removed.isEmpty())
+
+            assertTrue(chip.performClick())
+            assertTrue(p.confirmRemoveForTest())
+            assertFalse(p.removeDialogVisibleForTest())
+            assertEquals(listOf(symbol), removed)
+            assertTrue(backing.isEmpty())
+        }
     }
 
     @Test fun back_control_is_the_shared_icon_button_with_a_centred_title() {

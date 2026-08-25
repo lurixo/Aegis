@@ -354,6 +354,8 @@
     <string name="csp_section_all_punctuation">All punctuation</string>
     <string name="csp_section_all_operators">All operators</string>
     <string name="csp_remove_symbol">Remove %1$s</string>
+    <string name="csp_remove_symbol_confirm">Remove \"%1$s\"?</string>
+    <string name="csp_remove">Remove</string>
     <string name="edit_title">Text editing</string>
     <string name="edit_start_select">Start selection</string>
     <string name="edit_end_select">End selection</string>
