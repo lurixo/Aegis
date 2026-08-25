@@ -27,6 +27,7 @@ object ImeShapes {
     const val toolbarCapsuleMarginDp = 5f
     const val edgeInsetDp = 4f
     const val surfaceTopRadiusDp = 8f
+    const val floatRadiusDp = 12f
 
     fun gridLinePx(density: Float): Float = maxOf(1f, (density / 2f).roundToInt().toFloat())
 }

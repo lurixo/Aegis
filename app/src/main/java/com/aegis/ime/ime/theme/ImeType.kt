@@ -15,8 +15,15 @@
 
 package com.aegis.ime.ime.theme
 
+import android.util.DisplayMetrics
+import android.util.TypedValue
+import kotlin.math.roundToInt
+
 object ImeType {
     const val caption = 12f
     const val body = 16f
     const val candidate = 18f
+
+    fun popupInsetPx(metrics: DisplayMetrics): Int =
+        (2 * TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, body, metrics)).roundToInt()
 }

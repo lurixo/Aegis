@@ -13,4 +13,8 @@
     <string name="panel_singles">单字</string>
 
     <string name="editbar_confirm">确定</string>
+    <string name="translate_mode_auto">自动</string>
+    <string name="translate_mode_zh_en">中英互译</string>
+    <string name="translate_mode_zh_ja">中日互译</string>
+    <string name="translate_caption">翻译</string>
 </resources>
