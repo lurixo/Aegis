@@ -171,7 +171,7 @@
     <string name="user_dict_toast_write_failed">保存失败，改动可能未写入存储</string>
     <string name="user_dict_unreadable">词库读不出来，所以这里不显示。你的文件没有被改动，也没有被清空。导入一份副本可以替换它；在能读出来之前，添加词不会生效。</string>
     <string name="user_learn_unreadable">学习数据读不出来，所以这里不显示。文件没有被改动，也没有被清空。</string>
-    <string name="user_learn_unreadable_kept">学习数据文件读不出来。内存里已有的这些数据仍然保留，改动无法写回；文件没有被改动，也没有被清空。点「清空学习数据」可以重来。</string>
+    <string name="user_learn_unreadable_kept">学习数据文件读不出来。内存里已有的这些数据仍然保留，改动无法写回；文件没有被改动，也没有被清空。点「清空自动学习」可以重来。</string>
     <string name="user_dict_toast_export_blocked">最近的改动没能存盘，为免导出不完整，已取消导出</string>
     <string name="user_dict_toast_export_done">词库已导出</string>
     <string name="user_dict_toast_export_failed">文件没能写入，导出没有完成</string>
@@ -180,13 +180,13 @@
     <string name="user_dict_auto_description">你逐字拼出、被自动粘成的词。可以删掉某一条让它不再进候选，也可以全部清空。上面「我的词」不受影响。</string>
     <string name="user_dict_auto_count_format">自动学习：%1$d 个词</string>
     <string name="user_dict_auto_empty">还没有自动学习的词。</string>
-    <string name="user_dict_auto_pairs_only">还没有粘成的词，但已经记下了下一词搭配。清空学习数据会把它们一并删除。</string>
-    <string name="user_dict_auto_clear_button">清空学习数据</string>
-    <string name="user_dict_auto_clear_dialog_title">清空学习数据</string>
-    <string name="user_dict_auto_clear_dialog_body">将删除本机全部自动学习的词与下一词搭配。「我的词」和下载的主词库不受影响。此操作不可撤销。</string>
+    <string name="user_dict_auto_pairs_only">还没有粘成的词，但已经记下了下一词搭配。清空自动学习会把它们一并删除。</string>
+    <string name="user_dict_auto_clear_button">清空自动学习</string>
+    <string name="user_dict_auto_clear_dialog_title">清空自动学习</string>
+    <string name="user_dict_auto_clear_dialog_body">将删除本机全部自动学习的词与下一词搭配。「我的词」、词数与导出内容不受影响。此操作不可撤销。</string>
     <string name="user_dict_auto_clear_confirm">清空</string>
     <string name="user_dict_auto_clear_cancel">取消</string>
-    <string name="user_dict_toast_auto_cleared">已清空学习数据</string>
+    <string name="user_dict_toast_auto_cleared">已清空自动学习</string>
     <string name="user_dict_delete_dialog_title">删除这个词</string>
     <string name="user_dict_delete_dialog_body">将删除 %1$s。此操作不可撤销。</string>
     <string name="user_dict_delete_confirm">删除</string>

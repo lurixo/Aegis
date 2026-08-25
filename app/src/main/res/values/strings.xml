@@ -171,7 +171,7 @@
     <string name="user_dict_toast_write_failed">Could not save; the change may not have reached storage</string>
     <string name="user_dict_unreadable">The word list could not be read, so it is not shown here. Your file has not been changed or emptied. Importing a copy replaces it; adding a word will not work until it can be read again.</string>
     <string name="user_learn_unreadable">The learned data could not be read, so it is not shown here. The file has not been changed or emptied.</string>
-    <string name="user_learn_unreadable_kept">The learned data file could not be read. What the keyboard already holds in memory is kept, but changes cannot be written back. The file has not been changed or emptied. Use Clear learned data to start over.</string>
+    <string name="user_learn_unreadable_kept">The learned data file could not be read. What the keyboard already holds in memory is kept, but changes cannot be written back. The file has not been changed or emptied. Use Clear auto-learning to start over.</string>
     <string name="user_dict_toast_export_blocked">Recent changes could not be saved, so the export was cancelled rather than written incomplete</string>
     <string name="user_dict_toast_export_done">Word list exported</string>
     <string name="user_dict_toast_export_failed">The file could not be written, so the export did not finish</string>
@@ -180,13 +180,13 @@
     <string name="user_dict_auto_description">Words Aegis glued together from characters you typed one by one. Delete one to drop it from suggestions, or clear them all. Your words above are not affected.</string>
     <string name="user_dict_auto_count_format">Auto-learned words: %1$d</string>
     <string name="user_dict_auto_empty">Nothing learned automatically yet.</string>
-    <string name="user_dict_auto_pairs_only">No word has been glued together yet, but next-word pairs have been recorded. Clearing learned data deletes those too.</string>
-    <string name="user_dict_auto_clear_button">Clear learned data</string>
-    <string name="user_dict_auto_clear_dialog_title">Clear learned data</string>
-    <string name="user_dict_auto_clear_dialog_body">This deletes every automatically learned word and next-word pair on this device. Your words and the downloaded main dictionary are not affected. This cannot be undone.</string>
+    <string name="user_dict_auto_pairs_only">No word has been glued together yet, but next-word pairs have been recorded. Clearing auto-learning deletes those too.</string>
+    <string name="user_dict_auto_clear_button">Clear auto-learning</string>
+    <string name="user_dict_auto_clear_dialog_title">Clear auto-learning</string>
+    <string name="user_dict_auto_clear_dialog_body">This deletes every automatically learned word and next-word pair on this device. Your words, the word count, and exported content are not affected. This cannot be undone.</string>
     <string name="user_dict_auto_clear_confirm">Clear</string>
     <string name="user_dict_auto_clear_cancel">Cancel</string>
-    <string name="user_dict_toast_auto_cleared">Learned data cleared</string>
+    <string name="user_dict_toast_auto_cleared">Auto-learning cleared</string>
     <string name="user_dict_delete_dialog_title">Delete word</string>
     <string name="user_dict_delete_dialog_body">This deletes %1$s from this device. This cannot be undone.</string>
     <string name="user_dict_delete_confirm">Delete</string>
