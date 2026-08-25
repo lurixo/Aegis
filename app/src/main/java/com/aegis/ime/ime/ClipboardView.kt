@@ -2177,7 +2177,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LTR
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(8), dp(4), dp(8), dp(4))
+            setPadding(dp(8), dp(4), dp(8), 0)
             addView(primaryAction, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
             addView(View(context), ll(0, dp(1), 1f))
             addView(deleteAction, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
