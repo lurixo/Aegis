@@ -24,6 +24,11 @@
     <string name="settings_group_about_title">About &amp; enable</string>
     <string name="settings_group_about_desc">App release, enable Aegis, try typing</string>
     <string name="settings_back">Back</string>
+    <string name="settings_language_title">UI language</string>
+    <string name="settings_language_description">Applies to the settings app and the keyboard.</string>
+    <string name="language_follow_system">System default</string>
+    <string name="language_zh">简体中文</string>
+    <string name="language_en">English</string>
 
     <string name="download_button">Download</string>
     <string name="check_model_update_button">Check model updates</string>

@@ -267,6 +267,7 @@ internal fun InputSettingsPage(resumeSignal: Int, onBack: () -> Unit) {
         AutoLearnToggleCard(resumeSignal)
         KeyVibrationToggleCard()
         KeyPreviewCard()
+        UiLanguageCard()
     }
 }
 

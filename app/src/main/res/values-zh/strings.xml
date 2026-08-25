@@ -24,6 +24,11 @@
     <string name="settings_group_about_title">关于与启用</string>
     <string name="settings_group_about_desc">应用版本、启用 Aegis、试打字</string>
     <string name="settings_back">返回</string>
+    <string name="settings_language_title">界面语言</string>
+    <string name="settings_language_description">设置界面与键盘界面同时生效。</string>
+    <string name="language_follow_system">跟随系统</string>
+    <string name="language_zh">简体中文</string>
+    <string name="language_en">English</string>
 
     <string name="download_button">下载</string>
     <string name="check_model_update_button">检测模型更新</string>

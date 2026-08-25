@@ -15,6 +15,8 @@
 
 package com.aegis.ime
 
+import android.content.Context
+import android.os.LocaleList
 import android.content.res.Configuration
 import android.inputmethodservice.InputMethodService
 import android.inputmethodservice.InputMethodService.Insets
@@ -30,6 +32,7 @@ import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
+import com.aegis.ime.ui.appLocaleTag
 import com.aegis.ime.R
 import com.aegis.ime.backup.RestoreJournal
 import com.aegis.ime.dict.BinaryDict
@@ -92,6 +95,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     @Volatile private var userLearnMtime = 0L
 
     private var inputView: InputView? = null
+    private var uiLocaleContext: Context? = null
+    private var uiLocaleTags: String? = null
+
+    internal var appLocaleTags: (Context) -> String? = { appLocaleTag(it) }
 
     private var backCallback: OnBackInvokedCallback? = null
     private var backRegistered = false
@@ -148,7 +155,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun reportRecentsWrite(landed: Boolean, redraw: () -> Unit) {
         redraw()
-        if (!landed) toast(getString(R.string.svc_recents_update_failed))
+        if (!landed) toast(uiString(R.string.svc_recents_update_failed))
     }
     @Volatile private var secureField = false
     @Volatile private var personalizationBlocked = false
@@ -220,13 +227,42 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         customOperatorView?.applyPalette(imePalette)
     }
 
+    private fun imeUiContext(): Context {
+        val tags = appLocaleTags(this)
+        val cached = uiLocaleContext
+        if (cached != null && tags == uiLocaleTags) return cached
+        uiLocaleTags = tags
+        val context = if (tags == null) {
+            this
+        } else {
+            createConfigurationContext(
+                Configuration().apply { setLocales(LocaleList.forLanguageTags(tags)) },
+            )
+        }
+        uiLocaleContext = context
+        return context
+    }
+
+    private fun uiString(res: Int): String = imeUiContext().getString(res)
+
+    private fun syncUiLocale() {
+        if (inputView == null) return
+        if (appLocaleTags(this) == uiLocaleTags) return
+        uiLocaleContext = null
+        invalidateDensityBoundPanelCaches(panelCacheDensityDpi)
+        panelCacheLocales = imeUiContext().resources.configuration.locales.toLanguageTags()
+        val replacement = onCreateInputView() as InputView
+        if (window != null) setInputView(replacement)
+        replacement.post { if (inputView === replacement) syncBackCallback() }
+    }
+
     override fun onConfigurationChanged(newConfig: Configuration) {
 
         unregisterBackCallback()
         val previousInputView = inputView
         val nextDensityDpi = newConfig.densityDpi.takeIf { it > 0 } ?: resources.displayMetrics.densityDpi
         val nextFontScale = newConfig.fontScale.takeIf { it > 0f } ?: resources.configuration.fontScale
-        val nextLocales = newConfig.locales.toLanguageTags()
+        val nextLocales = appLocaleTags(this) ?: newConfig.locales.toLanguageTags()
         val densityChanged = panelCacheDensityDpi > 0 &&
             (panelCacheDensityDpi != nextDensityDpi ||
                 panelCacheFontScale != nextFontScale ||
@@ -541,8 +577,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         unregisterBackCallback()
         if (panelCacheDensityDpi == 0) panelCacheDensityDpi = resources.displayMetrics.densityDpi
         if (panelCacheFontScale == 0f) panelCacheFontScale = resources.configuration.fontScale
-        if (panelCacheLocales.isEmpty()) panelCacheLocales = resources.configuration.locales.toLanguageTags()
-        val view = InputView(this).apply {
+        if (panelCacheLocales.isEmpty()) panelCacheLocales = imeUiContext().resources.configuration.locales.toLanguageTags()
+        val view = InputView(imeUiContext()).apply {
             onKey = { key -> controller.onKey(key) }
             onPickCandidate = { index -> controller.onPickCandidate(index) }
             onPickReading = { index -> controller.onPickReadingIndex(index) }
@@ -553,7 +589,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onExpandClosed = { controller.clearDrill() }
             onCollapse = { requestHideSelf(0) }
             onCopyCommit = { t ->
-                toast(getString(if (commitLargeText(t)) R.string.edit_paste_done else R.string.edit_paste_failed))
+                toast(uiString(if (commitLargeText(t)) R.string.edit_paste_done else R.string.edit_paste_failed))
             }
             onCopySelectionChanged = { text ->
                 controller.expireCandidateChoiceUndo()
@@ -674,6 +710,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     override fun onStartInputView(info: EditorInfo?, restarting: Boolean) {
+        syncUiLocale()
         super.onStartInputView(info, restarting)
         val viewTarget = editorTarget(info)
         val viewSecure = info != null && com.aegis.ime.user.ClipboardPolicy.isSensitive(info.inputType)
@@ -779,7 +816,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val iv = inputView ?: return
         if (iv.isPanelShowing(editPanelView)) { iv.showPanel(null); return }
         stopSelecting()
-        val ep = editPanelView ?: EditPanelView(this).also {
+        val ep = editPanelView ?: EditPanelView(imeUiContext()).also {
             it.onAction = { a -> handleEdit(a) }
             it.onBackspaceSwipe = { up -> backspaceSwipe(up) }
             editPanelView = it
@@ -801,7 +838,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun presentLayoutPanel() {
         val iv = inputView ?: return
-        val lp = layoutPanelView ?: LayoutPanelView(this).also {
+        val lp = layoutPanelView ?: LayoutPanelView(imeUiContext()).also {
             it.onPick = { choice ->
                 controller.applyLayoutChoice(choice)
                 inputView?.showPanel(null)
@@ -833,18 +870,18 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 resetSelectionAnchor()
             }
             EditAction.COPY -> if (editorReportsNoSelection()) {
-                toast(getString(R.string.edit_no_selection))
+                toast(uiString(R.string.edit_no_selection))
             } else {
                 val copied = currentInputConnection
                     ?.performContextMenuAction(android.R.id.copy) == true
-                toast(getString(if (copied) R.string.edit_copy_done else R.string.edit_copy_failed))
+                toast(uiString(if (copied) R.string.edit_copy_done else R.string.edit_copy_failed))
             }
             EditAction.CUT -> if (editorReportsNoSelection()) {
-                toast(getString(R.string.edit_no_selection))
+                toast(uiString(R.string.edit_no_selection))
             } else {
                 val cut = currentInputConnection
                     ?.performContextMenuAction(android.R.id.cut) == true
-                toast(getString(if (cut) R.string.edit_cut_done else R.string.edit_cut_failed))
+                toast(uiString(if (cut) R.string.edit_cut_done else R.string.edit_cut_failed))
                 resetSelectionAnchor()
             }
             EditAction.SELECT_ALL -> {
@@ -853,7 +890,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                     sendKeyWithMeta(KeyEvent.KEYCODE_A, KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON)
                 }
                 resetSelectionAnchor()
-                toast(getString(R.string.edit_select_all_done))
+                toast(uiString(R.string.edit_select_all_done))
             }
             EditAction.PASTE -> {
                 val latest = clipboardStore.latest()
@@ -862,7 +899,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                     commitLargeText(latest) -> R.string.edit_paste_done
                     else -> R.string.edit_paste_failed
                 }
-                toast(getString(message))
+                toast(uiString(message))
                 resetSelectionAnchor()
             }
             EditAction.BACK -> { stopSelecting(); inputView?.showPanel(null) }
@@ -891,20 +928,20 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             EditAction.DELETE -> panelInput.backspace()
             EditAction.SELECT_ALL -> {
                 if (panelInput.text().isEmpty()) {
-                    toast(getString(R.string.edit_no_selection))
+                    toast(uiString(R.string.edit_no_selection))
                 } else {
                     panelInput.selectAll()
-                    toast(getString(R.string.edit_select_all_done))
+                    toast(uiString(R.string.edit_select_all_done))
                 }
             }
             EditAction.COPY -> {
                 val selected = panelInput.selectedText()
-                if (selected == null) toast(getString(R.string.edit_no_selection))
+                if (selected == null) toast(uiString(R.string.edit_no_selection))
                 else copyFromPanel(selected, R.string.edit_copy_done)
             }
             EditAction.CUT -> {
                 val selected = panelInput.selectedText()
-                if (selected == null) toast(getString(R.string.edit_no_selection))
+                if (selected == null) toast(uiString(R.string.edit_no_selection))
                 else if (copyFromPanel(selected, R.string.edit_cut_done)) panelInput.deleteSelection()
             }
             EditAction.PASTE -> {
@@ -914,7 +951,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                     panelInput.commit(latest) -> R.string.edit_paste_done
                     else -> R.string.edit_paste_failed
                 }
-                toast(getString(message))
+                toast(uiString(message))
             }
             EditAction.BACK -> Unit
         }
@@ -924,7 +961,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val copied = runCatching {
             clipboardManager.setPrimaryClip(android.content.ClipData.newPlainText(null, text))
         }.isSuccess
-        toast(getString(if (copied) notice else R.string.edit_copy_failed))
+        toast(uiString(if (copied) notice else R.string.edit_copy_failed))
         return copied
     }
 
@@ -1003,7 +1040,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun showEmojiPanel() {
         val iv = inputView ?: return
         if (iv.isPanelShowing(emojiView)) { iv.showPanel(null); return }
-        val ev = emojiView ?: EmojiView(this).also {
+        val ev = emojiView ?: EmojiView(imeUiContext()).also {
             it.recentProvider = { emojiUsageStore.recent() }
             it.onEmoji = { e ->
                 if (!personalizationBlocked) emojiUsageStore.record(e)
@@ -1030,7 +1067,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         if (captureCurrentClip) clipboardRecreationState = null
         val recreationState = clipboardRecreationState
-        val cv = clipboardView ?: ClipboardView(this).also {
+        val cv = clipboardView ?: ClipboardView(imeUiContext()).also {
             it.historyProvider = { clipboardStore.history() }
             it.categoriesProvider = { clipboardStore.categories() }
             it.phrasesInProvider = { cat -> clipboardStore.phrasesIn(cat) }
@@ -1096,7 +1133,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun showCustomSymbolPanel() {
         val iv = inputView ?: return
-        val panel = customSymbolView ?: CustomSymbolPanel(this).also {
+        val panel = customSymbolView ?: CustomSymbolPanel(imeUiContext()).also {
             it.addPalette = zhSymbolPalette
             it.current = { customSymbolStore.list() }
             it.onAdd = { s -> customSymbolStore.add(s); controller.setCustomSymbols(customSymbolStore.list()); it.refresh() }
@@ -1111,9 +1148,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun showCustomOperatorPanel() {
         val iv = inputView ?: return
-        val panel = customOperatorView ?: CustomSymbolPanel(this).also {
-            it.backTitle = getString(R.string.csp_operators_title)
-            it.paletteTitle = getString(R.string.csp_section_all_operators)
+        val panel = customOperatorView ?: CustomSymbolPanel(imeUiContext()).also {
+            it.backTitle = uiString(R.string.csp_operators_title)
+            it.paletteTitle = uiString(R.string.csp_section_all_operators)
             it.addPalette = mathOperatorPalette
             it.current = { customOperatorStore.list() }
             it.onAdd = { s -> customOperatorStore.add(s); controller.setCustomOperators(customOperatorStore.list()); it.refresh() }
@@ -1128,7 +1165,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun showSymbolsPanel() {
         val iv = inputView ?: return
         if (iv.isPanelShowing(symbolsView)) { iv.showPanel(null); return }
-        val sv = symbolsView ?: SymbolsView(this).also {
+        val sv = symbolsView ?: SymbolsView(imeUiContext()).also {
             it.recentProvider = { symbolUsageStore.recent() }
             it.recentOriginOf = { s -> symbolUsageStore.originOf(s) }
             it.onClearRecents = { symbolUsageStore.clear() }
@@ -1179,35 +1216,35 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun beginInlineEdit(category: String, phrase: String) {
         if (phrase.length > EDITABLE_CLIP_CHARS) {
-            toast(getString(R.string.phrase_edit_too_long))
+            toast(uiString(R.string.phrase_edit_too_long))
             return
         }
         inputPurpose = InputPurpose.EDIT_PHRASE; inputCat = category; inputOld = phrase
-        startInlineInput(getString(R.string.svc_edit_phrase), phrase)
+        startInlineInput(uiString(R.string.svc_edit_phrase), phrase)
     }
 
     private fun beginInlineEditClip(key: String) {
         if (clipboardStore.clipBodySizeHint(key) > EDITABLE_CLIP_CHARS) {
-            toast(getString(R.string.clip_edit_too_long))
+            toast(uiString(R.string.clip_edit_too_long))
             return
         }
         val body = clipboardStore.clipBody(key)
         if (body == null) {
-            toast(getString(R.string.clip_entry_unreadable_body))
+            toast(uiString(R.string.clip_entry_unreadable_body))
             return
         }
         inputPurpose = InputPurpose.EDIT_CLIP; inputCat = ""; inputOld = key
-        startInlineInput(getString(R.string.svc_edit_clip), body)
+        startInlineInput(uiString(R.string.svc_edit_clip), body)
     }
 
     private fun beginInlineAddPhrase(category: String) {
         inputPurpose = InputPurpose.ADD_PHRASE; inputCat = category; inputOld = ""
-        startInlineInput(getString(R.string.svc_add_phrase), "")
+        startInlineInput(uiString(R.string.svc_add_phrase), "")
     }
 
     private fun beginInlineEditNote(category: String, text: String) {
         inputPurpose = InputPurpose.EDIT_NOTE; inputCat = category; inputOld = text
-        startInlineInput(getString(R.string.svc_note), clipboardStore.noteFor(category, text))
+        startInlineInput(uiString(R.string.svc_note), clipboardStore.noteFor(category, text))
     }
 
     private fun beginInlineAddCategory(
@@ -1218,12 +1255,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         pendingPhraseAdds = pendingAdds
         pendingMoveFrom = pendingMove?.first ?: ""
         pendingMoveTexts = pendingMove?.second ?: emptyList()
-        startInlineInput(getString(R.string.svc_new_category), "")
+        startInlineInput(uiString(R.string.svc_new_category), "")
     }
 
     private fun beginInlineRenameCategory(old: String) {
         inputPurpose = InputPurpose.RENAME_CATEGORY; inputCat = ""; inputOld = old
-        startInlineInput(getString(R.string.svc_rename_category), old)
+        startInlineInput(uiString(R.string.svc_rename_category), old)
     }
 
     private fun startInlineInput(title: String, initial: String) {
@@ -1270,7 +1307,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         val panel = clipboardView
         if (panel != null && inputView?.isPanelShowing(panel) == true) panel.reportClipWrite()
-        else inputView?.showPhraseNotice(getString(R.string.clip_change_not_saved))
+        else inputView?.showPhraseNotice(uiString(R.string.clip_change_not_saved))
     }
 
     private fun reportPhraseWrite(change: PhraseChange) {
@@ -1360,7 +1397,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (blocks.isEmpty()) return
         for (block in blocks) clipboardStore.record(block)
         refreshOpenClipboardPanel()
-        toast(getString(R.string.svc_saved_to_clipboard))
+        toast(uiString(R.string.svc_saved_to_clipboard))
     }
 
     private fun updateSplitSelection(text: String) {
@@ -1385,7 +1422,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         runCatching { getSharedPreferences("aegis", MODE_PRIVATE).getBoolean("clip_history", true) }.getOrDefault(true)
     private fun setHistoryEnabled(on: Boolean) {
         getSharedPreferences("aegis", MODE_PRIVATE).edit().putBoolean("clip_history", on).apply()
-        toast(getString(if (on) R.string.clip_history_resumed else R.string.clip_history_paused))
+        toast(uiString(if (on) R.string.clip_history_resumed else R.string.clip_history_paused))
     }
 
     override fun onFinishInputView(finishingInput: Boolean) {

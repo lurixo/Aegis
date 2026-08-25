@@ -46,6 +46,8 @@ class AppLocalizationTest {
         assertEquals("用户词库", ctx.getString(R.string.settings_group_userdict_title))
         assertEquals("关于与启用", ctx.getString(R.string.settings_group_about_title))
         assertEquals("返回", ctx.getString(R.string.settings_back))
+        assertEquals("界面语言", ctx.getString(R.string.settings_language_title))
+        assertEquals("跟随系统", ctx.getString(R.string.language_follow_system))
         assertEquals("搜索：词或拼音", ctx.getString(R.string.user_dict_search_hint))
         assertEquals("词数：3", ctx.getString(R.string.user_dict_count_format, 3))
         assertEquals("没有匹配的词。", ctx.getString(R.string.user_dict_search_no_match))
