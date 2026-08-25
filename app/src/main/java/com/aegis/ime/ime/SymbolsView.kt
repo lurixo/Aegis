@@ -487,7 +487,12 @@ class SymbolsView(context: Context) :
         if (selected == 0) recentOriginOf(symbol) else SymbolCatalog.categories.getOrNull(selected - 1)?.id
 
     private fun badgeFor(symbol: String): String? =
-        (recentOriginOf(symbol) ?: SymbolCatalog.categoryIdOf(symbol))?.let { SymbolCatalog.titleResOf(it) }?.let { context.getString(it).take(1) }
+        (recentOriginOf(symbol) ?: SymbolCatalog.categoryIdOf(symbol))
+            ?.let { SymbolCatalog.titleResOf(it) }
+            ?.let { context.getString(it) }
+            ?.let { title ->
+                if (title.isEmpty() || Character.isIdeographic(title[0].code)) title.take(1) else title.take(2)
+            }
 
     private fun railTab(index: Int, title: String): TextView = TextView(context).apply {
         text = title

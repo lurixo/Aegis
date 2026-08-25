@@ -114,7 +114,7 @@ class PanelRecyclingTest {
             applyPalette(light)
         }
         v.openCategoryForTest(0)
-        assertEquals("C", v.gridBadgeForTest("$"))
+        assertEquals("Cu", v.gridBadgeForTest("$"))
         val catId = SymbolCatalog.categories[0].id
         val firstCatSymbol = SymbolCatalog.categories[0].symbols.first { it.length == 1 }
         v.openCategoryForTest(idx(catId))

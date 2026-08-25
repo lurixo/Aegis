@@ -52,9 +52,9 @@ class SymbolPanelRenderTest {
             applyPalette(light)
             openCategoryForTest(0)
         }
-        assertEquals("C", sv.gridBadgeForTest("$"))
-        assertEquals("S", sv.gridBadgeForTest("℃"))
-        assertEquals("G", sv.gridBadgeForTest("π"))
+        assertEquals("Cu", sv.gridBadgeForTest("$"))
+        assertEquals("Su", sv.gridBadgeForTest("℃"))
+        assertEquals("Gr", sv.gridBadgeForTest("π"))
     }
 
     @Test fun common_badge_falls_back_to_first_category_when_origin_missing() {
@@ -63,9 +63,9 @@ class SymbolPanelRenderTest {
             applyPalette(light)
             openCategoryForTest(0)
         }
-        assertEquals("E", sv.gridBadgeForTest("$"))
-        assertEquals("M", sv.gridBadgeForTest("℃"))
-        assertEquals("M", sv.gridBadgeForTest("π"))
+        assertEquals("En", sv.gridBadgeForTest("$"))
+        assertEquals("Ma", sv.gridBadgeForTest("℃"))
+        assertEquals("Ma", sv.gridBadgeForTest("π"))
     }
 
     @Test fun tapping_a_symbol_reports_the_tab_it_came_from() {
@@ -93,7 +93,8 @@ class SymbolPanelRenderTest {
             openCategoryForTest(0)
         }
         for ((sym, cats) in overlaps) {
-            val expected = ctx.getString(SymbolCatalog.titleResOf(cats.last())!!).take(1)
+            val title = ctx.getString(SymbolCatalog.titleResOf(cats.last())!!)
+            val expected = if (Character.isIdeographic(title[0].code)) title.take(1) else title.take(2)
             assertEquals("badge of $sym must show its recorded origin ${cats.last()}", expected, sv.gridBadgeForTest(sym))
             assertTrue("test setup: chosen origin is genuinely non-first for $sym", cats.last() != cats.first())
         }
