@@ -73,7 +73,8 @@ class BackspaceGesture(density: Float) {
         if (!active) return false
         active = false
         if (swiped) {
-            if (!repeating) onSwipe(y - downY < 0f)
+            val dy = y - downY
+            if (!repeating && abs(dy) > swipeThreshold) onSwipe(dy < 0f)
             return false
         }
         return !repeating

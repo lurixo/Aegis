@@ -27,6 +27,7 @@ import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
 import java.time.Duration
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -87,6 +88,17 @@ class BackspaceBubbleTest {
         assertEquals(true, g.swipeDirectionUp)
         g.move(100f, 300f - swipeThreshold / 2f, true)
         assertNull("coming back inside the threshold takes the direction away", g.swipeDirectionUp)
+    }
+
+    @Test fun lifting_inside_the_threshold_commits_no_swipe_and_no_backspace() {
+        val g = BackspaceGesture(density)
+        val swipes = ArrayList<Boolean>()
+        g.onSwipe = { swipes += it }
+        g.begin(100f, 300f)
+        g.move(100f, 300f - (swipeThreshold + 10f), true)
+        g.move(100f, 300f - swipeThreshold / 2f, true)
+        assertFalse("a settled swipe never falls back to a tap", g.finish(300f - swipeThreshold / 2f))
+        assertTrue("lifting inside the threshold commits nothing", swipes.isEmpty())
     }
 
     @Test fun sliding_out_the_other_side_after_a_return_commits_that_direction() {
