@@ -417,6 +417,7 @@
     <string name="clip_move_to_category">移动到分类</string>
     <string name="clip_no_other_categories">没有其它分类</string>
     <string name="clip_delete_category">删除分类</string>
+    <string name="clip_delete_category_confirm">删除「%1$s」分类及其中全部常用语？</string>
     <string name="clip_delete_item">删除此条内容</string>
     <string name="clip_delete_clip_confirm">删除选中的剪贴板条目？</string>
     <string name="clip_delete_phrase_confirm">删除选中的常用语？</string>

@@ -2081,13 +2081,27 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
                 action = context.getString(R.string.clip_delete),
                 category = displayed,
                 description = context.getString(R.string.clip_delete_named, displayed),
-            ) {
-                hideOverlay(); onDeleteCategory(name)
-                if (phraseCat == name) { phraseCat = ""; pendingCategoryFade = true }
-                st.collapse(); swipeRevealed = null; refresh()
-            })
+            ) { confirmDeleteCategory(name) })
         }
         showOverlay(table)
+    }
+
+    private fun confirmDeleteCategory(
+        name: String,
+        onDone: () -> Unit = {},
+        onCancel: () -> Unit = { hideOverlay() },
+    ) {
+        val card = menuCard()
+        card.addView(menuTitle(context.getString(R.string.clip_delete_category_confirm, displayCat(name)), color = TEXT_DARK))
+        card.addView(confirmationActions(context.getString(R.string.clip_delete), onCancel) {
+            hideOverlay()
+            onDeleteCategory(name)
+            if (phraseCat == name) { phraseCat = ""; pendingCategoryFade = true }
+            st.collapse(); swipeRevealed = null
+            refresh()
+            onDone()
+        })
+        showOverlay(card)
     }
 
 
@@ -2356,9 +2370,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
                 glyphView(RED, 9) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }.apply {
                     contentDescription = context.getString(R.string.clip_delete_category)
                     setOnClickListener {
-                        onDeleteCategory(name); if (phraseCat == name) { phraseCat = ""; pendingCategoryFade = true }; st.collapse(); swipeRevealed = null
-                        refresh()
-                        chooseMoveCategoryThen(current, moveTexts, after, action)
+                        val reopen = { chooseMoveCategoryThen(current, moveTexts, after, action) }
+                        confirmDeleteCategory(name, onDone = reopen, onCancel = reopen)
                     }
                 }.also { bindImmediateAction(it, RED, faceColor = Color.TRANSPARENT) },
                 ll(dp(52), dp(48)),
@@ -2635,7 +2648,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         bindImmediateAction(this, TEXT_DARK, faceColor = Color.TRANSPARENT)
     }
 
-    private fun confirmationActions(primaryLabel: String, onPrimary: () -> Unit): View =
+    private fun confirmationActions(
+        primaryLabel: String,
+        onCancel: () -> Unit = { hideOverlay() },
+        onPrimary: () -> Unit,
+    ): View =
         LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LTR
@@ -2643,7 +2660,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             setPadding(dp(20), dp(4), dp(20), dp(6))
             addView(confirmationButton(primaryLabel, onPrimary), ll(WC, dp(48)))
             addView(View(context), ll(dp(14), dp(1)))
-            addView(confirmationButton(context.getString(R.string.clip_cancel)) { hideOverlay() }, ll(WC, dp(48)))
+            addView(confirmationButton(context.getString(R.string.clip_cancel), onCancel), ll(WC, dp(48)))
         }
 
     private fun confirmationButton(label: String, onClick: () -> Unit): TextView = TextView(context).apply {

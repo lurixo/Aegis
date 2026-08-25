@@ -655,7 +655,8 @@ class PhrasePanelTest {
         assertTrue((overlayOf(v) as ViewGroup).getChildAt(0).width < dp(320))
         assertTrue(clickDesc(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_rename_named, "工作"))); assertEquals("工作", renamed)
         assertTrue(chip.performLongClick())
-        assertTrue(clickDesc(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete_named, "工作"))); assertEquals("工作", deleted)
+        assertTrue(clickDesc(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete_named, "工作"))); assertNull(deleted)
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete))); assertEquals("工作", deleted)
     }
 
     @Test fun categorybar_edit_uses_the_same_capsule_feedback_shape_as_category_chips() {

@@ -421,6 +421,7 @@
     <string name="clip_move_to_category">Move to category</string>
     <string name="clip_no_other_categories">No other categories</string>
     <string name="clip_delete_category">Delete category</string>
+    <string name="clip_delete_category_confirm">Delete category \"%1$s\" and all its phrases?</string>
     <string name="clip_delete_item">Delete this item</string>
     <string name="clip_delete_clip_confirm">Delete the selected clipboard item(s)?</string>
     <string name="clip_delete_phrase_confirm">Delete the selected phrase(s)?</string>

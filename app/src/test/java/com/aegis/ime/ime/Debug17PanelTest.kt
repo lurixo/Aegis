@@ -192,6 +192,8 @@ class Debug17PanelTest {
         assertNull(deleted)
         assertTrue(category.performLongClick())
         assertTrue(clickDesc(overlayOf(v), delete))
+        assertNull(deleted)
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete)))
         assertEquals("工作", deleted)
     }
 
@@ -477,6 +479,8 @@ class Debug17PanelTest {
         }
         assertTrue("工作 + 私人 listed", "工作" in labels(overlayOf(v)) && "私人" in labels(overlayOf(v)))
         deleteTargetInChooser(v, "工作")
+        assertTrue("trash only opens the confirmation", deleted.isEmpty())
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete)))
         assertEquals("delete reuses onDeleteCategory", listOf("工作"), deleted)
         val ls = labels(overlayOf(v))
         assertFalse("工作 gone after refresh", "工作" in ls)
@@ -491,7 +495,49 @@ class Debug17PanelTest {
         v.onMovePhrase = { f, t, to -> moved = Triple(f, t, to) }
         v.showMoveChooserForTest("默认")
         deleteTargetInChooser(v, "工作")
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete)))
         assertNull("🗑 must delete only, never move", moved)
+    }
+
+    @Test fun category_menu_delete_requires_confirmation_before_onDeleteCategory() {
+        var deleted: String? = null
+        val v = phraseView().apply { onDeleteCategory = { deleted = it } }
+        val chip = textViews(v).first { it.text?.toString() == "工作" && it.hasOnClickListeners() }
+        assertTrue(chip.performLongClick())
+        assertTrue(clickDesc(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete_named, "工作")))
+        assertTrue(
+            "the confirmation names the category and its phrases",
+            ctx.getString(com.aegis.ime.R.string.clip_delete_category_confirm, "工作") in labels(overlayOf(v)),
+        )
+        assertNull(deleted)
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_cancel)))
+        assertNull(deleted)
+        assertEquals(View.GONE, overlayOf(v).visibility)
+        assertTrue(chip.performLongClick())
+        assertTrue(clickDesc(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete_named, "工作")))
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        assertEquals("工作", deleted)
+    }
+
+    @Test fun move_chooser_trash_requires_confirmation_and_returns_to_the_chooser() {
+        val cats = mutableListOf("默认", "工作", "私人")
+        val deleted = ArrayList<String>()
+        val v = ClipboardView(ctx).apply {
+            categoriesProvider = { cats }; phrasesInProvider = { _ -> listOf("你好") }
+            onDeleteCategory = { deleted.add(it); cats.remove(it) }
+            applyPalette(pal); forcePhrasesStateForTest("默认"); refresh(); showMoveChooserForTest("默认")
+        }
+        deleteTargetInChooser(v, "工作")
+        assertTrue(ctx.getString(com.aegis.ime.R.string.clip_delete_category_confirm, "工作") in labels(overlayOf(v)))
+        assertTrue(deleted.isEmpty())
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_cancel)))
+        assertTrue(deleted.isEmpty())
+        assertTrue("cancel returns to the move chooser", "工作" in labels(overlayOf(v)))
+        deleteTargetInChooser(v, "工作")
+        assertTrue(click(overlayOf(v), ctx.getString(com.aegis.ime.R.string.clip_delete)))
+        assertEquals(listOf("工作"), deleted)
+        assertTrue("confirm returns to the chooser", "私人" in labels(overlayOf(v)))
+        assertFalse("the deleted target is gone from the chooser", "工作" in labels(overlayOf(v)))
     }
 
     @Test fun move_chooser_name_tap_still_moves() {
