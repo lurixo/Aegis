@@ -41,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.aegis.ime.R
@@ -68,6 +69,7 @@ internal fun GramDownloadCard(
     var downloading by remember { mutableStateOf(if (preview == null) initial.downloading else false) }
     var checking by remember { mutableStateOf(preview?.checking ?: false) }
     var redownloadOffered by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf(false) }
     val updateUnknownToast = stringResource(R.string.download_toast_update_unknown)
     val updateOfflineToast = stringResource(R.string.download_toast_update_offline)
     val updateTimeoutToast = stringResource(R.string.download_toast_update_timeout)
@@ -143,6 +145,29 @@ internal fun GramDownloadCard(
         }
     }
 
+    fun deleteModel() {
+        val purged = ModelDownload.purge(context.filesDir)
+        present = ModelDownload.isDownloaded(context.filesDir)
+        if (!present) {
+            prefs.edit()
+                .remove(ModelDownload.VALIDATOR_PREF)
+                .remove(ModelDownload.GRAM_SHA256_PREF)
+                .remove(ModelDownload.GRAM_SIZE_PREF)
+                .commit()
+            SettingsHotApply.noteEnginePackChanged(prefs)
+        }
+        progress = if (present) 1f else 0f
+        status = when {
+            purged -> LocalizedText.Resource(R.string.gram_status_deleted)
+            present -> LocalizedText.ResourceLong(
+                R.string.gram_status_enabled,
+                ModelDownload.bytesToDisplayMb(ModelDownload.installedGramBytes(context.filesDir)),
+            )
+            else -> LocalizedText.Resource(R.string.gram_status_not_downloaded)
+        }
+        GramDownloadWork.setIdleStatus(context, status)
+    }
+
     AppSection {
         Column(
             modifier = Modifier.padding(AppSpacing.sectionPadding),
@@ -212,32 +237,38 @@ internal fun GramDownloadCard(
                 AppPrimaryButton(
                     text = stringResource(R.string.delete_button),
                     enabled = !downloading && !checking && present,
-                    onClick = {
-                        val purged = ModelDownload.purge(context.filesDir)
-                        present = ModelDownload.isDownloaded(context.filesDir)
-                        if (!present) {
-                            prefs.edit()
-                                .remove(ModelDownload.VALIDATOR_PREF)
-                                .remove(ModelDownload.GRAM_SHA256_PREF)
-                                .remove(ModelDownload.GRAM_SIZE_PREF)
-                                .commit()
-                            SettingsHotApply.noteEnginePackChanged(prefs)
-                        }
-                        progress = if (present) 1f else 0f
-                        status = when {
-                            purged -> LocalizedText.Resource(R.string.gram_status_deleted)
-                            present -> LocalizedText.ResourceLong(
-                                R.string.gram_status_enabled,
-                                ModelDownload.bytesToDisplayMb(ModelDownload.installedGramBytes(context.filesDir)),
-                            )
-                            else -> LocalizedText.Resource(R.string.gram_status_not_downloaded)
-                        }
-                        GramDownloadWork.setIdleStatus(context, status)
-                    },
+                    onClick = { pendingDelete = true },
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                 )
             }
         }
+    }
+
+    if (pendingDelete) {
+        AegisAlertDialog(
+            onDismissRequest = { pendingDelete = false },
+            title = { Text(stringResource(R.string.gram_delete_dialog_title)) },
+            text = { Text(stringResource(R.string.gram_delete_dialog_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        deleteModel()
+                        pendingDelete = false
+                    },
+                    modifier = Modifier.testTag("gram_delete_confirm"),
+                ) {
+                    Text(stringResource(R.string.delete_button))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { pendingDelete = false },
+                    modifier = Modifier.testTag("gram_delete_cancel"),
+                ) {
+                    Text(stringResource(R.string.download_delete_cancel))
+                }
+            },
+        )
     }
 }

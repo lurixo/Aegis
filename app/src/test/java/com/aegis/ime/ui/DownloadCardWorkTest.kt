@@ -21,6 +21,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.aegis.ime.R
@@ -675,6 +676,74 @@ class ResourceUpdateCardTest {
         ModelDownload.purgeDict(context.filesDir)
         GramDownloadWork.setIdleStatus(context, LocalizedText.Resource(R.string.gram_status_not_downloaded))
         DictDownloadWork.setIdleStatus(context, LocalizedText.Resource(R.string.dict_status_not_downloaded))
+    }
+
+    @Test
+    fun dictionaryDeleteAsksFirstAndOnlyTheConfirmationPurges() {
+        val dir = ModelDownload.destFile(context.filesDir).parentFile!!.apply { mkdirs() }
+        ModelDownload.DICT_PACK_FILES.forEach { File(dir, it).writeBytes(ByteArray(2_048)) }
+        prefs.edit().putString(ModelDownload.DICT_SHA256_PREF, "1".repeat(64)).commit()
+        compose.runOnUiThread {
+            compose.activity.setContent {
+                AegisTheme {
+                    DictDownloadCard()
+                }
+            }
+        }
+        compose.waitForIdle()
+
+        compose.onNodeWithText(context.getString(R.string.delete_button)).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(context.getString(R.string.dict_delete_dialog_body)).assertExists()
+        assertTrue("nothing is deleted before the confirmation", ModelDownload.isDictDownloaded(context.filesDir))
+
+        compose.onNodeWithTag("dict_delete_cancel").performClick()
+        compose.waitForIdle()
+        assertTrue("cancelling keeps the pack", ModelDownload.isDictDownloaded(context.filesDir))
+        assertTrue("cancelling keeps the install metadata", prefs.contains(ModelDownload.DICT_SHA256_PREF))
+
+        compose.onNodeWithText(context.getString(R.string.delete_button)).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("dict_delete_confirm").performClick()
+        compose.waitForIdle()
+        assertFalse("the confirmation purges the pack", ModelDownload.isDictDownloaded(context.filesDir))
+        assertFalse("the confirmation drops the install metadata", prefs.contains(ModelDownload.DICT_SHA256_PREF))
+        compose.onNodeWithText(context.getString(R.string.dict_status_deleted)).assertExists()
+    }
+
+    @Test
+    fun modelDeleteAsksFirstAndOnlyTheConfirmationPurges() {
+        ModelDownload.destFile(context.filesDir).apply {
+            parentFile?.mkdirs()
+            writeBytes(ByteArray(2_048))
+        }
+        prefs.edit().putString(ModelDownload.VALIDATOR_PREF, "remote-model").commit()
+        compose.runOnUiThread {
+            compose.activity.setContent {
+                AegisTheme {
+                    GramDownloadCard()
+                }
+            }
+        }
+        compose.waitForIdle()
+
+        compose.onNodeWithText(context.getString(R.string.delete_button)).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(context.getString(R.string.gram_delete_dialog_body)).assertExists()
+        assertTrue("nothing is deleted before the confirmation", ModelDownload.isDownloaded(context.filesDir))
+
+        compose.onNodeWithTag("gram_delete_cancel").performClick()
+        compose.waitForIdle()
+        assertTrue("cancelling keeps the model", ModelDownload.isDownloaded(context.filesDir))
+        assertTrue("cancelling keeps the validator", prefs.contains(ModelDownload.VALIDATOR_PREF))
+
+        compose.onNodeWithText(context.getString(R.string.delete_button)).performClick()
+        compose.waitForIdle()
+        compose.onNodeWithTag("gram_delete_confirm").performClick()
+        compose.waitForIdle()
+        assertFalse("the confirmation purges the model", ModelDownload.isDownloaded(context.filesDir))
+        assertFalse("the confirmation drops the validator", prefs.contains(ModelDownload.VALIDATOR_PREF))
+        compose.onNodeWithText(context.getString(R.string.gram_status_deleted)).assertExists()
     }
 
     @Test

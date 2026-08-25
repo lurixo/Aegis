@@ -41,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.aegis.ime.R
@@ -67,6 +68,7 @@ internal fun DictDownloadCard(
     var downloading by remember { mutableStateOf(if (preview == null) initial.downloading else false) }
     var checking by remember { mutableStateOf(preview?.checking ?: false) }
     var redownloadOffered by remember { mutableStateOf(false) }
+    var pendingDelete by remember { mutableStateOf(false) }
     val updateUnknownToast = stringResource(R.string.download_toast_update_unknown)
     val updateOfflineToast = stringResource(R.string.download_toast_update_offline)
     val updateTimeoutToast = stringResource(R.string.download_toast_update_timeout)
@@ -172,6 +174,37 @@ internal fun DictDownloadCard(
         }
     }
 
+    fun deleteDict() {
+        if (ModelDownload.dictionaryTransactionInProgress(context.filesDir)) return
+        val purged = ModelDownload.purgeDict(context.filesDir)
+        if (
+            !purged &&
+            ModelDownload.dictionaryTransactionInProgress(context.filesDir)
+        ) return
+        present = ModelDownload.isDictDownloaded(context.filesDir)
+        if (!present) {
+            prefs.edit()
+                .remove(ModelDownload.DICT_VALIDATOR_PREF)
+                .remove(ModelDownload.DICT_SHA256_PREF)
+                .remove(ModelDownload.DICT_ASSET_NAME_PREF)
+                .remove(ModelDownload.DICT_ASSET_URL_PREF)
+                .remove(ModelDownload.DICT_RELEASE_TAG_PREF)
+                .remove(ModelDownload.DICT_RELEASE_PUBLISHED_PREF)
+                .commit()
+            SettingsHotApply.noteEnginePackChanged(prefs)
+        }
+        progress = if (present) 1f else 0f
+        status = when {
+            purged -> LocalizedText.Resource(R.string.dict_status_deleted)
+            present -> LocalizedText.ResourceLong(
+                R.string.dict_status_enabled,
+                ModelDownload.bytesToDisplayMb(ModelDownload.installedDictionaryBytes(context.filesDir)),
+            )
+            else -> LocalizedText.Resource(R.string.dict_status_not_downloaded)
+        }
+        DictDownloadWork.setIdleStatus(context, status)
+    }
+
     AppSection {
         Column(
             modifier = Modifier.padding(AppSpacing.sectionPadding),
@@ -238,40 +271,38 @@ internal fun DictDownloadCard(
                 AppPrimaryButton(
                     text = stringResource(R.string.delete_button),
                     enabled = !downloading && !checking && present,
-                    onClick = delete@ {
-                        if (ModelDownload.dictionaryTransactionInProgress(context.filesDir)) return@delete
-                        val purged = ModelDownload.purgeDict(context.filesDir)
-                        if (
-                            !purged &&
-                            ModelDownload.dictionaryTransactionInProgress(context.filesDir)
-                        ) return@delete
-                        present = ModelDownload.isDictDownloaded(context.filesDir)
-                        if (!present) {
-                            prefs.edit()
-                                .remove(ModelDownload.DICT_VALIDATOR_PREF)
-                                .remove(ModelDownload.DICT_SHA256_PREF)
-                                .remove(ModelDownload.DICT_ASSET_NAME_PREF)
-                                .remove(ModelDownload.DICT_ASSET_URL_PREF)
-                                .remove(ModelDownload.DICT_RELEASE_TAG_PREF)
-                                .remove(ModelDownload.DICT_RELEASE_PUBLISHED_PREF)
-                                .commit()
-                            SettingsHotApply.noteEnginePackChanged(prefs)
-                        }
-                        progress = if (present) 1f else 0f
-                        status = when {
-                            purged -> LocalizedText.Resource(R.string.dict_status_deleted)
-                            present -> LocalizedText.ResourceLong(
-                                R.string.dict_status_enabled,
-                                ModelDownload.bytesToDisplayMb(ModelDownload.installedDictionaryBytes(context.filesDir)),
-                            )
-                            else -> LocalizedText.Resource(R.string.dict_status_not_downloaded)
-                        }
-                        DictDownloadWork.setIdleStatus(context, status)
-                    },
+                    onClick = { pendingDelete = true },
                     modifier = Modifier.weight(1f).fillMaxHeight(),
                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
                 )
             }
         }
+    }
+
+    if (pendingDelete) {
+        AegisAlertDialog(
+            onDismissRequest = { pendingDelete = false },
+            title = { Text(stringResource(R.string.dict_delete_dialog_title)) },
+            text = { Text(stringResource(R.string.dict_delete_dialog_body)) },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        deleteDict()
+                        pendingDelete = false
+                    },
+                    modifier = Modifier.testTag("dict_delete_confirm"),
+                ) {
+                    Text(stringResource(R.string.delete_button))
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { pendingDelete = false },
+                    modifier = Modifier.testTag("dict_delete_cancel"),
+                ) {
+                    Text(stringResource(R.string.download_delete_cancel))
+                }
+            },
+        )
     }
 }

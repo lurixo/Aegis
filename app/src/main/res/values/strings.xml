@@ -29,6 +29,7 @@
     <string name="check_model_update_button">Check model updates</string>
     <string name="check_dict_update_button">Check dictionary updates</string>
     <string name="delete_button">Delete</string>
+    <string name="download_delete_cancel">Cancel</string>
     <string name="download_status_downloading">Downloading…</string>
     <string name="download_status_checking_update">Checking for updates…</string>
     <string name="download_toast_update_offline">Unable to check for updates (network unavailable)</string>
@@ -55,6 +56,8 @@
     <string name="gram_status_download_failed">Download failed</string>
     <string name="gram_status_update_current">Up to date, no update (enhancement model is already current)</string>
     <string name="gram_status_deleted">⚠ Enhanced grammar is not enabled (deleted; a loaded model is released automatically)</string>
+    <string name="gram_delete_dialog_title">Delete the enhancement model</string>
+    <string name="gram_delete_dialog_body">This deletes the downloaded enhancement model and disables enhanced grammar. This cannot be undone.</string>
 
     <string name="dict_card_title">Full dictionary pack (14 tables freq >= 1)</string>
     <string name="dict_card_description">The Chinese dictionary is downloaded after install (SHA-256 verified). Chinese input stays locked until it finishes; English works offline without it. Stored locally only; after download, input runs fully offline.</string>
@@ -69,6 +72,8 @@
     <string name="dict_status_download_blocked">Could not start the download (leftover files from an unfinished install). Delete the dictionary, then download it again.</string>
     <string name="dict_status_update_current">Up to date, no update (full dictionary is already current)</string>
     <string name="dict_status_deleted">⚠ Chinese dictionary deleted — Chinese input is locked until you download it again (English works offline)</string>
+    <string name="dict_delete_dialog_title">Delete the dictionary pack</string>
+    <string name="dict_delete_dialog_body">This deletes the downloaded Chinese dictionary; Chinese input stays locked until you download it again. This cannot be undone.</string>
     <string name="dict_gate_cta">Tap to download the Chinese dictionary</string>
     <string name="dict_gate_downloading">Downloading dictionary…</string>
     <string name="dict_gate_verifying">Verifying…</string>

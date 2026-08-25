@@ -29,6 +29,7 @@
     <string name="check_model_update_button">检测模型更新</string>
     <string name="check_dict_update_button">检测词库更新</string>
     <string name="delete_button">删除</string>
+    <string name="download_delete_cancel">取消</string>
     <string name="download_status_downloading">下载中…</string>
     <string name="download_status_checking_update">正在检查更新…</string>
     <string name="download_toast_update_offline">无法检查更新（网络不可用）</string>
@@ -55,6 +56,8 @@
     <string name="gram_status_download_failed">下载失败</string>
     <string name="gram_status_update_current">已是最新，无更新（增强模型已是最新版本）</string>
     <string name="gram_status_deleted">⚠ 增强语法未启用（已删除；已加载的内存模型会自动卸载）</string>
+    <string name="gram_delete_dialog_title">删除增强模型</string>
+    <string name="gram_delete_dialog_body">将删除已下载的增强模型，增强语法将停用。此操作不可撤销。</string>
 
     <string name="dict_card_title">全量词库包（14 表 freq≥1）</string>
     <string name="dict_card_description">中文词库在安装后下载（SHA-256 校验）。下载完成前中文输入不可用；英文无需词库即可离线使用。仅存本机，下载后输入全程离线。</string>
@@ -69,6 +72,8 @@
     <string name="dict_status_download_blocked">无法开始下载（存在未完成安装的残留文件）。请删除词库后重新下载。</string>
     <string name="dict_status_update_current">已是最新，无更新（全量词库已是最新版本）</string>
     <string name="dict_status_deleted">⚠ 中文词库已删除 —— 需重新下载后才能中文输入（英文可离线使用）</string>
+    <string name="dict_delete_dialog_title">删除词库包</string>
+    <string name="dict_delete_dialog_body">将删除已下载的中文词库，需重新下载后才能中文输入。此操作不可撤销。</string>
     <string name="dict_gate_cta">点按下载词库，解锁中文输入</string>
     <string name="dict_gate_downloading">正在下载词库…</string>
     <string name="dict_gate_verifying">正在校验安装…</string>
