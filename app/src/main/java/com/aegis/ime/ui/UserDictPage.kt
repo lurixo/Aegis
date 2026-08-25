@@ -97,14 +97,12 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
     val addRejectedToast = stringResource(R.string.user_dict_toast_add_rejected)
     val deletedToast = stringResource(R.string.user_dict_toast_deleted)
     val batchDeletedToast = stringResource(R.string.user_dict_toast_batch_deleted)
-    val autoClearedToast = stringResource(R.string.user_dict_toast_auto_cleared)
     val writeFailedToast = stringResource(R.string.user_dict_toast_write_failed)
     val exportBlockedToast = stringResource(R.string.user_dict_toast_export_blocked)
     val exportDoneToast = stringResource(R.string.user_dict_toast_export_done)
     val exportFailedToast = stringResource(R.string.user_dict_toast_export_failed)
     val exportEmptyToast = stringResource(R.string.user_dict_toast_export_empty)
     var pendingImport by remember { mutableStateOf<Uri?>(null) }
-    var pendingAutoClear by remember { mutableStateOf(false) }
     var pendingDelete by remember { mutableStateOf<PendingDelete?>(null) }
     var pendingBatchDelete by remember { mutableStateOf(false) }
     var selecting by remember { mutableStateOf(false) }
@@ -250,10 +248,6 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
             val glued = UserLearnEdit.removeAll(userLearn, chosenLearned)
             words && glued
         }
-    }
-
-    fun clearLearned() {
-        edit(autoClearedToast, writeFailedToast) { UserLearnEdit.clear(userLearn) }
     }
 
     fun startExport() {
@@ -435,8 +429,6 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
     if (sheet == UserDictSheet.MORE) {
         UserDictMoreSheet(
             dictionaryPath = userDb.absolutePath,
-            learnedHasData = learnedHasData,
-            learnedReadable = learnedView.readable,
             onExport = {
                 sheet = null
                 startExport()
@@ -444,10 +436,6 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
             onImport = {
                 sheet = null
                 importLauncher.launch(arrayOf("text/plain"))
-            },
-            onClearLearned = {
-                sheet = null
-                pendingAutoClear = true
             },
             onDismiss = { sheet = null },
         )
@@ -514,24 +502,6 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
                     modifier = Modifier.testTag("user_dict_batch_delete_cancel"),
                 ) {
                     Text(stringResource(R.string.user_dict_delete_cancel))
-                }
-            },
-        )
-    }
-
-    if (pendingAutoClear) {
-        AegisAlertDialog(
-            onDismissRequest = { pendingAutoClear = false },
-            title = { Text(stringResource(R.string.user_dict_auto_clear_dialog_title)) },
-            text = { Text(stringResource(R.string.user_dict_auto_clear_dialog_body)) },
-            confirmButton = {
-                TextButton(onClick = { clearLearned(); pendingAutoClear = false }) {
-                    Text(stringResource(R.string.user_dict_auto_clear_confirm))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { pendingAutoClear = false }) {
-                    Text(stringResource(R.string.user_dict_auto_clear_cancel))
                 }
             },
         )
@@ -859,11 +829,8 @@ private fun UserDictAddSheet(
 @OptIn(ExperimentalMaterial3Api::class)
 private fun UserDictMoreSheet(
     dictionaryPath: String,
-    learnedHasData: Boolean,
-    learnedReadable: Boolean,
     onExport: () -> Unit,
     onImport: () -> Unit,
-    onClearLearned: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -908,25 +875,6 @@ private fun UserDictMoreSheet(
                         text = stringResource(R.string.user_dict_import_button),
                         onClick = onImport,
                         modifier = Modifier.fillMaxWidth().testTag("user_dict_import"),
-                    )
-                }
-            }
-            AppSection {
-                Column(
-                    modifier = Modifier.padding(AppSpacing.sectionPadding),
-                    verticalArrangement = Arrangement.spacedBy(AppSpacing.contentGap),
-                ) {
-                    Text(stringResource(R.string.user_dict_auto_title), style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        stringResource(R.string.user_dict_auto_description),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    AppPrimaryButton(
-                        text = stringResource(R.string.user_dict_auto_clear_button),
-                        onClick = onClearLearned,
-                        enabled = learnedHasData || !learnedReadable,
-                        modifier = Modifier.fillMaxWidth().testTag("user_dict_auto_clear"),
                     )
                 }
             }

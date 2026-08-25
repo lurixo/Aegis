@@ -176,11 +176,6 @@ class UserDictPageTest {
         compose.onNodeWithTag("user_dict_export").performScrollTo().performClick()
     }
 
-    private fun requestLearnedClearFromTools() {
-        openMoreSheet()
-        compose.onNodeWithTag("user_dict_auto_clear").performScrollTo().performClick()
-    }
-
     private fun seed(n: Int, vararg extras: Pair<String, String>) {
         db.writeText(
             buildString {
@@ -330,7 +325,7 @@ class UserDictPageTest {
         compose.onNodeWithText(row("你呢嗯", "ninen")).assertDoesNotExist()
     }
 
-    @Test fun a_count_of_zero_over_a_live_clear_button_says_what_the_button_would_clear() {
+    @Test fun a_count_of_zero_with_recorded_pairs_says_they_are_still_there() {
         seed(0)
         learn.writeText("aegis-userlearn 1\nC\t你\t好\t3.0\t1700000000000\n")
         assertTrue("there is no glued word to count", UserLearnEdit.list(learn).isEmpty())
@@ -338,8 +333,6 @@ class UserDictPageTest {
 
         compose.onNodeWithTag("user_dict_list").performScrollToNode(hasTestTag("user_dict_auto_pairs_only"))
         compose.onNodeWithText(ctx.getString(R.string.user_dict_auto_count_format, 0)).assertExists()
-        openMoreSheet()
-        compose.onNodeWithTag("user_dict_auto_clear").assertIsEnabled()
         compose.onNodeWithText(s(R.string.user_dict_auto_pairs_only)).assertExists()
     }
 
@@ -348,33 +341,8 @@ class UserDictPageTest {
         seedLearned("你" to "ni", "呢" to "ne", "嗯" to "n")
         openUserDictPage()
 
-        openMoreSheet()
         compose.onNodeWithText(ctx.getString(R.string.user_dict_auto_count_format, 1)).assertExists()
         compose.onNodeWithTag("user_dict_auto_pairs_only").assertDoesNotExist()
-    }
-
-    @Test fun clearing_the_learned_data_asks_first_and_then_empties_the_section() {
-        seed(0, "nihao" to "你好")
-        seedLearned("你" to "ni", "呢" to "ne", "嗯" to "n")
-        openUserDictPage()
-
-        requestLearnedClearFromTools()
-        compose.waitForIdle()
-        compose.onNodeWithText(s(R.string.user_dict_auto_clear_dialog_body)).assertExists()
-        assertTrue("nothing is cleared before the confirmation", UserLearnEdit.list(learn).isNotEmpty())
-
-        compose.onNodeWithText(s(R.string.user_dict_auto_clear_cancel)).performClick()
-        compose.waitForIdle()
-        assertTrue("cancelling keeps the learned data", UserLearnEdit.list(learn).isNotEmpty())
-
-        requestLearnedClearFromTools()
-        compose.waitForIdle()
-        compose.onNodeWithText(s(R.string.user_dict_auto_clear_confirm)).performClick()
-        assertEquals(s(R.string.user_dict_toast_auto_cleared), reported())
-
-        assertTrue("confirming clears the learned data", UserLearnEdit.list(learn).isEmpty())
-        compose.onNodeWithText(s(R.string.user_dict_auto_empty)).assertExists()
-        assertTrue("the words the user added by hand survive", UserDictEdit.list(db).any { it.word == "你好" })
     }
 
     @Test fun selection_mode_swaps_delete_buttons_for_ticks_and_leaves_no_tick_behind() {
@@ -876,20 +844,6 @@ class UserDictPageTest {
         compose.onNodeWithText(row("旧词", "jiuci")).assertDoesNotExist()
     }
 
-    @Test fun the_clear_button_still_works_when_only_the_next_word_data_is_left() {
-        seed(0)
-        learn.writeText("aegis-userlearn 1\nC\t你\t好\t3.0\t1700000000000\n")
-        assertTrue("there is no glued word to list", UserLearnEdit.list(learn).isEmpty())
-        openUserDictPage()
-
-        requestLearnedClearFromTools()
-        compose.waitForIdle()
-        compose.onNodeWithText(s(R.string.user_dict_auto_clear_confirm)).performClick()
-        assertEquals(s(R.string.user_dict_toast_auto_cleared), reported())
-
-        assertTrue("the next word data is gone", learn.readLines().none { it.startsWith("C\t") })
-    }
-
     @Test fun a_word_list_that_cannot_be_read_says_so_instead_of_looking_empty() {
         db.writeText("this is not an aegis user dictionary\nW\t词\t1\t1\n")
         openUserDictPage()
@@ -1025,8 +979,6 @@ class UserDictPageTest {
         compose.onNodeWithTag("user_dict_auto_count").assertDoesNotExist()
         compose.onNodeWithText(s(R.string.user_dict_auto_empty)).assertDoesNotExist()
         compose.onNodeWithTag("user_dict_count").assertExists()
-        openMoreSheet()
-        compose.onNodeWithTag("user_dict_auto_clear").assertIsEnabled()
         assertTrue("the unreadable learning file is left as it was", learn.readText().startsWith("not a learning file"))
     }
 
@@ -1103,18 +1055,6 @@ class UserDictPageTest {
         compose.onAllNodesWithText(s(R.string.user_dict_delete_button)).onLast().performClick()
         compose.waitForIdle()
         compose.onNodeWithTag("user_dict_delete_confirm").performClick()
-        assertEquals(s(R.string.user_dict_toast_write_failed), reported())
-    }
-
-    @Test fun clearing_the_learned_words_says_so_when_the_write_is_refused() {
-        UserDictHot.host = RefusingHost(emptyList(), listOf(UserLearning.Formed("你呢嗯", "ninen")))
-        openUserDictPage()
-
-        AegisToast.reset()
-        requestLearnedClearFromTools()
-        compose.waitForIdle()
-        compose.onNodeWithText(s(R.string.user_dict_auto_clear_confirm)).performClick()
-
         assertEquals(s(R.string.user_dict_toast_write_failed), reported())
     }
 
