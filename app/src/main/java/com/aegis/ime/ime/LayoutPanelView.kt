@@ -28,6 +28,7 @@ import android.view.Gravity
 import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
+import androidx.core.widget.TextViewCompat
 import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
@@ -152,8 +153,10 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
         val view: TextView = TextView(context).apply {
             text = label
             gravity = Gravity.CENTER
+            maxLines = 1
             setPadding(dp(6), dp(6), dp(6), dp(8))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
+            TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(this, 10, ImeType.label.toInt(), 1, TypedValue.COMPLEX_UNIT_SP)
             setCompoundDrawablesWithIntrinsicBounds(null, icon, null, null)
             compoundDrawablePadding = dp(2)
             isClickable = true
