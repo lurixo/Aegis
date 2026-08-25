@@ -38,7 +38,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
+@Config(sdk = [34], qualifiers = "zh-w411dp-h891dp-xxhdpi")
 class ClipboardActionIconsTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
@@ -253,5 +253,24 @@ class ClipboardActionIconsTest {
         val by = button.height / 2f
         val bs = dp(9).toFloat()
         assertTrue(inkBox(viewBmp, (bx + 0.3f * bs).toInt(), (by - 1.1f * bs).toInt(), (bx + bs).toInt(), (by - 0.3f * bs).toInt()) != null)
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "w411dp-h891dp-xxhdpi")
+    fun english_locale_swaps_the_char_icons_for_glyphs() {
+        val clip = clipView(listOf("first")).apply { revealSwipeForTest("first") }
+        layout(clip)
+        val split = swipeButton(clip, ctx.getString(com.aegis.ime.R.string.clip_split_word))
+        val splitCanvas = TextRecordingCanvas(Bitmap.createBitmap(split.width, split.height, Bitmap.Config.ARGB_8888))
+        split.draw(splitCanvas)
+        assertTrue("no char glyph is drawn for the split action", splitCanvas.texts.isEmpty())
+        assertTrue(inkBox(renderView(split), 0, 0, split.width, split.height) != null)
+        val phrase = phraseView(listOf("hello")).apply { revealSwipeForTest("hello") }
+        layout(phrase)
+        val move = swipeButton(phrase, ctx.getString(com.aegis.ime.R.string.clip_move))
+        val moveCanvas = TextRecordingCanvas(Bitmap.createBitmap(move.width, move.height, Bitmap.Config.ARGB_8888))
+        move.draw(moveCanvas)
+        assertTrue("no char glyph is drawn for the move action", moveCanvas.texts.isEmpty())
+        assertTrue(inkBox(renderView(move), 0, 0, move.width, move.height) != null)
     }
 }

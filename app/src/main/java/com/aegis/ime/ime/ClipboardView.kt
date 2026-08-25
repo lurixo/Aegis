@@ -114,6 +114,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private var BG = palette.keyboardBg
     private val splitSymbol = "拆"
     private val moveSymbol = "移"
+    private val charActionIcons = resources.getBoolean(R.bool.clip_char_action_icons)
 
     fun applyPalette(p: ImePalette) {
         palette = p
@@ -1254,8 +1255,13 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         if (phrase) {
             addGlyphSwipeAction(context.getString(R.string.clip_edit), { onEditPhrase(category, text) }) { c, p, x, y, s -> Glyphs.drawEditSquare(c, p, x, y, s) }
             addGlyphSwipeAction(context.getString(R.string.clip_note), { onEditNote(category, text) }) { c, p, x, y, s -> Glyphs.drawTag(c, p, x, y, s) }
-            addCharSwipeAction(context.getString(R.string.clip_move), moveSymbol) {
+            val moveClick = {
                 chooseMoveCategoryThen(category, listOf(text)) { target -> onMovePhrase(category, text, target); refresh() }
+            }
+            if (charActionIcons) {
+                addCharSwipeAction(context.getString(R.string.clip_move), moveSymbol, moveClick)
+            } else {
+                addGlyphSwipeAction(context.getString(R.string.clip_move), moveClick) { c, p, x, y, s -> Glyphs.drawArrowToEdge(c, p, x, y, s, toStart = false) }
             }
             addGlyphSwipeAction(context.getString(R.string.clip_delete), { confirmDelete(listOf(text)) }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }
         } else {
@@ -1263,7 +1269,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             if (entryEditable(text)) {
                 addGlyphSwipeAction(context.getString(R.string.clip_edit), { onEditClip(text) }) { c, p, x, y, s -> Glyphs.drawEditSquare(c, p, x, y, s) }
             }
-            addCharSwipeAction(context.getString(R.string.clip_split_word), splitSymbol) { showSplit(text) }
+            if (charActionIcons) {
+                addCharSwipeAction(context.getString(R.string.clip_split_word), splitSymbol) { showSplit(text) }
+            } else {
+                addGlyphSwipeAction(context.getString(R.string.clip_split_word), { showSplit(text) }) { c, p, x, y, s -> Glyphs.drawCut(c, p, x, y, s) }
+            }
             addGlyphSwipeAction(context.getString(R.string.clip_delete), { confirmDelete(listOf(text)) }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }
         }
     }
@@ -1277,7 +1287,12 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         if (entryEditable(text)) {
             addActionButton(glyphAction(context.getString(R.string.clip_edit), render = { c, p, x, y, s -> Glyphs.drawEditSquare(c, p, x, y, s) }) { onEditClip(text) })
         }
-        addActionButton(charAction(splitSymbol, context.getString(R.string.clip_split_word)) { showSplit(text) }.apply { tag = splitSymbol })
+        addActionButton(
+            (
+                if (charActionIcons) charAction(splitSymbol, context.getString(R.string.clip_split_word)) { showSplit(text) }
+                else glyphAction(context.getString(R.string.clip_split_word), render = { c, p, x, y, s -> Glyphs.drawCut(c, p, x, y, s) }) { showSplit(text) }
+                ).apply { tag = splitSymbol },
+        )
         addActionButton(glyphAction(context.getString(R.string.clip_delete), render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { confirmDelete(listOf(text)) })
     }
 
@@ -1288,7 +1303,15 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         setPadding(dp(8), dp(4), dp(8), dp(8))
         addActionButton(glyphAction(context.getString(R.string.clip_edit), render = { c, p, x, y, s -> Glyphs.drawEditSquare(c, p, x, y, s) }) { onEditPhrase(category, text) })
         addActionButton(glyphAction(context.getString(R.string.clip_note), render = { c, p, x, y, s -> Glyphs.drawTag(c, p, x, y, s) }) { onEditNote(category, text) })
-        addActionButton(charAction(moveSymbol, context.getString(R.string.clip_move)) { chooseMoveCategoryThen(category, listOf(text)) { target -> onMovePhrase(category, text, target); refresh() } }.apply { tag = moveSymbol })
+        val moveClick = {
+            chooseMoveCategoryThen(category, listOf(text)) { target -> onMovePhrase(category, text, target); refresh() }
+        }
+        addActionButton(
+            (
+                if (charActionIcons) charAction(moveSymbol, context.getString(R.string.clip_move), onClick = moveClick)
+                else glyphAction(context.getString(R.string.clip_move), render = { c, p, x, y, s -> Glyphs.drawArrowToEdge(c, p, x, y, s, toStart = false) }, onClick = moveClick)
+                ).apply { tag = moveSymbol },
+        )
         addActionButton(glyphAction(context.getString(R.string.clip_delete), render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { confirmDelete(listOf(text)) })
     }
 

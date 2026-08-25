@@ -839,7 +839,9 @@ class ClipboardViewInteractionTest {
         }
     }
 
-    @Test fun clipboard_swipe_split_reuses_the_expanded_boxed_split_character() {
+    @Test
+    @Config(sdk = [34], qualifiers = "zh")
+    fun clipboard_swipe_split_reuses_the_expanded_boxed_split_character() {
         val v = clipView(listOf("第一条"))
         v.revealSwipeForTest("第一条")
         layout(v)
@@ -880,7 +882,9 @@ class ClipboardViewInteractionTest {
         assertEquals(listOf(listOf("第一条")), pending)
     }
 
-    @Test fun phrase_swipe_move_reuses_the_expanded_boxed_move_character() {
+    @Test
+    @Config(sdk = [34], qualifiers = "zh")
+    fun phrase_swipe_move_reuses_the_expanded_boxed_move_character() {
         val v = phraseView(listOf("你好"))
         v.revealSwipeForTest("你好")
         layout(v)
