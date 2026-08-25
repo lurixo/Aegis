@@ -188,6 +188,7 @@
     <string name="user_dict_delete_cancel">Cancel</string>
     <string name="user_dict_select_button">Manage words</string>
     <string name="user_dict_select_all_button">Select all</string>
+    <string name="user_dict_deselect_all_button">Deselect all</string>
     <string name="user_dict_select_cancel_button">Cancel</string>
     <string name="user_dict_delete_selected_button">Delete selected</string>
     <string name="user_dict_batch_delete_dialog_title">Delete selected words</string>

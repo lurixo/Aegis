@@ -303,6 +303,8 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
                 targetValue = if (selecting) 1f else 0f,
                 animationSpec = tween(SettingsMotion.DURATION_STATE, easing = SettingsMotion.EmphasizedDecelerate),
             )
+            val visibleKeys = filtered.map { manualKey(it) } + filteredLearned.map { learnedKey(it) }
+            val allSelected = visibleKeys.isNotEmpty() && selected.containsAll(visibleKeys)
             UserDictTopCard(
                 selecting = selecting,
                 selectionProgress = selectionProgress,
@@ -312,11 +314,13 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
                 manageEnabled = filtered.isNotEmpty() || filteredLearned.isNotEmpty(),
                 selectedCount = selected.size,
                 deleteEnabled = selected.isNotEmpty(),
+                allSelected = allSelected,
                 onManage = { selecting = true },
                 onAdd = { sheet = UserDictSheet.ADD },
                 onMore = { sheet = UserDictSheet.MORE },
                 onSelectAll = {
-                    selected = (filtered.map { manualKey(it) } + filteredLearned.map { learnedKey(it) }).toSet()
+                    val current = (filtered.map { manualKey(it) } + filteredLearned.map { learnedKey(it) }).toSet()
+                    selected = if (selected.containsAll(current)) emptySet() else current
                 },
                 onCancel = { leaveSelection() },
                 onDeleteSelected = { pendingBatchDelete = true },
@@ -569,6 +573,7 @@ private fun UserDictTopCard(
     manageEnabled: Boolean,
     selectedCount: Int,
     deleteEnabled: Boolean,
+    allSelected: Boolean,
     onManage: () -> Unit,
     onAdd: () -> Unit,
     onMore: () -> Unit,
@@ -636,7 +641,9 @@ private fun UserDictTopCard(
                         normalEnabled = manageEnabled,
                         onNormal = onManage,
                         normalTag = "user_dict_select",
-                        selectText = stringResource(R.string.user_dict_select_all_button),
+                        selectText = stringResource(
+                            if (allSelected) R.string.user_dict_deselect_all_button else R.string.user_dict_select_all_button,
+                        ),
                         selectEnabled = true,
                         onSelect = onSelectAll,
                         selectTag = "user_dict_select_all",

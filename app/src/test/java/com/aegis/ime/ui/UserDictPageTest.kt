@@ -688,6 +688,31 @@ class UserDictPageTest {
         )
     }
 
+    @Test fun a_second_tap_on_select_all_clears_the_selection() {
+        seed(0, "nihao" to "你好", "ceshi" to "测试")
+        seedLearned("你" to "ni", "呢" to "ne", "嗯" to "n")
+        openUserDictPage()
+
+        compose.onNodeWithTag("user_dict_select").performClick()
+        compose.onNodeWithText(s(R.string.user_dict_select_all_button)).assertExists()
+        compose.onNodeWithTag("user_dict_select_all").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_selected_count_format, 3)).assertExists()
+        compose.onNodeWithTag("user_dict_delete_selected").assertIsEnabled()
+        compose.onNodeWithText(s(R.string.user_dict_deselect_all_button)).assertExists()
+
+        compose.onNodeWithTag("user_dict_select_all").performClick()
+        compose.waitForIdle()
+        compose.onNodeWithText(s(R.string.user_dict_select_all_button)).assertExists()
+        compose.onNodeWithText(ctx.getString(R.string.user_dict_selected_count_format, 0)).assertExists()
+        compose.onNodeWithTag("user_dict_delete_selected").assertIsNotEnabled()
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(row("你好", "nihao")))
+        compose.onNodeWithText(row("你好", "nihao")).assertIsOff()
+        compose.onNodeWithText(row("测试", "ceshi")).assertIsOff()
+        compose.onNodeWithTag("user_dict_list").performScrollToNode(hasText(row("你呢嗯", "ninen")))
+        compose.onNodeWithText(row("你呢嗯", "ninen")).assertIsOff()
+    }
+
     @Test fun a_selection_from_an_earlier_search_never_reaches_the_deletion() {
         seed(0, "nihao" to "你好", "ceshi" to "测试", "liuxia" to "留下")
         openUserDictPage()

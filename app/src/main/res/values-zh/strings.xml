@@ -188,6 +188,7 @@
     <string name="user_dict_delete_cancel">取消</string>
     <string name="user_dict_select_button">批量管理</string>
     <string name="user_dict_select_all_button">全选</string>
+    <string name="user_dict_deselect_all_button">取消全选</string>
     <string name="user_dict_select_cancel_button">取消</string>
     <string name="user_dict_delete_selected_button">删除所选</string>
     <string name="user_dict_batch_delete_dialog_title">删除所选的词</string>
