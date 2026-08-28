@@ -24,7 +24,7 @@ permissions:
 jobs:
   build:
     name: Build, test & lint
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 90
     env:
       AEGIS_FULLDICT_DIR: ${{ github.workspace }}/app/src/main/assets
@@ -40,25 +40,36 @@ jobs:
       - name: Check out the repository
         uses: actions/checkout@v7
 
+      - name: Verify the runner Python matches the local baseline
+        run: |
+          version="$(python3 -c 'import platform; print(platform.python_version())')"
+          if [[ "$version" != "3.14.4" ]]; then
+            echo "the runner ships Python $version, but the local baseline is 3.14.4" >&2
+            exit 1
+          fi
+
       - name: Run the dictionary tooling tests
         run: |
           python3 tools/release/test_build_dictionary_pack.py
           python3 tools/release/test_build_tgh_asset.py
 
-      - name: Set up JDK 25
+      - name: Set up JDK 25.0.4
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: "25"
+          java-version: "25.0.4"
 
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@v6.3.0
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v4
+        with:
+          cmdline-tools-version: "15859902"
+          packages: ""
 
       - name: Install Android SDK platform & build-tools
-        run: sdkmanager "platforms;android-37.0" "build-tools;36.0.0" "platform-tools"
+        run: sdkmanager "platforms;android-37.0" "build-tools;36.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v6.3.0
