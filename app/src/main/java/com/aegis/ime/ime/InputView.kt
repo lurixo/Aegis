@@ -273,7 +273,7 @@ class InputView(context: Context) : LinearLayout(context) {
         val state = backspaceBubbleState() ?: return
         val density = resources.displayMetrics.density
         val padX = dp(14).toFloat()
-        val padY = dp(12).toFloat()
+        val padY = dp(16).toFloat()
         val iconSize = dp(18).toFloat()
         val iconGap = dp(7).toFloat()
         val clearance = dp(10).toFloat()

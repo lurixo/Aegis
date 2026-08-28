@@ -166,6 +166,21 @@ class BackspaceBubbleTest {
         assertNull("letting go dismisses the bubble", iv.backspaceBubbleBoundsForTest())
     }
 
+    @Test fun the_bubble_carries_a_full_16dp_of_padding_above_and_below_its_row() {
+        val iv = inputView()
+        attachAndLayout(iv)
+        val key = requireNotNull(iv.keyboardActionBoundsForTest(KeyAction.BACKSPACE))
+        iv.send(MotionEvent.ACTION_DOWN, key.centerX(), key.centerY(), 0)
+        iv.send(MotionEvent.ACTION_MOVE, key.centerX(), key.centerY() - (swipeThreshold + 15f), 16)
+
+        val bubble = requireNotNull(iv.backspaceBubbleBoundsForTest())
+        assertTrue(
+            "the bubble clears its 18dp icon by 16dp on each side, got ${bubble.height()}",
+            bubble.height() >= dp(16) * 2 + dp(18),
+        )
+        iv.send(MotionEvent.ACTION_UP, key.centerX(), key.centerY() - (swipeThreshold + 15f), 32)
+    }
+
     @Test fun a_backspace_repeat_shows_no_bubble() {
         val iv = inputView()
         attachAndLayout(iv)
