@@ -357,6 +357,69 @@ class BackspaceSwipeClearTest {
         )
     }
 
+    private class OpeningEditor(target: View, val opens: Int) : BaseInputConnection(target, true) {
+        fun held(): String = requireNotNull(editable).toString()
+
+        override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+            val done = super.commitText(text, newCursorPosition)
+            val content = requireNotNull(editable)
+            val at = Selection.getSelectionEnd(content)
+            if (opens > 0 && !text.isNullOrEmpty() && at == content.length) {
+                content.insert(at, "\n".repeat(opens))
+                Selection.setSelection(content, at)
+            }
+            return done
+        }
+
+        override fun sendKeyEvent(event: android.view.KeyEvent?): Boolean {
+            if (event?.action != android.view.KeyEvent.ACTION_DOWN ||
+                event.keyCode != android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+            ) {
+                return super.sendKeyEvent(event)
+            }
+            val content = requireNotNull(editable)
+            val at = Selection.getSelectionEnd(content)
+            Selection.setSelection(content, minOf(at + 1, content.length))
+            return true
+        }
+    }
+
+    private fun openingFixture(opens: Int): Pair<AegisInputMethodService, OpeningEditor> {
+        val service = Robolectric.buildService(AegisInputMethodService::class.java).get()
+        service.javaClass.getDeclaredField("controller").apply {
+            isAccessible = true
+            set(service, KeyboardController(service, engine, null))
+        }
+        service.onStartInput(editor(101, InputType.TYPE_CLASS_TEXT), false)
+        val opened = OpeningEditor(FrameLayout(service), opens)
+        val framework = requireNotNull(service.javaClass.superclass)
+        for (fieldName in listOf("mInputConnection", "mStartedInputConnection")) {
+            framework.getDeclaredField(fieldName).apply {
+                isAccessible = true
+                set(service, opened)
+            }
+        }
+        return service to opened
+    }
+
+    @Test fun empty_lines_the_editor_opens_are_not_left_behind_by_a_restore() {
+        val (service, opened) = openingFixture(opens = 2)
+        seedCleared("AAA")
+
+        swipe(service, up = false)
+
+        assertEquals("what was put back must end where the snapshot ended", "AAA", opened.held())
+    }
+
+    @Test fun empty_lines_the_editor_opens_are_not_left_behind_after_a_restore_with_breaks() {
+        val (service, opened) = openingFixture(opens = 2)
+        seedCleared("AAA\nBBB")
+
+        swipe(service, up = false)
+
+        assertEquals("what was put back must end where the snapshot ended", "AAA\nBBB", opened.held())
+    }
+
     private class BlockEditor(target: View) : BaseInputConnection(target, true) {
         val paragraphs = ArrayList<String>().apply { add("") }
 

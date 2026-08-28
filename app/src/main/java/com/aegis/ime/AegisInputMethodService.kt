@@ -1043,6 +1043,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 val within =
                     if (it.length > ClearedTextRestore.MAX_CHARS) it.subSequence(0, ClearedTextRestore.MAX_CHARS)
                     else it
+                val span = maxOf(CaretRealign.breaksIn(within), TRIM_WINDOW)
+                val followed = CaretRealign.following(ic, span)
                 ClearedTextRestore.restore(
                     within,
                     measure = { EditorSweep.nearbyLength(ic) },
@@ -1054,7 +1056,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                             then()
                         }
                     },
-                    done = {},
+                    done = { settleRestore(ic, within, span, followed) },
                 )
                 clearedText.forget()
                 resetSelectionAnchor()
@@ -1609,6 +1611,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         return committed
     }
 
+    private fun settleRestore(ic: InputConnection, written: CharSequence, span: Int, followed: String) {
+        catchCaretUp(ic, span, followed)
+        if (followed.isNotEmpty() || written.isEmpty() || written.last() == '\n') return
+        val before = ic.getTextBeforeCursor(TRIM_WINDOW, 0) ?: return
+        val extra = before.length - 1 - before.indexOfLast { it != '\n' }
+        if (extra > 0) ic.deleteSurroundingText(extra, 0)
+    }
+
     private fun catchCaretUp(ic: InputConnection, span: Int, following: String) {
         if (span <= 0) return
         val window = span * 2
@@ -1694,6 +1704,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 private const val EDITABLE_CLIP_CHARS = 4096L
 private const val STREAM_GAP_MS = 16L
 private const val STREAM_CHUNK = 16_384
+private const val TRIM_WINDOW = 8
 
 internal fun quarantineCorruptStore(file: java.io.File): Boolean {
     if (!file.exists()) return false
