@@ -17,6 +17,8 @@ package com.aegis.ime.ime
 
 object ClearedTextRestore {
 
+    const val MAX_CHARS = 16_777_216
+
     private const val BREAK = "\n"
 
     fun restore(text: CharSequence, measure: () -> Int, commit: (CharSequence) -> Unit) {

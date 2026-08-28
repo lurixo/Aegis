@@ -1037,8 +1037,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             resetSelectionAnchor()
         } else {
             clearedText.held()?.let {
+                val within =
+                    if (it.length > ClearedTextRestore.MAX_CHARS) it.subSequence(0, ClearedTextRestore.MAX_CHARS)
+                    else it
                 ClearedTextRestore.restore(
-                    it,
+                    within,
                     measure = { EditorSweep.nearbyLength(ic) },
                     commit = { part -> commitLargeText(part) },
                 )

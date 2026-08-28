@@ -307,6 +307,14 @@ class BackspaceSwipeClearTest {
         assertEquals("the two halves have to add back up", written, f.editor.held())
     }
 
+    @Test fun a_restore_reaches_as_far_as_a_clear_can_capture() {
+        assertEquals(
+            "a clear that keeps more than a restore can put back would lose the difference",
+            EditorSweep.CHUNK * EditorSweep.MAX_ROUNDS,
+            ClearedTextRestore.MAX_CHARS,
+        )
+    }
+
     private class BlockEditor(target: View) : BaseInputConnection(target, true) {
         val paragraphs = ArrayList<String>().apply { add("") }
 
