@@ -56,6 +56,7 @@ import com.aegis.ime.ime.phraseWriteNotice
 import com.aegis.ime.ime.SelectionMath
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.SymbolsView
+import com.aegis.ime.ime.EditorSweep
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
@@ -1021,13 +1022,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val ic = currentInputConnection ?: return
         controller.expireCandidateChoiceUndo()
         if (up) {
-            val all = ic.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)?.text
-            if (!all.isNullOrEmpty()) {
-                deletedSnapshot = all
-                ic.performContextMenuAction(android.R.id.selectAll)
-                ic.commitText("", 1)
-                resetSelectionAnchor()
-            }
+            val swept = EditorSweep.clearCapturing(ic)
+            if (swept.isNotEmpty()) deletedSnapshot = swept
+            resetSelectionAnchor()
         } else {
             deletedSnapshot?.let {
                 ic.commitText(it, 1)
