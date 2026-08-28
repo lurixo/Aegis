@@ -105,6 +105,10 @@ class KeyboardView(context: Context) : View(context) {
         backspaceBubbleObserver = observer
     }
 
+    var backspaceSwipeAvailable: (Boolean) -> Boolean
+        get() = backspace.canSwipe
+        set(value) { backspace.canSwipe = value }
+
     fun backspaceBubbleDirectionUp(): Boolean? = backspace.swipeDirectionUp
 
     fun backspaceBubbleArmed(): Boolean = backspace.swipeArmed

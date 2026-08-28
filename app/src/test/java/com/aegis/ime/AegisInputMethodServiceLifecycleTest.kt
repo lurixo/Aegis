@@ -1143,12 +1143,12 @@ class AegisInputMethodServiceLifecycleTest {
     @Test fun the_panel_input_surface_stays_within_the_classified_paths() {
         assertEquals(
             "a new edit panel callback must be classified in the selection anchor inventory",
-            setOf("onAction", "onBackspaceSwipe"),
+            setOf("onAction", "onBackspaceSwipe", "backspaceSwipeAvailable"),
             callbackNames(EditPanelView::class.java),
         )
         assertEquals(
             "a new backspace gesture outcome must be classified in the selection anchor inventory",
-            setOf("onRepeat", "onSwipe"),
+            setOf("onRepeat", "onSwipe", "canSwipe"),
             callbackNames(BackspaceGesture::class.java),
         )
     }

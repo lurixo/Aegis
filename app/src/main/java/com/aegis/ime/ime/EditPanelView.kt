@@ -58,6 +58,10 @@ class EditPanelView(context: Context) :
 
     var onBackspaceSwipe: (Boolean) -> Unit = {}
 
+    var backspaceSwipeAvailable: (Boolean) -> Boolean
+        get() = backspaceTouch.canSwipe
+        set(value) { backspaceTouch.canSwipe = value }
+
     override var hapticEnabled = false
 
     private val density = resources.displayMetrics.density

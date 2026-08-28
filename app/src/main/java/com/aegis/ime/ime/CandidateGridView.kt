@@ -195,6 +195,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             { onBackspace() },
             { up -> if (up) onClear() },
         )
+        backspaceTouch.canSwipe = { up -> up }
         clearFeedback = ImeKeyFeedback(clearButton(), Color.TRANSPARENT, palette.keyLabelSecondary)
         clearFeedback.bind { hapticEnabled }
     }

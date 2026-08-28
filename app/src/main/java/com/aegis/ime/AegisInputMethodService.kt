@@ -585,6 +585,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onPickReading = { index -> controller.onPickReadingIndex(index) }
             onFunction = { f -> controller.onBarFunction(f) }
             onBackspaceSwipe = { up -> backspaceSwipe(up) }
+            backspaceSwipeAvailable = { up -> canBackspaceSwipe(up) }
             onPanelBackspace = { controller.onPanelBackspace() }
             onPanelClear = { controller.onPanelClear() }
             onExpandClosed = { controller.clearDrill() }
@@ -820,6 +821,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val ep = editPanelView ?: EditPanelView(imeUiContext()).also {
             it.onAction = { a -> handleEdit(a) }
             it.onBackspaceSwipe = { up -> backspaceSwipe(up) }
+            it.backspaceSwipeAvailable = { up -> canBackspaceSwipe(up) }
             editPanelView = it
         }
         ep.applyPalette(imePalette)
@@ -905,6 +907,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             }
             EditAction.BACK -> { stopSelecting(); inputView?.showPanel(null) }
         }
+    }
+
+    private fun canBackspaceSwipe(up: Boolean): Boolean {
+        if (up && controller.hasComposingToClear()) return true
+        if (panelInput.active) return up && panelInput.text().isNotEmpty()
+        val ic = currentInputConnection ?: return false
+        return if (up) EditorSweep.hasText(ic) else clearedText.held() != null
     }
 
     private fun backspaceSwipe(up: Boolean) {
@@ -1047,6 +1056,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onDeleteRecent = { emoji -> emojiUsageStore.remove(emoji) }
             it.onBackspace = { panelBackspace() }
             it.onBackspaceSwipe = { up -> backspaceSwipe(up) }
+            it.backspaceSwipeAvailable = { up -> canBackspaceSwipe(up) }
             it.onBack = { inputView?.showPanel(null) }
             emojiView = it
         }
@@ -1173,6 +1183,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             }
             it.onBackspace = { panelBackspace() }
             it.onBackspaceSwipe = { up -> backspaceSwipe(up) }
+            it.backspaceSwipeAvailable = { up -> canBackspaceSwipe(up) }
             it.onBack = { inputView?.showPanel(null) }
             symbolsView = it
         }

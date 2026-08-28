@@ -54,6 +54,10 @@ class EmojiView(context: Context) :
     var onDeleteRecent: (String) -> Unit = {}
     var onBackspace: () -> Unit = {}
     var onBackspaceSwipe: (Boolean) -> Unit = {}
+
+    var backspaceSwipeAvailable: (Boolean) -> Boolean
+        get() = backspaceTouch.canSwipe
+        set(value) { backspaceTouch.canSwipe = value }
     var onBack: () -> Unit = {}
     var recentProvider: () -> List<String> = { emptyList() }
     override var hapticEnabled = false

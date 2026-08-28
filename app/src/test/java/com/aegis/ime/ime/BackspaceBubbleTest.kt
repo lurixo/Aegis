@@ -64,6 +64,49 @@ class BackspaceBubbleTest {
         assertNull("letting go takes the direction away", g.swipeDirectionUp)
     }
 
+    @Test fun a_direction_with_nothing_to_do_shows_no_hint_and_fires_nothing() {
+        val g = BackspaceGesture(density)
+        var fired = 0
+        g.onSwipe = { fired++ }
+        g.canSwipe = { up -> !up }
+
+        g.begin(100f, 300f)
+        g.move(100f, 300f - (swipeThreshold + 10f), true)
+
+        assertNull("an empty field has nothing to clear, so it offers nothing", g.swipeDirectionUp)
+        assertFalse(g.swipeArmed)
+        g.finish()
+        assertEquals("a hint that was never offered must not fire", 0, fired)
+    }
+
+    @Test fun the_other_direction_still_works_when_one_is_unavailable() {
+        val g = BackspaceGesture(density)
+        var fired: Boolean? = null
+        g.onSwipe = { up -> fired = up }
+        g.canSwipe = { up -> !up }
+
+        g.begin(100f, 300f)
+        g.move(100f, 300f + (swipeThreshold + 10f), true)
+
+        assertEquals(false, g.swipeDirectionUp)
+        assertTrue(g.swipeArmed)
+        g.finish()
+        assertEquals("the direction that has something to do still fires", false, fired)
+    }
+
+    @Test fun availability_is_settled_once_when_the_direction_locks() {
+        val g = BackspaceGesture(density)
+        var asked = 0
+        g.canSwipe = { asked++; true }
+
+        g.begin(100f, 300f)
+        g.move(100f, 300f - (swipeThreshold + 10f), true)
+        g.move(100f, 300f - (swipeThreshold + 40f), true)
+        g.move(100f, 300f - (swipeThreshold + 80f), true)
+
+        assertEquals("the field is asked once per press, not once per move", 1, asked)
+    }
+
     @Test fun a_running_repeat_never_reports_a_direction() {
         val g = BackspaceGesture(density)
         var repeats = 0

@@ -23,6 +23,7 @@ class BackspaceGesture(density: Float) {
 
     var onRepeat: () -> Unit = {}
     var onSwipe: (Boolean) -> Unit = {}
+    var canSwipe: (Boolean) -> Boolean = { true }
 
     private val handler = Handler(Looper.getMainLooper())
     private val swipeThreshold = SWIPE_THRESHOLD_DP * density
@@ -32,6 +33,7 @@ class BackspaceGesture(density: Float) {
     private var repeating = false
     private var swiped = false
     private var lockedDirectionUp: Boolean? = null
+    private var lockedAllowed = false
 
     var swipeDirectionUp: Boolean? = null
         private set
@@ -54,6 +56,7 @@ class BackspaceGesture(density: Float) {
         repeating = false
         swiped = false
         lockedDirectionUp = null
+        lockedAllowed = false
         swipeArmed = false
         swipeDirectionUp = null
         downX = x
@@ -67,14 +70,15 @@ class BackspaceGesture(density: Float) {
         if (!swiped && !repeating && abs(dy) > swipeThreshold && abs(dy) > abs(x - downX)) {
             swiped = true
             lockedDirectionUp = dy < 0f
+            lockedAllowed = canSwipe(dy < 0f)
             stopRepeat()
         } else if (!inBounds) {
             stopRepeat()
         }
         if (swiped) {
             val locked = lockedDirectionUp
-            swipeArmed = locked != null && abs(dy) > swipeThreshold && (dy < 0f) == locked
-            swipeDirectionUp = locked
+            swipeArmed = lockedAllowed && locked != null && abs(dy) > swipeThreshold && (dy < 0f) == locked
+            swipeDirectionUp = if (lockedAllowed) locked else null
         }
     }
 
@@ -85,6 +89,7 @@ class BackspaceGesture(density: Float) {
         active = false
         val locked = lockedDirectionUp
         lockedDirectionUp = null
+        lockedAllowed = false
         if (swiped) {
             val fired = swipeArmed
             swipeArmed = false
@@ -100,6 +105,7 @@ class BackspaceGesture(density: Float) {
         repeating = false
         swiped = false
         lockedDirectionUp = null
+        lockedAllowed = false
         swipeArmed = false
         swipeDirectionUp = null
     }

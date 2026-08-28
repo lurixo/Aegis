@@ -270,6 +270,10 @@ class ImeBackspaceTouch(
     private var pointerInside = false
     private var lastBubble: Pair<Boolean?, Boolean> = null to false
 
+    var canSwipe: (Boolean) -> Boolean
+        get() = gesture.canSwipe
+        set(value) { gesture.canSwipe = value }
+
     fun bubbleDirectionUp(): Boolean? = gesture.swipeDirectionUp
 
     fun bubbleArmed(): Boolean = gesture.swipeArmed

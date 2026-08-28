@@ -22,6 +22,11 @@ object EditorSweep {
     const val CHUNK = 65_536
     const val MAX_ROUNDS = 256
 
+    fun hasText(ic: InputConnection): Boolean =
+        !ic.getTextBeforeCursor(1, 0).isNullOrEmpty() ||
+            !ic.getTextAfterCursor(1, 0).isNullOrEmpty() ||
+            !ic.getSelectedText(0).isNullOrEmpty()
+
     fun clearCapturing(ic: InputConnection): CharSequence {
         val ending = fieldEnding(ic)
         val body = StringBuilder()

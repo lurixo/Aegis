@@ -364,8 +364,11 @@ class KeyboardController(
         if (forcedCuts.add(composing.length)) history.addLast(StepKind.CUT)
     }
 
+    fun hasComposingToClear(): Boolean =
+        composing.isNotEmpty() || committedPrefix.isNotEmpty() || englishWord.isNotEmpty()
+
     fun onBackspaceSwipe(up: Boolean): Boolean {
-        if (up && (composing.isNotEmpty() || committedPrefix.isNotEmpty() || englishWord.isNotEmpty())) {
+        if (up && hasComposingToClear()) {
             forgetEnglishWord()
             clearComposingState()
             render()
