@@ -28,15 +28,22 @@ import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.ime.EditorSweep
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class BackspaceSwipeClearTest {
+
+    @Before fun clean() {
+        File(RuntimeEnvironment.getApplication().filesDir, "cleared_text.txt").delete()
+    }
 
     private val engine = object : CandidateEngine {
         override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
@@ -97,18 +104,13 @@ class BackspaceSwipeClearTest {
 
     private class Fixture(val service: AegisInputMethodService, val editor: FakeEditor)
 
-    private fun fixture(inputType: Int = InputType.TYPE_CLASS_TEXT): Fixture {
+    private fun fixture(inputType: Int = InputType.TYPE_CLASS_TEXT, fieldId: Int = 101): Fixture {
         val service = Robolectric.buildService(AegisInputMethodService::class.java).get()
         service.javaClass.getDeclaredField("controller").apply {
             isAccessible = true
             set(service, KeyboardController(service, engine, null))
         }
-        val info = EditorInfo().apply {
-            packageName = "com.example.editor"
-            fieldId = 101
-            fieldName = "message"
-            this.inputType = inputType
-        }
+        val info = editor(fieldId, inputType)
         service.onStartInput(info, false)
         val editor = FakeEditor(FrameLayout(service))
         val framework = requireNotNull(service.javaClass.superclass)
@@ -119,6 +121,13 @@ class BackspaceSwipeClearTest {
             }
         }
         return Fixture(service, editor)
+    }
+
+    private fun editor(fieldId: Int, inputType: Int) = EditorInfo().apply {
+        packageName = "com.example.editor"
+        this.fieldId = fieldId
+        fieldName = "message"
+        this.inputType = inputType
     }
 
     private fun swipe(service: AegisInputMethodService, up: Boolean) {
@@ -208,6 +217,42 @@ class BackspaceSwipeClearTest {
         assertEquals("an unreadable field is no reason to leave it filled", "", f.editor.held())
     }
 
+    @Test fun what_a_swipe_cleared_outlives_the_editor_it_came_from() {
+        val f = fixture()
+        val written = "换个输入框也要回得来"
+        f.editor.hold(written)
+        swipe(f.service, up = true)
+
+        f.service.onStartInput(editor(fieldId = 202, inputType = InputType.TYPE_CLASS_TEXT), false)
+
+        swipe(f.service, up = false)
+        assertEquals("leaving the field must not throw the cleared text away", written, f.editor.held())
+    }
+
+    @Test fun what_a_swipe_cleared_outlives_the_process_that_cleared_it() {
+        val first = fixture()
+        val written = "进程重建也要回得来"
+        first.editor.hold(written)
+        swipe(first.service, up = true)
+
+        val second = fixture()
+        swipe(second.service, up = false)
+
+        assertEquals("a snapshot only in memory dies with the process", written, second.editor.held())
+    }
+
+    @Test fun what_a_swipe_cleared_is_put_back_once_and_not_again() {
+        val f = fixture()
+        val written = "一次"
+        f.editor.hold(written)
+        swipe(f.service, up = true)
+
+        swipe(f.service, up = false)
+        swipe(f.service, up = false)
+
+        assertEquals("a second restore has nothing left to put back", written, f.editor.held())
+    }
+
     @Test fun a_field_bigger_than_one_read_still_comes_back_whole() {
         val f = fixture()
         val written = longText(EditorSweep.CHUNK * 5 + 77)
@@ -250,6 +295,12 @@ class BackspaceSwipeClearTest {
             written.substring(0, left),
             f.editor.held(),
         )
+        assertEquals(
+            "and what it did carry has to be the snapshot",
+            written.substring(left),
+            File(RuntimeEnvironment.getApplication().filesDir, "cleared_text.txt").readText(),
+        )
+
         swipe(f.service, up = false)
         assertEquals("the two halves have to add back up", written, f.editor.held())
     }

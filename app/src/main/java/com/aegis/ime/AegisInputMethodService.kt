@@ -60,6 +60,7 @@ import com.aegis.ime.ime.EditorSweep
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
+import com.aegis.ime.user.ClearedTextStore
 import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.CustomSymbolStore
 import com.aegis.ime.user.LiveUserData
@@ -122,7 +123,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var selecting = false
     private var selAnchor = -1
     private var selMoving = -1
-    private var deletedSnapshot: CharSequence? = null
+    private val clearedText by lazy { ClearedTextStore(filesDir) }
     private val panelInput = com.aegis.ime.ime.PanelTextInput()
     private enum class InputPurpose { EDIT_PHRASE, EDIT_CLIP, ADD_PHRASE, EDIT_NOTE, ADD_CATEGORY, RENAME_CATEGORY }
     private var inputPurpose: InputPurpose? = null
@@ -473,7 +474,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         restorablePanel = null
         clipboardRecreationState = null
         stopSelecting()
-        deletedSnapshot = null
         if (resetController && ::controller.isInitialized) controller.reset(preserveLayout)
     }
 
@@ -1023,12 +1023,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.expireCandidateChoiceUndo()
         if (up) {
             val swept = EditorSweep.clearCapturing(ic)
-            if (swept.isNotEmpty()) deletedSnapshot = swept
+            if (swept.isNotEmpty()) clearedText.keep(swept)
             resetSelectionAnchor()
         } else {
-            deletedSnapshot?.let {
+            clearedText.held()?.let {
                 ic.commitText(it, 1)
-                deletedSnapshot = null
+                clearedText.forget()
                 resetSelectionAnchor()
             }
         }
