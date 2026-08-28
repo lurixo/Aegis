@@ -23,6 +23,7 @@ object EditorSweep {
     const val MAX_ROUNDS = 256
 
     fun clearCapturing(ic: InputConnection): CharSequence {
+        val ending = fieldEnding(ic)
         val body = StringBuilder()
         ic.getSelectedText(0)?.let {
             if (it.isNotEmpty()) {
@@ -36,7 +37,25 @@ object EditorSweep {
             ic.performContextMenuAction(android.R.id.selectAll)
             ic.commitText("", 1)
         }
-        return StringBuilder(before.text).append(body).append(after.text)
+        val swept = StringBuilder(before.text).append(body).append(after.text)
+        return settleTail(swept, ending)
+    }
+
+    private fun fieldEnding(ic: InputConnection): String? {
+        val after = ic.getTextAfterCursor(CHUNK, 0) ?: return null
+        if (after.length >= CHUNK) return null
+        val ending = StringBuilder()
+            .append(ic.getTextBeforeCursor(CHUNK, 0) ?: "")
+            .append(ic.getSelectedText(0) ?: "")
+            .append(after)
+            .toString()
+        val breaks = ending.takeLastWhile { it == '\n' }
+        return if (breaks.length == ending.length && ending.isNotEmpty()) null else breaks
+    }
+
+    private fun settleTail(swept: CharSequence, ending: String?): CharSequence {
+        if (ending == null) return swept
+        return swept.toString().dropLastWhile { it == '\n' } + ending
     }
 
     private class Side(val text: CharSequence, val outOfRounds: Boolean)
