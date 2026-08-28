@@ -21,10 +21,15 @@ object ClearedTextRestore {
 
     private const val BREAK = "\n"
 
-    fun restore(text: CharSequence, measure: () -> Int, commit: (CharSequence) -> Unit) {
+    fun restore(
+        text: CharSequence,
+        measure: () -> Int,
+        commit: (CharSequence, () -> Unit) -> Unit,
+        done: () -> Unit,
+    ) {
         val run = text.indexOf('\n')
         if (run < 0) {
-            commit(text)
+            commit(text, done)
             return
         }
         val leading = text.subSequence(0, run)
@@ -33,14 +38,18 @@ object ClearedTextRestore {
         val held = end - run
 
         val empty = measure()
-        if (leading.isNotEmpty()) commit(leading)
-        val written = measure()
-        commit(BREAK)
-        val broken = measure()
-        val padding = if (empty == 0 && leading.isNotEmpty()) written - leading.length else 1
-        val cost = maxOf(broken - written, padding).coerceIn(1, held)
-        commit(BREAK.repeat(breaksFor(held, cost) - 1))
-        if (end < text.length) commit(fold(text, end, cost))
+        val afterLeading = {
+            val written = measure()
+            commit(BREAK) {
+                val broken = measure()
+                val padding = if (empty == 0 && leading.isNotEmpty()) written - leading.length else 1
+                val cost = maxOf(broken - written, padding).coerceIn(1, held)
+                commit(BREAK.repeat(breaksFor(held, cost) - 1)) {
+                    if (end >= text.length) done() else commit(fold(text, end, cost), done)
+                }
+            }
+        }
+        if (leading.isNotEmpty()) commit(leading, afterLeading) else afterLeading()
     }
 
     private fun fold(text: CharSequence, from: Int, cost: Int): CharSequence {

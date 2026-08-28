@@ -15,6 +15,7 @@
 
 package com.aegis.ime
 
+import android.os.Looper
 import android.text.InputType
 import android.text.Selection
 import android.view.View
@@ -27,6 +28,7 @@ import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.KeyboardController
 import android.view.inputmethod.InputConnection
 import com.aegis.ime.ime.ClearedTextRestore
+import com.aegis.ime.ime.LargeCommit
 import com.aegis.ime.ime.EditorSweep
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -36,6 +38,7 @@ import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import java.io.File
 
@@ -52,6 +55,7 @@ class BackspaceSwipeClearTest {
     }
 
     private class FakeEditor(target: View) : BaseInputConnection(target, true) {
+        val committedChunks = ArrayList<Int>()
         val readSizes = ArrayList<Int>()
         var extractedWindow = Int.MAX_VALUE
         var walkWindow = Int.MAX_VALUE
@@ -91,6 +95,11 @@ class BackspaceSwipeClearTest {
                 readSizes.add(length)
                 super.getTextAfterCursor(minOf(length, walkWindow), flags)
             }
+
+        override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+            if (!text.isNullOrEmpty()) committedChunks.add(text.length)
+            return super.commitText(text, newCursorPosition)
+        }
 
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean =
             if (acceptsSurroundingDelete) super.deleteSurroundingText(beforeLength, afterLength) else false
@@ -137,6 +146,7 @@ class BackspaceSwipeClearTest {
             isAccessible = true
             invoke(service, up)
         }
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMinutes(10))
     }
 
     private fun longText(chars: Int): String = String(CharArray(chars) { '一' + (it % 2048) })
@@ -307,6 +317,38 @@ class BackspaceSwipeClearTest {
         assertEquals("the two halves have to add back up", written, f.editor.held())
     }
 
+    @Test fun a_field_too_big_for_one_transaction_goes_back_in_chunks() {
+        val f = fixture()
+        val written = longText(LargeCommit.CHUNK * 2 + 1234)
+        f.editor.hold(written)
+
+        swipe(f.service, up = true)
+        f.editor.committedChunks.clear()
+        swipe(f.service, up = false)
+
+        assertTrue(
+            "one commit of this size would not fit through a binder transaction, was " +
+                f.editor.committedChunks,
+            f.editor.committedChunks.size > 1 && f.editor.committedChunks.all { it <= LargeCommit.CHUNK },
+        )
+        assertEquals("the chunks must put the field back exactly as it was", written, f.editor.held())
+    }
+
+    @Test fun a_first_line_longer_than_one_frame_still_comes_back_in_order() {
+        val f = fixture()
+        val written = longText(20_000) + "\nBBB\nCCC"
+        f.editor.hold(written)
+
+        swipe(f.service, up = true)
+        swipe(f.service, up = false)
+
+        assertEquals(
+            "a piece handed over across frames must finish before the next one starts",
+            written,
+            f.editor.held(),
+        )
+    }
+
     @Test fun a_restore_reaches_as_far_as_a_clear_can_capture() {
         assertEquals(
             "a clear that keeps more than a restore can put back would lose the difference",
@@ -411,7 +453,8 @@ class BackspaceSwipeClearTest {
         ClearedTextRestore.restore(
             "AAA\n\nBBB",
             measure = { 0 },
-            commit = { part -> put.append(part) },
+            commit = { part, then -> put.append(part); then() },
+            done = {},
         )
 
         assertEquals("with no signal to go on, nothing may be dropped", "AAA\n\nBBB", put.toString())
@@ -424,7 +467,8 @@ class BackspaceSwipeClearTest {
         ClearedTextRestore.restore(
             "AAA\n\nBBB",
             measure = { if (reads++ == 0) 0 else 9000 },
-            commit = { part -> put.append(part) },
+            commit = { part, then -> put.append(part); then() },
+            done = {},
         )
 
         assertEquals("an absurd measurement must still leave the lines apart", "AAA\nBBB", put.toString())

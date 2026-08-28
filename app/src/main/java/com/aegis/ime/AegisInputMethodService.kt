@@ -1043,7 +1043,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 ClearedTextRestore.restore(
                     within,
                     measure = { EditorSweep.nearbyLength(ic) },
-                    commit = { part -> commitLargeText(part) },
+                    commit = { part, then ->
+                        if (part.length > STREAM_CHUNK) {
+                            commitStreamed(part, then)
+                        } else {
+                            commitLargeText(part)
+                            then()
+                        }
+                    },
+                    done = {},
                 )
                 clearedText.forget()
                 resetSelectionAnchor()
@@ -1551,6 +1559,37 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         ic.endBatchEdit()
     }
 
+    private var streaming: CharSequence? = null
+    private var streamedAt = 0
+    private var afterStreaming: (() -> Unit)? = null
+
+    private val streamPump = object : Runnable {
+        override fun run() {
+            val text = streaming ?: return
+            val ic = currentInputConnection
+            if (ic == null) { streaming = null; afterStreaming = null; return }
+            val end = minOf(streamedAt + STREAM_CHUNK, text.length)
+            ic.commitText(text.subSequence(streamedAt, end), 1)
+            streamedAt = end
+            if (end < text.length) {
+                mainHandler.postDelayed(this, STREAM_GAP_MS)
+                return
+            }
+            streaming = null
+            val then = afterStreaming
+            afterStreaming = null
+            then?.invoke()
+        }
+    }
+
+    private fun commitStreamed(text: CharSequence, then: () -> Unit) {
+        mainHandler.removeCallbacks(streamPump)
+        streaming = text
+        streamedAt = 0
+        afterStreaming = then
+        streamPump.run()
+    }
+
     private fun commitLargeText(text: CharSequence): Boolean {
         if (panelInput.commit(text)) return true
         controller.expireCandidateChoiceUndo()
@@ -1634,6 +1673,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 }
 
 private const val EDITABLE_CLIP_CHARS = 4096L
+private const val STREAM_GAP_MS = 16L
+private const val STREAM_CHUNK = 16_384
 
 internal fun quarantineCorruptStore(file: java.io.File): Boolean {
     if (!file.exists()) return false
