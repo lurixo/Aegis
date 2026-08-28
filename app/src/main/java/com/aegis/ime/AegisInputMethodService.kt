@@ -980,7 +980,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         info != null && info.inputType == InputType.TYPE_NULL
 
     private fun editorReportsNoSelection(): Boolean {
-        val extracted = currentInputConnection?.getExtractedText(ExtractedTextRequest(), 0) ?: return false
+        val extracted = currentInputConnection
+            ?.getExtractedText(ExtractedTextRequest().apply { hintMaxChars = 0 }, 0)
+            ?: return false
         return extracted.selectionStart >= 0 && extracted.selectionStart == extracted.selectionEnd
     }
 
