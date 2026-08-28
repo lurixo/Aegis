@@ -28,6 +28,7 @@ import com.aegis.ime.layout.Layouts
 import java.time.Duration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -173,6 +174,53 @@ class BackspaceBubbleTest {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(500))
         assertNull("holding for repeats never grows a bubble", iv.backspaceBubbleBoundsForTest())
         iv.send(MotionEvent.ACTION_UP, key.centerX(), key.centerY(), 500)
+    }
+
+    @Test fun letting_go_of_a_keyboard_swipe_unpresses_the_backspace_key() {
+        val iv = inputView()
+        attachAndLayout(iv)
+        val keyboard = iv.javaClass.getDeclaredField("keyboardView").run { isAccessible = true; get(iv) }
+        fun pressedKey(): Any? =
+            keyboard.javaClass.getDeclaredField("pressed").run { isAccessible = true; get(keyboard) }
+        val key = requireNotNull(iv.keyboardActionBoundsForTest(KeyAction.BACKSPACE))
+
+        iv.send(MotionEvent.ACTION_DOWN, key.centerX(), key.centerY(), 0)
+        iv.send(MotionEvent.ACTION_MOVE, key.centerX(), key.centerY() - (swipeThreshold + 15f), 16)
+        assertNotNull("precondition: the key is held down through the swipe", pressedKey())
+
+        iv.send(MotionEvent.ACTION_UP, key.centerX(), key.centerY() - (swipeThreshold + 15f), 32)
+        assertNull("the key leaves the pressed state with the finger", pressedKey())
+        assertNull("and the bubble goes with it", iv.backspaceBubbleBoundsForTest())
+    }
+
+    @Test fun letting_go_of_a_panel_swipe_unpresses_the_delete_key() {
+        val panel = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        panel.measure(
+            View.MeasureSpec.makeMeasureSpec(dp(411), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(dp(290), View.MeasureSpec.EXACTLY),
+        )
+        panel.layout(0, 0, panel.measuredWidth, panel.measuredHeight)
+        val delete = requireNotNull(panel.actionViewForTest(EditAction.DELETE))
+        val bounds = Rect(0, 0, delete.width, delete.height)
+        panel.offsetDescendantRectToMyCoords(delete, bounds)
+        val x = bounds.exactCenterX()
+        val y = bounds.exactCenterY()
+
+        fun send(action: Int, px: Float, py: Float, t: Long) {
+            val event = MotionEvent.obtain(0, t, action, px, py, 0)
+            try {
+                panel.dispatchTouchEvent(event)
+            } finally {
+                event.recycle()
+            }
+        }
+        send(MotionEvent.ACTION_DOWN, x, y, 0)
+        send(MotionEvent.ACTION_MOVE, x, y - (swipeThreshold + 15f), 16)
+        assertTrue("precondition: the key is held down through the swipe", delete.isPressed)
+
+        send(MotionEvent.ACTION_UP, x, y - (swipeThreshold + 15f), 32)
+        assertFalse("the key leaves the pressed state with the finger", delete.isPressed)
+        assertNull("and the bubble goes with it", panel.backspaceBubbleDirectionUp())
     }
 
     @Test fun the_edit_panel_exposes_its_delete_key_as_the_bubble_anchor() {
