@@ -36,6 +36,9 @@ class BackspaceGesture(density: Float) {
     var swipeDirectionUp: Boolean? = null
         private set
 
+    var swipeArmed: Boolean = false
+        private set
+
     private val repeatRunnable = object : Runnable {
         override fun run() {
             if (!active) return
@@ -51,6 +54,7 @@ class BackspaceGesture(density: Float) {
         repeating = false
         swiped = false
         lockedDirectionUp = null
+        swipeArmed = false
         swipeDirectionUp = null
         downX = x
         downY = y
@@ -67,24 +71,24 @@ class BackspaceGesture(density: Float) {
         } else if (!inBounds) {
             stopRepeat()
         }
-        if (swiped) swipeDirectionUp = if (onLockedSide(dy)) lockedDirectionUp else null
+        if (swiped) {
+            val locked = lockedDirectionUp
+            swipeArmed = locked != null && abs(dy) > swipeThreshold && (dy < 0f) == locked
+            swipeDirectionUp = locked
+        }
     }
 
-    private fun onLockedSide(dy: Float): Boolean {
-        val locked = lockedDirectionUp ?: return false
-        return abs(dy) > swipeThreshold && (dy < 0f) == locked
-    }
-
-    fun finish(y: Float): Boolean {
+    fun finish(): Boolean {
         stopRepeat()
         swipeDirectionUp = null
         if (!active) return false
         active = false
         val locked = lockedDirectionUp
-        val committed = onLockedSide(y - downY)
         lockedDirectionUp = null
         if (swiped) {
-            if (!repeating && committed && locked != null) onSwipe(locked)
+            val fired = swipeArmed
+            swipeArmed = false
+            if (!repeating && fired && locked != null) onSwipe(locked)
             return false
         }
         return !repeating
@@ -96,6 +100,7 @@ class BackspaceGesture(density: Float) {
         repeating = false
         swiped = false
         lockedDirectionUp = null
+        swipeArmed = false
         swipeDirectionUp = null
     }
 

@@ -126,6 +126,8 @@ class SymbolsView(context: Context) :
 
     override fun backspaceBubbleDirectionUp(): Boolean? = backspaceTouch.bubbleDirectionUp()
 
+    override fun backspaceBubbleArmed(): Boolean = backspaceTouch.bubbleArmed()
+
     override fun backspaceBubbleAnchor(): View = backspaceBtn
     private val tileFeedback = HashMap<FrameLayout, ImeKeyFeedback>()
     private val tileSpans = HashMap<FrameLayout, Int>()

@@ -99,7 +99,7 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private var backspaceBubbleObserver: Runnable? = null
-    private var lastBubbleUp: Boolean? = null
+    private var lastBubbleUp: Pair<Boolean?, Boolean> = null to false
 
     fun bindBackspaceBubbleObserver(observer: Runnable) {
         backspaceBubbleObserver = observer
@@ -107,13 +107,15 @@ class KeyboardView(context: Context) : View(context) {
 
     fun backspaceBubbleDirectionUp(): Boolean? = backspace.swipeDirectionUp
 
+    fun backspaceBubbleArmed(): Boolean = backspace.swipeArmed
+
     fun backspaceKeyBounds(): RectF? {
         if (placed.isEmpty()) relayout()
         return placed.firstOrNull { it.key.action == KeyAction.BACKSPACE }?.rect?.let(::RectF)
     }
 
     private fun notifyBackspaceBubble() {
-        val next = backspace.swipeDirectionUp
+        val next = backspace.swipeDirectionUp to backspace.swipeArmed
         if (next != lastBubbleUp) {
             lastBubbleUp = next
             backspaceBubbleObserver?.run()
@@ -1092,7 +1094,7 @@ class KeyboardView(context: Context) : View(context) {
                 }
             }
             dk != null && dk.action == KeyAction.BACKSPACE -> {
-                if (backspace.finish(y)) currentTarget(x, y)?.let { performClick(); emitKey(it, eventTime) }
+                if (backspace.finish()) currentTarget(x, y)?.let { performClick(); emitKey(it, eventTime) }
                 notifyBackspaceBubble()
             }
             dk != null && isAlphaLetter(dk) && swiped -> {

@@ -254,19 +254,21 @@ class InputView(context: Context) : LinearLayout(context) {
     private fun isNightUi(): Boolean =
         resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
 
-    private fun backspaceBubbleState(): Pair<Boolean, RectF>? {
+    private data class BackspaceBubble(val up: Boolean, val armed: Boolean, val anchor: RectF)
+
+    private fun backspaceBubbleState(): BackspaceBubble? {
         if (keyboardView.visibility == VISIBLE) {
             val up = keyboardView.backspaceBubbleDirectionUp() ?: return null
             val rect = keyboardView.backspaceKeyBounds() ?: return null
             rect.offset(keyboardVisualLeftPx().toFloat(), keyboardVisualTopPx().toFloat())
-            return up to rect
+            return BackspaceBubble(up, keyboardView.backspaceBubbleArmed(), rect)
         }
         if (panelContainer.visibility != VISIBLE) return null
         val panel = currentPanel as? BackspaceBubbleSource ?: return null
         val up = panel.backspaceBubbleDirectionUp() ?: return null
         val anchor = panel.backspaceBubbleAnchor()
         if (anchor.width <= 0 || anchor.height <= 0) return null
-        return up to RectF(boundsInRoot(anchor))
+        return BackspaceBubble(up, panel.backspaceBubbleArmed(), RectF(boundsInRoot(anchor)))
     }
 
     private fun drawBackspaceBubble(canvas: Canvas) {
@@ -278,8 +280,8 @@ class InputView(context: Context) : LinearLayout(context) {
         val iconGap = dp(7).toFloat()
         val clearance = dp(10).toFloat()
         val edge = dp(4).toFloat()
-        val up = state.first
-        val anchor = state.second
+        val up = state.up
+        val anchor = state.anchor
         val raw = context.getString(
             if (up) R.string.backspace_bubble_clear else R.string.backspace_bubble_undo,
         )
@@ -303,8 +305,10 @@ class InputView(context: Context) : LinearLayout(context) {
         canvas.restore()
         bubbleBackgroundPaint.color = palette.floatSurface
         canvas.drawRoundRect(bubbleRect, radius, radius, bubbleBackgroundPaint)
-        bubbleBackgroundPaint.color = Motion.stateLayerColor(palette.keyLabel, 1f)
-        canvas.drawRoundRect(bubbleRect, radius, radius, bubbleBackgroundPaint)
+        if (state.armed) {
+            bubbleBackgroundPaint.color = Motion.stateLayerColor(palette.keyLabel, 1f)
+            canvas.drawRoundRect(bubbleRect, radius, radius, bubbleBackgroundPaint)
+        }
         bubbleBorderPaint.color = palette.separator
         bubbleBorderPaint.strokeWidth = density
         canvas.drawRoundRect(bubbleRect, radius, radius, bubbleBorderPaint)
@@ -326,7 +330,9 @@ class InputView(context: Context) : LinearLayout(context) {
         )
     }
 
-    internal fun backspaceBubbleDirectionUpForTest(): Boolean? = backspaceBubbleState()?.first
+    internal fun backspaceBubbleDirectionUpForTest(): Boolean? = backspaceBubbleState()?.up
+
+    internal fun backspaceBubbleArmedForTest(): Boolean = backspaceBubbleState()?.armed == true
 
     internal fun backspaceBubbleBoundsForTest(): RectF? {
         if (backspaceBubbleState() == null) return null

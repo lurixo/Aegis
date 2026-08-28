@@ -56,8 +56,11 @@ class BackspaceBubbleTest {
         g.move(100f, 300f - (swipeThreshold + 10f), true)
         assertEquals(true, g.swipeDirectionUp)
         g.move(100f, 300f + (swipeThreshold + 10f), true)
-        assertNull("a reversal never shows the other one", g.swipeDirectionUp)
-        g.finish(300f + (swipeThreshold + 10f))
+        assertEquals("a reversal never swaps the hint for the other one", true, g.swipeDirectionUp)
+        assertFalse("but the far side is not the side it fires from", g.swipeArmed)
+        g.move(100f, 300f - (swipeThreshold + 10f), true)
+        assertTrue("coming back to the locked side arms it again", g.swipeArmed)
+        g.finish()
         assertNull("letting go takes the direction away", g.swipeDirectionUp)
     }
 
@@ -82,24 +85,26 @@ class BackspaceBubbleTest {
         assertNull(g.swipeDirectionUp)
     }
 
-    @Test fun sliding_back_inside_the_threshold_clears_the_direction() {
+    @Test fun sliding_back_to_the_key_leaves_the_hint_up_but_takes_its_press_away() {
         val g = BackspaceGesture(density)
         g.begin(100f, 300f)
         g.move(100f, 300f - (swipeThreshold + 10f), true)
         assertEquals(true, g.swipeDirectionUp)
+        assertTrue("out past the key the hint is the one that would run", g.swipeArmed)
         g.move(100f, 300f - swipeThreshold / 2f, true)
-        assertNull("coming back inside the threshold takes the direction away", g.swipeDirectionUp)
+        assertEquals("the hint stays to say which way this press is going", true, g.swipeDirectionUp)
+        assertFalse("but back at the key it is no longer the pressed one", g.swipeArmed)
     }
 
-    @Test fun lifting_inside_the_threshold_commits_no_swipe_and_no_backspace() {
+    @Test fun lifting_back_at_the_key_runs_nothing() {
         val g = BackspaceGesture(density)
         val swipes = ArrayList<Boolean>()
         g.onSwipe = { swipes += it }
         g.begin(100f, 300f)
         g.move(100f, 300f - (swipeThreshold + 10f), true)
         g.move(100f, 300f - swipeThreshold / 2f, true)
-        assertFalse("a settled swipe never falls back to a tap", g.finish(300f - swipeThreshold / 2f))
-        assertTrue("lifting inside the threshold commits nothing", swipes.isEmpty())
+        assertFalse("a swipe that was taken back is not a tap either", g.finish())
+        assertEquals("no bubble was promising anything, so nothing runs", emptyList<Boolean>(), swipes)
     }
 
     @Test fun sliding_out_the_other_side_neither_shows_nor_runs_the_other_direction() {
@@ -109,11 +114,12 @@ class BackspaceBubbleTest {
         g.begin(100f, 300f)
         g.move(100f, 300f - (swipeThreshold + 10f), true)
         g.move(100f, 300f, true)
-        assertNull(g.swipeDirectionUp)
+        assertFalse(g.swipeArmed)
         g.move(100f, 300f + (swipeThreshold + 10f), true)
-        assertNull(g.swipeDirectionUp)
-        g.finish(300f + (swipeThreshold + 10f))
-        assertEquals(emptyList<Boolean>(), swipes)
+        assertEquals("the locked hint never turns into the other one", true, g.swipeDirectionUp)
+        assertFalse("and the far side never arms it", g.swipeArmed)
+        g.finish()
+        assertEquals("one press runs the direction it was showing, and it showed none", emptyList<Boolean>(), swipes)
     }
 
     private fun inputView(): InputView = InputView(ctx).apply {
@@ -158,7 +164,10 @@ class BackspaceBubbleTest {
         assertTrue(clearBubble.left >= 0f)
 
         iv.send(MotionEvent.ACTION_MOVE, key.centerX(), key.centerY() + (swipeThreshold + 15f), 32)
-        assertNull("reversing the finger never shows the other hint", iv.backspaceBubbleDirectionUpForTest())
+        assertEquals("reversing the finger never shows the other hint", true, iv.backspaceBubbleDirectionUpForTest())
+        assertFalse("and off its own side the bubble is not the pressed one", iv.backspaceBubbleArmedForTest())
+        val afterReversal = requireNotNull(iv.backspaceBubbleBoundsForTest())
+        assertTrue("the clear bubble stays above the backspace key", afterReversal.bottom <= key.top)
 
         iv.send(MotionEvent.ACTION_UP, key.centerX(), key.centerY() + (swipeThreshold + 15f), 48)
         assertNull("letting go dismisses the bubble", iv.backspaceBubbleBoundsForTest())

@@ -248,6 +248,7 @@ class ImeKeyFeedback(
 
 internal interface BackspaceBubbleSource {
     fun backspaceBubbleDirectionUp(): Boolean?
+    fun backspaceBubbleArmed(): Boolean
     fun backspaceBubbleAnchor(): View
     fun bindBackspaceBubbleObserver(observer: Runnable)
 }
@@ -267,12 +268,14 @@ class ImeBackspaceTouch(
     }
     private var pointerId = MotionEvent.INVALID_POINTER_ID
     private var pointerInside = false
-    private var lastBubble: Boolean? = null
+    private var lastBubble: Pair<Boolean?, Boolean> = null to false
 
     fun bubbleDirectionUp(): Boolean? = gesture.swipeDirectionUp
 
+    fun bubbleArmed(): Boolean = gesture.swipeArmed
+
     private fun notifyBubble() {
-        val next = gesture.swipeDirectionUp
+        val next = gesture.swipeDirectionUp to gesture.swipeArmed
         if (next != lastBubble) {
             lastBubble = next
             onBubbleChanged()
@@ -346,7 +349,7 @@ class ImeBackspaceTouch(
         pointerId = MotionEvent.INVALID_POINTER_ID
         pointerInside = false
         gesture.move(x, y, inside)
-        val tap = gesture.finish(y)
+        val tap = gesture.finish()
         notifyBubble()
         feedback.release()
         return tap && inside

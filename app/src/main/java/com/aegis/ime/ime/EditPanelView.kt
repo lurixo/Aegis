@@ -351,6 +351,8 @@ class EditPanelView(context: Context) :
 
     override fun backspaceBubbleDirectionUp(): Boolean? = backspaceTouch.bubbleDirectionUp()
 
+    override fun backspaceBubbleArmed(): Boolean = backspaceTouch.bubbleArmed()
+
     override fun backspaceBubbleAnchor(): View = requireNotNull(actionViews[EditAction.DELETE])
 
     internal fun selectingLabelForTest(): CharSequence = selectBtn.text
