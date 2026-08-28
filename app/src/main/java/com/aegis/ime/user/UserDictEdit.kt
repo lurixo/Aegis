@@ -100,24 +100,35 @@ object UserDictEdit {
         return UserModel().apply { if (userDb.exists()) load(userDb) }.userWordEntries()
     }
 
-    class Summary(val entries: List<UserModel.Entry>, val forgotten: Int, val readable: Boolean = true)
+    class Summary(
+        val entries: List<UserModel.Entry>,
+        val words: Int,
+        val forgotten: Int,
+        val readable: Boolean = true,
+    )
 
     fun summary(userDb: File): Summary {
         UserDictHot.host?.let { host ->
+            val fallback = if (host.wordCount() == null || host.forgottenCount() == null) {
+                fromFile(userDb)
+            } else {
+                null
+            }
             return Summary(
                 host.entries(),
-                host.forgottenCount() ?: forgottenFromFile(userDb),
+                host.wordCount() ?: fallback?.distinctWordCount() ?: 0,
+                host.forgottenCount() ?: fallback?.forgottenCount ?: 0,
                 host.dictionaryReadable(),
             )
         }
         val m = UserModel()
         val read = runCatching { if (userDb.exists()) m.load(userDb) }.isSuccess
-        if (!read) return Summary(emptyList(), 0, readable = false)
-        return Summary(m.userWordEntries(), m.forgottenCount)
+        if (!read) return Summary(emptyList(), 0, 0, readable = false)
+        return Summary(m.userWordEntries(), m.distinctWordCount(), m.forgottenCount)
     }
 
-    private fun forgottenFromFile(userDb: File): Int {
-        if (!userDb.exists()) return 0
-        return runCatching { UserModel().apply { load(userDb) }.forgottenCount }.getOrDefault(0)
+    private fun fromFile(userDb: File): UserModel? {
+        if (!userDb.exists()) return null
+        return runCatching { UserModel().apply { load(userDb) } }.getOrNull()
     }
 }

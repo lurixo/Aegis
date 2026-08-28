@@ -174,6 +174,13 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     }
 
     @Synchronized
+    fun distinctWordCount(): Int {
+        val words = HashSet<String>(count.keys)
+        for (ws in readings.values) words.addAll(ws)
+        return words.size
+    }
+
+    @Synchronized
     fun readingSnapshot(): Map<String, List<String>> {
         val out = HashMap<String, List<String>>(readings.size)
         val now = clock()

@@ -30,6 +30,8 @@ object UserDictHot {
 
         fun entries(): List<UserModel.Entry>
 
+        fun wordCount(): Int? = null
+
         fun forgottenCount(): Int? = null
 
         fun dictionaryReadable(): Boolean = true

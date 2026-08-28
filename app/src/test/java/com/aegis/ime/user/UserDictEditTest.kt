@@ -350,6 +350,51 @@ class UserDictEditTest {
         assertTrue("nothing may be dropped by a clear that failed", UserLearnEdit.hasData(userLearn))
     }
 
+    @Test fun the_word_count_counts_distinct_words_not_pronunciation_rows() {
+        val db = tmp.newFile("userdb-word-count.txt")
+        db.writeText(
+            "aegis-userdb 3\n" +
+                "W\t这个\t3\t1000\n" +
+                "W\t问题\t2\t1000\n" +
+                "W\t顺便\t1\t1000\n" +
+                "B\t这个\t问题\t2\n" +
+                "R\tzhe\t这个\n" +
+                "R\tzheg\t这个\n" +
+                "R\tzhege\t这个\n" +
+                "R\twenti\t问题\n" +
+                "M\tzhege\t这个\n",
+        )
+
+        val summary = UserDictEdit.summary(db)
+
+        assertEquals("the list still holds one row per pronunciation", 4, summary.entries.size)
+        assertEquals("the count holds the distinct words behind those rows", 3, summary.words)
+    }
+
+    @Test fun the_word_count_holds_words_auto_learning_stored_without_a_pronunciation() {
+        val db = tmp.newFile("userdb-recorded-word-count.txt")
+        UserModel().apply {
+            recordWord("zhege", "这个", 1_000L, incrementCount = true)
+            record("这个", "顺便", 1_000L)
+            save(db)
+        }
+
+        val summary = UserDictEdit.summary(db)
+
+        assertEquals("only the word with a pronunciation is listed", 1, summary.entries.size)
+        assertEquals("both words are counted", 2, summary.words)
+    }
+
+    @Test fun an_unreadable_word_list_reports_no_words() {
+        val db = tmp.newFile("userdb-unreadable-word-count.txt")
+        db.writeText("not a word list\n")
+
+        val summary = UserDictEdit.summary(db)
+
+        assertFalse(summary.readable)
+        assertEquals(0, summary.words)
+    }
+
     private fun blockTheWriteTo(file: File) {
         assertTrue(File(file.parentFile, file.name + ".tmp").mkdir())
     }

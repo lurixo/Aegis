@@ -85,6 +85,8 @@ class LiveUserDictHost(
 
     override fun entries(): List<UserModel.Entry> = model.userWordEntries()
 
+    override fun wordCount(): Int = model.distinctWordCount()
+
     override fun forgottenCount(): Int = model.forgottenCount
 
     override fun dictionaryReadable(): Boolean = model.readable
