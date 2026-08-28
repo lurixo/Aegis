@@ -292,7 +292,7 @@
     <string name="licenses_page_title">Open-source licenses</string>
     <string name="licenses_intro">Aegis\'s own code is GPL-3.0. It builds on the third-party works below; each keeps its attribution here, and the downloadable dictionary carries the same notice inside its ZIP.</string>
     <string name="licenses_modified">Modified</string>
-    <string name="licenses_footer">Full license texts are in THIRD_PARTY_LICENSES.md in the Aegis repository.</string>
+    <string name="licenses_footer">Full license texts ship with the source code.</string>
     <string name="license_wanxiang_name">rime-wanxiang dictionaries</string>
     <string name="license_wanxiang_note">The downloadable Chinese dictionary. Tones stripped, syllables concatenated, repacked into Aegis\'s binary format.</string>
     <string name="license_octagram_name">wanxiang octagram model</string>

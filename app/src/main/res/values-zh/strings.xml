@@ -290,7 +290,7 @@
     <string name="licenses_page_title">开源许可</string>
     <string name="licenses_intro">Aegis 自身代码为 GPL-3.0，并基于以下第三方成果构建；各项署名保留于此，可下载词库的 ZIP 内也附有相同说明。</string>
     <string name="licenses_modified">已修改</string>
-    <string name="licenses_footer">完整许可全文见 Aegis 仓库的 THIRD_PARTY_LICENSES.md。</string>
+    <string name="licenses_footer">完整许可全文随源码发布。</string>
     <string name="license_wanxiang_name">rime-wanxiang 词库</string>
     <string name="license_wanxiang_note">可下载的中文词库。已去声调、拼接音节，重打包为 Aegis 二进制格式。</string>
     <string name="license_octagram_name">万象 octagram 模型</string>
