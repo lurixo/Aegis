@@ -45,6 +45,7 @@ private val LICENSE_ITEMS = listOf(
     LicenseItem(R.string.license_emoji_name, "Unicode, Inc.", "Unicode License", "https://www.unicode.org/license.txt", R.string.license_emoji_note, modified = true),
     LicenseItem(R.string.license_tgh_name, "PRC State Council", "National standard", "https://www.gov.cn/zwgk/2013-08/19/content_2469793.htm", R.string.license_tgh_note, modified = true),
     LicenseItem(R.string.license_androidx_name, "AOSP · JetBrains", "Apache-2.0", "https://developer.android.com/jetpack/androidx", R.string.license_androidx_note, modified = false),
+    LicenseItem(R.string.license_aegis_name, "lurixo", "GPL-3.0-only", "https://github.com/lurixo/Aegis", R.string.license_aegis_note, modified = false),
 )
 
 @Composable

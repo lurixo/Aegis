@@ -305,6 +305,8 @@
     <string name="license_tgh_note">The character grading table packaged in the APK, from the national standard. Characters and serial numbers transcribed unchanged, levels taken from the standard\'s serial ranges; an unofficial transcription.</string>
     <string name="license_androidx_name">AndroidX · Compose · Material 3 · Kotlin</string>
     <string name="license_androidx_note">The app UI toolkit and the Kotlin standard library, linked as unmodified dependencies.</string>
+    <string name="license_aegis_name">Aegis</string>
+    <string name="license_aegis_note">This app itself. Free software: you may redistribute and modify it under the GNU General Public License, version 3. It comes with no warranty. The full license text ships with the source.</string>
 
     <string name="kbd_space">Space</string>
     <string name="kbd_symbols">Symbols</string>

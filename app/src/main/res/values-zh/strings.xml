@@ -303,6 +303,8 @@
     <string name="license_tgh_note">随 APK 打包的汉字分级表，取自国家规范。字与序号照原样转录，级别按规范自身的序号区间划出；属非官方转录。</string>
     <string name="license_androidx_name">AndroidX · Compose · Material 3 · Kotlin</string>
     <string name="license_androidx_note">应用 UI 框架与 Kotlin 标准库，按未修改的依赖链接。</string>
+    <string name="license_aegis_name">Aegis</string>
+    <string name="license_aegis_note">本应用自身。这是自由软件：你可以依据 GNU 通用公共许可证第 3 版重新发布和修改它。本程序不提供任何担保。完整许可证全文随源码发布。</string>
 
     <string name="kbd_space">空格</string>
     <string name="kbd_symbols">符号</string>
