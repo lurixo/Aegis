@@ -64,7 +64,7 @@
     <string name="gram_delete_dialog_title">Delete the enhancement model</string>
     <string name="gram_delete_dialog_body">This deletes the downloaded enhancement model and disables enhanced grammar. This cannot be undone.</string>
 
-    <string name="dict_card_title">Full dictionary pack (14 tables freq >= 1)</string>
+    <string name="dict_card_title">Full dictionary pack</string>
     <string name="dict_card_description">The Chinese dictionary is downloaded after install (SHA-256 verified). Chinese input stays locked until it finishes; English works offline without it. Stored locally only; after download, input runs fully offline.</string>
     <string name="dict_source_link">Dictionary source: amzxyz/rime-wanxiang ↗</string>
     <string name="dict_status_enabled">✅ Downloaded and enabled: full dictionary (about %1$d MB, local only; broader Chinese coverage loads automatically)</string>

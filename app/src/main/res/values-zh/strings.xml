@@ -64,7 +64,7 @@
     <string name="gram_delete_dialog_title">删除增强模型</string>
     <string name="gram_delete_dialog_body">将删除已下载的增强模型，增强语法将停用。此操作不可撤销。</string>
 
-    <string name="dict_card_title">全量词库包（14 表 freq≥1）</string>
+    <string name="dict_card_title">全量词库包</string>
     <string name="dict_card_description">中文词库在安装后下载（SHA-256 校验）。下载完成前中文输入不可用；英文无需词库即可离线使用。仅存本机，下载后输入全程离线。</string>
     <string name="dict_source_link">词库来源：amzxyz/rime-wanxiang ↗</string>
     <string name="dict_status_enabled">✅ 已下载并启用：全量词库（约 %1$d MB，仅存本机；下载完成后自动加载更全词库）</string>
