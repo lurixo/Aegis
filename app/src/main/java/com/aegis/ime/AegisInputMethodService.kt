@@ -40,6 +40,7 @@ import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.EngineAssets
 import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.engine.DictEngine
+import com.aegis.ime.ime.CaretRealign
 import com.aegis.ime.ime.ClearedTextRestore
 import com.aegis.ime.ime.ClipboardView
 import com.aegis.ime.ime.CustomSymbolPanel
@@ -1049,7 +1050,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                         if (part.length > STREAM_CHUNK) {
                             commitStreamed(part, then)
                         } else {
-                            commitLargeText(part)
+                            commitLargeText(part, realign = false)
                             then()
                         }
                     },
@@ -1592,17 +1593,33 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         streamPump.run()
     }
 
-    private fun commitLargeText(text: CharSequence): Boolean {
+    private fun commitLargeText(text: CharSequence, realign: Boolean = true): Boolean {
         if (panelInput.commit(text)) return true
         controller.expireCandidateChoiceUndo()
         val ic = currentInputConnection ?: return false
+        val breaks = if (realign) CaretRealign.breaksIn(text) else 0
+        val following = CaretRealign.following(ic, breaks)
         ic.beginBatchEdit()
         var committed = true
         com.aegis.ime.ime.LargeCommit.commit(text) {
             committed = ic.commitText(it, 1) && committed
         }
         ic.endBatchEdit()
+        catchCaretUp(ic, breaks, following)
         return committed
+    }
+
+    private fun catchCaretUp(ic: InputConnection, span: Int, following: String) {
+        if (span <= 0) return
+        val window = span * 2
+        val lag = { CaretRealign.lagBetween(following, CaretRealign.following(ic, window)) }
+        var behind = lag()
+        while (behind > 0) {
+            repeat(minOf(behind, CaretRealign.RECHECK)) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, false) }
+            val now = lag()
+            if (now >= behind) return
+            behind = now
+        }
     }
 
     override fun deleteBackward() {
