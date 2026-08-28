@@ -25,6 +25,8 @@ import android.view.inputmethod.ExtractedTextRequest
 import android.widget.FrameLayout
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.KeyboardController
+import android.view.inputmethod.InputConnection
+import com.aegis.ime.ime.ClearedTextRestore
 import com.aegis.ime.ime.EditorSweep
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -303,5 +305,120 @@ class BackspaceSwipeClearTest {
 
         swipe(f.service, up = false)
         assertEquals("the two halves have to add back up", written, f.editor.held())
+    }
+
+    private class BlockEditor(target: View) : BaseInputConnection(target, true) {
+        val paragraphs = ArrayList<String>().apply { add("") }
+
+        fun read(): String =
+            if (paragraphs.size == 1 && paragraphs[0].isEmpty()) "" else paragraphs.joinToString("") { it + "\n\n" }
+
+        override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+            val parts = (text ?: "").toString().split('\n')
+            paragraphs[paragraphs.size - 1] = paragraphs.last() + parts.first()
+            for (part in parts.drop(1)) paragraphs.add(part)
+            return true
+        }
+
+        override fun getTextBeforeCursor(length: Int, flags: Int): CharSequence {
+            val held = read()
+            return held.substring(maxOf(0, held.length - length))
+        }
+
+        override fun getTextAfterCursor(length: Int, flags: Int): CharSequence = ""
+
+        override fun getSelectedText(flags: Int): CharSequence? = null
+
+        override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText =
+            ExtractedText().apply {
+                startOffset = 0
+                text = read()
+                selectionStart = text.length
+                selectionEnd = text.length
+            }
+    }
+
+    private fun blockFixture(): Pair<AegisInputMethodService, BlockEditor> {
+        val service = Robolectric.buildService(AegisInputMethodService::class.java).get()
+        service.javaClass.getDeclaredField("controller").apply {
+            isAccessible = true
+            set(service, KeyboardController(service, engine, null))
+        }
+        service.onStartInput(editor(101, InputType.TYPE_CLASS_TEXT), false)
+        val block = BlockEditor(FrameLayout(service))
+        val framework = requireNotNull(service.javaClass.superclass)
+        for (fieldName in listOf("mInputConnection", "mStartedInputConnection")) {
+            framework.getDeclaredField(fieldName).apply {
+                isAccessible = true
+                set(service, block)
+            }
+        }
+        return service to block
+    }
+
+    private fun seedCleared(text: String) {
+        File(RuntimeEnvironment.getApplication().filesDir, "cleared_text.txt").writeText(text)
+    }
+
+    @Test fun a_block_editor_gets_one_break_for_each_pair_of_newlines_it_reported() {
+        val (service, block) = blockFixture()
+        seedCleared("AAA\n\nBBB\n\nCCC\n\n")
+
+        swipe(service, up = false)
+
+        assertEquals(
+            "each paragraph must come back as one paragraph, not one paragraph and a blank line",
+            listOf("AAA", "BBB", "CCC", ""),
+            block.paragraphs,
+        )
+    }
+
+    @Test fun a_block_editor_keeps_the_blank_paragraph_that_was_really_there() {
+        val (service, block) = blockFixture()
+        seedCleared("AAA\n\n\n\nCCC\n\n")
+
+        swipe(service, up = false)
+
+        assertEquals(
+            "a run of four newlines stood for a real empty paragraph",
+            listOf("AAA", "", "CCC", ""),
+            block.paragraphs,
+        )
+    }
+
+    @Test fun a_plain_field_still_gets_every_newline_it_reported() {
+        val f = fixture()
+        val written = "AAA\nBBB\n\nCCC"
+        f.editor.hold(written)
+
+        swipe(f.service, up = true)
+        swipe(f.service, up = false)
+
+        assertEquals("a field that reads back what it was given must round trip", written, f.editor.held())
+    }
+
+    @Test fun an_unmeasurable_target_falls_back_to_writing_the_newlines_verbatim() {
+        val put = StringBuilder()
+
+        ClearedTextRestore.restore(
+            "AAA\n\nBBB",
+            measure = { 0 },
+            commit = { part -> put.append(part) },
+        )
+
+        assertEquals("with no signal to go on, nothing may be dropped", "AAA\n\nBBB", put.toString())
+    }
+
+    @Test fun a_run_of_newlines_never_comes_back_as_none() {
+        val put = StringBuilder()
+        var reads = 0
+
+        ClearedTextRestore.restore(
+            "AAA\n\nBBB",
+            measure = { if (reads++ == 0) 0 else 9000 },
+            commit = { part -> put.append(part) },
+        )
+
+        assertEquals("an absurd measurement must still leave the lines apart", "AAA\nBBB", put.toString())
     }
 }

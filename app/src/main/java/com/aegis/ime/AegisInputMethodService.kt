@@ -40,6 +40,7 @@ import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.EngineAssets
 import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.engine.DictEngine
+import com.aegis.ime.ime.ClearedTextRestore
 import com.aegis.ime.ime.ClipboardView
 import com.aegis.ime.ime.CustomSymbolPanel
 import com.aegis.ime.ime.EditAction
@@ -1036,7 +1037,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             resetSelectionAnchor()
         } else {
             clearedText.held()?.let {
-                ic.commitText(it, 1)
+                ClearedTextRestore.restore(
+                    it,
+                    measure = { EditorSweep.nearbyLength(ic) },
+                    commit = { part -> commitLargeText(part) },
+                )
                 clearedText.forget()
                 resetSelectionAnchor()
             }

@@ -27,6 +27,11 @@ object EditorSweep {
             !ic.getTextAfterCursor(1, 0).isNullOrEmpty() ||
             !ic.getSelectedText(0).isNullOrEmpty()
 
+    fun nearbyLength(ic: InputConnection, bound: Int = CHUNK): Int =
+        (ic.getTextBeforeCursor(bound, 0)?.length ?: 0) +
+            (ic.getSelectedText(0)?.length ?: 0) +
+            (ic.getTextAfterCursor(bound, 0)?.length ?: 0)
+
     fun clearCapturing(ic: InputConnection): CharSequence {
         val ending = fieldEnding(ic)
         val body = StringBuilder()
