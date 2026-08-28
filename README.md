@@ -133,7 +133,7 @@ ask it to.
   parentheses, signs and `%` are understood.
 - **Copy bar:** text you just copied or cut is offered back above the keyboard, either whole or
   split into pieces you pick from.
-- **Encrypted backup:** export your learning dictionary, auto learning, saved phrases, clipboard
+- **Encrypted backup:** export your user dictionary, auto learning, saved phrases, clipboard
   history, symbol history, emoji history and all settings into a single encrypted file
   (AES-256-GCM, key derived with PBKDF2-HMAC-SHA256
   at 600,000 iterations), and import it back by overwriting or merging. A default backup password
@@ -164,7 +164,7 @@ not depend on our word alone:
   backup dialog, needs a biometric or screen-lock confirmation first.
 - Your **keystrokes, candidates, learned words, user dictionary, and clipboard never leave the
   device**: they live in the app's private storage (`filesDir`). The only way any of it leaves is a
-  file *you* export — a backup, your learning dictionary, or your phrases — to a location you pick.
+  file *you* export — a backup, your user dictionary, or your phrases — to a location you pick.
 - Aegis is excluded from Android's **cloud backup and device-to-device transfer**, so its data is
   not carried off the device that way either.
 - There is **no analytics, no telemetry, and no account.**

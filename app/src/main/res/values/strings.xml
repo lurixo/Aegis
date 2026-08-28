@@ -136,15 +136,15 @@
     <string name="layout_en">English 26-key</string>
     <string name="layout_panel_title">Keyboard layout</string>
 
-    <string name="user_dict_description">Aegis learns your frequent words and next-word pairs offline and stores them as the learning dictionary on this device. This is separate from the downloaded main dictionary: import/overwrite here only changes the learning dictionary and never changes the main dictionary. Imports take effect immediately.</string>
+    <string name="user_dict_description">Aegis learns your frequent words and next-word pairs offline and stores them as the user dictionary on this device. This is separate from the downloaded main dictionary: import/overwrite here only changes the user dictionary and never changes the main dictionary. Imports take effect immediately.</string>
     <string name="user_dict_default_path_format">Default dictionary: %1$s (app-private directory, hidden from file managers; use Export to copy it out. Default file name: aegis-userdb.txt).</string>
-    <string name="user_dict_export_button">Export learning dictionary</string>
-    <string name="user_dict_import_button">Import learning dictionary</string>
-    <string name="user_dict_toast_import_merged">Learning dictionary imported and merged</string>
-    <string name="user_dict_toast_import_overwritten">Learning dictionary imported and overwritten</string>
+    <string name="user_dict_export_button">Export user dictionary</string>
+    <string name="user_dict_import_button">Import user dictionary</string>
+    <string name="user_dict_toast_import_merged">User dictionary imported and merged</string>
+    <string name="user_dict_toast_import_overwritten">User dictionary imported and overwritten</string>
     <string name="user_dict_toast_import_failed">Import failed: file cannot be read or has no valid entries; dictionary was not changed</string>
-    <string name="user_dict_import_dialog_title">Import learning dictionary</string>
-    <string name="user_dict_import_dialog_body">This imports/exports the learning dictionary (userdb.txt - words and frequencies learned on this device), not the downloaded main dictionary. Merge adds imported entries to the current learning dictionary with dedupe and accumulated frequencies. Overwrite replaces the learning dictionary with the imported file. Neither option changes the downloaded main dictionary.</string>
+    <string name="user_dict_import_dialog_title">Import user dictionary</string>
+    <string name="user_dict_import_dialog_body">This imports/exports the user dictionary (userdb.txt - words and frequencies learned on this device), not the downloaded main dictionary. Merge adds imported entries to the current user dictionary with dedupe and accumulated frequencies. Overwrite replaces the user dictionary with the imported file. Neither option changes the downloaded main dictionary.</string>
     <string name="user_dict_import_merge">Merge (recommended)</string>
     <string name="user_dict_import_overwrite">Overwrite</string>
     <string name="user_dict_manual_title">Your words</string>
@@ -175,7 +175,7 @@
     <string name="user_dict_toast_export_blocked">Recent changes could not be saved, so the export was cancelled rather than written incomplete</string>
     <string name="user_dict_toast_export_done">Word list exported</string>
     <string name="user_dict_toast_export_failed">The file could not be written, so the export did not finish</string>
-    <string name="user_dict_toast_export_empty">There is no learning dictionary on this device yet, so there was nothing to export</string>
+    <string name="user_dict_toast_export_empty">There is no user dictionary on this device yet, so there was nothing to export</string>
     <string name="user_dict_auto_title">Auto learning</string>
     <string name="user_dict_auto_count_format">Auto-learned words: %1$d</string>
     <string name="user_dict_auto_empty">Nothing learned automatically yet.</string>
@@ -220,7 +220,7 @@
 
     <string name="settings_backup_title">Data backup</string>
     <string name="settings_backup_desc">Export or import all your data as an encrypted file</string>
-    <string name="backup_intro">Backs up your learning dictionary, auto learning, saved phrases, clipboard history, symbol history, emoji history and all settings into one encrypted file. The downloadable dictionary and model are not included — they can be downloaded again.</string>
+    <string name="backup_intro">Backs up your user dictionary, auto learning, saved phrases, clipboard history, symbol history, emoji history and all settings into one encrypted file. The downloadable dictionary and model are not included — they can be downloaded again.</string>
     <string name="backup_password_warning">The file is encrypted with your password. Keep it safe: without it the backup cannot be restored, and it cannot be recovered.</string>
     <string name="backup_export_button">Export backup</string>
     <string name="backup_import_button">Import backup</string>
@@ -280,7 +280,7 @@
     <string name="backup_error_damaged_content">Nothing was restored and nothing on this device was changed. These parts of the backup could not be read:</string>
     <string name="restore_gate_rollback_failed">Restore unfinished — undo failed, tap here</string>
     <string name="restore_gate_rollback_impossible">Restore unfinished — cannot undo, tap here</string>
-    <string name="backup_item_dictionary">Learning dictionary</string>
+    <string name="backup_item_dictionary">User dictionary</string>
     <string name="backup_item_learning">Auto learning</string>
     <string name="backup_item_phrases">Saved phrases</string>
     <string name="backup_item_clipboard">Clipboard history</string>

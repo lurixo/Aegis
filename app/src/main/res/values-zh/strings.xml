@@ -136,15 +136,15 @@
     <string name="layout_en">英文26键</string>
     <string name="layout_panel_title">键盘布局</string>
 
-    <string name="user_dict_description">Aegis 会离线学习你常用的词与下一个词，存为【学习词库】（只存本机）。这与你下载的【主词库】（拼音大词库）是两份独立的库 —— 这里的导入/覆盖只动学习词库，绝不影响主词库。导入立即生效。</string>
+    <string name="user_dict_description">Aegis 会离线学习你常用的词与下一个词，存为【用户词库】（只存本机）。这与你下载的【主词库】（拼音大词库）是两份独立的库 —— 这里的导入/覆盖只动用户词库，绝不影响主词库。导入立即生效。</string>
     <string name="user_dict_default_path_format">默认词库：%1$s（应用私有目录，文件管理器不可见 → 用“导出”取出副本，默认文件名 aegis-userdb.txt）。</string>
-    <string name="user_dict_export_button">导出学习词库</string>
-    <string name="user_dict_import_button">导入学习词库</string>
-    <string name="user_dict_toast_import_merged">已合并导入学习词库</string>
-    <string name="user_dict_toast_import_overwritten">已覆盖导入学习词库</string>
+    <string name="user_dict_export_button">导出用户词库</string>
+    <string name="user_dict_import_button">导入用户词库</string>
+    <string name="user_dict_toast_import_merged">已合并导入用户词库</string>
+    <string name="user_dict_toast_import_overwritten">已覆盖导入用户词库</string>
     <string name="user_dict_toast_import_failed">导入失败：文件无法读取或无有效词条，词库未改动</string>
-    <string name="user_dict_import_dialog_title">导入学习词库</string>
-    <string name="user_dict_import_dialog_body">这里导入/导出的是【学习词库】（userdb.txt — 本机学习到的词与词频），不是你下载的【主词库】（拼音大词库）。「合并」把导入内容累加到现有学习词库（去重、词频相加，保留历史）；「覆盖」用导入文件整体替换【学习词库】（不影响已下载的主词库）。</string>
+    <string name="user_dict_import_dialog_title">导入用户词库</string>
+    <string name="user_dict_import_dialog_body">这里导入/导出的是【用户词库】（userdb.txt — 本机学习到的词与词频），不是你下载的【主词库】（拼音大词库）。「合并」把导入内容累加到现有用户词库（去重、词频相加，保留历史）；「覆盖」用导入文件整体替换【用户词库】（不影响已下载的主词库）。</string>
     <string name="user_dict_import_merge">合并（推荐）</string>
     <string name="user_dict_import_overwrite">覆盖</string>
     <string name="user_dict_manual_title">我的词</string>
@@ -175,7 +175,7 @@
     <string name="user_dict_toast_export_blocked">最近的改动没能存盘，为免导出不完整，已取消导出</string>
     <string name="user_dict_toast_export_done">词库已导出</string>
     <string name="user_dict_toast_export_failed">文件没能写入，导出没有完成</string>
-    <string name="user_dict_toast_export_empty">本机还没有学习词库，没有可导出的内容</string>
+    <string name="user_dict_toast_export_empty">本机还没有用户词库，没有可导出的内容</string>
     <string name="user_dict_auto_title">自动学习</string>
     <string name="user_dict_auto_count_format">自动学习：%1$d 个词</string>
     <string name="user_dict_auto_empty">还没有自动学习的词。</string>
@@ -218,7 +218,7 @@
 
     <string name="settings_backup_title">数据备份</string>
     <string name="settings_backup_desc">将全部数据导出或导入为加密文件</string>
-    <string name="backup_intro">将学习词库、自动学习、常用语、剪贴板历史、符号历史、表情历史和全部设置备份为一个加密文件。可重新下载的词库与模型不包含在内。</string>
+    <string name="backup_intro">将用户词库、自动学习、常用语、剪贴板历史、符号历史、表情历史和全部设置备份为一个加密文件。可重新下载的词库与模型不包含在内。</string>
     <string name="backup_password_warning">文件使用你的密码加密。请妥善保管:没有密码将无法恢复备份,且密码无法找回。</string>
     <string name="backup_export_button">导出备份</string>
     <string name="backup_import_button">导入备份</string>
@@ -278,7 +278,7 @@
     <string name="backup_error_damaged_content">没有恢复任何内容，本机数据一点没动。备份里以下内容读不出来：</string>
     <string name="restore_gate_rollback_failed">恢复没做完，撤销失败，点这里</string>
     <string name="restore_gate_rollback_impossible">恢复没做完，无法撤销，点这里</string>
-    <string name="backup_item_dictionary">学习词库</string>
+    <string name="backup_item_dictionary">用户词库</string>
     <string name="backup_item_learning">自动学习</string>
     <string name="backup_item_phrases">常用语</string>
     <string name="backup_item_clipboard">剪贴板历史</string>

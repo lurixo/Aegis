@@ -58,6 +58,9 @@ class AppLocalizationTest {
         assertEquals("添加", ctx.getString(R.string.user_dict_add_sheet_button))
         assertEquals("工具", ctx.getString(R.string.user_dict_more_button))
         assertEquals("已选 2 项", ctx.getString(R.string.user_dict_selected_count_format, 2))
+        assertEquals("导出用户词库", ctx.getString(R.string.user_dict_export_button))
+        assertEquals("导入用户词库", ctx.getString(R.string.user_dict_import_button))
+        assertEquals("用户词库", ctx.getString(R.string.backup_item_dictionary))
         assertEquals("重输", ctx.getString(R.string.kbd_redo))
     }
 
@@ -89,6 +92,9 @@ class AppLocalizationTest {
         assertEquals("Add", ctx.getString(R.string.user_dict_add_sheet_button))
         assertEquals("Tools", ctx.getString(R.string.user_dict_more_button))
         assertEquals("2 selected", ctx.getString(R.string.user_dict_selected_count_format, 2))
+        assertEquals("Export user dictionary", ctx.getString(R.string.user_dict_export_button))
+        assertEquals("Import user dictionary", ctx.getString(R.string.user_dict_import_button))
+        assertEquals("User dictionary", ctx.getString(R.string.backup_item_dictionary))
         assertEquals("Retype", ctx.getString(R.string.kbd_redo))
     }
 
