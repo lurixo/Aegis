@@ -48,6 +48,16 @@ android {
         compose = true
     }
 
+    packaging {
+        resources {
+            excludes += setOf(
+                "**/*.kotlin_builtins",
+                "/DebugProbesKt.bin",
+                "/META-INF/androidx/**/LICENSE.txt",
+            )
+        }
+    }
+
     androidResources {
         ignoreAssetsPatterns += listOf(
             "aegis_dict.bin",
