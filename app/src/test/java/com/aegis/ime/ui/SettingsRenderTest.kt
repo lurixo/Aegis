@@ -52,6 +52,10 @@ class SettingsRenderTest {
     private val wPx = ctx.resources.displayMetrics.widthPixels
     private val outDir = File("build/render").apply { mkdirs() }
 
+    private companion object {
+        const val MAX_BLANK_RUN_PX = 240
+    }
+
     private fun snapCompose(name: String, dark: Boolean, hDp: Int = 1180, content: @Composable () -> Unit) {
         val controller = Robolectric.buildActivity(ComponentActivity::class.java).setup()
         val activity: Activity = controller.get()
@@ -73,14 +77,33 @@ class SettingsRenderTest {
         bmp.eraseColor(Color.MAGENTA)
         compose.draw(Canvas(bmp))
         FileOutputStream(File(outDir, name)).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
-        var drawn = 0
         val px = IntArray(wPx)
-        for (band in 1..5) {
-            bmp.getPixels(px, 0, wPx, 0, hPx * band / 6, wPx, 1)
-            val row = px.count { it != Color.MAGENTA }
-            assertTrue("$name band $band rendered nothing (still magenta)", row > 0)
-            drawn += row
+        val rowCounts = IntArray(hPx)
+        for (y in 0 until hPx) {
+            bmp.getPixels(px, 0, wPx, 0, y, wPx, 1)
+            rowCounts[y] = px.count { it != Color.MAGENTA }
         }
+        val contentBottom = rowCounts.indexOfLast { it > 0 }
+        assertTrue("$name rendered nothing (still magenta)", contentBottom > 0)
+        var blankRun = 0
+        var worstRun = 0
+        var worstEnd = 0
+        for (y in 0..contentBottom) {
+            if (rowCounts[y] != 0) {
+                blankRun = 0
+                continue
+            }
+            blankRun++
+            if (blankRun > worstRun) {
+                worstRun = blankRun
+                worstEnd = y
+            }
+        }
+        assertTrue(
+            "$name left a ${worstRun}px blank band ending at y=$worstEnd (content did not render)",
+            worstRun <= MAX_BLANK_RUN_PX,
+        )
+        val drawn = rowCounts.sum()
         assertTrue("$name painted almost nothing: $drawn", drawn > wPx / 2)
     }
 
