@@ -41,10 +41,17 @@ class AppVersionCardTest {
         assertFalse("release label must not show the stale debug.38 value", appReleaseLabel(ctx).contains("debug.38"))
     }
 
-    @Test fun version_code_matches_the_beta_candidate() {
+    @Test fun debug_builds_carry_their_own_version_code() {
         val info = ctx.packageManager
             .getPackageInfo(ctx.packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
-        assertEquals(132L, info.longVersionCode)
+
+        assertEquals(9012L, info.longVersionCode)
+    }
+
+    @Test fun release_version_code_matches_the_beta_candidate() {
+        val gradle = File("build.gradle.kts").readText()
+
+        assertTrue("release version code should be the beta candidate", gradle.contains("versionCode = 132"))
     }
 
     @Test fun app_release_label_resource_is_not_a_stale_hard_coded_version() {

@@ -78,6 +78,14 @@ android {
     }
 }
 
+val debugVersionCode = 9012
+
+androidComponents {
+    onVariants(selector().withBuildType("debug")) { variant ->
+        variant.outputs.forEach { it.versionCode.set(debugVersionCode) }
+    }
+}
+
 abstract class GenerateTghGrading : DefaultTask() {
     @get:InputFile
     abstract val authority: RegularFileProperty
