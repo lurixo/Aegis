@@ -725,12 +725,11 @@ private fun UserDictListHeader(title: String, status: String? = null) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = AppSpacing.touchTarget)
-                .padding(horizontal = AppSpacing.rowHorizontal, vertical = AppSpacing.compactGap),
+                .padding(horizontal = AppSpacing.rowHorizontal, vertical = AppSpacing.contentGap),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(AppSpacing.contentGap),
         ) {
-            Text(title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.weight(1f))
+            Text(title, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
             if (status != null) {
                 Text(
                     status,
