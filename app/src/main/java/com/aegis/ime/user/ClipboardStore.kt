@@ -141,10 +141,6 @@ class ClipboardStore(private val dir: File) {
     private val io = Executors.newSingleThreadExecutor { r ->
         Thread(r, "aegis-clip-io").apply { isDaemon = true }.also { writer = it }
     }
-    private var changer: Thread? = null
-    private val changes = Executors.newSingleThreadExecutor { r ->
-        Thread(r, "aegis-clip-changes").apply { isDaemon = true }.also { changer = it }
-    }
     private val saveGen = AtomicLong(0)
     private val phrasesPending = AtomicLong(0)
 
@@ -279,10 +275,6 @@ class ClipboardStore(private val dir: File) {
 
     fun record(text: String?) {
         if (text.isNullOrBlank()) return
-        onChangeLane { recordHere(text) }
-    }
-
-    private fun recordHere(text: String) {
         if (LiveUserData.restoreInProgress || !historyReadable) return
         val entry = adopt(text)
         val pending = synchronized(history) {
@@ -329,7 +321,6 @@ class ClipboardStore(private val dir: File) {
     fun delete(text: String) = deleteAll(listOf(text))
 
     fun deleteAll(texts: Collection<String>): Boolean {
-        settleChanges()
         if (!clipWritesAllowed()) { reportClipWrite(false); return false }
         val keys = texts.toSet()
         if (!synchronized(history) { history.removeAll { it.key in keys } }) return true
@@ -344,7 +335,6 @@ class ClipboardStore(private val dir: File) {
         synchronized(history) { history.firstOrNull { it.key == key } }?.bodySizeHint() ?: 0L
 
     fun editClip(key: String, newText: String): Boolean {
-        settleChanges()
         if (!clipWritesAllowed()) { reportClipWrite(false); return false }
         if (newText.isBlank()) { reportClipWrite(false); return false }
         val replacement = adopt(newText)
@@ -369,27 +359,17 @@ class ClipboardStore(private val dir: File) {
     }
 
     fun clearHistory(): Boolean {
-        settleChanges()
         if (!clipWritesAllowed()) { reportClipWrite(false); return false }
         if (!synchronized(history) { history.isNotEmpty().also { history.clear() } }) return true
         saveHistoryLater()
         return true
     }
 
-    fun history(): List<ClipEntry> {
-        settleChanges()
-        return snapshot()
-    }
+    fun history(): List<ClipEntry> = snapshot()
 
-    internal fun latest(): String? {
-        settleChanges()
-        return synchronized(history) { history.firstOrNull() }?.body()
-    }
+    internal fun latest(): String? = synchronized(history) { history.firstOrNull() }?.body()
 
-    internal fun residentBodyChars(): Long {
-        settleChanges()
-        return snapshot().sumOf { it.residentChars().toLong() }
-    }
+    internal fun residentBodyChars(): Long = snapshot().sumOf { it.residentChars().toLong() }
 
     private fun snapshot(): List<ClipEntry> = synchronized(history) { ArrayList(history) }
 
@@ -684,25 +664,12 @@ class ClipboardStore(private val dir: File) {
         MessageDigest.getInstance("SHA-256").digest(s.toByteArray()).joinToString("") { "%02x".format(it.toInt() and 0xFF) }
 
     internal fun flushPendingWrites() {
-        settleChanges()
         if (Thread.currentThread() === writer) return
         runCatching { io.submit { }.get() }
     }
 
-    internal fun settleChanges() {
-        if (Thread.currentThread() === changer || Thread.currentThread() === writer) return
-        runCatching { changes.submit { }.get() }
-    }
-
     fun stopSaving() {
-        runCatching { changes.shutdown() }
         runCatching { io.shutdown() }
-    }
-
-    private fun onChangeLane(work: () -> Unit) {
-        if (Thread.currentThread() === changer) return work()
-        val queued = runCatching { changes.execute(work) }.isSuccess
-        if (!queued) work()
     }
 
     private fun onWriteLane(work: () -> Unit) {

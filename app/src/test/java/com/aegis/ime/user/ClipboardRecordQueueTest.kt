@@ -55,22 +55,15 @@ class ClipboardRecordQueueTest {
         return ArrayList(field.get(store) as ArrayList<ClipEntry>)
     }
 
-    private fun changer(store: ClipboardStore): ExecutorService {
-        val field = ClipboardStore::class.java.getDeclaredField("changes")
-        field.isAccessible = true
-        return field.get(store) as ExecutorService
-    }
-
     private fun occupy(store: ClipboardStore) {
-        val lanes = listOf(changer(store), writer(store))
-        val entered = CountDownLatch(lanes.size)
+        val entered = CountDownLatch(1)
         val gate = CountDownLatch(1)
         release = gate
-        for (lane in lanes) lane.execute {
+        writer(store).execute {
             entered.countDown()
             gate.await(10, TimeUnit.SECONDS)
         }
-        assertTrue("precondition: both clipboard lanes are occupied", entered.await(2, TimeUnit.SECONDS))
+        assertTrue("precondition: the clipboard writer is occupied", entered.await(2, TimeUnit.SECONDS))
     }
 
     private fun big(marker: String): String = marker + "x".repeat(ClipboardStore.BIG_THRESHOLD + 1)
@@ -78,7 +71,7 @@ class ClipboardRecordQueueTest {
     private fun sideFiles(dir: File): List<String> =
         File(dir, "clips").listFiles()?.map { it.name }?.sorted().orEmpty()
 
-    @Test fun the_thread_that_copied_a_big_block_does_not_hash_it() {
+    @Test fun a_big_block_is_on_the_panel_the_moment_it_is_copied() {
         val dir = newDir()
         val s = store(dir)
         occupy(s)
@@ -86,13 +79,15 @@ class ClipboardRecordQueueTest {
         s.record(big("one"))
 
         assertEquals(
-            "recording a big clip must be handed to the writer, hash and all",
-            emptyList<ClipEntry>(),
-            rowsWithoutWaiting(s),
+            "a big clip must be filed by its digest before record returns",
+            1,
+            rowsWithoutWaiting(s).size,
         )
-        release?.countDown()
-        assertEquals(1, s.history().size)
         assertTrue("a big clip must still be filed by its digest", s.historyKeys().single().startsWith("B\t"))
+        assertFalse(
+            "and filing it must not write on the thread that copied it",
+            File(dir, "clipboard.txt").exists(),
+        )
     }
 
     @Test fun copying_the_same_big_block_twice_leaves_one_row_and_one_side_file() {
@@ -140,7 +135,7 @@ class ClipboardRecordQueueTest {
         assertEquals("on top", store(dir).history().first().body())
     }
 
-    @Test fun an_export_flush_lands_a_clip_that_was_still_being_hashed() {
+    @Test fun an_export_flush_lands_a_clip_whose_write_was_still_queued() {
         val dir = newDir()
         val s = store(dir)
         occupy(s)
@@ -238,10 +233,6 @@ class ClipboardRecordQueueTest {
         s.stopSaving()
         release?.countDown()
         assertTrue(
-            "the change lane must be allowed to finish what it was given",
-            changer(s).awaitTermination(10, TimeUnit.SECONDS),
-        )
-        assertTrue(
             "the writer must be allowed to finish what it was given",
             writer(s).awaitTermination(10, TimeUnit.SECONDS),
         )
@@ -262,7 +253,6 @@ class ClipboardRecordQueueTest {
         assertTrue("precondition: the file writer is occupied", entered.await(2, TimeUnit.SECONDS))
 
         s.record("刚复制的")
-        s.settleChanges()
 
         val startedAt = System.nanoTime()
         val rows = s.history()
@@ -277,26 +267,19 @@ class ClipboardRecordQueueTest {
         assertFalse("precondition: the write really was still stuck", File(dir, "clipboard.txt").exists())
     }
 
-    @Test(timeout = 30_000) fun a_clip_that_has_not_been_filed_yet_is_never_left_off_the_panel() {
+    @Test(timeout = 30_000) fun a_clip_whose_write_is_stuck_is_never_left_off_the_panel() {
         val dir = newDir()
         val s = store(dir)
         occupy(s)
 
         s.record("还在排队的")
-        val reader = Thread { s.history() }.apply { isDaemon = true; start() }
-        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
-        while (System.nanoTime() < deadline && reader.state !in setOf(Thread.State.WAITING, Thread.State.TIMED_WAITING)) {
-            Thread.onSpinWait()
-        }
 
-        assertTrue(
-            "reading the history must wait for a clip that was taken but not filed rather than leave it out",
-            reader.isAlive,
+        assertEquals(
+            "the panel must hold a clip whose write has not landed yet",
+            listOf("还在排队的"),
+            s.history().map { it.body() },
         )
-
-        release?.countDown()
-        reader.join(TimeUnit.SECONDS.toMillis(20))
-        assertEquals(listOf("还在排队的"), s.history().map { it.body() })
+        assertFalse("precondition: the write really was still stuck", File(dir, "clipboard.txt").exists())
     }
 
     @Test fun a_reload_never_throws_away_a_phrase_edit_the_writer_still_holds() {
