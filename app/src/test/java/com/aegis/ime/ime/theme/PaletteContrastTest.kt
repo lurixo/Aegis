@@ -39,6 +39,40 @@ class PaletteContrastTest {
         return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
     }
 
+    @Test fun the_surfaces_layer_from_deep_board_to_bright_faces_on_both_palettes() {
+        for (p in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
+            assertTrue("faces sit above the rail", luminance(p.keySurface) > luminance(p.railBg))
+            assertTrue("the rail sits above the board", luminance(p.railBg) > luminance(p.keyboardBg))
+            assertTrue(
+                "faces still separate from the board: " + ratio(p.keySurface, p.keyboardBg),
+                ratio(p.keySurface, p.keyboardBg) >= 1.15,
+            )
+            assertTrue(
+                "faces stay off pure white: " + Integer.toHexString(p.keySurface),
+                p.keySurface != 0xFFFFFFFF.toInt(),
+            )
+        }
+    }
+
+    @Test fun no_role_carries_the_retired_hardcoded_greens() {
+        val greens = setOf(
+            0xFF57A35B.toInt(),
+            0xFF29702D.toInt(),
+            0xFF4E9152.toInt(),
+            0xFF8BD08F.toInt(),
+            0xFF06250A.toInt(),
+        )
+        for (p in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
+            val roles = listOf(
+                p.keyboardBg, p.keySurface, p.keyLabel, p.keyLabelSecondary, p.keyHint, p.keySub,
+                p.accentBottom, p.accentLabel, p.candidateFirst, p.candidateText, p.preeditText, p.separator,
+                p.railBg, p.chipBg, p.chipText, p.icon, p.deletable, p.errorContainer, p.onErrorContainer,
+                p.disabled, p.scrim, p.shadow, p.floatSurface,
+            )
+            assertTrue("no palette role may reuse a retired green", roles.none { it in greens })
+        }
+    }
+
     @Test fun hint_text_clears_the_accessibility_floor_on_both_palettes() {
         val light = ImePalette.STATIC_LIGHT
         val dark = ImePalette.STATIC_DARK

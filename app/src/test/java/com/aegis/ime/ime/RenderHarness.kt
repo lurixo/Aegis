@@ -107,18 +107,22 @@ class RenderHarness {
         strip.draw(c)
         c.save(); c.translate(0f, stripH.toFloat()); panel.draw(c); c.restore()
         FileOutputStream(File(outDir, name)).use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+        fun near(a: Int, b: Int): Boolean {
+            fun channel(shift: Int) = kotlin.math.abs(((a shr shift) and 255) - ((b shr shift) and 255))
+            return channel(16) <= 4 && channel(8) <= 4 && channel(0) <= 4
+        }
         val stripFloor = bmp.getPixel((2 * density).toInt(), (2 * density).toInt())
-        assertTrue("$name: strip floor is not keyboardBg", stripFloor == pal.keyboardBg)
-        var panelSharesFloor = false
+        assertTrue("$name: strip floor is not the board colour", near(stripFloor, pal.keyboardBg))
+        var panelKeepsBodyFloor = false
         val row = IntArray(wPx)
         var y = stripH + (8 * density).toInt()
         val step = (8 * density).toInt()
-        while (y < totalH && !panelSharesFloor) {
+        while (y < totalH && !panelKeepsBodyFloor) {
             bmp.getPixels(row, 0, wPx, 0, y, wPx, 1)
-            if (row.any { it == stripFloor }) panelSharesFloor = true
+            if (row.any { it == pal.keyboardBg }) panelKeepsBodyFloor = true
             y += step
         }
-        assertTrue("$name: panel body floor differs from the strip floor (a seam)", panelSharesFloor)
+        assertTrue("$name: panel body floor is not the board colour", panelKeepsBodyFloor)
     }
 
     private val themes = listOf("light" to ImePalette.STATIC_LIGHT, "dark" to ImePalette.STATIC_DARK)

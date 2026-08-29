@@ -28,6 +28,7 @@ import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import kotlin.math.pow
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -41,6 +42,43 @@ import org.robolectric.annotation.Config
 class ImeVisualPolishTest {
 
     private val ctx = RuntimeEnvironment.getApplication()
+
+    @Test fun the_candidate_bar_shares_the_board_floor_without_a_bottom_rule() {
+        val palette = ImePalette.STATIC_LIGHT.copy(
+            keyboardBg = android.graphics.Color.WHITE,
+            separator = android.graphics.Color.RED,
+        )
+        val v = CandidateView(ctx).apply {
+            applyPalette(palette)
+            setContent(listOf("\u4f60", "\u597d"), "ni")
+        }
+        val density = ctx.resources.displayMetrics.density
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((44 * density).toInt(), View.MeasureSpec.EXACTLY),
+        )
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+        val bmp = android.graphics.Bitmap.createBitmap(v.width, v.height, android.graphics.Bitmap.Config.ARGB_8888)
+        v.draw(android.graphics.Canvas(bmp))
+
+        assertEquals("the bar shares the board floor", palette.keyboardBg, bmp.getPixel((2 * density).toInt(), (2 * density).toInt()))
+        for (x in 0 until v.width) {
+            assertNotEquals("no rule closes the candidate bar at x=$x", palette.separator, bmp.getPixel(x, v.height - 1))
+        }
+
+        val idle = CandidateView(ctx).apply { applyPalette(palette) }
+        idle.measure(
+            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((44 * density).toInt(), View.MeasureSpec.EXACTLY),
+        )
+        idle.layout(0, 0, idle.measuredWidth, idle.measuredHeight)
+        val idleBmp = android.graphics.Bitmap.createBitmap(idle.width, idle.height, android.graphics.Bitmap.Config.ARGB_8888)
+        idle.draw(android.graphics.Canvas(idleBmp))
+        assertEquals("the toolbar shares the board floor", palette.keyboardBg, idleBmp.getPixel((2 * density).toInt(), (2 * density).toInt()))
+        for (x in 0 until idle.width) {
+            assertNotEquals("no rule closes the toolbar at x=$x", palette.separator, idleBmp.getPixel(x, idle.height - 1))
+        }
+    }
 
     @Test fun candidate_toolbar_press_radius_is_smaller_than_key_radius() {
         val v = CandidateView(ctx)
