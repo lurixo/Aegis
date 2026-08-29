@@ -633,6 +633,31 @@ class CandidateGridViewTest {
         assertEquals(19f, v.readingTextSizeSpForTest(1), 0.01f)
     }
 
+    @Test fun the_press_highlight_covers_the_whole_candidate_and_reading_cell() {
+        val v = measured()
+        v.setCandidates(listOf("你", "好"))
+        v.setReadings(listOf("ni", "hao"), selected = 0)
+        val cells = listOf(
+            "candidate" to (v.candidateRowViewForTest(0).getChildAt(0) as TextView),
+            "reading" to requireNotNull(v.readingTileForTest(0)),
+        )
+
+        for ((label, cell) in cells) {
+            val surface = cell.background as ImeKeySurface
+            assertEquals(
+                "$label press highlight fills its cell edge to edge",
+                RectF(0f, 0f, 40f, 30f),
+                surface.faceBoundsForTest(40, 30),
+            )
+            assertEquals(
+                "$label press highlight is square; the panel clip rounds the outer corners",
+                0f,
+                surface.cornerRadiusPx,
+                0f,
+            )
+        }
+    }
+
     @Test fun the_reading_and_action_columns_stand_apart_from_the_candidate_area() {
         for (pal in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
             val v = CandidateGridView(ctx).apply { applyPalette(pal) }

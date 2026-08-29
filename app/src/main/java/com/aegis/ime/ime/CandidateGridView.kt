@@ -375,6 +375,8 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             tv,
             Color.TRANSPARENT,
             palette.candidateText,
+            radiusDp = 0f,
+            faceInsetPxOverride = 0f,
         ).also { it.bind { hapticEnabled } }
         readingPool.add(tv)
         readingColumn.addView(tv, LayoutParams(LayoutParams.MATCH_PARENT, candidateRowStride()))
@@ -525,6 +527,8 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             chip,
             Color.TRANSPARENT,
             palette.candidateText,
+            radiusDp = 0f,
+            faceInsetPxOverride = 0f,
         ).also { it.bind { hapticEnabled } }
         chipsAllocated++
         return chip
