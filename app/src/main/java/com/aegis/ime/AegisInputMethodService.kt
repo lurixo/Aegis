@@ -473,6 +473,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (abortInline) abortInlineInput(hideBar = false)
 
         inputView?.clearEditorTransientUiImmediately()
+        dropRestoreStream()
         restorablePanel = null
         clipboardRecreationState = null
         stopSelecting()
@@ -915,7 +916,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (up && controller.hasComposingToClear()) return true
         if (panelInput.active) return up && panelInput.text().isNotEmpty()
         val ic = currentInputConnection ?: return false
-        return if (up) EditorSweep.hasText(ic) else clearedText.held() != null
+        return if (up) EditorSweep.hasText(ic) else !restoring && clearedText.held() != null
     }
 
     private fun backspaceSwipe(up: Boolean) {
@@ -980,6 +981,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     internal fun takesRawKeys(info: EditorInfo?): Boolean =
         info != null && info.inputType == InputType.TYPE_NULL
 
+    private fun dropRestoreStream() {
+        mainHandler.removeCallbacks(streamPump)
+        streaming = null
+        afterStreaming = null
+        restoring = false
+    }
+
     private fun editorReportsNoSelection(): Boolean {
         val extracted = currentInputConnection
             ?.getExtractedText(ExtractedTextRequest().apply { hintMaxChars = 0 }, 0)
@@ -1030,6 +1038,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, code, 0, meta))
     }
 
+    private var restoring = false
+
     private fun handleBackspaceSwipe(up: Boolean) {
         if (panelInput.active) return
         val ic = currentInputConnection ?: return
@@ -1039,12 +1049,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             if (swept.isNotEmpty()) clearedText.keep(swept)
             resetSelectionAnchor()
         } else {
+            if (restoring) return
             clearedText.held()?.let {
                 val within =
                     if (it.length > ClearedTextRestore.MAX_CHARS) it.subSequence(0, ClearedTextRestore.MAX_CHARS)
                     else it
                 val span = maxOf(CaretRealign.breaksIn(within), TRIM_WINDOW)
                 val followed = CaretRealign.following(ic, span)
+                restoring = true
                 ClearedTextRestore.restore(
                     within,
                     measure = { EditorSweep.nearbyLength(ic) },
@@ -1056,9 +1068,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                             then()
                         }
                     },
-                    done = { settleRestore(ic, within, span, followed) },
+                    done = {
+                        restoring = false
+                        settleRestore(ic, within, span, followed)
+                        clearedText.forget()
+                    },
                 )
-                clearedText.forget()
                 resetSelectionAnchor()
             }
         }
@@ -1572,7 +1587,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         override fun run() {
             val text = streaming ?: return
             val ic = currentInputConnection
-            if (ic == null) { streaming = null; afterStreaming = null; return }
+            if (ic == null) { streaming = null; afterStreaming = null; restoring = false; return }
             val end = minOf(streamedAt + STREAM_CHUNK, text.length)
             ic.commitText(text.subSequence(streamedAt, end), 1)
             streamedAt = end

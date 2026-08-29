@@ -31,6 +31,7 @@ import com.aegis.ime.ime.ClearedTextRestore
 import com.aegis.ime.ime.LargeCommit
 import com.aegis.ime.ime.EditorSweep
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -129,16 +130,35 @@ class BackspaceSwipeClearTest {
         }
         val info = editor(fieldId, inputType)
         service.onStartInput(info, false)
-        val editor = FakeEditor(FrameLayout(service))
+        return Fixture(service, attach(service, FakeEditor(FrameLayout(service))))
+    }
+
+    private fun <T> attach(service: AegisInputMethodService, connection: T): T {
         val framework = requireNotNull(service.javaClass.superclass)
         for (fieldName in listOf("mInputConnection", "mStartedInputConnection")) {
             framework.getDeclaredField(fieldName).apply {
                 isAccessible = true
-                set(service, editor)
+                set(service, connection)
             }
         }
-        return Fixture(service, editor)
+        return connection
     }
+
+    private fun detach(service: AegisInputMethodService) {
+        val framework = requireNotNull(service.javaClass.superclass)
+        for (fieldName in listOf("mInputConnection", "mStartedInputConnection")) {
+            framework.getDeclaredField(fieldName).apply {
+                isAccessible = true
+                set(service, null)
+            }
+        }
+    }
+
+    private fun canSwipe(service: AegisInputMethodService, up: Boolean): Boolean =
+        service.javaClass.getDeclaredMethod("canBackspaceSwipe", Boolean::class.javaPrimitiveType).run {
+            isAccessible = true
+            invoke(service, up) as Boolean
+        }
 
     private fun editor(fieldId: Int, inputType: Int) = EditorInfo().apply {
         packageName = "com.example.editor"
@@ -147,13 +167,19 @@ class BackspaceSwipeClearTest {
         this.inputType = inputType
     }
 
-    private fun swipe(service: AegisInputMethodService, up: Boolean) {
+    private fun startSwipe(service: AegisInputMethodService, up: Boolean) {
         service.javaClass.getDeclaredMethod("backspaceSwipe", Boolean::class.javaPrimitiveType).apply {
             isAccessible = true
             invoke(service, up)
         }
+    }
+
+    private fun swipe(service: AegisInputMethodService, up: Boolean) {
+        startSwipe(service, up)
         shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMinutes(10))
     }
+
+    private fun snapshotFile(): File = File(RuntimeEnvironment.getApplication().filesDir, "cleared_text.txt")
 
     private fun longText(chars: Int): String = String(CharArray(chars) { '一' + (it % 2048) })
 
@@ -321,6 +347,64 @@ class BackspaceSwipeClearTest {
 
         swipe(f.service, up = false)
         assertEquals("the two halves have to add back up", written, f.editor.held())
+    }
+
+    @Test fun a_restore_the_editor_walked_out_on_can_be_run_again() {
+        val f = fixture()
+        val written = longText(EditorSweep.CHUNK * 4)
+        f.editor.hold(written)
+        swipe(f.service, up = true)
+
+        startSwipe(f.service, up = false)
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(50))
+        detach(f.service)
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMinutes(10))
+
+        assertTrue("a restore that never landed must keep what it has not written", snapshotFile().exists())
+        assertEquals(written, snapshotFile().readText())
+
+        val second = attach(f.service, FakeEditor(FrameLayout(f.service)))
+        assertTrue("and the swipe has to stay armed for another try", canSwipe(f.service, up = false))
+
+        swipe(f.service, up = false)
+        assertEquals("the second try has to put the whole snapshot back", written, second.held())
+    }
+
+    @Test fun a_restore_the_input_session_ended_under_leaves_the_swipe_armed_for_another_try() {
+        val f = fixture()
+        val written = longText(EditorSweep.CHUNK * 4)
+        f.editor.hold(written)
+        swipe(f.service, up = true)
+
+        startSwipe(f.service, up = false)
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(50))
+        f.service.onFinishInput()
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMinutes(10))
+
+        assertTrue("a restore the session ended under must keep what it has not written", snapshotFile().exists())
+        assertEquals(written, snapshotFile().readText())
+
+        val second = attach(f.service, FakeEditor(FrameLayout(f.service)))
+        assertTrue(
+            "the swipe must not stay locked by a restore the session ended under",
+            canSwipe(f.service, up = false),
+        )
+
+        swipe(f.service, up = false)
+        assertEquals("the second try has to put the whole snapshot back", written, second.held())
+    }
+
+    @Test fun a_restore_that_lands_lets_the_snapshot_go() {
+        val f = fixture()
+        val written = longText(EditorSweep.CHUNK * 4)
+        f.editor.hold(written)
+        swipe(f.service, up = true)
+        assertTrue("precondition: the clear kept a snapshot", snapshotFile().exists())
+
+        swipe(f.service, up = false)
+
+        assertEquals(written, f.editor.held())
+        assertFalse("a restore that landed has nothing left to hold", snapshotFile().exists())
     }
 
     @Test fun a_delete_the_editor_stops_taking_leaves_the_rest_where_it_is() {
