@@ -63,6 +63,8 @@ class BackspaceSwipeClearTest {
         var hidesWalkedText = false
         var acceptsSelectAll = true
         var acceptsSurroundingDelete = true
+        var surroundingDeletesAllowed = Int.MAX_VALUE
+        var selectAllCalls = 0
 
         fun hold(text: CharSequence) {
             val content = requireNotNull(editable)
@@ -101,11 +103,15 @@ class BackspaceSwipeClearTest {
             return super.commitText(text, newCursorPosition)
         }
 
-        override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean =
-            if (acceptsSurroundingDelete) super.deleteSurroundingText(beforeLength, afterLength) else false
+        override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+            if (!acceptsSurroundingDelete || surroundingDeletesAllowed <= 0) return false
+            surroundingDeletesAllowed--
+            return super.deleteSurroundingText(beforeLength, afterLength)
+        }
 
         override fun performContextMenuAction(id: Int): Boolean {
             if (id != android.R.id.selectAll) return super.performContextMenuAction(id)
+            selectAllCalls++
             if (!acceptsSelectAll) return false
             val content = editable ?: return false
             Selection.setSelection(content, 0, content.length)
@@ -309,6 +315,38 @@ class BackspaceSwipeClearTest {
         )
         assertEquals(
             "and what it did carry has to be the snapshot",
+            written.substring(left),
+            File(RuntimeEnvironment.getApplication().filesDir, "cleared_text.txt").readText(),
+        )
+
+        swipe(f.service, up = false)
+        assertEquals("the two halves have to add back up", written, f.editor.held())
+    }
+
+    @Test fun a_delete_the_editor_stops_taking_leaves_the_rest_where_it_is() {
+        val f = fixture()
+        val reach = 8
+        val taken = 3
+        val written = longText(reach * (taken + 4))
+        f.editor.hold(written)
+        f.editor.walkWindow = reach
+        f.editor.surroundingDeletesAllowed = taken
+
+        swipe(f.service, up = true)
+
+        val left = written.length - reach * taken
+        assertEquals(
+            "a walk the editor cut short must not hand the rest to select all",
+            0,
+            f.editor.selectAllCalls,
+        )
+        assertEquals(
+            "what the editor would not delete has to stay where it is",
+            written.substring(0, left),
+            f.editor.held(),
+        )
+        assertEquals(
+            "and only what it did delete may be the snapshot",
             written.substring(left),
             File(RuntimeEnvironment.getApplication().filesDir, "cleared_text.txt").readText(),
         )

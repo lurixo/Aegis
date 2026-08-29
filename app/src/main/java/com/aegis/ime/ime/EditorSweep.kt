@@ -43,7 +43,7 @@ object EditorSweep {
         }
         val before = sweep(ic, before = true)
         val after = sweep(ic, before = false)
-        if (!before.outOfRounds && !after.outOfRounds) {
+        if (!before.unfinished && !after.unfinished) {
             ic.performContextMenuAction(android.R.id.selectAll)
             ic.commitText("", 1)
         }
@@ -68,7 +68,7 @@ object EditorSweep {
         return swept.toString().dropLastWhile { it == '\n' } + ending
     }
 
-    private class Side(val text: CharSequence, val outOfRounds: Boolean)
+    private class Side(val text: CharSequence, val unfinished: Boolean)
 
     private fun sweep(ic: InputConnection, before: Boolean): Side {
         val held = StringBuilder()
@@ -81,7 +81,7 @@ object EditorSweep {
             val seen = got.toString()
             val cut =
                 if (before) ic.deleteSurroundingText(seen.length, 0) else ic.deleteSurroundingText(0, seen.length)
-            if (!cut) return Side(held, false)
+            if (!cut) return Side(held, true)
             if (before) held.insert(0, seen) else held.append(seen)
         }
         return Side(held, true)
