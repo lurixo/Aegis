@@ -62,6 +62,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
 
     internal companion object {
         const val COLUMNS = 4
+        const val ROWS = 4
     }
 
     var onPick: (Int) -> Unit = {}
@@ -74,7 +75,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
     private fun spPx(v: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, v, resources.displayMetrics)
-    private val rowHeightPx = dp(48)
+    private var rowHeightPx = dp(48)
 
     private var palette = ImePalette.STATIC_LIGHT
     private val readingColumn = LinearLayout(context).apply { orientation = VERTICAL }
@@ -248,7 +249,31 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
 
     private fun candidateRowStride(): Int = rowHeightPx + table.dividerHeight
 
+    private fun updateRowHeight(panelHeight: Int) {
+        val content = panelHeight - (ROWS - 1) * table.dividerHeight
+        val next = ((content + ROWS - 1) / ROWS).coerceAtLeast(1)
+        if (next == rowHeightPx) return
+        rowHeightPx = next
+        for (tile in readingPool) setChildHeight(tile, candidateRowStride())
+        for (i in 0 until table.childCount) {
+            val row = table.getChildAt(i) as? CandidateRow ?: continue
+            for (k in 0 until row.childCount) setChildHeight(row.getChildAt(k), rowHeightPx)
+            row.requestLayout()
+        }
+    }
+
+    private fun setChildHeight(view: View, height: Int) {
+        val lp = view.layoutParams ?: return
+        if (lp.height == height) return
+        lp.height = height
+        view.layoutParams = lp
+    }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
+        val incomingHeight = MeasureSpec.getSize(heightMeasureSpec)
+        if (MeasureSpec.getMode(heightMeasureSpec) != MeasureSpec.UNSPECIFIED && incomingHeight > 0) {
+            updateRowHeight(incomingHeight)
+        }
         val incomingWidth = MeasureSpec.getSize(widthMeasureSpec)
         if (incomingWidth > 0) updateSideColumns(incomingWidth)
         if (incomingWidth > 0 && incomingWidth != lastMeasuredWidth) {
@@ -466,8 +491,9 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
 
     private fun applyCell(chip: TextView, column: Int, index: Int) {
         val lp = chip.layoutParams as LayoutParams
-        if (lp.width != cellWidths[column]) {
+        if (lp.width != cellWidths[column] || lp.height != rowHeightPx) {
             lp.width = cellWidths[column]
+            lp.height = rowHeightPx
             chip.layoutParams = lp
         }
         val target = spPx(chipTextSizes.getOrElse(index) { ImeType.title })

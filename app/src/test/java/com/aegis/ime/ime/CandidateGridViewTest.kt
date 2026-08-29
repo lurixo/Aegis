@@ -61,6 +61,39 @@ class CandidateGridViewTest {
         layout(0, 0, measuredWidth, measuredHeight)
     }
 
+    @Test fun four_candidate_rows_fill_the_panel_height() {
+        for (heightDp in listOf(250, 320)) {
+            val h = (heightDp * density).toInt()
+            val v = CandidateGridView(ctx)
+            v.setCandidates((1..40).map { "候$it" })
+            v.measure(
+                View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY),
+            )
+            v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+            val separator = v.tableDividerHeightForTest()
+            val rows = v.visibleCandidateRowsForTest()
+
+            val content = h - (CandidateGridView.ROWS - 1) * separator
+            assertEquals(
+                "${heightDp}dp: the row height is the panel height divided four ways",
+                (content + CandidateGridView.ROWS - 1) / CandidateGridView.ROWS,
+                v.candidateRowHeightForTest(),
+            )
+            assertEquals("${heightDp}dp: exactly four rows are laid out", CandidateGridView.ROWS, rows.size)
+            assertEquals("${heightDp}dp: the first row starts at the top", 0, rows.first().top)
+            assertTrue(
+                "${heightDp}dp: the four rows and their separators fill the panel: $rows of $h",
+                rows.last().bottom >= h,
+            )
+            assertEquals(
+                "${heightDp}dp: the reading tiles keep the candidate row pitch",
+                v.candidateRowStrideForTest(),
+                v.candidateRowHeightForTest() + separator,
+            )
+        }
+    }
+
     @Test fun the_three_controls_split_the_action_column_into_equal_thirds() {
         for (heightDp in listOf(320, 120)) {
             val h = (heightDp * density).toInt()

@@ -51,15 +51,20 @@ class ExpandedActionRowAlignmentTest {
 
     @Test fun the_three_actions_split_the_column_into_equal_thirds() {
         forEachPortraitDock { grid, label ->
-            val density = grid.resources.displayMetrics.density
             val rowHeight = grid.candidateRowHeightForTest()
             val separator = grid.tableDividerHeightForTest()
             val rows = grid.visibleCandidateRowsForTest()
             val actions = (0..2).map { grid.actionBoundsForTest(it) }
 
-            assertTrue("$label row height $rowHeight must be at least 48dp", rowHeight >= (48 * density).toInt())
             assertTrue("$label must keep a separator between rows, got $separator", separator >= 1)
             assertEquals("$label the row pitch carries the separator", rowHeight + separator, grid.candidateRowStrideForTest())
+            val content = grid.height - (CandidateGridView.ROWS - 1) * separator
+            assertEquals(
+                "$label four rows divide the panel height",
+                (content + CandidateGridView.ROWS - 1) / CandidateGridView.ROWS,
+                rowHeight,
+            )
+            assertEquals("$label exactly four candidate rows are laid out: $rows", CandidateGridView.ROWS, rows.size)
             rows.forEach { assertEquals("$label every visible row is one row tall: $rows", rowHeight, it.height()) }
             rows.zipWithNext().forEach { (upper, lower) ->
                 assertEquals("$label rows sit one separator apart: $rows", separator, lower.top - upper.bottom)
@@ -133,7 +138,7 @@ class ExpandedActionRowAlignmentTest {
                     stained * 2 < to - from,
                 )
             }
-            assertTrue("$label must paint a separator under every candidate row, got $seams", seams >= 4)
+            assertTrue("$label must paint a separator under every candidate row, got $seams", seams >= CandidateGridView.ROWS - 1)
         }
     }
 
