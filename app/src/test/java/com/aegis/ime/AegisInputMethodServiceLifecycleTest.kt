@@ -413,13 +413,6 @@ class AegisInputMethodServiceLifecycleTest {
         return cachedPanel(service, "editPanelView") as EditPanelView
     }
 
-    private fun dispatchSystemClipChanged(service: AegisInputMethodService) {
-        service.javaClass.getDeclaredMethod("onSystemClipChanged").apply {
-            isAccessible = true
-            invoke(service)
-        }
-    }
-
     private fun showPhrasePanel(service: AegisInputMethodService) {
         service.javaClass.getDeclaredMethod("showPhrasePanel").apply {
             isAccessible = true
@@ -836,14 +829,17 @@ class AegisInputMethodServiceLifecycleTest {
         val connection = RecordingInputConnection(FrameLayout(f.service))
         installInputConnection(f.service, connection)
         connection.commitText("hello", 1)
+        connection.setSelection(0, "hello".length)
         connection.hidesExtractedText = true
 
         handleEdit(f.service, EditAction.COPY)
 
-        assertTrue(
+        assertEquals(
             "an editor that reports nothing still gets the copy",
-            connection.contextMenuActions.contains(android.R.id.copy),
+            "hello",
+            clipboardStore(f.service).historyText().firstOrNull(),
         )
+        assertTrue("and it never goes through the host's own menu", connection.contextMenuActions.isEmpty())
     }
 
     @Test fun edit_panel_uses_the_extracted_selection_when_selected_text_is_hidden() {
@@ -1170,25 +1166,18 @@ class AegisInputMethodServiceLifecycleTest {
 
     @Test fun edit_copy_and_cut_stage_the_result_bar_before_the_panel_closes_without_changing_height() {
         val cases = listOf(
-            Triple(EditAction.COPY, android.R.id.copy, "copied from edit panel"),
-            Triple(EditAction.CUT, android.R.id.cut, "cut from edit panel"),
+            EditAction.COPY to "copied from edit panel",
+            EditAction.CUT to "cut from edit panel",
         )
         for ((index, case) in cases.withIndex()) {
-            val (action, actionId, copiedText) = case
+            val (action, copiedText) = case
             val f = fixture()
             val connection = RecordingInputConnection(FrameLayout(f.service))
             installInputConnection(f.service, connection)
-            connection.commitText("selected text", 1)
-            connection.setSelection(0, "selected text".length)
+            connection.commitText(copiedText, 1)
+            connection.setSelection(0, copiedText.length)
             val store = clipboardStore(f.service)
             store.clearHistory()
-            val systemClipboard = f.service.getSystemService(ClipboardManager::class.java)
-            connection.onContextMenuAction = { id ->
-                if (id == actionId) {
-                    systemClipboard.setPrimaryClip(ClipData.newPlainText("edit", copiedText))
-                    dispatchSystemClipChanged(f.service)
-                }
-            }
             val editPanel = showEditPanel(f.service)
             val actionView = requireNotNull(editPanel.actionViewForTest(action))
             assertTrue(actionView.isEnabled)
@@ -1200,7 +1189,7 @@ class AegisInputMethodServiceLifecycleTest {
             shadowOf(Looper.getMainLooper()).idle()
             layoutInput(f.view)
 
-            assertEquals(listOf(actionId), connection.contextMenuActions)
+            assertTrue("the copy never goes through the host's own menu", connection.contextMenuActions.isEmpty())
             assertTrue(f.view.isPanelShowing(editPanel))
             assertFalse(f.view.copyBarShown)
             assertTrue("the prepared result is already the active bar", f.view.copyBarActiveForTest())
@@ -1246,7 +1235,7 @@ class AegisInputMethodServiceLifecycleTest {
             val connection = RecordingInputConnection(FrameLayout(f.service)).apply {
                 commitText("selected text", 1)
                 setSelection(0, "selected text".length)
-                contextMenuAccepted = false
+                hidesSelection = true
             }
             installInputConnection(f.service, connection)
 
@@ -1260,15 +1249,8 @@ class AegisInputMethodServiceLifecycleTest {
         val f = fixture()
         val connection = RecordingInputConnection(FrameLayout(f.service))
         installInputConnection(f.service, connection)
-        connection.commitText("selected text", 1)
-        connection.setSelection(0, "selected text".length)
-        val systemClipboard = f.service.getSystemService(ClipboardManager::class.java)
-        connection.onContextMenuAction = { id ->
-            if (id == android.R.id.copy) {
-                systemClipboard.setPrimaryClip(ClipData.newPlainText("edit", "restart copy"))
-                dispatchSystemClipChanged(f.service)
-            }
-        }
+        connection.commitText("restart copy", 1)
+        connection.setSelection(0, "restart copy".length)
         val editPanel = showEditPanel(f.service)
         layoutInput(f.view)
         val rootHeight = f.view.measuredHeight
@@ -1299,24 +1281,17 @@ class AegisInputMethodServiceLifecycleTest {
         val f = fixture()
         val connection = RecordingInputConnection(FrameLayout(f.service))
         installInputConnection(f.service, connection)
-        connection.commitText("edited text", 1)
-        Selection.setSelection(connection.editable, 0, 6)
-        val systemClipboard = f.service.getSystemService(ClipboardManager::class.java)
-        connection.onContextMenuAction = { id ->
-            val text = when (id) {
-                android.R.id.copy -> "first copy"
-                android.R.id.cut -> "latest cut"
-                else -> null
-            }
-            if (text != null) {
-                systemClipboard.setPrimaryClip(ClipData.newPlainText("edit", text))
-                dispatchSystemClipChanged(f.service)
-            }
-        }
+        connection.commitText("first copy and latest cut", 1)
+        Selection.setSelection(connection.editable, 0, "first copy".length)
         val editPanel = showEditPanel(f.service)
 
         assertTrue(requireNotNull(editPanel.actionViewForTest(EditAction.COPY)).performClick())
         assertEquals("first copy", f.view.copyBarForTest().contentForTest())
+        Selection.setSelection(
+            connection.editable,
+            "first copy and ".length,
+            "first copy and latest cut".length,
+        )
         assertTrue(requireNotNull(editPanel.actionViewForTest(EditAction.CUT)).performClick())
 
         assertTrue(f.view.isPanelShowing(editPanel))

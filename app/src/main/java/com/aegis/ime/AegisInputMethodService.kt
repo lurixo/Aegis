@@ -58,6 +58,7 @@ import com.aegis.ime.ime.phraseWriteNotice
 import com.aegis.ime.ime.SelectionMath
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.SymbolsView
+import com.aegis.ime.ime.ChunkedRead
 import com.aegis.ime.ime.EditorSweep
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.Layouts
@@ -125,6 +126,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var selecting = false
     private var selAnchor = -1
     private var selMoving = -1
+    private var selStart = -1
+    private var selEnd = -1
+    private var chunkedRead: ChunkedRead? = null
+    private var readDropped: (() -> Unit)? = null
+    private val readTimeout = Runnable { chunkedRead?.giveUp() }
     private val clearedText by lazy { ClearedTextStore(filesDir) }
     private val panelInput = com.aegis.ime.ime.PanelTextInput()
     private enum class InputPurpose { EDIT_PHRASE, EDIT_CLIP, ADD_PHRASE, EDIT_NOTE, ADD_CATEGORY, RENAME_CATEGORY }
@@ -473,6 +479,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (abortInline) abortInlineInput(hideBar = false)
 
         inputView?.clearEditorTransientUiImmediately()
+        dropChunkedRead()
         dropRestoreStream()
         restorablePanel = null
         clipboardRecreationState = null
@@ -499,6 +506,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         if (nextTarget != null) layoutSessionPackage = nextTarget.packageName
         secureField = nextSecure
+        dropChunkedRead()
+        selStart = info?.initialSelStart ?: -1
+        selEnd = info?.initialSelEnd ?: -1
         currentEditorTarget = nextTarget
         inputSessionActive = nextTarget != null
 
@@ -812,6 +822,17 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         candidatesStart: Int, candidatesEnd: Int,
     ) {
         super.onUpdateSelection(oldSelStart, oldSelEnd, newSelStart, newSelEnd, candidatesStart, candidatesEnd)
+        val scan = chunkedRead
+        if (scan != null && scan.pending) {
+            if (newSelEnd >= 0) {
+                mainHandler.removeCallbacks(readTimeout)
+                mainHandler.postDelayed(readTimeout, READ_TIMEOUT_MS)
+                scan.onCaret(newSelEnd)
+            }
+            return
+        }
+        selStart = newSelStart
+        selEnd = newSelEnd
         if (newSelStart >= 0 && newSelEnd >= 0) {
             if (!panelInput.active) editPanelView?.setHasSelection(newSelStart != newSelEnd)
         }
@@ -859,6 +880,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun handleEdit(action: EditAction) {
         if (panelInput.active && action != EditAction.BACK) { handleEditInPanel(action); return }
+        if (chunkedRead?.pending == true) return
         val keyAction = action.keyAction
         if (keyAction == null) {
             controller.expireCandidateChoiceUndo()
@@ -878,17 +900,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             EditAction.COPY -> if (editorReportsNoSelection()) {
                 toast(uiString(R.string.edit_no_selection))
             } else {
-                val copied = currentInputConnection
-                    ?.performContextMenuAction(android.R.id.copy) == true
-                toast(uiString(if (copied) R.string.edit_copy_done else R.string.edit_copy_failed))
+                takeSelection(cut = false)
             }
             EditAction.CUT -> if (editorReportsNoSelection()) {
                 toast(uiString(R.string.edit_no_selection))
             } else {
-                val cut = currentInputConnection
-                    ?.performContextMenuAction(android.R.id.cut) == true
-                toast(uiString(if (cut) R.string.edit_cut_done else R.string.edit_cut_failed))
-                resetSelectionAnchor()
+                takeSelection(cut = true)
             }
             EditAction.SELECT_ALL -> {
                 currentInputConnection?.performContextMenuAction(android.R.id.selectAll)
@@ -971,15 +988,86 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun copyFromPanel(text: String, notice: Int): Boolean {
-        val copied = runCatching {
-            clipboardManager.setPrimaryClip(android.content.ClipData.newPlainText(null, text))
-        }.isSuccess
-        toast(uiString(if (copied) notice else R.string.edit_copy_failed))
-        return copied
+        if (!keepsCopies()) { toast(uiString(R.string.edit_copy_needs_history)); return false }
+        clipboardStore.record(text)
+        refreshOpenClipboardPanel()
+        toast(uiString(notice))
+        return true
     }
 
     internal fun takesRawKeys(info: EditorInfo?): Boolean =
         info != null && info.inputType == InputType.TYPE_NULL
+
+    private fun keepsCopies(): Boolean =
+        !LiveUserData.restoreInProgress && com.aegis.ime.user.ClipboardStore.shouldCapture(historyEnabled())
+
+    private fun trackedSelectionSpan(): Int {
+        val from = minOf(selStart, selEnd)
+        val to = maxOf(selStart, selEnd)
+        return if (from >= 0 && to > from) to - from else -1
+    }
+
+    private fun takeSelection(cut: Boolean) {
+        val ic = currentInputConnection ?: run {
+            toast(uiString(if (cut) R.string.edit_cut_failed else R.string.edit_copy_failed))
+            return
+        }
+        if (!keepsCopies()) { toast(uiString(R.string.edit_copy_needs_history)); return }
+        val from = minOf(selStart, selEnd)
+        val to = maxOf(selStart, selEnd)
+        if (trackedSelectionSpan() <= ChunkedRead.DIRECT_MAX) {
+            val direct = ic.getSelectedText(0)
+            if (!direct.isNullOrEmpty()) {
+                settleSelection(ic, cut, null, direct, whole = true)
+                return
+            }
+        }
+        if (from < 0 || to <= from) {
+            toast(uiString(if (cut) R.string.edit_cut_failed else R.string.edit_copy_failed))
+            return
+        }
+        readSelection(
+            ic,
+            from,
+            to,
+            dropped = { toast(uiString(if (cut) R.string.edit_cut_failed else R.string.edit_copy_failed)) },
+        ) { taken, whole -> settleSelection(ic, cut, from, taken, whole) }
+    }
+
+    private fun readSelection(
+        ic: InputConnection,
+        from: Int,
+        to: Int,
+        dropped: () -> Unit,
+        then: (CharSequence, Boolean) -> Unit,
+    ) {
+        dropChunkedRead()
+        val read = ChunkedRead(
+            from,
+            to,
+            select = { at -> ic.setSelection(at, at) },
+            before = { length -> ic.getTextBeforeCursor(length, 0) },
+            done = { taken, whole ->
+                chunkedRead = null
+                readDropped = null
+                mainHandler.removeCallbacks(readTimeout)
+                ic.setSelection(from, to)
+                then(taken, whole)
+            },
+        )
+        chunkedRead = read
+        readDropped = dropped
+        mainHandler.postDelayed(readTimeout, READ_TIMEOUT_MS)
+        read.begin()
+    }
+
+    private fun dropChunkedRead() {
+        mainHandler.removeCallbacks(readTimeout)
+        val dropped = if (chunkedRead != null) readDropped else null
+        chunkedRead = null
+        readDropped = null
+        dropped?.invoke()
+    }
 
     private fun dropRestoreStream() {
         mainHandler.removeCallbacks(streamPump)
@@ -988,7 +1076,35 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         restoring = false
     }
 
+    private fun settleSelection(ic: InputConnection, cut: Boolean, from: Int?, taken: CharSequence, whole: Boolean) {
+        if (taken.isEmpty()) {
+            toast(uiString(if (cut) R.string.edit_cut_failed else R.string.edit_copy_failed))
+            return
+        }
+        val body = taken.toString()
+        if (cut) {
+            if (from != null) ic.setSelection(from, from + body.length)
+            ic.commitText("", 1)
+            resetSelectionAnchor()
+        }
+        if (body.length <= com.aegis.ime.user.ClipboardStore.BIG_THRESHOLD) {
+            recordTextClip(body)
+        } else {
+            clipboardStore.record(body)
+            refreshOpenClipboardPanel()
+        }
+        toast(
+            if (whole) uiString(if (cut) R.string.edit_cut_done else R.string.edit_copy_done)
+            else imeUiContext().resources.getQuantityString(
+                if (cut) R.plurals.edit_cut_partial else R.plurals.edit_copy_partial,
+                body.length,
+                body.length,
+            ),
+        )
+    }
+
     private fun editorReportsNoSelection(): Boolean {
+        if (selStart >= 0 && selEnd >= 0 && selStart != selEnd) return false
         val extracted = currentInputConnection
             ?.getExtractedText(ExtractedTextRequest().apply { hintMaxChars = 0 }, 0)
             ?: return false
@@ -1689,6 +1805,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun hasSelection(): Boolean {
         if (panelInput.active) return panelInput.hasSelection()
+        if (selStart >= 0 && selEnd >= 0 && selStart != selEnd) return true
         val ic = currentInputConnection ?: return false
         if (!ic.getSelectedText(0).isNullOrEmpty()) return true
         val extracted = ic.getExtractedText(ExtractedTextRequest(), 0) ?: return false
@@ -1723,6 +1840,7 @@ private const val EDITABLE_CLIP_CHARS = 4096L
 private const val STREAM_GAP_MS = 16L
 private const val STREAM_CHUNK = 16_384
 private const val TRIM_WINDOW = 8
+private const val READ_TIMEOUT_MS = 1_500L
 
 internal fun quarantineCorruptStore(file: java.io.File): Boolean {
     if (!file.exists()) return false

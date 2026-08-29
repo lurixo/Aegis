@@ -381,6 +381,13 @@
     <string name="edit_copy_failed">复制失败</string>
     <string name="edit_cut_done">已剪切</string>
     <string name="edit_cut_failed">剪切失败</string>
+    <plurals name="edit_copy_partial">
+        <item quantity="other">只复制了 %1$d 个字</item>
+    </plurals>
+    <plurals name="edit_cut_partial">
+        <item quantity="other">只剪切了 %1$d 个字</item>
+    </plurals>
+    <string name="edit_copy_needs_history">剪贴板记录已关闭，无处存放</string>
     <string name="edit_paste_done">已粘贴</string>
     <string name="edit_paste_failed">粘贴失败</string>
     <string name="edit_paste_empty">Aegis 剪贴板为空</string>
