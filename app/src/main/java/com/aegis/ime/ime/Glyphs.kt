@@ -22,6 +22,29 @@ import android.graphics.RectF
 
 object Glyphs {
 
+    class Ink internal constructor(
+        private val boxLeft: Float,
+        private val boxTop: Float,
+        private val boxWidth: Float,
+        private val boxHeight: Float,
+        private val render: (Canvas, Paint, Float, Float, Float) -> Unit,
+    ) {
+        fun draw(c: Canvas, paint: Paint, cx: Float, cy: Float, sizePx: Float) {
+            val s = (sizePx - paint.strokeWidth) / maxOf(boxWidth, boxHeight)
+            render(c, paint, cx - (boxLeft + boxWidth / 2f) * s, cy - (boxTop + boxHeight / 2f) * s, s)
+        }
+    }
+
+    val backspaceInk = Ink(-0.9f, -0.7f, 1.8f, 1.4f) { c, p, x, y, s -> drawBackspace(c, p, x, y, s) }
+
+    val trashInk = Ink(-0.6825f, -0.68f, 1.365f, 1.48f) { c, p, x, y, s -> drawTrash(c, p, x, y, s) }
+
+    private val lockClosedInk = Ink(-0.62f, -0.9f, 1.24f, 1.64f) { c, p, x, y, s -> drawLock(c, p, x, y, s, true) }
+
+    private val lockOpenInk = Ink(-0.62f, -1.18f, 1.24f, 1.92f) { c, p, x, y, s -> drawLock(c, p, x, y, s, false) }
+
+    fun lockInk(closed: Boolean): Ink = if (closed) lockClosedInk else lockOpenInk
+
     fun drawClipboard(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
         val w = s * 0.58f; val h = s * 0.78f
         c.drawRoundRect(cx - w, cy - h + s * 0.18f, cx + w, cy + h, s * 0.22f, s * 0.22f, paint)
@@ -278,7 +301,6 @@ object Glyphs {
         c.drawLine(cx - s * 0.2f, top + s * 0.22f, cx - s * 0.16f, bot - s * 0.16f, paint)
         c.drawLine(cx + s * 0.2f, top + s * 0.22f, cx + s * 0.16f, bot - s * 0.16f, paint)
     }
-
 
     fun drawChevron(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, down: Boolean) {
         val bounds = chevronBounds(cx, cy, s)

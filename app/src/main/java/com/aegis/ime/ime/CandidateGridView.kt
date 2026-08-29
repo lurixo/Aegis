@@ -89,7 +89,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         strokeWidth = density
     }
     private val outlineRect = RectF()
-    private val backspaceGlyph = IconDrawable(density, 0.499f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
+    private val backspaceGlyph = IconDrawable(density, Glyphs.backspaceInk)
     private val measurePaint = Paint()
     private var sourceCandidates: List<String>? = null
     private var sourceCandidateProjection: CandidateProjectionPolicy? = null
@@ -840,22 +840,20 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         fun separatorColorForTest(): Int = separatorColor
     }
 
-    private class IconDrawable(
-        private val density: Float,
-        private val sFactor: Float,
-        private val render: (Canvas, Paint, Float, Float, Float) -> Unit,
-    ) : Drawable() {
-        private val iconBoxPx = (22 * density)
+    private class IconDrawable(density: Float, private val ink: Glyphs.Ink) : Drawable() {
+        private val sizePx = ImePanelSurfaceMetrics.actionIconPx(ImeType.body, density)
+        private val intrinsicW = (Layouts.CANDIDATE_ACTION_WIDTH_DP * density).toInt()
+        private val intrinsicH = (ImePanelSurfaceMetrics.FACE_HEIGHT_DP * density).toInt()
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE; strokeWidth = 2f * density; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
         }
         fun tint(color: Int) { paint.color = color; invalidateSelf() }
         override fun draw(canvas: Canvas) {
             val b = bounds
-            render(canvas, paint, b.exactCenterX(), b.exactCenterY(), iconBoxPx * sFactor)
+            ink.draw(canvas, paint, b.exactCenterX(), b.exactCenterY(), sizePx)
         }
-        override fun getIntrinsicWidth() = (Layouts.CANDIDATE_ACTION_WIDTH_DP * density).toInt()
-        override fun getIntrinsicHeight() = (ImePanelSurfaceMetrics.FACE_HEIGHT_DP * density).toInt()
+        override fun getIntrinsicWidth() = intrinsicW
+        override fun getIntrinsicHeight() = intrinsicH
         override fun setAlpha(alpha: Int) {}
         override fun setColorFilter(colorFilter: ColorFilter?) {}
         @Deprecated("Deprecated in Java")

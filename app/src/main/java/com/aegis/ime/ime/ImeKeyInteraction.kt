@@ -154,6 +154,9 @@ internal data class ImePanelSurfaceMetrics(
         const val GRID_SIDE_PADDING_DP = 4
         const val TOP_FACE_OFFSET_DP = 8
         const val MINIMUM_GRID_CELL_WIDTH_DP = 48
+        const val ACTION_ICON_TO_TEXT = 1.05f
+
+        fun actionIconPx(textSp: Float, density: Float): Float = textSp * density * ACTION_ICON_TO_TEXT
 
         fun resolve(density: Float, scaledDensity: Float = density): ImePanelSurfaceMetrics {
             fun dp(value: Int): Int = (value * density).toInt()

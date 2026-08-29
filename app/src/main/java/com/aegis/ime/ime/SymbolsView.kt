@@ -97,11 +97,11 @@ class SymbolsView(context: Context) :
     private val backSlot = FrameLayout(context)
     private val lockBtn = barButton("") { toggleLock() }
     private val lockSlot = FrameLayout(context)
-    private val lockGlyph = LockDrawable(density)
-    private val clearGlyph = IconDrawable(density, 0.545f) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y - s * 0.06f, s) }
+    private val lockGlyph = IconDrawable(density, Glyphs.lockInk(false))
+    private val clearGlyph = IconDrawable(density, Glyphs.trashInk)
     private val clearBtn = barButton("") { showClearConfirmation() }
     private val clearSlot = FrameLayout(context)
-    private val backspaceGlyph = IconDrawable(density, 0.615f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
+    private val backspaceGlyph = IconDrawable(density, Glyphs.backspaceInk)
     private val backspaceBtn = barButton("") { onBackspace() }
     private val backspaceSlot = FrameLayout(context)
     private val actionSlots = listOf(backSlot, clearSlot, lockSlot, backspaceSlot)
@@ -412,14 +412,9 @@ class SymbolsView(context: Context) :
 
     private fun gridWidthPx(): Int = grid.columnCount * gridCellWidthPx
 
-
     private fun fitActionIcons(boxWidthPx: Int) {
         if (boxWidthPx <= 0) return
-        if (lockGlyph.boxWidthPx != boxWidthPx) {
-            lockGlyph.boxWidthPx = boxWidthPx
-            lockBtn.setCompoundDrawablesWithIntrinsicBounds(lockGlyph, null, null, null)
-        }
-        for ((button, glyph) in listOf(clearBtn to clearGlyph, backspaceBtn to backspaceGlyph)) {
+        for ((button, glyph) in listOf(clearBtn to clearGlyph, lockBtn to lockGlyph, backspaceBtn to backspaceGlyph)) {
             if (glyph.boxWidthPx == boxWidthPx) continue
             glyph.boxWidthPx = boxWidthPx
             button.setCompoundDrawablesWithIntrinsicBounds(glyph, null, null, null)
@@ -794,7 +789,7 @@ class SymbolsView(context: Context) :
 
     private fun updateLockFace() {
         val tint = if (locked) palette.candidateFirst else palette.keyLabelSecondary
-        lockGlyph.closed = locked
+        lockGlyph.ink = Glyphs.lockInk(locked)
         lockGlyph.tint(tint)
         lockBtn.isSelected = locked
         lockFeedback.update(Color.TRANSPARENT, tint)
@@ -864,45 +859,22 @@ class SymbolsView(context: Context) :
         super.onDetachedFromWindow()
     }
 
-    private class LockDrawable(private val density: Float) : Drawable() {
+    private class IconDrawable(density: Float, initialInk: Glyphs.Ink) : Drawable() {
+        private val sizePx = ImePanelSurfaceMetrics.actionIconPx(ImeType.body, density)
         var boxWidthPx = (ImePanelSurfaceMetrics.ACTION_WIDTH_DP * density).toInt()
-        var closed = false
-        private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeCap = Paint.Cap.ROUND
-            strokeJoin = Paint.Join.ROUND
-        }
-        fun tint(color: Int) { paint.color = color; invalidateSelf() }
-        override fun draw(canvas: Canvas) {
-            val b = bounds
-            Glyphs.drawLock(canvas, paint, b.exactCenterX(), b.exactCenterY(), ImeType.display * density * 0.455f, closed)
-        }
-        init { paint.strokeWidth = 2f * density }
-        override fun getIntrinsicWidth() = boxWidthPx
-        override fun getIntrinsicHeight() = (ImePanelSurfaceMetrics.FACE_HEIGHT_DP * density).toInt()
-        override fun setAlpha(alpha: Int) {}
-        override fun setColorFilter(colorFilter: ColorFilter?) {}
-        @Deprecated("Deprecated in Java")
-        override fun getOpacity() = PixelFormat.TRANSLUCENT
-    }
-
-    private class IconDrawable(
-        private val density: Float,
-        private val sFactor: Float,
-        private val render: (Canvas, Paint, Float, Float, Float) -> Unit,
-    ) : Drawable() {
-        var boxWidthPx = (ImePanelSurfaceMetrics.ACTION_WIDTH_DP * density).toInt()
-        private val iconBoxPx = (22 * density).toInt()
+        private val intrinsicH = (ImePanelSurfaceMetrics.FACE_HEIGHT_DP * density).toInt()
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE; strokeWidth = 2f * density; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
         }
+        var ink: Glyphs.Ink = initialInk
+            set(value) { field = value; invalidateSelf() }
         fun tint(color: Int) { paint.color = color; invalidateSelf() }
         override fun draw(canvas: Canvas) {
             val b = bounds
-            render(canvas, paint, b.exactCenterX(), b.exactCenterY(), iconBoxPx * sFactor)
+            ink.draw(canvas, paint, b.exactCenterX(), b.exactCenterY(), sizePx)
         }
         override fun getIntrinsicWidth() = boxWidthPx
-        override fun getIntrinsicHeight() = (ImePanelSurfaceMetrics.FACE_HEIGHT_DP * density).toInt()
+        override fun getIntrinsicHeight() = intrinsicH
         override fun setAlpha(alpha: Int) {}
         override fun setColorFilter(colorFilter: ColorFilter?) {}
         @Deprecated("Deprecated in Java")

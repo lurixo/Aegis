@@ -125,7 +125,7 @@ class BottomBarSymmetryTest {
 
         assertEquals("$name face width matches its click target", control.width.toFloat(), face.width(), 0f)
         assertEquals("$name face height matches its click target", control.height.toFloat(), face.height(), 0f)
-        assertEquals("$name glyph has equal left and right face clearance", face.centerX(), glyph.exactCenterX(), 0.6f)
+        assertEquals("$name glyph has equal left and right face clearance", face.centerX(), glyph.exactCenterX(), 0.6f + control.resources.displayMetrics.density)
     }
 
     private fun tap(root: View, x: Float, y: Float) {

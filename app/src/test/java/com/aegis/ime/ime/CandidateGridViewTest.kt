@@ -146,28 +146,22 @@ class CandidateGridViewTest {
         }
     }
 
-    @Test fun the_action_glyphs_are_drawn_at_the_candidate_size() {
+    @Test fun the_backspace_glyph_keeps_the_unified_action_icon_size() {
         val v = CandidateGridView(ctx)
-        val glyphHeight = android.graphics.Rect().also {
-            android.graphics.Paint().apply { textSize = 19f * density }.getTextBounds("哦", 0, 1, it)
-        }.height()
-        val glyphs = listOf(
-            "backspace" to v.backspaceGlyphForTest(),
-        )
+        val glyph = v.backspaceGlyphForTest()
 
-        for ((label, glyph) in glyphs) {
-            val ink = glyphInkBounds(glyph)
-            assertEquals(
-                "$label ink stands as tall as a candidate character",
-                glyphHeight.toFloat(),
-                ink.height(),
-                2f * density,
-            )
-            assertTrue(
-                "$label ink stays inside the action column: ${ink.width()} of ${glyph.intrinsicWidth}",
-                ink.width() <= glyph.intrinsicWidth,
-            )
-        }
+        val ink = glyphInkBounds(glyph)
+        val target = ImePanelSurfaceMetrics.actionIconPx(com.aegis.ime.ime.theme.ImeType.body, density)
+        assertEquals(
+            "backspace ink lands its longer edge on the unified icon size",
+            target,
+            maxOf(ink.width(), ink.height()),
+            1f * density + 1f,
+        )
+        assertTrue(
+            "backspace ink stays inside the action column: ${ink.width()} of ${glyph.intrinsicWidth}",
+            ink.width() <= glyph.intrinsicWidth,
+        )
     }
 
     private fun glyphInkBounds(d: Drawable): RectF {

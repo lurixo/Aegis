@@ -322,9 +322,7 @@ class SymbolPanelPlacementTest {
 
     @Test fun panel_actions_and_categories_are_drawn_at_the_symbol_size() {
         val density = ctx.resources.displayMetrics.density
-        val glyphHeight = Rect().also {
-            Paint().apply { textSize = ImeType.display * density }.getTextBounds("哦", 0, 1, it)
-        }.height()
+        val iconSize = ImePanelSurfaceMetrics.actionIconPx(ImeType.body, density)
 
         val sv = SymbolsView(ctx).apply { applyPalette(light) }
         val ev = EmojiView(ctx).apply { applyPalette(light) }
@@ -351,8 +349,8 @@ class SymbolPanelPlacementTest {
             val icon = requireNotNull(button.compoundDrawables.firstOrNull { it != null }) { "$label has no icon" }
             val ink = inkBounds(icon)
             assertTrue(
-                "$label icon ink height ${ink.height()} must match the $glyphHeight symbol glyph",
-                kotlin.math.abs(ink.height() - glyphHeight) <= (2 * density).toInt() + 1,
+                "$label icon ink ${ink.width()}x${ink.height()} must land its longer edge on $iconSize",
+                kotlin.math.abs(maxOf(ink.width(), ink.height()) - iconSize) <= 1 * density + 1,
             )
             assertTrue("$label icon stays inside its cell", ink.width() <= icon.intrinsicWidth)
         }
