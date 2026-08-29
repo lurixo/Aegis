@@ -159,16 +159,8 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         )
         rightColumn.addView(
             funcButton(context.getString(R.string.kbd_redo)) { onClear() }.apply {
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
-                setTypeface(null, Typeface.BOLD)
-                maxLines = 1
-                androidx.core.widget.TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(
-                    this,
-                    9,
-                    ImeType.body.toInt(),
-                    1,
-                    TypedValue.COMPLEX_UNIT_SP,
-                )
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
+                setPadding(0, 0, 0, 0)
             },
             actionSlotLp(),
         )

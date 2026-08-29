@@ -279,6 +279,7 @@ object Glyphs {
         c.drawLine(cx + s * 0.2f, top + s * 0.22f, cx + s * 0.16f, bot - s * 0.16f, paint)
     }
 
+
     fun drawChevron(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, down: Boolean) {
         val bounds = chevronBounds(cx, cy, s)
         val ty = if (down) bounds.top else bounds.bottom
