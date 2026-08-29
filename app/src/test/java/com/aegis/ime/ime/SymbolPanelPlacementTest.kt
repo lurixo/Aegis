@@ -143,33 +143,161 @@ class SymbolPanelPlacementTest {
         assertTrue("『 stays above the tile centre", oy < open.height / 2f - 1f)
     }
 
-    @Test fun symbols_common_tab_top_aligns_with_the_first_symbol_row() {
-        val sv = SymbolsView(ctx).apply { applyPalette(light); openCategoryForTest(idx("en")) }
-        layout(sv)
-        val tab0 = sv.railTabForTest(0)
-        val tab1 = sv.railTabForTest(1)
-        assertTrue("the 常用 tab is nudged down as one unit", (tab0.layoutParams as ViewGroup.MarginLayoutParams).topMargin > 0)
-        assertEquals("later rail tabs keep their natural position", 0, (tab1.layoutParams as ViewGroup.MarginLayoutParams).topMargin)
-
-        val row = sv.gridCellForTest(",") ?: throw AssertionError(", missing from the first symbol row")
-        val tabFace = faceBoundsInRoot(sv, tab0)
-        val rowFace = faceBoundsInRoot(sv, row)
-        assertEquals("the 常用 tab face lines up with the first symbol face", rowFace.top, tabFace.top, 0f)
-        assertEquals("the 常用 tab face bottom lines up with the first symbol face", rowFace.bottom, tabFace.bottom, 0f)
+    private fun boundsInRoot(root: View, view: View): Rect {
+        val out = Rect(0, 0, view.width, view.height)
+        var node: View = view
+        while (node !== root) {
+            out.offset(node.left, node.top)
+            node = node.parent as View
+        }
+        return out
     }
 
-    @Test fun emoji_common_tab_top_aligns_with_the_first_emoji_row() {
+    @Test fun symbols_categories_run_under_the_grid_across_the_whole_panel() {
+        val sv = SymbolsView(ctx).apply { applyPalette(light); openCategoryForTest(idx("en")) }
+        layout(sv)
+
+        val bar = boundsInRoot(sv, sv.categoryBarForTest())
+        val grid = boundsInRoot(sv, sv.gridViewportForTest())
+        val actions = boundsInRoot(sv, sv.actionColumnForTest())
+
+        assertEquals("the category bar starts where the grid and the action column end", grid.bottom, bar.top)
+        assertEquals("the action column ends on the category bar too", actions.bottom, bar.top)
+        assertEquals("the category bar starts at the panel edge", 0, bar.left)
+        assertEquals("the category bar runs to the far edge", sv.width, bar.right)
+        assertEquals("the category bar takes the rest of the panel", sv.height, bar.bottom)
+
+        val tab0 = boundsInRoot(sv, sv.railTabForTest(0))
+        val tab1 = boundsInRoot(sv, sv.railTabForTest(1))
+        assertEquals("常用 leads the bar", 0, tab0.left)
+        assertEquals("the next category follows it directly", tab0.right, tab1.left)
+        assertEquals("a tab fills the bar height", bar.height(), tab0.height())
+    }
+
+    @Test fun emoji_categories_run_under_the_grid_across_the_whole_panel() {
         val ev = EmojiView(ctx).apply { applyPalette(light); openCategoryForTest(1) }
         layout(ev)
-        val tab0 = ev.railTabForTest(0)
-        val tab1 = ev.railTabForTest(1)
-        assertTrue("the 常用 tab is nudged down as one unit", (tab0.layoutParams as ViewGroup.MarginLayoutParams).topMargin > 0)
-        assertEquals("later rail tabs keep their natural position", 0, (tab1.layoutParams as ViewGroup.MarginLayoutParams).topMargin)
 
-        val cell = ev.gridCellForTest(0) ?: throw AssertionError("first emoji cell missing")
-        val tabFace = faceBoundsInRoot(ev, tab0)
-        val cellFace = faceBoundsInRoot(ev, cell)
-        assertEquals("the 常用 tab face lines up with the first emoji face", cellFace.top, tabFace.top, 0f)
-        assertEquals("the 常用 tab face bottom lines up with the first emoji face", cellFace.bottom, tabFace.bottom, 0f)
+        val bar = boundsInRoot(ev, ev.categoryBarForTest())
+        val grid = boundsInRoot(ev, ev.gridViewportForTest())
+        val actions = boundsInRoot(ev, ev.actionColumnForTest())
+
+        assertEquals("the category bar starts where the grid and the action column end", grid.bottom, bar.top)
+        assertEquals("the action column ends on the category bar too", actions.bottom, bar.top)
+        assertEquals("the category bar starts at the panel edge", 0, bar.left)
+        assertEquals("the category bar runs to the far edge", ev.width, bar.right)
+        assertEquals("the category bar takes the rest of the panel", ev.height, bar.bottom)
+
+        val tab0 = boundsInRoot(ev, ev.railTabForTest(0))
+        val tab1 = boundsInRoot(ev, ev.railTabForTest(1))
+        assertEquals("常用 leads the bar", 0, tab0.left)
+        assertEquals("the next category follows it directly", tab0.right, tab1.left)
+        assertEquals("a tab fills the bar height", bar.height(), tab0.height())
+    }
+
+    private fun measureAt(v: View, heightPx: Int) = measureAt(v, ctx.resources.displayMetrics.widthPixels, heightPx)
+
+    private fun measureAt(v: View, widthPx: Int, heightPx: Int) {
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(heightPx, View.MeasureSpec.EXACTLY),
+        )
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+    }
+
+    @Test fun the_panel_width_splits_into_five_equal_columns() {
+        val density = ctx.resources.displayMetrics.density
+        for (widthDp in listOf(320, 360, 411, 480)) {
+            val width = (widthDp * density).toInt()
+            val sv = SymbolsView(ctx).apply { applyPalette(light); openCategoryForTest(idx("en")) }
+            val ev = EmojiView(ctx).apply { applyPalette(light); openCategoryForTest(1) }
+            measureAt(sv, width, 900)
+            measureAt(ev, width, 900)
+            val symbolCell = sv.gridCellPixelWidthForTest(SymbolCatalog.categories[idx("en") - 1].symbols.first())
+            val emojiCell = requireNotNull(ev.gridCellForTest(0)).width
+
+            assertEquals("a symbol column is a fifth of $widthDp dp", width / 5, symbolCell)
+            assertEquals("an emoji column is a fifth of $widthDp dp", width / 5, emojiCell)
+            assertEquals("the symbol actions take the fifth column at $widthDp dp", width - 4 * symbolCell, sv.actionColumnForTest().width)
+            assertEquals("the emoji actions take the fifth column at $widthDp dp", width - 4 * emojiCell, ev.actionColumnForTest().width)
+        }
+    }
+
+    @Test fun the_symbol_grid_is_four_columns_by_four_rows() {
+        val sv = SymbolsView(ctx).apply { applyPalette(light); openCategoryForTest(idx("en")) }
+        layout(sv)
+        val grid = sv.gridViewportForTest()
+
+        assertEquals("four columns", 4, sv.gridColumnCountForTest())
+        assertEquals("four rows", 4, SymbolsView.ROWS)
+        assertEquals("the viewport holds exactly four rows", 4 * sv.cellHeightForTest(), grid.height)
+        assertEquals(
+            "the four columns tile the viewport with no leftover strip",
+            grid.width,
+            4 * requireNotNull(sv.gridCellForTest(sv.gridCellTextsForTest().first())).width,
+        )
+    }
+
+    @Test fun the_emoji_grid_is_four_columns_by_four_rows() {
+        val ev = EmojiView(ctx).apply { applyPalette(light); openCategoryForTest(1) }
+        layout(ev)
+        val grid = ev.gridViewportForTest()
+
+        assertEquals("four columns", 4, ev.gridColumnCountForTest())
+        assertEquals("four rows", 4, EmojiView.ROWS)
+        assertEquals("the viewport holds exactly four rows", 4 * ev.cellHeightForTest(), grid.height)
+        assertEquals(
+            "the four columns tile the viewport with no leftover strip",
+            grid.width,
+            4 * requireNotNull(ev.gridCellForTest(0)).width,
+        )
+    }
+
+    @Test fun the_panel_height_splits_into_five_equal_rows() {
+        for (height in listOf(288, 755, 900)) {
+            for (panel in listOf<View>(
+                SymbolsView(ctx).apply { applyPalette(light); openCategoryForTest(idx("en")) },
+                EmojiView(ctx).apply { applyPalette(light); openCategoryForTest(1) },
+            )) {
+                measureAt(panel, height)
+                val (row, grid, bar) = when (panel) {
+                    is SymbolsView -> Triple(panel.cellHeightForTest(), panel.gridViewportForTest(), panel.categoryBarForTest())
+                    is EmojiView -> Triple(panel.cellHeightForTest(), panel.gridViewportForTest(), panel.categoryBarForTest())
+                    else -> throw AssertionError("unexpected panel")
+                }
+                assertEquals("a grid row is a fifth of $height", height / 5, row)
+                assertEquals("the grid holds four fifths of $height", 4 * (height / 5), grid.height)
+                assertEquals("the categories take the fifth row of $height", height - 4 * (height / 5), bar.height)
+            }
+        }
+    }
+
+    @Test fun every_category_tab_hugs_its_label() {
+        val density = ctx.resources.displayMetrics.density
+        val sv = SymbolsView(ctx).apply { applyPalette(light); openCategoryForTest(idx("en")) }
+        val ev = EmojiView(ctx).apply { applyPalette(light); openCategoryForTest(1) }
+        layout(sv)
+        layout(ev)
+        val symbolCell = sv.gridCellPixelWidthForTest(SymbolCatalog.categories[idx("en") - 1].symbols.first())
+        val emojiCell = requireNotNull(ev.gridCellForTest(0)).width
+        val padding = 2 * (SymbolsView.CATEGORY_PADDING_DP * density).toInt()
+        val minimum = (SymbolsView.CATEGORY_MIN_WIDTH_DP * density).toInt()
+
+        assertTrue("precondition: the grids are laid out", symbolCell > 0 && emojiCell > 0)
+        assertEquals(SymbolsView.CATEGORY_PADDING_DP, EmojiView.CATEGORY_PADDING_DP)
+        assertEquals(SymbolsView.CATEGORY_MIN_WIDTH_DP, EmojiView.CATEGORY_MIN_WIDTH_DP)
+        for ((label, tabs) in listOf(
+            "symbol" to (0..3).map { sv.railTabForTest(it) },
+            "emoji" to (0..3).map { ev.railTabForTest(it) },
+        )) {
+            for ((i, tab) in tabs.withIndex()) {
+                val text = tab.paint.measureText(tab.text.toString())
+                val expected = maxOf(minimum, (text + padding).toInt())
+                assertTrue(
+                    "$label category $i is its label plus the padding, or the minimum: $expected vs ${tab.width}",
+                    kotlin.math.abs(expected - tab.width) <= 1,
+                )
+            }
+        }
     }
 }

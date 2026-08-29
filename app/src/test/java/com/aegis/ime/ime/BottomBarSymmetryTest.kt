@@ -28,7 +28,6 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
-import com.aegis.ime.layout.Layouts
 import java.time.Duration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -140,19 +139,23 @@ class BottomBarSymmetryTest {
         tap(root, target.exactCenterX(), target.exactCenterY())
     }
 
-    private fun tapDeadSpaceAfterEachControl(root: ViewGroup, controls: List<View>) {
-        val ordered = controls.sortedBy { bounds(root, it).left }
-        for ((index, control) in ordered.withIndex()) {
+    private fun assertActionsTileTheColumn(root: ViewGroup, controls: List<View>) {
+        val ordered = controls.sortedBy { bounds(root, it).top }
+        val column = bounds(root, ordered.first())
+        assertTrue("the column leaves the grid room to its left", column.left > 0)
+        for (control in ordered) {
             val target = bounds(root, control)
-            val nextLeft = ordered.getOrNull(index + 1)?.let { bounds(root, it).left } ?: root.width
-            val deadWidth = nextLeft - target.right
-            if (index == ordered.lastIndex && deadWidth == 0) {
-                assertEquals("the sixth-column action may meet the panel edge exactly", root.width, target.right)
-                continue
-            }
-            assertTrue("each fixed action keeps non-clickable space after its face", deadWidth > 0)
-            tap(root, target.right + deadWidth / 2f, target.exactCenterY())
+            assertEquals("every action shares the column's left edge", column.left, target.left)
+            assertEquals("every action shares the column's right edge", column.right, target.right)
         }
+        for ((above, below) in ordered.zipWithNext()) {
+            assertEquals(
+                "the actions tile the column with no dead space between them",
+                bounds(root, above).bottom,
+                bounds(root, below).top,
+            )
+        }
+        assertTrue("the column stops above the category bar", bounds(root, ordered.last()).bottom < root.height)
     }
 
     private fun assertControlsUseKeySurfaces(
@@ -190,38 +193,37 @@ class BottomBarSymmetryTest {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(Motion.PRESS_OUT))
     }
 
-    private fun assertAxes(
+    private fun assertActionColumn(
         view: ViewGroup,
         back: TextView,
         clear: TextView,
         lock: TextView,
         backspace: TextView,
-        axisViews: List<View>,
+        rowHeight: Int,
+        gridViewport: View,
         name: String,
     ) {
         val controls = listOf(back, clear, lock, backspace)
-        val centers = controls.map { centerX(view, it) }
-        assertEquals(controls, controls.sortedBy { centerX(view, it) })
+        assertEquals("$name actions read top to bottom", controls, controls.sortedBy { bounds(view, it).top })
 
         val backBounds = bounds(view, back)
         val clearBounds = bounds(view, clear)
         val lockBounds = bounds(view, lock)
         val backspaceBounds = bounds(view, backspace)
-        val metrics = ImePanelSurfaceMetrics.resolve(view.resources.displayMetrics.density)
-        val actionWidth = (Layouts.CANDIDATE_ACTION_WIDTH_DP * view.resources.displayMetrics.density).toInt()
-        assertEquals(metrics.actionWidthPx, actionWidth)
-        assertEquals(actionWidth, backBounds.width())
+        assertTrue("$name column is at least a fifth of the panel", backBounds.width() >= view.width / 5)
         assertEquals(backBounds.width(), clearBounds.width())
         assertEquals(backBounds.width(), lockBounds.width())
         assertEquals(backBounds.width(), backspaceBounds.width())
         assertEquals(backBounds.height(), clearBounds.height())
         assertEquals(backBounds.height(), lockBounds.height())
         assertEquals(backBounds.height(), backspaceBounds.height())
-        assertEquals(metrics.actionWidthPx, backBounds.width())
-        assertEquals(metrics.faceHeightPx, backBounds.height())
-        centers.forEachIndexed { index, center ->
-            assertEquals("$name control $index follows the rendered rail/grid axis", centerX(view, axisViews[index]), center, 0.6f)
+        assertEquals("$name action is exactly one grid row tall", rowHeight, backBounds.height())
+        val grid = bounds(view, gridViewport)
+        listOf(backBounds, clearBounds, lockBounds, backspaceBounds).forEachIndexed { index, target ->
+            assertEquals("$name action $index starts where the grid ends", grid.right, target.left)
+            assertEquals("$name action $index sits on grid row $index", grid.top + index * rowHeight, target.top)
         }
+        assertEquals("$name column runs to the panel edge", view.width, backspaceBounds.right)
         controls.forEachIndexed { index, control ->
             assertClickTargetMatchesFaceAndCentersGlyph(control, "$name control $index")
         }
@@ -244,7 +246,7 @@ class BottomBarSymmetryTest {
         }
     }
 
-    @Test fun symbols_bottom_controls_follow_the_rail_center_and_content_columns_in_ltr_and_rtl() {
+    @Test fun symbols_actions_stack_beside_the_grid_rows_in_ltr_and_rtl() {
         for (layoutDirection in listOf(View.LAYOUT_DIRECTION_LTR, View.LAYOUT_DIRECTION_RTL)) {
             for (width in listOf(360, 480)) {
                 val view = SymbolsView(ctx).apply {
@@ -258,18 +260,14 @@ class BottomBarSymmetryTest {
                 val clear = view.clearBtnForTest()
                 val backspace = view.backspaceBtnForTest()
                 val controls = listOf(back, clear, view.lockBtnForTest(), backspace)
-                assertAxes(
+                assertActionColumn(
                     view,
                     back,
                     clear,
                     view.lockBtnForTest(),
                     backspace,
-                    listOf(
-                        view.railTabForTest(0),
-                        requireNotNull(view.gridCellForTest("2")),
-                        requireNotNull(view.gridCellForTest("4")),
-                        requireNotNull(view.gridCellForTest("6")),
-                    ),
+                    view.cellHeightForTest(),
+                    view.gridViewportForTest(),
                     "SymbolsView",
                 )
                 assertControlsUseKeySurfaces(controls, "SymbolsView")
@@ -288,7 +286,7 @@ class BottomBarSymmetryTest {
         }
     }
 
-    @Test fun emoji_bottom_controls_follow_the_rail_center_and_content_columns_in_ltr_and_rtl() {
+    @Test fun emoji_actions_stack_beside_the_grid_rows_in_ltr_and_rtl() {
         for (layoutDirection in listOf(View.LAYOUT_DIRECTION_LTR, View.LAYOUT_DIRECTION_RTL)) {
             for (width in listOf(360, 480)) {
                 val view = EmojiView(ctx).apply {
@@ -302,18 +300,14 @@ class BottomBarSymmetryTest {
                 val clear = view.clearBtnForTest()
                 val backspace = view.backspaceBtnForTest()
                 val controls = listOf(back, clear, view.lockBtnForTest(), backspace)
-                assertAxes(
+                assertActionColumn(
                     view,
                     back,
                     clear,
                     view.lockBtnForTest(),
                     backspace,
-                    listOf(
-                        view.railTabForTest(0),
-                        requireNotNull(view.gridCellForTest(1)),
-                        requireNotNull(view.gridCellForTest(3)),
-                        requireNotNull(view.gridCellForTest(5)),
-                    ),
+                    view.cellHeightForTest(),
+                    view.gridViewportForTest(),
                     "EmojiView",
                 )
                 assertControlsUseKeySurfaces(controls, "EmojiView")
@@ -332,7 +326,7 @@ class BottomBarSymmetryTest {
         }
     }
 
-    @Test fun only_the_visible_symbol_and_emoji_action_faces_are_clickable() {
+    @Test fun the_symbol_and_emoji_actions_tile_their_column_and_each_stays_clickable() {
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         var symbolBack = 0
         var symbolBackspace = 0
@@ -348,7 +342,7 @@ class BottomBarSymmetryTest {
             symbols.lockBtnForTest(),
             symbols.backspaceBtnForTest(),
         )
-        tapDeadSpaceAfterEachControl(symbols, symbolControls)
+        assertActionsTileTheColumn(symbols, symbolControls)
         assertEquals(0, symbolBack)
         assertEquals(0, symbolBackspace)
         assertFalse(symbols.clearDialogVisibleForTest())
@@ -377,7 +371,7 @@ class BottomBarSymmetryTest {
             emoji.lockBtnForTest(),
             emoji.backspaceBtnForTest(),
         )
-        tapDeadSpaceAfterEachControl(emoji, emojiControls)
+        assertActionsTileTheColumn(emoji, emojiControls)
         assertEquals(0, emojiBack)
         assertEquals(0, emojiBackspace)
         assertFalse(emoji.clearDialogVisibleForTest())

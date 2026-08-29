@@ -15,4 +15,6 @@
 
 package com.aegis.ime.ime
 
-interface CoversToolbar
+interface CoversToolbar {
+    fun setCoveredBarHeight(px: Int) {}
+}

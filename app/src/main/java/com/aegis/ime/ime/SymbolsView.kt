@@ -25,13 +25,13 @@ import android.graphics.ColorFilter
 import android.graphics.Paint
 import android.graphics.PixelFormat
 import android.graphics.Rect
-import android.graphics.Typeface
 import android.graphics.drawable.Drawable
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.widget.FrameLayout
 import android.widget.GridLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -40,8 +40,6 @@ import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.layout.SymbolCatalog
-import kotlin.math.abs
-import kotlin.math.roundToInt
 
 class SymbolsView(context: Context) :
     LinearLayout(context), ResettablePanel, CoversToolbar, KeyHapticsAware, BackspaceBubbleSource {
@@ -63,7 +61,7 @@ class SymbolsView(context: Context) :
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
     private val surfaceMetrics = ImePanelSurfaceMetrics.resolve(density, resources.displayMetrics.density * resources.configuration.fontScale)
-    private val cellHeightPx = surfaceMetrics.gridCellHeightPx
+    private var cellHeightPx = surfaceMetrics.gridCellHeightPx
 
     private val titles: List<String> =
         listOf(context.getString(SymbolCatalog.RECENT_TITLE_RES)) + SymbolCatalog.categories.map { context.getString(it.titleRes) }
@@ -74,17 +72,14 @@ class SymbolsView(context: Context) :
     private var lastFlowWidth = -1
 
     private var palette = ImePalette.STATIC_LIGHT
-    private val rail = LinearLayout(context).apply { orientation = VERTICAL }
-    private val railScroll = ScrollView(context).apply { addView(rail) }
+    private val rail = LinearLayout(context).apply { orientation = HORIZONTAL }
+    private val railScroll = HorizontalScrollView(context).apply {
+        isHorizontalScrollBarEnabled = false
+        addView(rail)
+    }
     private val grid = GridLayout(context).apply {
         layoutDirection = View.LAYOUT_DIRECTION_LTR
         columnCount = COLUMNS
-        setPadding(
-            surfaceMetrics.gridSidePaddingPx,
-            surfaceMetrics.gridTopPaddingPx,
-            surfaceMetrics.gridSidePaddingPx,
-            surfaceMetrics.gridSidePaddingPx,
-        )
     }
     private var gridCellWidthPx = surfaceMetrics.minimumGridCellWidthPx
     private val netBar = LinearLayout(context).apply { orientation = VERTICAL; visibility = View.GONE }
@@ -94,6 +89,7 @@ class SymbolsView(context: Context) :
         addView(grid, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
     }
     private val gridScroll = ScrollView(context).apply { addView(gridHolder); isFillViewport = true }
+    private var gridRow: LinearLayout? = null
     private val clearDialog = PanelConfirmationOverlay(context)
     private val backGlyph = IconDrawable(density, 0.41f) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }
     private val backBtn = barButton("") { onBack() }
@@ -107,8 +103,8 @@ class SymbolsView(context: Context) :
     private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
     private val backspaceBtn = barButton("") { onBackspace() }
     private val backspaceSlot = FrameLayout(context)
-    private val bottomSlots = listOf(backSlot, clearSlot, lockSlot, backspaceSlot)
-    private val bottomBarView = bottomBar()
+    private val actionSlots = listOf(backSlot, clearSlot, lockSlot, backspaceSlot)
+    private val actionColumnView = actionColumn()
     private val backFeedback = ImeKeyFeedback(backBtn, Color.TRANSPARENT, palette.keyLabelSecondary, faceInsetDp = 0f)
     private val lockFeedback = ImeKeyFeedback(lockBtn, Color.TRANSPARENT, palette.keyLabelSecondary, faceInsetDp = 0f)
     private val clearFeedback = ImeKeyFeedback(clearBtn, Color.TRANSPARENT, palette.keyLabelSecondary, faceInsetDp = 0f)
@@ -165,7 +161,10 @@ class SymbolsView(context: Context) :
     }
 
     internal companion object {
-        const val COLUMNS = 7
+        const val COLUMNS = 4
+        const val ROWS = 4
+        const val CATEGORY_PADDING_DP = 12
+        const val CATEGORY_MIN_WIDTH_DP = 48
         const val MIN_KEY_TARGET_DP = ImePanelSurfaceMetrics.MINIMUM_GRID_CELL_WIDTH_DP
         const val WIDE_GLYPH_SCALE = 0.82f
         const val BADGE_CLEARANCE_DP = 6
@@ -227,14 +226,15 @@ class SymbolsView(context: Context) :
         val content = LinearLayout(context).apply {
             orientation = HORIZONTAL
             layoutDirection = View.LAYOUT_DIRECTION_LTR
-            railScroll.setBackgroundColor(palette.keyboardBg)
-            addView(railScroll, LayoutParams(surfaceMetrics.railWidthPx, LayoutParams.MATCH_PARENT))
-            addView(gridScroll, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+            addView(gridScroll, LayoutParams(gridWidthPx(), LayoutParams.MATCH_PARENT))
+            addView(actionColumnView, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         }
+        gridRow = content
+        railScroll.setBackgroundColor(palette.keyboardBg)
         val panelColumn = LinearLayout(context).apply {
             orientation = VERTICAL
-            addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
-            addView(bottomBarView, LayoutParams(LayoutParams.MATCH_PARENT, surfaceMetrics.faceHeightPx))
+            addView(content, LayoutParams(LayoutParams.MATCH_PARENT, gridAreaHeightPx()))
+            addView(railScroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         }
         val panelFrame = FrameLayout(context).apply {
             addView(panelColumn, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
@@ -271,7 +271,7 @@ class SymbolsView(context: Context) :
         palette = p
         setBackgroundColor(p.keyboardBg)
         railScroll.setBackgroundColor(p.keyboardBg)
-        bottomBarView.setBackgroundColor(p.keyboardBg)
+        actionColumnView.setBackgroundColor(p.keyboardBg)
         for (button in listOf(backBtn, clearBtn, backspaceBtn)) button.setTextColor(p.keyLabelSecondary)
         backFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
         clearFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
@@ -314,7 +314,6 @@ class SymbolsView(context: Context) :
             val tab = rail.getChildAt(i) as TextView
             val on = i == selected
             tab.isSelected = on
-            tab.setTypeface(null, if (on) Typeface.BOLD else Typeface.NORMAL)
             val color = if (on) palette.candidateFirst else palette.keyLabelSecondary
             if (crossfadeFrom >= 0 && (i == selected || i == crossfadeFrom)) crossfadeTabColor(tab, color) else tab.setTextColor(color)
             railFeedback[tab]?.update(if (on) palette.keySurface else Color.TRANSPARENT, color)
@@ -379,7 +378,8 @@ class SymbolsView(context: Context) :
     }
 
     private fun addCompletionChips(completions: List<String>) {
-        val maxRowW = resources.displayMetrics.widthPixels - surfaceMetrics.railWidthPx - dp(16)
+        val screenWidth = resources.displayMetrics.widthPixels
+        val maxRowW = screenWidth - surfaceMetrics.actionWidthPx(screenWidth, COLUMNS) - dp(16)
         val configuredWidth = resources.configuration.screenWidthDp
             .takeIf { it > 0 }
             ?.let { (it * density).toInt() }
@@ -388,7 +388,7 @@ class SymbolsView(context: Context) :
         val liveWidth = measuringWidthOverride.takeIf { it > 0 } ?: width.takeIf { it > 0 } ?: configuredWidth
         val liveMaxRowW = minOf(
             maxRowW,
-            (liveWidth - surfaceMetrics.railWidthPx - dp(16)).coerceAtLeast(dp(44)),
+            (liveWidth - surfaceMetrics.actionWidthPx(liveWidth, COLUMNS) - dp(16)).coerceAtLeast(dp(44)),
         )
         val gap = dp(8)
         var row = netRow()
@@ -409,11 +409,58 @@ class SymbolsView(context: Context) :
         if (row.childCount > 0) netBar.addView(row)
     }
 
+    private fun gridWidthPx(): Int = grid.columnCount * gridCellWidthPx
+
+
+    private fun fitActionIcons(boxWidthPx: Int) {
+        if (boxWidthPx <= 0) return
+        if (lockGlyph.boxWidthPx != boxWidthPx) {
+            lockGlyph.boxWidthPx = boxWidthPx
+            lockBtn.setCompoundDrawablesWithIntrinsicBounds(lockGlyph, null, null, null)
+        }
+        for ((button, glyph) in listOf(backBtn to backGlyph, clearBtn to clearGlyph, backspaceBtn to backspaceGlyph)) {
+            if (glyph.boxWidthPx == boxWidthPx) continue
+            glyph.boxWidthPx = boxWidthPx
+            button.setCompoundDrawablesWithIntrinsicBounds(glyph, null, null, null)
+        }
+    }
+
+    private fun gridAreaHeightPx(): Int = ROWS * cellHeightPx
+
+    private fun updateRowHeight(px: Int) {
+        val next = px.coerceAtLeast(1)
+        if (next == cellHeightPx) return
+        cellHeightPx = next
+        for (tile in tilePool) {
+            tile.minimumHeight = next
+            tile.layoutParams?.let { if (it.height != next) { it.height = next; tile.layoutParams = it } }
+        }
+    }
+
+    private fun applyPanelBands() {
+        gridScroll.layoutParams?.let { lp ->
+            val want = gridWidthPx()
+            if (lp.width != want) { lp.width = want; gridScroll.layoutParams = lp }
+        }
+        gridRow?.let { row ->
+            row.layoutParams?.let { lp ->
+                val want = gridAreaHeightPx()
+                if (lp.height != want) { lp.height = want; row.layoutParams = lp }
+            }
+        }
+    }
+
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val incomingWidth = MeasureSpec.getSize(widthMeasureSpec)
+        val incomingHeight = MeasureSpec.getSize(heightMeasureSpec)
         if (incomingWidth > 0) {
             updateGridMetrics(surfaceMetrics.fitGrid(incomingWidth, COLUMNS))
+            fitActionIcons(incomingWidth - gridWidthPx())
         }
+        if (incomingHeight > 0) {
+            updateRowHeight(incomingHeight / (ROWS + 1))
+        }
+        applyPanelBands()
         if (incomingWidth > 0 && incomingWidth != lastFlowWidth) {
             lastFlowWidth = incomingWidth
             if (showingUrlCompletions) {
@@ -504,14 +551,13 @@ class SymbolsView(context: Context) :
         text = title
         gravity = Gravity.CENTER
         maxLines = 1
-        setPadding(dp(2), 0, dp(2), 0)
+        setPadding(dp(CATEGORY_PADDING_DP), 0, dp(CATEGORY_PADDING_DP), 0)
+        minimumWidth = dp(CATEGORY_MIN_WIDTH_DP)
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         layoutParams = LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT,
             LinearLayout.LayoutParams.MATCH_PARENT,
-            surfaceMetrics.faceHeightPx,
-        ).apply {
-            if (index == 0) topMargin = surfaceMetrics.topFaceOffsetPx
-        }
-        TextViewCompat.setAutoSizeTextTypeUniformWithConfiguration(this, 11, ImeType.label.toInt(), 1, TypedValue.COMPLEX_UNIT_SP)
+        )
         isClickable = true
         val on = index == selected
         isSelected = on
@@ -691,6 +737,8 @@ class SymbolsView(context: Context) :
     }
 
     internal fun cellHeightForTest(): Int = cellHeightPx
+    internal fun categoryBarForTest(): View = railScroll
+    internal fun actionColumnForTest(): View = actionColumnView
     internal fun gridTileHeightsForTest(): List<Int> =
         (0 until grid.childCount).map { grid.getChildAt(it).layoutParams.height }
     internal fun netChipMeasuredHeightsForTest(): List<Int> {
@@ -775,81 +823,24 @@ class SymbolsView(context: Context) :
         }
     }
 
-    private fun bottomBar(): View = object : FrameLayout(context) {
-        override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
-            val actionLefts = bottomActionLefts(right - left)
-            for (index in bottomSlots.indices) {
-                val slot = bottomSlots[index]
-                val slotRight = if (index + 1 < actionLefts.size) actionLefts[index + 1] else right - left
-                slot.layout(
-                    actionLefts[index],
-                    0,
-                    maxOf(actionLefts[index] + surfaceMetrics.actionWidthPx, slotRight),
-                    bottom - top,
-                )
-            }
-        }
-    }.apply {
+    private fun actionColumn(): View = LinearLayout(context).apply {
+        orientation = VERTICAL
         layoutDirection = View.LAYOUT_DIRECTION_LTR
         setBackgroundColor(palette.keyboardBg)
         backBtn.gravity = Gravity.CENTER; backBtn.setPadding(0, 0, 0, 0)
         clearBtn.gravity = Gravity.CENTER; clearBtn.setPadding(0, 0, 0, 0)
         lockBtn.gravity = Gravity.CENTER; lockBtn.setPadding(0, 0, 0, 0)
         backspaceBtn.gravity = Gravity.CENTER; backspaceBtn.setPadding(0, 0, 0, 0)
-        val actionWidth = surfaceMetrics.actionWidthPx
         val slots = listOf(
-            panelBottomActionSlot(backSlot, backBtn, actionWidth),
-            panelBottomActionSlot(clearSlot, clearBtn, actionWidth),
-            panelBottomActionSlot(lockSlot, lockBtn, actionWidth),
-            panelBottomActionSlot(backspaceSlot, backspaceBtn, actionWidth),
+            panelActionSlot(backSlot, backBtn),
+            panelActionSlot(clearSlot, clearBtn),
+            panelActionSlot(lockSlot, lockBtn),
+            panelActionSlot(backspaceSlot, backspaceBtn),
         )
         for (slot in slots) {
             slot.layoutDirection = View.LAYOUT_DIRECTION_LTR
-            addView(slot, FrameLayout.LayoutParams(actionWidth, LayoutParams.MATCH_PARENT))
+            addView(slot, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         }
-    }
-
-    private fun bottomActionLefts(panelWidth: Int): IntArray {
-        val actionWidth = surfaceMetrics.actionWidthPx
-        val maximumLeft = (panelWidth - actionWidth).coerceAtLeast(0)
-        val columns = if (grid.columnCount >= 6) {
-            intArrayOf(1, 3, 5)
-        } else {
-            intArrayOf(0, (grid.columnCount - 1) / 2, grid.columnCount - 1)
-        }
-        val fallbackGridCenters = FloatArray(columns.size) { index ->
-            surfaceMetrics.railWidthPx + surfaceMetrics.gridSidePaddingPx + (columns[index] + 0.5f) * gridCellWidthPx
-        }
-        val rawCenters = floatArrayOf(
-            surfaceMetrics.railWidthPx / 2f,
-            renderedGridCenter(fallbackGridCenters[0]),
-            renderedGridCenter(fallbackGridCenters[1]),
-            renderedGridCenter(fallbackGridCenters[2]),
-        )
-        val lefts = IntArray(rawCenters.size) { index ->
-            (rawCenters[index] - actionWidth / 2f).roundToInt().coerceIn(0, maximumLeft)
-        }
-        for (index in 1 until lefts.size) lefts[index] = maxOf(lefts[index], lefts[index - 1] + actionWidth)
-        if (lefts.last() > maximumLeft) {
-            lefts[lefts.lastIndex] = maximumLeft
-            for (index in lefts.lastIndex - 1 downTo 0) {
-                lefts[index] = minOf(lefts[index], lefts[index + 1] - actionWidth)
-            }
-        }
-        return lefts
-    }
-
-    private fun renderedGridCenter(fallback: Float): Float {
-        val relativeFallback = fallback - surfaceMetrics.railWidthPx
-        val nearest = (0 until grid.childCount)
-            .mapNotNull { grid.getChildAt(it) as? FrameLayout }
-            .filter { it.width > 0 && tileSpans[it] == 1 }
-            .minByOrNull { abs(it.left + it.width / 2f - relativeFallback) }
-            ?: return fallback
-        val center = nearest.left + nearest.width / 2f
-        return if (abs(center - relativeFallback) <= gridCellWidthPx / 2f) {
-            surfaceMetrics.railWidthPx + center
-        } else fallback
     }
 
     private fun barButton(label: String, onClick: () -> Unit): TextView = TextView(context).apply {
@@ -873,6 +864,7 @@ class SymbolsView(context: Context) :
     }
 
     private class LockDrawable(private val density: Float) : Drawable() {
+        var boxWidthPx = (ImePanelSurfaceMetrics.ACTION_WIDTH_DP * density).toInt()
         var closed = false
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
@@ -885,7 +877,7 @@ class SymbolsView(context: Context) :
             Glyphs.drawLock(canvas, paint, b.exactCenterX(), b.exactCenterY(), 18 * density * 0.48f, closed)
         }
         init { paint.strokeWidth = 2f * density }
-        override fun getIntrinsicWidth() = (ImePanelSurfaceMetrics.ACTION_WIDTH_DP * density).toInt()
+        override fun getIntrinsicWidth() = boxWidthPx
         override fun getIntrinsicHeight() = (ImePanelSurfaceMetrics.FACE_HEIGHT_DP * density).toInt()
         override fun setAlpha(alpha: Int) {}
         override fun setColorFilter(colorFilter: ColorFilter?) {}
@@ -898,6 +890,7 @@ class SymbolsView(context: Context) :
         private val sFactor: Float,
         private val render: (Canvas, Paint, Float, Float, Float) -> Unit,
     ) : Drawable() {
+        var boxWidthPx = (ImePanelSurfaceMetrics.ACTION_WIDTH_DP * density).toInt()
         private val iconBoxPx = (22 * density).toInt()
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE; strokeWidth = 2f * density; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
@@ -907,7 +900,7 @@ class SymbolsView(context: Context) :
             val b = bounds
             render(canvas, paint, b.exactCenterX(), b.exactCenterY(), iconBoxPx * sFactor)
         }
-        override fun getIntrinsicWidth() = (ImePanelSurfaceMetrics.ACTION_WIDTH_DP * density).toInt()
+        override fun getIntrinsicWidth() = boxWidthPx
         override fun getIntrinsicHeight() = (ImePanelSurfaceMetrics.FACE_HEIGHT_DP * density).toInt()
         override fun setAlpha(alpha: Int) {}
         override fun setColorFilter(colorFilter: ColorFilter?) {}

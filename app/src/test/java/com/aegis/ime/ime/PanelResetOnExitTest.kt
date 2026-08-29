@@ -22,6 +22,7 @@ import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.HorizontalScrollView
 import android.widget.ScrollView
 import android.widget.TextView
 import android.text.InputType
@@ -106,6 +107,38 @@ class PanelResetOnExitTest {
         assertTrue("$label precondition: the reopened content still overflows", maxScrollOf(viewport) > 0)
         repeat(30) { frame(16) }
         return viewport.scrollY
+    }
+
+    private fun sidewaysFlingSurvivingDismissal(
+        label: String,
+        panel: View,
+        viewport: HorizontalScrollView,
+        width: Int,
+        height: Int,
+        dismiss: () -> Unit,
+        reopen: () -> Unit,
+    ): Int {
+        fun frame(ms: Long) {
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ms))
+            viewport.computeScroll()
+            layout(panel, width, height)
+        }
+        fun maxScroll(): Int = ((viewport.getChildAt(0)?.width ?: 0) - viewport.width).coerceAtLeast(0)
+        layout(panel, width, height)
+        assertTrue("$label precondition: the content must overflow its viewport", maxScroll() > 0)
+        viewport.scrollTo(0, 0)
+        layout(panel, width, height)
+        assertEquals("$label precondition: parked at the start before the fling", 0, viewport.scrollX)
+        viewport.fling(9000)
+        frame(48)
+        assertTrue("$label precondition: the fling actually moves the content", viewport.scrollX > 0)
+        dismiss()
+        reopen()
+        layout(panel, width, height)
+        assertEquals("$label precondition: the reopened panel starts at the left", 0, viewport.scrollX)
+        assertTrue("$label precondition: the reopened content still overflows", maxScroll() > 0)
+        repeat(30) { frame(16) }
+        return viewport.scrollX
     }
 
     @Test fun dismissing_a_panel_resets_it() {
@@ -207,7 +240,7 @@ class PanelResetOnExitTest {
         assertEquals(ctx.getString(com.aegis.ime.R.string.edit_start_select), ep.selectingLabelForTest())
     }
 
-    private fun railOf(tab: TextView): ScrollView = (tab.parent as View).parent as ScrollView
+    private fun railOf(tab: TextView): HorizontalScrollView = (tab.parent as View).parent as HorizontalScrollView
 
     private fun host(activity: Activity, panel: View, width: Int, height: Int) {
         val root = android.widget.FrameLayout(ctx)
@@ -222,9 +255,9 @@ class PanelResetOnExitTest {
         val dismiss = { sv.resetToDefault() }
         val reopen = { sv.resetToDefault(); sv.applyPalette(light) }
         assertEquals(
-            "the symbols rail reopens at the top",
+            "the symbols category bar reopens at the left",
             0,
-            flingSurvivingDismissal("symbols rail", sv, railOf(sv.railTabForTest(0)), 480, 220, dismiss, reopen),
+            sidewaysFlingSurvivingDismissal("symbols categories", sv, railOf(sv.railTabForTest(0)), 480, 220, dismiss, reopen),
         )
         assertEquals(
             "the symbols grid reopens at the top",
@@ -240,9 +273,9 @@ class PanelResetOnExitTest {
         val dismiss = { ev.resetToDefault() }
         val reopen = { ev.resetToDefault(); ev.applyPalette(light) }
         assertEquals(
-            "the emoji rail reopens at the top",
+            "the emoji category bar reopens at the left",
             0,
-            flingSurvivingDismissal("emoji rail", ev, railOf(ev.railTabForTest(0)), 480, 220, dismiss, reopen),
+            sidewaysFlingSurvivingDismissal("emoji categories", ev, railOf(ev.railTabForTest(0)), 480, 220, dismiss, reopen),
         )
         assertEquals(
             "the emoji grid reopens at the top",

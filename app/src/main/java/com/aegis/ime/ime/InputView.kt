@@ -540,6 +540,7 @@ class InputView(context: Context) : LinearLayout(context) {
         setHeight(copyBarView, spec.barHeight)
         setHeight(keyboardView, spec.keyboardHeight)
         setPanelHeight(panelHeightFor(spec.keyboardHeight))
+        (currentPanel as? CoversToolbar)?.setCoveredBarHeight(coveredBarHeightPx())
         updateBodyPadding(spec.bottomExtra)
     }
 
@@ -796,6 +797,7 @@ class InputView(context: Context) : LinearLayout(context) {
         if (outgoing === gridView && panel !== gridView) onExpandClosed()
         currentPanel = panel
         (panel as? KeyHapticsAware)?.hapticEnabled = keyHaptics
+        (panel as? CoversToolbar)?.setCoveredBarHeight(coveredBarHeightPx())
         if (panel !== gridView) pendingGridBind = null
         candidateView.setExpanded(panel === gridView)
         val coversBar = panel is CoversToolbar

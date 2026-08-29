@@ -34,14 +34,14 @@ interface KeyHapticsAware {
     var hapticEnabled: Boolean
 }
 
-internal fun panelBottomActionSlot(slot: FrameLayout, button: View, actionWidthPx: Int): FrameLayout =
+internal fun panelActionSlot(slot: FrameLayout, button: View): FrameLayout =
     slot.apply {
         addView(
             button,
             FrameLayout.LayoutParams(
-                actionWidthPx.coerceAtLeast(1),
                 ViewGroup.LayoutParams.MATCH_PARENT,
-                Gravity.START or Gravity.CENTER_VERTICAL,
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                Gravity.CENTER,
             ),
         )
     }
@@ -62,19 +62,18 @@ internal data class ImePanelGridMetrics(
 }
 
 internal data class ImePanelSurfaceMetrics(
-    val railWidthPx: Int,
-    val actionWidthPx: Int,
     val faceHeightPx: Int,
     val faceInsetPx: Int,
     val gridCellHeightPx: Int,
     val gridSidePaddingPx: Int,
     val gridTopPaddingPx: Int,
-    val topFaceOffsetPx: Int,
     val minimumGridCellWidthPx: Int,
 ) {
+    fun actionWidthPx(panelWidthPx: Int, columns: Int): Int = panelWidthPx / (columns + 1)
+
     fun fitGrid(panelWidthPx: Int, maximumColumns: Int): ImePanelGridMetrics =
         ImePanelGridMetrics.fit(
-            panelWidthPx - railWidthPx - gridSidePaddingPx * 2,
+            panelWidthPx - actionWidthPx(panelWidthPx, maximumColumns),
             minimumGridCellWidthPx,
             maximumColumns,
         )
@@ -86,7 +85,6 @@ internal data class ImePanelSurfaceMetrics(
         outerWidth(cellWidthPx, span) - faceInsetPx * 2
 
     companion object {
-        const val RAIL_WIDTH_DP = 60
         const val ACTION_WIDTH_DP = 60
         const val FACE_HEIGHT_DP = 45
         const val FACE_INSET_DP = 3
@@ -101,14 +99,11 @@ internal data class ImePanelSurfaceMetrics(
             val faceHeightPx = maxOf(dp(FACE_HEIGHT_DP), glyphLinePx)
             val topFaceOffsetPx = dp(TOP_FACE_OFFSET_DP)
             return ImePanelSurfaceMetrics(
-                railWidthPx = dp(RAIL_WIDTH_DP),
-                actionWidthPx = dp(ACTION_WIDTH_DP),
                 faceHeightPx = faceHeightPx,
                 faceInsetPx = faceInsetPx,
                 gridCellHeightPx = faceHeightPx + faceInsetPx * 2,
                 gridSidePaddingPx = dp(GRID_SIDE_PADDING_DP),
                 gridTopPaddingPx = (topFaceOffsetPx - faceInsetPx).coerceAtLeast(0),
-                topFaceOffsetPx = topFaceOffsetPx,
                 minimumGridCellWidthPx = dp(MINIMUM_GRID_CELL_WIDTH_DP),
             )
         }

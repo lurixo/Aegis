@@ -23,6 +23,7 @@ import android.graphics.Color
 import android.os.Looper
 import android.view.View
 import android.view.ViewGroup
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import android.widget.TextView
@@ -102,10 +103,10 @@ class BilingualScreenshotTest {
         assertTrue("$label: a flat fill with nothing drawn on it", content > total / 500)
     }
 
-    private fun categoryRailOf(panel: View): ScrollView {
-        val hits = ArrayList<ScrollView>()
+    private fun categoryBarOf(panel: View): HorizontalScrollView {
+        val hits = ArrayList<HorizontalScrollView>()
         fun walk(v: View) {
-            if (v is ScrollView) {
+            if (v is HorizontalScrollView) {
                 val child = v.getChildAt(0)
                 if (child is LinearLayout && child.childCount > 0 &&
                     (0 until child.childCount).all { child.getChildAt(it) is TextView }
@@ -117,28 +118,18 @@ class BilingualScreenshotTest {
         return hits.single()
     }
 
-    private fun alignCategoryRail(panel: View) {
-        val scroll = categoryRailOf(panel)
+    private fun alignCategoryBar(panel: View) {
+        val scroll = categoryBarOf(panel)
         val rail = scroll.getChildAt(0) as LinearLayout
         val tabs = (0 until rail.childCount).map { rail.getChildAt(it) }
-        val words = tabs.map { it.top + it.paddingTop to it.bottom - it.paddingBottom }
         val open = tabs.single { it.isSelected }
-        val viewport = scroll.height
-        fun cuts(edge: Int) = words.any { (top, bottom) -> edge > top && edge < bottom }
-        fun clearance(edge: Int) = words.minOf { (top, bottom) ->
-            minOf(kotlin.math.abs(edge - top), kotlin.math.abs(edge - bottom))
+        val resting = when {
+            open.left < scroll.scrollX -> open.left
+            open.right > scroll.scrollX + scroll.width -> open.right - scroll.width
+            else -> scroll.scrollX
         }
-        fun chipLoss(offset: Int) =
-            maxOf(0, offset - open.top) + maxOf(0, open.bottom - (offset + viewport))
-        val resting = (0..maxOf(0, rail.height - viewport))
-            .filterNot { cuts(it) || cuts(it + viewport) }
-            .minWithOrNull(
-                compareBy<Int> { chipLoss(it) }
-                    .thenByDescending { minOf(clearance(it), clearance(it + viewport)) },
-            )
-        assertNotNull("no rail position leaves every category label whole", resting)
-        scroll.isVerticalScrollBarEnabled = false
-        scroll.scrollTo(0, resting!!)
+        scroll.isHorizontalScrollBarEnabled = false
+        scroll.scrollTo(resting.coerceIn(0, maxOf(0, rail.width - scroll.width)), 0)
     }
 
     private fun snapCompose(dir: File, name: String, hDp: Int = 1180, content: @Composable () -> Unit) {
@@ -214,7 +205,7 @@ class BilingualScreenshotTest {
                 applyPalette(pal)
                 openCategoryForTest(0)
             },
-            (360 * density).toInt(), dir, "emoji.png", ::alignCategoryRail,
+            (360 * density).toInt(), dir, "emoji.png", ::alignCategoryBar,
         )
 
         snap(
@@ -236,7 +227,7 @@ class BilingualScreenshotTest {
                 applyPalette(pal)
                 openCategoryForTest(1)
             },
-            (360 * density).toInt(), dir, "symbols.png", ::alignCategoryRail,
+            (360 * density).toInt(), dir, "symbols.png", ::alignCategoryBar,
         )
 
         snapCompose(dir, "settings.png") { SettingsHomePage(onOpenGroup = {}) }
