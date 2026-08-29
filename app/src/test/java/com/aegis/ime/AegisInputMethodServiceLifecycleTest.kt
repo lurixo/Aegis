@@ -28,6 +28,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.BaseInputConnection
+import android.view.inputmethod.SurroundingText
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedText
 import android.view.inputmethod.ExtractedTextRequest
@@ -136,6 +137,19 @@ class AegisInputMethodServiceLifecycleTest {
             val from = if (lo >= 2 && Character.isSurrogatePair(content[lo - 2], content[lo - 1])) lo - 2 else lo - 1
             content.delete(from, lo)
             Selection.setSelection(content, from)
+        }
+
+        override fun getSurroundingText(beforeLength: Int, afterLength: Int, flags: Int): SurroundingText? {
+            if (hidesExtractedText) return null
+            val content = editable ?: return null
+            val a = Selection.getSelectionStart(content)
+            val b = Selection.getSelectionEnd(content)
+            if (a < 0 || b < 0) return null
+            val selStart = minOf(a, b)
+            val selEnd = maxOf(a, b)
+            val from = maxOf(0, selStart - beforeLength)
+            val to = minOf(content.length, selEnd + afterLength)
+            return SurroundingText(content.subSequence(from, to), selStart - from, selEnd - from, from)
         }
 
         override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? {

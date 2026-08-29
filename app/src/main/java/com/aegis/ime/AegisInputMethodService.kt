@@ -1105,19 +1105,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun editorReportsNoSelection(): Boolean {
         if (selStart >= 0 && selEnd >= 0 && selStart != selEnd) return false
-        val extracted = currentInputConnection
-            ?.getExtractedText(ExtractedTextRequest().apply { hintMaxChars = 0 }, 0)
-            ?: return false
-        return extracted.selectionStart >= 0 && extracted.selectionStart == extracted.selectionEnd
+        val around = currentInputConnection?.getSurroundingText(0, 0, 0) ?: return false
+        return around.selectionStart >= 0 && around.selectionStart == around.selectionEnd
     }
 
     private fun toggleSelecting() {
         selecting = !selecting
         if (selecting) {
-            val et = currentInputConnection?.getExtractedText(ExtractedTextRequest(), 0)
-            val base = et?.startOffset?.takeIf { it >= 0 } ?: 0
-            selAnchor = base + (et?.selectionStart?.coerceAtLeast(0) ?: 0)
-            selMoving = base + (et?.selectionEnd?.coerceAtLeast(0) ?: (selAnchor - base))
+            val window = currentInputConnection?.let(::caretWindow)
+            selAnchor = window?.let { it.base + it.start } ?: -1
+            selMoving = window?.let { it.base + it.end } ?: -1
         } else stopSelecting()
         editPanelView?.setSelecting(selecting)
     }
@@ -1130,15 +1127,29 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         selMoving = -1
     }
 
+    private class CaretWindow(val text: CharSequence, val base: Int, val start: Int, val end: Int)
+
+    private fun caretWindow(ic: InputConnection): CaretWindow? {
+        val around = ic.getSurroundingText(NAV_WINDOW, NAV_WINDOW, 0)
+        val aroundText = around?.text
+        if (around != null && aroundText != null && around.offset >= 0) {
+            return CaretWindow(aroundText, around.offset, around.selectionStart.coerceAtLeast(0), around.selectionEnd.coerceAtLeast(0))
+        }
+        val extracted = ic.getExtractedText(ExtractedTextRequest(), 0) ?: return null
+        val text = extracted.text ?: return null
+        if (extracted.startOffset != 0 || extracted.selectionStart < 0 || extracted.selectionEnd < 0) return null
+        return CaretWindow(text, 0, extracted.selectionStart.coerceAtMost(text.length), extracted.selectionEnd.coerceAtMost(text.length))
+    }
+
     private fun nav(keyCode: Int, move: SelectionMath.Move) {
         if (!selecting) { sendKey(keyCode, false); return }
         val ic = currentInputConnection
-        val et = ic?.getExtractedText(ExtractedTextRequest(), 0)
-        val text = et?.text
-        if (ic == null || text == null) { sendKey(keyCode, true); return }
-        val base = if (et.startOffset >= 0) et.startOffset else 0
-        if (selAnchor < 0) selAnchor = base + et.selectionStart.coerceAtLeast(0)
-        if (selMoving < 0) selMoving = base + et.selectionEnd.coerceAtLeast(0)
+        val window = ic?.takeIf { trackedSelectionSpan() <= ChunkedRead.DIRECT_MAX }?.let(::caretWindow)
+        if (ic == null || window == null) { sendKey(keyCode, true); return }
+        val base = window.base
+        val text = window.text
+        if (selAnchor < 0) selAnchor = base + window.start
+        if (selMoving < 0) selMoving = base + window.end
         selMoving = base + SelectionMath.step(text, selMoving - base, move)
         ic.setSelection(minOf(selAnchor, selMoving), maxOf(selAnchor, selMoving))
     }
@@ -1807,11 +1818,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (panelInput.active) return panelInput.hasSelection()
         if (selStart >= 0 && selEnd >= 0 && selStart != selEnd) return true
         val ic = currentInputConnection ?: return false
-        if (!ic.getSelectedText(0).isNullOrEmpty()) return true
-        val extracted = ic.getExtractedText(ExtractedTextRequest(), 0) ?: return false
-        return extracted.selectionStart >= 0 &&
-            extracted.selectionEnd >= 0 &&
-            extracted.selectionStart != extracted.selectionEnd
+        val around = ic.getSurroundingText(0, 0, 0) ?: return false
+        return around.selectionStart >= 0 &&
+            around.selectionEnd >= 0 &&
+            around.selectionStart != around.selectionEnd
     }
 
     override fun deleteSelection() {
@@ -1840,6 +1850,7 @@ private const val EDITABLE_CLIP_CHARS = 4096L
 private const val STREAM_GAP_MS = 16L
 private const val STREAM_CHUNK = 16_384
 private const val TRIM_WINDOW = 8
+private const val NAV_WINDOW = 16_384
 private const val READ_TIMEOUT_MS = 1_500L
 
 internal fun quarantineCorruptStore(file: java.io.File): Boolean {
