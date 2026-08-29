@@ -33,7 +33,6 @@ import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import androidx.core.widget.TextViewCompat
 import com.aegis.ime.ime.theme.ImePalette
@@ -77,7 +76,7 @@ class SymbolsView(context: Context) :
         isHorizontalScrollBarEnabled = false
         addView(rail)
     }
-    private val grid = GridLayout(context).apply {
+    private val grid = ImePanelTableGrid(context, density).apply {
         layoutDirection = View.LAYOUT_DIRECTION_LTR
         columnCount = COLUMNS
     }
@@ -88,7 +87,10 @@ class SymbolsView(context: Context) :
         addView(netBar, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(grid, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
     }
-    private val gridScroll = ScrollView(context).apply { addView(gridHolder); isFillViewport = true }
+    private val gridScroll = ImePanelTableViewport(context, density).apply {
+        addView(gridHolder)
+        isFillViewport = true
+    }
     private var gridRow: LinearLayout? = null
     private val clearDialog = PanelConfirmationOverlay(context)
     private val backGlyph = IconDrawable(density, 0.41f) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }
@@ -272,6 +274,8 @@ class SymbolsView(context: Context) :
         setBackgroundColor(p.keyboardBg)
         railScroll.setBackgroundColor(p.keyboardBg)
         actionColumnView.setBackgroundColor(p.keyboardBg)
+        grid.separatorColor = p.separator
+        gridScroll.applyOutlineColor(p.separator)
         for (button in listOf(backBtn, clearBtn, backspaceBtn)) button.setTextColor(p.keyLabelSecondary)
         backFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
         clearFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
@@ -280,13 +284,13 @@ class SymbolsView(context: Context) :
         clearGlyph.tint(p.keyLabelSecondary)
         backspaceGlyph.tint(p.keyLabelSecondary)
         for (tile in tilePool) {
-            tileFeedback[tile]?.update(p.keySurface, p.keyLabel)
+            tileFeedback[tile]?.update(Color.TRANSPARENT, p.keyLabel)
             (tile.getChildAt(0) as TextView).setTextColor(p.keyLabel)
             (tile.getChildAt(1) as TextView).setTextColor(p.keyLabelSecondary)
         }
         for ((view, feedback) in netFeedback) {
             (view as? TextView)?.setTextColor(p.keyLabel)
-            feedback.update(p.keySurface, p.keyLabel)
+            feedback.update(Color.TRANSPARENT, p.keyLabel)
         }
         emptySpanView?.setTextColor(p.keyHint)
         updateLockFace()
@@ -516,7 +520,7 @@ class SymbolsView(context: Context) :
         contentDescription = symbol
         ImeKeyFeedback(
             this,
-            palette.keySurface,
+            Color.TRANSPARENT,
             palette.keyLabel,
             faceInsetPxOverride = surfaceMetrics.faceInsetPx.toFloat(),
         ).also {
@@ -600,18 +604,16 @@ class SymbolsView(context: Context) :
             }
             addView(
                 glyph,
-                FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER).apply {
-                    val inset = surfaceMetrics.faceInsetPx
-                    setMargins(inset, inset, inset, inset)
-                },
+                FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER),
             )
             addView(badge, FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END))
         }
         ImeKeyFeedback(
             tile,
-            palette.keySurface,
+            Color.TRANSPARENT,
             palette.keyLabel,
-            faceInsetPxOverride = surfaceMetrics.faceInsetPx.toFloat(),
+            faceInsetPxOverride = 0f,
+            faceRadiusDp = 0f,
         ).also {
             it.bind { hapticEnabled }
             tileFeedback[tile] = it
@@ -738,6 +740,8 @@ class SymbolsView(context: Context) :
 
     internal fun cellHeightForTest(): Int = cellHeightPx
     internal fun categoryBarForTest(): View = railScroll
+    internal fun gridSeparatorColorForTest(): Int = grid.separatorColor
+    internal fun gridOutlineColorForTest(): Int = gridScroll.outlineColorForTest()
     internal fun actionColumnForTest(): View = actionColumnView
     internal fun gridTileHeightsForTest(): List<Int> =
         (0 until grid.childCount).map { grid.getChildAt(it).layoutParams.height }

@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.RectF
 import android.view.View
@@ -270,6 +271,48 @@ class SymbolPanelPlacementTest {
                 assertEquals("the categories take the fifth row of $height", height - 4 * (height / 5), bar.height)
             }
         }
+    }
+
+    @Test fun both_panels_rule_their_grid_like_the_expanded_candidates() {
+        val sv = SymbolsView(ctx).apply { applyPalette(light); openCategoryForTest(idx("en")) }
+        val ev = EmojiView(ctx).apply { applyPalette(light); openCategoryForTest(1) }
+        layout(sv)
+        layout(ev)
+
+        assertEquals("symbol rows are ruled in the separator colour", light.separator, sv.gridSeparatorColorForTest())
+        assertEquals("the symbol table is outlined in it too", light.separator, sv.gridOutlineColorForTest())
+        assertEquals("emoji rows are ruled in the separator colour", light.separator, ev.gridSeparatorColorForTest())
+        assertEquals("the emoji table is outlined in it too", light.separator, ev.gridOutlineColorForTest())
+    }
+
+    @Test fun panel_cells_are_square_and_only_the_table_corners_stay_round() {
+        val sv = SymbolsView(ctx).apply { applyPalette(light); openCategoryForTest(idx("en")) }
+        val ev = EmojiView(ctx).apply { applyPalette(light); openCategoryForTest(1) }
+        layout(sv)
+        layout(ev)
+        val cells = listOf(
+            "symbol" to requireNotNull(sv.gridCellForTest(SymbolCatalog.categories[idx("en") - 1].symbols.first())),
+            "emoji" to requireNotNull(ev.gridCellForTest(0)),
+        )
+
+        for ((label, cell) in cells) {
+            val surface = cell.background as ImeKeySurface
+            assertEquals("$label face has no resting fill of its own", Color.TRANSPARENT, surface.faceColor)
+            assertEquals("$label cell faces meet at right angles", 0f, surface.faceCornerRadiusPx, 0.001f)
+            assertEquals(
+                "$label press feedback stays a rounded rectangle",
+                8f * ctx.resources.displayMetrics.density,
+                surface.cornerRadiusPx,
+                0.001f,
+            )
+            assertEquals(
+                "$label cell face covers the whole cell",
+                RectF(0f, 0f, 40f, 30f),
+                surface.faceBoundsForTest(40, 30),
+            )
+        }
+        assertTrue("the symbol table clips its four outer corners round", sv.gridViewportForTest().clipToOutline)
+        assertTrue("the emoji table clips its four outer corners round", ev.gridViewportForTest().clipToOutline)
     }
 
     @Test fun every_category_tab_hugs_its_label() {

@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import android.content.Context
 import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
@@ -26,8 +27,12 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
+import android.graphics.Outline
 import android.view.ViewGroup
+import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
+import android.widget.GridLayout
+import android.widget.ScrollView
 import com.aegis.ime.ime.theme.ImeShapes
 
 interface KeyHapticsAware {
@@ -45,6 +50,67 @@ internal fun panelActionSlot(slot: FrameLayout, button: View): FrameLayout =
             ),
         )
     }
+
+internal class ImePanelTableGrid(context: Context, density: Float) : GridLayout(context) {
+    private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = density }
+
+    var separatorColor: Int
+        get() = linePaint.color
+        set(value) {
+            linePaint.color = value
+            invalidate()
+        }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        for (index in 0 until childCount) {
+            val child = getChildAt(index)
+            if (child.visibility != View.VISIBLE) continue
+            val right = child.right.toFloat()
+            val bottom = child.bottom.toFloat()
+            if (child.right < width) canvas.drawLine(right, child.top.toFloat(), right, bottom, linePaint)
+            if (child.bottom < height) canvas.drawLine(child.left.toFloat(), bottom, right, bottom, linePaint)
+        }
+    }
+}
+
+internal class ImePanelTableViewport(context: Context, private val density: Float) : ScrollView(context) {
+    private val radius = ImeShapes.cardRadiusDp * density
+    private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = density
+    }
+    private val outlineRect = RectF()
+
+    init {
+        isVerticalScrollBarEnabled = false
+        outlineProvider = object : ViewOutlineProvider() {
+            override fun getOutline(view: View, outline: Outline) {
+                outline.setRoundRect(0, 0, view.width, view.height, radius)
+            }
+        }
+        clipToOutline = true
+    }
+
+    fun applyOutlineColor(color: Int) {
+        outlinePaint.color = color
+        invalidate()
+    }
+
+    internal fun outlineColorForTest(): Int = outlinePaint.color
+
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        val half = density / 2f
+        outlineRect.set(
+            scrollX + half,
+            scrollY + half,
+            scrollX + width - half,
+            scrollY + height - half,
+        )
+        canvas.drawRoundRect(outlineRect, radius, radius, outlinePaint)
+    }
+}
 
 internal data class ImePanelGridMetrics(
     val columns: Int,
@@ -81,9 +147,6 @@ internal data class ImePanelSurfaceMetrics(
     fun outerWidth(cellWidthPx: Int, span: Int = 1): Int =
         cellWidthPx * span.coerceAtLeast(1)
 
-    fun faceWidth(cellWidthPx: Int, span: Int = 1): Int =
-        outerWidth(cellWidthPx, span) - faceInsetPx * 2
-
     companion object {
         const val ACTION_WIDTH_DP = 60
         const val FACE_HEIGHT_DP = 45
@@ -113,6 +176,7 @@ internal data class ImePanelSurfaceMetrics(
 internal interface ImeKeySurface {
     val faceColor: Int
     val cornerRadiusPx: Float
+    val faceCornerRadiusPx: Float
     fun faceBoundsForTest(width: Int, height: Int): RectF
 }
 
@@ -123,11 +187,13 @@ class ImeKeyFeedback(
     faceInsetDp: Float = 3f,
     radiusDp: Float = ImeShapes.keyRadiusDp,
     faceInsetPxOverride: Float? = null,
+    faceRadiusDp: Float = radiusDp,
 ) {
     private val density = view.resources.displayMetrics.density
     private val touchSlop = ViewConfiguration.get(view.context).scaledTouchSlop.toFloat()
     private val faceInset = faceInsetPxOverride ?: faceInsetDp * density
     private val radius = radiusDp * density
+    private val faceRadius = faceRadiusDp * density
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val rect = RectF()
     private var face = faceColor
@@ -143,6 +209,8 @@ class ImeKeyFeedback(
             get() = face
         override val cornerRadiusPx: Float
             get() = radius
+        override val faceCornerRadiusPx: Float
+            get() = faceRadius
 
         override fun faceBoundsForTest(width: Int, height: Int): RectF = RectF().also {
             setFaceBounds(it, 0, 0, width, height)
@@ -152,7 +220,7 @@ class ImeKeyFeedback(
             setFaceBounds(rect, bounds.left, bounds.top, bounds.right, bounds.bottom)
             if (rect.width() <= 0f || rect.height() <= 0f) return
             paint.color = face
-            canvas.drawRoundRect(rect, radius, radius, paint)
+            canvas.drawRoundRect(rect, faceRadius, faceRadius, paint)
             val level = press.level
             if (level > 0f) {
                 paint.color = Motion.stateLayerColor(stateColorValue, level)

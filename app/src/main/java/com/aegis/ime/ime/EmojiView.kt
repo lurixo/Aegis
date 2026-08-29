@@ -35,7 +35,6 @@ import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
-import android.widget.ScrollView
 import android.widget.TextView
 import androidx.core.widget.TextViewCompat
 import com.aegis.ime.ime.theme.ImePalette
@@ -73,14 +72,17 @@ class EmojiView(context: Context) :
         isHorizontalScrollBarEnabled = false
         addView(rail)
     }
-    private val grid = GridLayout(context).apply {
+    private val grid = ImePanelTableGrid(context, density).apply {
         layoutDirection = View.LAYOUT_DIRECTION_LTR
         columnCount = COLUMNS
     }
     private var gridCellWidthPx = surfaceMetrics.minimumGridCellWidthPx
     private var cellHeightPx = surfaceMetrics.gridCellHeightPx
     private var gridRow: LinearLayout? = null
-    private val gridScroll = ScrollView(context).apply { addView(grid); isFillViewport = true }
+    private val gridScroll = ImePanelTableViewport(context, density).apply {
+        addView(grid)
+        isFillViewport = true
+    }
     private val clearDialog = PanelConfirmationOverlay(context)
     private val gridFrame = FrameLayout(context)
     private val variantGenderRow = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER }
@@ -226,6 +228,8 @@ class EmojiView(context: Context) :
         setBackgroundColor(p.keyboardBg)
         railScroll.setBackgroundColor(p.keyboardBg)
         actionColumnView.setBackgroundColor(p.keyboardBg)
+        grid.separatorColor = p.separator
+        gridScroll.applyOutlineColor(p.separator)
         for (button in listOf(backBtn, clearBtn, backspaceBtn)) button.setTextColor(p.keyLabelSecondary)
         backFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
         clearFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
@@ -235,7 +239,7 @@ class EmojiView(context: Context) :
         backspaceGlyph.tint(p.keyLabelSecondary)
         for (cell in emojiPool) {
             cell.setTextColor(p.keyLabel)
-            emojiFeedback[cell]?.update(p.keySurface, p.keyLabel)
+            emojiFeedback[cell]?.update(Color.TRANSPARENT, p.keyLabel)
         }
         emptyHintView?.setTextColor(p.keyHint)
         updateLockFace()
@@ -297,6 +301,8 @@ class EmojiView(context: Context) :
     internal fun gridColumnCountForTest(): Int = grid.columnCount
     internal fun cellHeightForTest(): Int = cellHeightPx
     internal fun categoryBarForTest(): View = railScroll
+    internal fun gridSeparatorColorForTest(): Int = grid.separatorColor
+    internal fun gridOutlineColorForTest(): Int = gridScroll.outlineColorForTest()
     internal fun actionColumnForTest(): View = actionColumnView
     internal fun gridCellTextsForTest(): List<String> =
         (0 until grid.childCount).mapNotNull { (grid.getChildAt(it) as? TextView)?.text?.toString() }
@@ -475,8 +481,7 @@ class EmojiView(context: Context) :
             gravity = Gravity.CENTER
             maxLines = 1
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.display)
-            val p = dp(8)
-            setPadding(0, p, 0, p)
+            setPadding(0, 0, 0, 0)
             isClickable = true
             isLongClickable = true
             setOnClickListener(emojiClick)
@@ -490,9 +495,10 @@ class EmojiView(context: Context) :
         }
         ImeKeyFeedback(
             tv,
-            palette.keySurface,
+            Color.TRANSPARENT,
             palette.keyLabel,
-            faceInsetPxOverride = surfaceMetrics.faceInsetPx.toFloat(),
+            faceInsetPxOverride = 0f,
+            faceRadiusDp = 0f,
         ).also {
             it.bind { hapticEnabled }
             emojiFeedback[tv] = it
