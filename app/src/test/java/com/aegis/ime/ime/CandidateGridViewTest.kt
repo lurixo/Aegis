@@ -26,6 +26,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.widget.FrameLayout
+import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
@@ -292,35 +293,28 @@ class CandidateGridViewTest {
         assertFalse("up-swipe must not also fire one-unit backspace", deleted)
     }
 
-    @Test fun single_grapheme_candidates_pack_five_columns_per_row() {
+    @Test fun single_grapheme_candidates_pack_four_columns_per_row() {
         val v = measured()
         v.setCandidates(listOf("一", "二", "三", "四", "五", "六", "七", "八", "九", "十"))
-        assertEquals(listOf(5, 5), v.rowColumnCountsForTest())
-        assertEquals(listOf(5, 5), v.rowTextsForTest().map { it.size })
+        assertEquals(listOf(4, 4, 2), v.rowColumnCountsForTest())
+        assertEquals(listOf(4, 4, 2), v.rowTextsForTest().map { it.size })
     }
 
-    @Test fun two_grapheme_candidates_pack_four_columns_per_row() {
+    @Test fun multi_grapheme_candidates_take_the_same_four_columns_per_row() {
         val v = measured()
         v.setCandidates(listOf("你好", "再见", "谢谢", "不用", "可以", "没有", "什么", "怎么"))
         assertEquals(listOf(4, 4), v.rowColumnCountsForTest())
         assertEquals(listOf(4, 4), v.rowTextsForTest().map { it.size })
     }
 
-    @Test fun row_closes_early_when_a_wider_word_would_shrink_its_cap() {
+    @Test fun a_wider_word_no_longer_closes_the_row_before_the_fourth_column() {
         val v = measured()
         v.setCandidates(listOf("一", "二", "三", "四", "五", "六六"))
-        assertEquals("columns equal the candidates actually placed, never a padded cap", listOf(5, 1), v.rowColumnCountsForTest())
-        assertEquals(listOf(listOf("一", "二", "三", "四", "五"), listOf("六六")), v.rowTextsForTest())
-    }
-
-    @Test fun longer_words_take_wider_cells_with_fewer_columns_to_keep_base_size() {
-        val v = measured()
-        v.setCandidates(listOf("你好吗", "一", "二二"))
-        assertEquals(listOf(3), v.rowColumnCountsForTest())
-        assertEquals(listOf(listOf("你好吗", "一", "二二")), v.rowTextsForTest())
-        v.setCandidates(listOf("一", "四个字啦"))
-        assertEquals(listOf(2), v.rowColumnCountsForTest())
-        assertEquals(listOf(listOf("一", "四个字啦")), v.rowTextsForTest())
+        assertEquals(listOf(4, 2), v.rowColumnCountsForTest())
+        assertEquals(listOf(listOf("一", "二", "三", "四"), listOf("五", "六六")), v.rowTextsForTest())
+        v.setCandidates(listOf("你好吗", "一", "二二", "四个字啦", "五"))
+        assertEquals(listOf(4, 1), v.rowColumnCountsForTest())
+        assertEquals(listOf(listOf("你好吗", "一", "二二", "四个字啦"), listOf("五")), v.rowTextsForTest())
     }
 
     @Test fun engine_order_is_preserved_and_picks_stay_global_across_rows() {
@@ -352,6 +346,11 @@ class CandidateGridViewTest {
         val rendered = v.renderedCandidateTextsForTest()
         val shownPhrases = rendered.filter { GraphemeText.clusterCount(it) > 1 }
         assertEquals("the Pinyin product policy is three phrase rows", 3, policy.maxPhraseRows)
+        assertEquals(
+            "three rows of the fixed four columns cap the phrases at twelve",
+            policy.maxPhraseRows * CandidateGridView.COLUMNS,
+            shownPhrases.size,
+        )
         assertTrue("the source has enough content to exercise later rows", rows.size > policy.maxPhraseRows)
         assertTrue(
             "no phrase may appear after the policy boundary",
@@ -368,14 +367,14 @@ class CandidateGridViewTest {
     }
 
     @Test fun pinyin_projection_places_single_items_immediately_after_underfilled_phrase_rows() {
-        val phrases = List(6) { "词${('A'.code + it).toChar()}" }
+        val phrases = List(5) { "词${('A'.code + it).toChar()}" }
         val singles = listOf("你", "泥", "拟", "𰻞", "❤️")
         val v = measured()
 
         v.setCandidates(singles.take(2) + phrases + singles.drop(2), projection = CandidateProjectionPolicy.PINYIN)
 
         assertEquals(phrases.take(4), v.rowTextsForTest()[0])
-        assertEquals(phrases.drop(4) + singles.take(2), v.rowTextsForTest()[1])
+        assertEquals(phrases.drop(4) + singles.take(3), v.rowTextsForTest()[1])
         assertEquals(singles, v.renderedCandidateTextsForTest().filter { GraphemeText.clusterCount(it) == 1 })
     }
 
@@ -392,32 +391,29 @@ class CandidateGridViewTest {
         assertEquals(v.renderedCandidateTextsForTest(), picked.map(source::get))
     }
 
-    @Test fun pinyin_projection_recomputes_from_the_complete_source_after_width_changes() {
+    @Test fun pinyin_projection_shows_the_same_phrases_at_every_panel_width() {
         val phrases = List(24) { "候选词组${('A'.code + it).toChar()}" }
         val singles = List(16) { (0x4e20 + it).toChar().toString() }
         val source = phrases + singles
         val v = CandidateGridView(ctx)
-        v.measure(
-            View.MeasureSpec.makeMeasureSpec(dp(240), View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(dp(250), View.MeasureSpec.EXACTLY),
-        )
-        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
-        v.setCandidates(source, projection = CandidateProjectionPolicy.PINYIN)
-        val narrowPhraseCount = v.renderedCandidateTextsForTest().count { GraphemeText.clusterCount(it) > 1 }
+        val shown = ArrayList<List<String>>()
+        for (widthDp in listOf(240, 360, 800)) {
+            v.measure(
+                View.MeasureSpec.makeMeasureSpec(dp(widthDp), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(dp(250), View.MeasureSpec.EXACTLY),
+            )
+            v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+            v.setCandidates(source, projection = CandidateProjectionPolicy.PINYIN)
+            shown.add(v.renderedCandidateTextsForTest().filter { GraphemeText.clusterCount(it) > 1 })
+            assertEquals(singles, v.renderedCandidateTextsForTest().filter { GraphemeText.clusterCount(it) == 1 })
+            assertTrue(
+                v.rowTextsForTest().drop(CandidateProjectionPolicy.PINYIN.maxPhraseRows).flatten()
+                    .all { GraphemeText.clusterCount(it) == 1 },
+            )
+        }
 
-        v.measure(
-            View.MeasureSpec.makeMeasureSpec(dp(800), View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(dp(250), View.MeasureSpec.EXACTLY),
-        )
-        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
-        val widePhraseCount = v.renderedCandidateTextsForTest().count { GraphemeText.clusterCount(it) > 1 }
-
-        assertTrue("a wider table restores additional phrases from the full source", widePhraseCount > narrowPhraseCount)
-        assertEquals(singles, v.renderedCandidateTextsForTest().filter { GraphemeText.clusterCount(it) == 1 })
-        assertTrue(
-            v.rowTextsForTest().drop(CandidateProjectionPolicy.PINYIN.maxPhraseRows).flatten()
-                .all { GraphemeText.clusterCount(it) == 1 },
-        )
+        assertEquals("a fixed column count makes the phrase cut width-independent", 1, shown.distinct().size)
+        assertEquals(phrases.take(CandidateProjectionPolicy.PINYIN.maxPhraseRows * CandidateGridView.COLUMNS), shown.first())
     }
 
     @Test fun removing_the_projection_restores_the_complete_engine_order() {
@@ -434,7 +430,7 @@ class CandidateGridViewTest {
         assertEquals(source.indices.toList(), v.renderedSourceIndicesForTest())
     }
 
-    @Test fun under_filled_rows_fill_the_width_with_no_trailing_empty_cells() {
+    @Test fun a_part_filled_row_keeps_its_four_cells_and_only_the_filled_ones_answer_taps() {
         val v = measured()
         var picked = -1
         v.onPick = { picked = it }
@@ -442,12 +438,24 @@ class CandidateGridViewTest {
         assertTrue(v.tapCandidateForTest(5))
         assertEquals(5, picked)
         assertFalse("there is no tappable cell past the last candidate", v.tapCandidateForTest(6))
-        assertEquals("each row holds exactly its candidates, with no padded-out empty cells", listOf(5, 1), v.rowTextsForTest().map { it.size })
-        assertEquals("columns match the candidate count, so every cell is real", listOf(5, 1), v.rowColumnCountsForTest())
+        assertEquals("the trailing row still owns four cells", listOf("五", "六六", "", ""), rowCellTexts(v, 1))
+        assertEquals(
+            "the cells past the last candidate take no clicks",
+            listOf(true, true, false, false),
+            rowCells(v, 1).map { it.isClickable },
+        )
         val tableW = tableWidth()
-        assertEquals("the five-candidate row spreads edge to edge", tableW, (0..4).sumOf { v.chipCellWidthForTest(it) })
-        assertEquals("the lone candidate fills the whole row width", tableW, v.chipCellWidthForTest(5))
+        assertEquals("the four cells spread edge to edge", tableW, (0..3).sumOf { v.chipCellWidthForTest(it) })
+        assertEquals("a part-filled row keeps the same four cell widths", tableW, (4..7).sumOf { v.chipCellWidthForTest(it) })
     }
+
+    private fun rowCells(v: CandidateGridView, row: Int): List<TextView> {
+        val view = v.candidateRowViewForTest(row)
+        return (0 until view.childCount).map { view.getChildAt(it) as TextView }
+    }
+
+    private fun rowCellTexts(v: CandidateGridView, row: Int): List<String> =
+        rowCells(v, row).map { it.text.toString() }
 
     @Test fun column_capacity_counts_grapheme_clusters_not_chars() {
         assertEquals(1, GraphemeText.clusterCount("👨‍👩‍👧"))
@@ -455,20 +463,20 @@ class CandidateGridViewTest {
         assertEquals(0, GraphemeText.clusterCount(""))
         val v = measured()
         v.setCandidates(listOf("👨‍👩‍👧", "一", "二", "三", "四", "五"))
-        assertEquals(listOf(5, 1), v.rowColumnCountsForTest())
-        assertEquals(listOf(5, 1), v.rowTextsForTest().map { it.size })
+        assertEquals(listOf(4, 2), v.rowColumnCountsForTest())
+        assertEquals(listOf(4, 2), v.rowTextsForTest().map { it.size })
     }
 
     @Test fun cells_span_the_table_in_equal_widths() {
         val v = measured()
         v.setCandidates(listOf("一", "二", "三", "四", "五"))
         val tableW = tableWidth()
-        val widths = (0..4).map { v.chipCellWidthForTest(it) }
+        val widths = (0 until CandidateGridView.COLUMNS).map { v.chipCellWidthForTest(it) }
         assertEquals(tableW, widths.sum())
         assertTrue("cell widths differ by at most a rounding pixel", widths.max() - widths.min() <= 1)
     }
 
-    @Test fun wide_mixed_grid_keeps_five_single_character_columns_at_the_first_row_text_size() {
+    @Test fun wide_mixed_grid_keeps_four_single_character_columns_at_the_first_row_text_size() {
         val width = dp(411)
         val v = CandidateGridView(ctx)
         v.measure(
@@ -483,7 +491,7 @@ class CandidateGridViewTest {
             ),
         )
 
-        assertEquals(listOf(4, 5, 5), v.rowColumnCountsForTest())
+        assertEquals(listOf(4, 4, 4, 2), v.rowColumnCountsForTest())
         for (i in 4..13) {
             assertEquals(v.chipTextSizeSpForTest(0), v.chipTextSizeSpForTest(i), 0.01f)
         }
@@ -503,30 +511,31 @@ class CandidateGridViewTest {
         }
     }
 
-    @Test fun a_full_row_keeps_the_base_size_regardless_of_grapheme_length() {
+    @Test fun a_row_of_mixed_lengths_shares_one_size_that_fits_its_widest_member() {
         val v = measured()
         v.setCandidates(listOf("一", "二二", "三三三"))
-        assertEquals("a filled row is one row", 1, v.rowColumnCountsForTest().size)
-        assertEquals("the row is filled to its cap", 3, v.rowColumnCountsForTest().first())
-        for (i in 0..2) assertEquals("candidate $i in a filled row stays at base 18sp", 18f, v.chipTextSizeSpForTest(i), 0.01f)
+        assertEquals("three candidates take one row of the fixed four", listOf(3), v.rowColumnCountsForTest())
+        val shared = v.chipTextSizeSpForTest(0)
+        assertTrue("a three-grapheme word cannot hold base size in a quarter-width cell", shared < 19f)
+        for (i in 1..2) assertEquals("every cell in the row shares that size", shared, v.chipTextSizeSpForTest(i), 0.01f)
     }
 
     @Test fun an_under_filled_row_keeps_the_base_size_and_still_fills_the_width() {
         val v = measured()
         v.setCandidates(listOf("优", "沃", "卧", "奏", "窝"))
-        assertEquals("five single-grapheme candidates share one row", listOf(5), v.rowColumnCountsForTest())
+        assertEquals("four single-grapheme candidates fill a row and the fifth stands alone", listOf(4, 1), v.rowColumnCountsForTest())
         for (i in 0..4) assertEquals("under-filled candidate $i stays at base 18sp, never enlarged", 18f, v.chipTextSizeSpForTest(i), 0.01f)
         val tableW = tableWidth()
-        assertEquals("the sparse row still spreads edge to edge with no trailing empty cell", tableW, (0..4).sumOf { v.chipCellWidthForTest(it) })
+        assertEquals("the sparse row still spreads edge to edge with no trailing empty cell", tableW, (0..3).sumOf { v.chipCellWidthForTest(it) })
     }
 
-    @Test fun a_long_row_and_a_lone_short_candidate_both_keep_the_base_size() {
+    @Test fun a_long_candidate_shares_the_row_with_a_short_one_at_the_shrunken_size() {
         val v = measured()
         v.setCandidates(listOf("你让我说什么说", "你"))
-        assertEquals("each candidate lands on its own full-width row", listOf(1, 1), v.rowColumnCountsForTest())
-        assertEquals(listOf(listOf("你让我说什么说"), listOf("你")), v.rowTextsForTest())
-        assertEquals("a long candidate stays at base size", 18f, v.chipTextSizeSpForTest(0), 0.01f)
-        assertEquals("a lone short candidate stays at base size too, never enlarged", 18f, v.chipTextSizeSpForTest(1), 0.01f)
+        assertEquals("both candidates sit in the same fixed four-column row", listOf(2), v.rowColumnCountsForTest())
+        assertEquals(listOf(listOf("你让我说什么说", "你")), v.rowTextsForTest())
+        assertEquals("the row size is driven by its widest member", 10f, v.chipTextSizeSpForTest(0), 0.01f)
+        assertEquals("its row-mate is drawn at the same size", 10f, v.chipTextSizeSpForTest(1), 0.01f)
     }
 
     @Test fun overlong_candidates_shrink_to_the_floor_and_ellipsize() {
@@ -536,17 +545,15 @@ class CandidateGridViewTest {
         assertEquals(TextUtils.TruncateAt.END, v.chipEllipsizeForTest(0))
     }
 
-    @Test fun sharing_a_full_row_and_a_lone_candidate_all_keep_the_base_size() {
+    @Test fun five_grapheme_candidates_share_one_row_at_one_shrunken_size() {
         val packed = measured()
         packed.setCandidates(listOf("一二三四五", "六七八九十", "上中下左右"))
-        assertEquals("two five-grapheme candidates fill the first row; the third takes its own", listOf(2, 1), packed.rowColumnCountsForTest())
-        assertEquals("a candidate sharing a filled row keeps base size", 18f, packed.chipTextSizeSpForTest(0), 0.01f)
-        assertEquals("its row-mate also keeps base size", 18f, packed.chipTextSizeSpForTest(1), 0.01f)
-        assertEquals("the lone third candidate keeps base size too, never enlarged", 18f, packed.chipTextSizeSpForTest(2), 0.01f)
+        assertEquals("all three fit the fixed four columns of one row", listOf(3), packed.rowColumnCountsForTest())
+        for (i in 0..2) assertEquals("cell $i is drawn at the floor size", 10f, packed.chipTextSizeSpForTest(i), 0.01f)
 
         val alone = measured()
         alone.setCandidates(listOf("一二三四五"))
-        assertEquals("a five-grapheme candidate alone on a wide row keeps base size", 18f, alone.chipTextSizeSpForTest(0), 0.01f)
+        assertEquals("a lone five-grapheme candidate still gets only a quarter of the width", 10f, alone.chipTextSizeSpForTest(0), 0.01f)
     }
 
     @Test fun reading_rail_is_an_inset_card_matching_the_scroll_column_style() {

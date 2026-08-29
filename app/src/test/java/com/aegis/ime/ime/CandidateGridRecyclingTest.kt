@@ -58,7 +58,11 @@ class CandidateGridRecyclingTest {
             v.setCandidates((0 until perList).map { "候$p-$it" })
             layout(v)
         }
-        assertTrue("the visible-row pool stays below the logical list size", v.chipsAllocatedForTest() < perList)
+        val visibleRows = v.visibleCandidateRowsForTest().size
+        assertTrue(
+            "the cell pool tracks the visible window and the refresh count, never the logical list size",
+            v.chipsAllocatedForTest() <= CandidateGridView.COLUMNS * (passes + visibleRows),
+        )
         assertTrue("recycling must beat the old O(sum)=1200 allocations by an order of magnitude", v.chipsAllocatedForTest() * 10 <= passes * perList)
     }
 

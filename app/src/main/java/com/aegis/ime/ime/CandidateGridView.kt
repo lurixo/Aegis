@@ -60,6 +60,10 @@ data class CandidateProjectionPolicy(val maxPhraseRows: Int) {
 
 class CandidateGridView(context: Context) : LinearLayout(context), ResettablePanel, CoversToolbar, KeyHapticsAware {
 
+    internal companion object {
+        const val COLUMNS = 4
+    }
+
     var onPick: (Int) -> Unit = {}
     var onPickReading: (Int) -> Unit = {}
     var onClose: () -> Unit = {}
@@ -98,7 +102,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private var resetViewportOnLayout = false
 
     private val readingPool = ArrayList<TextView>()
-    private val chipWidths = ArrayList<Int>()
+    private val cellWidths = IntArray(COLUMNS)
     private val chipTextSizes = ArrayList<Float>()
     private val rowStarts = ArrayList<Int>()
     private val rowCounts = ArrayList<Int>()
@@ -427,41 +431,10 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         readingFeedback[tile]?.update(Color.TRANSPARENT, target)
     }
 
-    private fun capFor(len: Int, tableW: Int): Int {
-        val natural = (spPx(ImeType.title) * len).toInt() + dp(8 + 8)
-        val naturalCap = (tableW / natural).coerceAtLeast(1)
-        return when (len) {
-            1 -> minOf(5, naturalCap)
-            2 -> minOf(4, naturalCap)
-            else -> naturalCap
-        }
-    }
-
-    private fun candidateRowStarts(candidates: List<String>, tableW: Int): List<Int> {
-        val starts = ArrayList<Int>()
-        var start = 0
-        var count = 0
-        var rowMaxLen = 0
-        for (i in candidates.indices) {
-            val len = GraphemeText.clusterCount(candidates[i])
-            val newMax = maxOf(rowMaxLen, len)
-            if (count + 1 > capFor(newMax, tableW)) {
-                starts.add(start)
-                start = i
-                count = 1
-                rowMaxLen = len
-            } else {
-                count++
-                rowMaxLen = newMax
-            }
-        }
-        if (count > 0) starts.add(start)
-        return starts
-    }
+    private fun candidateRowStarts(count: Int): List<Int> = (0 until count step COLUMNS).toList()
 
     private fun projectedCandidateIndices(
         candidates: List<String>,
-        tableW: Int,
         policy: CandidateProjectionPolicy,
     ): List<Int> {
         val phraseIndices = ArrayList<Int>()
@@ -469,9 +442,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         for (i in candidates.indices) {
             if (GraphemeText.clusterCount(candidates[i]) == 1) singleIndices.add(i) else phraseIndices.add(i)
         }
-        val phrases = phraseIndices.map(candidates::get)
-        val starts = candidateRowStarts(phrases, tableW)
-        val phraseCount = if (starts.size > policy.maxPhraseRows) starts[policy.maxPhraseRows] else phrases.size
+        val phraseCount = minOf(phraseIndices.size, policy.maxPhraseRows * COLUMNS)
         return ArrayList<Int>(phraseCount + singleIndices.size).apply {
             addAll(phraseIndices.subList(0, phraseCount))
             addAll(singleIndices)
@@ -486,7 +457,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         val liveWidth = measuringWidthOverride.takeIf { it > 0 } ?: width.takeIf { it > 0 } ?: configuredWidth
         val tableW = (liveWidth - sideSpan(liveWidth) - actionSpan(liveWidth) - dp(4 + 4)).coerceAtLeast(dp(46))
         val sourceUnchanged = candidates == sourceCandidates
-        val nextSourceIndices = projection?.let { projectedCandidateIndices(candidates, tableW, it) }
+        val nextSourceIndices = projection?.let { projectedCandidateIndices(candidates, it) }
             ?: candidates.indices.toList()
         if (sourceUnchanged && nextSourceIndices == renderedSourceIndices && tableW == renderedCandidateWidth) {
             sourceCandidateProjection = projection
@@ -499,27 +470,21 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         renderedCandidates = renderedSourceIndices.map(candidates::get)
         renderedCandidateWidth = tableW
         candidateRebuilds++
-        chipWidths.clear()
         chipTextSizes.clear()
         val visible = renderedCandidates.orEmpty()
-        repeat(visible.size) {
-            chipWidths.add(0)
-            chipTextSizes.add(ImeType.title)
+        repeat(visible.size) { chipTextSizes.add(ImeType.title) }
+        for (k in 0 until COLUMNS) {
+            cellWidths[k] = tableW * (k + 1) / COLUMNS - tableW * k / COLUMNS
         }
         rowStarts.clear()
         rowCounts.clear()
-        rowStarts.addAll(candidateRowStarts(visible, tableW))
+        rowStarts.addAll(candidateRowStarts(visible.size))
         for (r in rowStarts.indices) {
             val from = rowStarts[r]
-            val to = if (r + 1 < rowStarts.size) rowStarts[r + 1] else visible.size
-            val n = to - from
-            rowCounts.add(n)
-            val size = rowTextSize(visible, from, to, tableW / n)
-            for (k in 0 until n) {
-                val i = from + k
-                chipWidths[i] = tableW * (k + 1) / n - tableW * k / n
-                chipTextSizes[i] = size
-            }
+            val to = minOf(from + COLUMNS, visible.size)
+            rowCounts.add(to - from)
+            val size = rowTextSize(visible, from, to, tableW / COLUMNS)
+            for (i in from until to) chipTextSizes[i] = size
         }
         chipFeedback.values.forEach(ImeKeyFeedback::reset)
         candidateAdapter.notifyDataSetChanged()
@@ -560,13 +525,13 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         return chip
     }
 
-    private fun applyCell(chip: TextView, index: Int) {
+    private fun applyCell(chip: TextView, column: Int, index: Int) {
         val lp = chip.layoutParams as LayoutParams
-        if (lp.width != chipWidths[index]) {
-            lp.width = chipWidths[index]
+        if (lp.width != cellWidths[column]) {
+            lp.width = cellWidths[column]
             chip.layoutParams = lp
         }
-        val target = spPx(chipTextSizes[index])
+        val target = spPx(chipTextSizes.getOrElse(index) { ImeType.title })
         if (abs(chip.textSize - target) > 0.5f) chip.setTextSize(TypedValue.COMPLEX_UNIT_PX, target)
     }
 
@@ -581,28 +546,31 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             val row = convertView as? CandidateRow ?: CandidateRow(context, density)
             val start = rowStarts[position]
             val count = rowCounts[position]
-            while (row.childCount < count) {
+            while (row.childCount < COLUMNS) {
                 row.addView(newChip(), LayoutParams(0, rowHeightPx))
             }
-            row.columns = count
+            row.columns = COLUMNS
             row.separatorColor = palette.separator
             for (k in 0 until row.childCount) {
                 val chip = row.getChildAt(k) as TextView
+                val index = start + k
+                chip.visibility = View.VISIBLE
                 if (k < count) {
-                    val index = start + k
-                    chip.visibility = View.VISIBLE
                     chip.text = renderedCandidates?.get(index).orEmpty()
                     chip.tag = renderedSourceIndices[index]
+                    chip.isClickable = true
                     chip.setTextColor(palette.candidateText)
                     chipFeedback[chip]?.run {
                         reset()
                         update(Color.TRANSPARENT, palette.candidateText)
                     }
-                    applyCell(chip, index)
                 } else {
+                    chip.text = ""
+                    chip.tag = null
+                    chip.isClickable = false
                     chipFeedback[chip]?.reset()
-                    chip.visibility = View.GONE
                 }
+                applyCell(chip, k, index)
             }
             return row
         }
@@ -619,9 +587,8 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     ): Boolean {
         if (candidates != sourceCandidates) return true
         if (projection == sourceCandidateProjection) return false
-        if (renderedCandidateWidth <= 0) return true
         val nextSourceIndices = projection?.let {
-            projectedCandidateIndices(candidates, renderedCandidateWidth, it)
+            projectedCandidateIndices(candidates, it)
         } ?: candidates.indices.toList()
         return nextSourceIndices != renderedSourceIndices
     }
@@ -646,13 +613,14 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
     internal fun rowColumnCountsForTest(): List<Int> = rowCounts.toList()
     internal fun chipTextSizeSpForTest(index: Int): Float = chipTextSizes[index]
+    internal fun candidateRowViewForTest(row: Int): ViewGroup =
+        table.getChildAt(row - table.firstVisiblePosition) as? CandidateRow
+            ?: candidateAdapter.getView(row, null, table) as CandidateRow
     internal fun chipEllipsizeForTest(index: Int): TextUtils.TruncateAt? {
         val row = rowStarts.indexOfLast { it <= index }
-        val rowView = table.getChildAt(row - table.firstVisiblePosition) as? CandidateRow
-            ?: candidateAdapter.getView(row, null, table) as CandidateRow
-        return (rowView.getChildAt(index - rowStarts[row]) as TextView).ellipsize
+        return (candidateRowViewForTest(row).getChildAt(index - rowStarts[row]) as TextView).ellipsize
     }
-    internal fun chipCellWidthForTest(index: Int): Int = chipWidths[index]
+    internal fun chipCellWidthForTest(index: Int): Int = cellWidths[index % COLUMNS]
     internal fun readingTextSizeSpForTest(index: Int): Float = readingPool[index].textSize / spPx(1f)
     internal fun railLayoutForTest(): IntArray {
         val lp = readingScroll.layoutParams as LayoutParams
