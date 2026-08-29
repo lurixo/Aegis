@@ -337,6 +337,10 @@ class ImeBackspaceTouch(
         get() = gesture.canSwipe
         set(value) { gesture.canSwipe = value }
 
+    var repeats: Boolean
+        get() = gesture.repeats
+        set(value) { gesture.repeats = value }
+
     fun bubbleDirectionUp(): Boolean? = gesture.swipeDirectionUp
 
     fun bubbleArmed(): Boolean = gesture.swipeArmed

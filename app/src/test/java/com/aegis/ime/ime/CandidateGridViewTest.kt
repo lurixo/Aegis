@@ -253,6 +253,28 @@ class CandidateGridViewTest {
         assertEquals(0f, v.backspaceFeedbackLevelForTest(), 0f)
     }
 
+    @Test fun holding_grid_backspace_deletes_once_and_never_repeats() {
+        var deleted = 0
+        val v = CandidateGridView(ctx).apply { onBackspace = { deleted++ } }
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((250 * density).toInt(), View.MeasureSpec.EXACTLY),
+        )
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+        val b = v.backspaceButtonForTest()
+        val x = b.width / 2f
+        val y = b.height / 2f
+
+        b.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, x, y, 0))
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper())
+            .idleFor(java.time.Duration.ofMillis(BackspaceGesture.REPEAT_DELAY_MS + 10 * BackspaceGesture.REPEAT_INTERVAL_MS))
+        assertEquals("a hold on the expanded backspace must not repeat", 0, deleted)
+
+        b.dispatchTouchEvent(MotionEvent.obtain(0, 600, MotionEvent.ACTION_UP, x, y, 0))
+        org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+        assertEquals("releasing still deletes exactly once", 1, deleted)
+    }
+
     @Test fun up_swipe_on_grid_backspace_clears_instead_of_deleting_one_unit() {
         var cleared = false
         var deleted = false

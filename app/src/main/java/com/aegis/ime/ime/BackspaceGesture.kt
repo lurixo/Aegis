@@ -24,6 +24,7 @@ class BackspaceGesture(density: Float) {
     var onRepeat: () -> Unit = {}
     var onSwipe: (Boolean) -> Unit = {}
     var canSwipe: (Boolean) -> Boolean = { true }
+    var repeats = true
 
     private val handler = Handler(Looper.getMainLooper())
     private val swipeThreshold = SWIPE_THRESHOLD_DP * density
@@ -61,7 +62,7 @@ class BackspaceGesture(density: Float) {
         swipeDirectionUp = null
         downX = x
         downY = y
-        handler.postDelayed(repeatRunnable, REPEAT_DELAY_MS)
+        if (repeats) handler.postDelayed(repeatRunnable, REPEAT_DELAY_MS)
     }
 
     fun move(x: Float, y: Float, inBounds: Boolean) {
