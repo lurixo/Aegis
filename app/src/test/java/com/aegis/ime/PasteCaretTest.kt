@@ -41,6 +41,7 @@ class PasteCaretTest {
 
     private class BlockEditor(target: View, val lagsPerBreak: Int) : BaseInputConnection(target, true) {
         var arrows = 0
+        var caretCommits = 0
 
         fun hold(text: CharSequence) {
             val content = requireNotNull(editable)
@@ -53,6 +54,7 @@ class PasteCaretTest {
         fun caret(): Int = Selection.getSelectionEnd(requireNotNull(editable))
 
         override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+            if (text.isNullOrEmpty()) caretCommits++
             val done = super.commitText(text, newCursorPosition)
             val lag = lagsPerBreak * (text?.count { it == '\n' } ?: 0)
             if (lag > 0) {
@@ -122,10 +124,11 @@ class PasteCaretTest {
 
         assertEquals("the paste must land whole", pasted, editor.held())
         assertEquals("the caret must sit at the end of what was pasted", pasted.length, editor.caret())
-        assertEquals("one step for each break the editor swallowed", 3, editor.arrows)
+        assertEquals("the catch-up must not step the caret key by key", 0, editor.arrows)
+        assertEquals("one call carries the caret over every break the editor swallowed", 1, editor.caretCommits)
     }
 
-    @Test fun a_paste_with_more_breaks_than_a_fixed_step_budget_still_lands_at_the_end() {
+    @Test fun a_paste_with_thousands_of_breaks_lands_at_the_end_in_one_call() {
         val f = fixture(lagsPerBreak = 1)
         val service = f.service
         val editor = f.editor
@@ -137,7 +140,8 @@ class PasteCaretTest {
 
         assertEquals("the paste must land whole", pasted, editor.held())
         assertEquals("the caret must sit at the end of what was pasted", pasted.length, editor.caret())
-        assertEquals("no step budget may cut the catch-up short", lines - 1, editor.arrows)
+        assertEquals("thousands of breaks must cost no key events at all", 0, editor.arrows)
+        assertEquals("the whole catch-up is a single call regardless of how far behind", 1, editor.caretCommits)
     }
 
     @Test fun text_pasted_into_an_editor_that_keeps_up_is_left_alone() {

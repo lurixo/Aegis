@@ -19,8 +19,6 @@ import android.view.inputmethod.InputConnection
 
 object CaretRealign {
 
-    const val RECHECK = 64
-
     fun breaksIn(text: CharSequence): Int = text.count { it == '\n' }
 
     fun following(ic: InputConnection, bound: Int): String =

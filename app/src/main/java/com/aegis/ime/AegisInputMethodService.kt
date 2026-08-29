@@ -1639,12 +1639,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val window = span * 2
         val lag = { CaretRealign.lagBetween(following, CaretRealign.following(ic, window)) }
         var behind = lag()
+        if (behind <= 0) return
+        val reshow = isInputViewShown
         while (behind > 0) {
-            repeat(minOf(behind, CaretRealign.RECHECK)) { sendKey(KeyEvent.KEYCODE_DPAD_RIGHT, false) }
+            ic.commitText("", 1 + behind)
             val now = lag()
-            if (now >= behind) return
+            if (now >= behind) break
             behind = now
         }
+        if (reshow) requestShowSelf(0)
     }
 
     override fun deleteBackward() {
