@@ -268,8 +268,12 @@ class CandidateBarChevronTest {
         assertEquals("expanded surface top == former bar top", barTop, iv.panelVisualTopPx())
 
         val collapse = iv.expandedGridForTest().returnButtonForTest()
-        assertEquals("the in-surface collapse control is icon-only", "", collapse.text.toString())
-        assertTrue("the collapse control shows a chevron glyph", collapse.compoundDrawables[0] != null)
+        assertEquals(
+            "the in-surface collapse control spells out its name",
+            ctx.getString(com.aegis.ime.R.string.panel_back),
+            collapse.text.toString(),
+        )
+        assertTrue("no glyph is left beside the words", collapse.compoundDrawables.all { it == null })
 
         assertTrue("collapse is reachable inside the expanded surface", collapse.performClick())
         layoutRoot(root)

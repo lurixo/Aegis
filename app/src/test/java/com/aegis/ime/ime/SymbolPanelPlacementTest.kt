@@ -331,15 +331,21 @@ class SymbolPanelPlacementTest {
         layout(sv)
         layout(ev)
         val actions = listOf(
-            "symbols back" to sv.backBtnForTest(),
             "symbols clear" to sv.clearBtnForTest(),
             "symbols lock" to sv.lockBtnForTest(),
             "symbols backspace" to sv.backspaceBtnForTest(),
-            "emoji back" to ev.backBtnForTest(),
             "emoji clear" to ev.clearBtnForTest(),
             "emoji lock" to ev.lockBtnForTest(),
             "emoji backspace" to ev.backspaceBtnForTest(),
         )
+        for ((label, back) in listOf("symbols back" to sv.backBtnForTest(), "emoji back" to ev.backBtnForTest())) {
+            assertEquals(
+                "$label spells out its name instead of carrying a glyph",
+                ctx.getString(com.aegis.ime.R.string.panel_back),
+                back.text.toString(),
+            )
+            assertEquals("$label is set at the body size", ImeType.body * density, back.textSize, 0.01f)
+        }
 
         for ((label, button) in actions) {
             val icon = requireNotNull(button.compoundDrawables.firstOrNull { it != null }) { "$label has no icon" }

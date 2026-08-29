@@ -106,6 +106,6 @@ class RetypeLabelTest {
 
         assertEquals("the face spells out the retype name", ctx.getString(R.string.kbd_redo), button.text.toString())
         assertNull("no glyph is left beside the words", button.compoundDrawables.firstOrNull { it != null })
-        assertEquals("it is set at the candidate size", ImeType.title * density, button.textSize, 0.01f)
+        assertEquals("it is set at the panel action size", ImeType.body * density, button.textSize, 0.01f)
     }
 }

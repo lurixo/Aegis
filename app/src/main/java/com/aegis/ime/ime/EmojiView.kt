@@ -109,7 +109,6 @@ class EmojiView(context: Context) :
     private var variantGenderForm = ""
     private var variantOwnsPointer = false
     private var locked = false
-    private val backGlyph = IconDrawable(density, 0.530f) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }
     private val backBtn = barButton("") { onBack() }
     private val backSlot = FrameLayout(context)
     private val lockBtn = barButton("") { toggleLock() }
@@ -173,9 +172,8 @@ class EmojiView(context: Context) :
     init {
         orientation = VERTICAL
         setBackgroundColor(palette.keyboardBg)
-        backBtn.contentDescription = context.getString(R.string.panel_back)
-        backBtn.setCompoundDrawablesWithIntrinsicBounds(backGlyph, null, null, null)
-        backGlyph.tint(palette.keyLabelSecondary)
+        backBtn.text = context.getString(R.string.panel_back)
+        backBtn.setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         lockBtn.contentDescription = context.getString(R.string.panel_lock)
         lockBtn.setCompoundDrawablesWithIntrinsicBounds(lockGlyph, null, null, null)
         clearBtn.contentDescription = context.getString(R.string.emoji_clear_recent)
@@ -234,7 +232,6 @@ class EmojiView(context: Context) :
         backFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
         clearFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
         backspaceFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
-        backGlyph.tint(p.keyLabelSecondary)
         clearGlyph.tint(p.keyLabelSecondary)
         backspaceGlyph.tint(p.keyLabelSecondary)
         for (cell in emojiPool) {
@@ -325,7 +322,7 @@ class EmojiView(context: Context) :
             lockGlyph.boxWidthPx = boxWidthPx
             lockBtn.setCompoundDrawablesWithIntrinsicBounds(lockGlyph, null, null, null)
         }
-        for ((button, glyph) in listOf(backBtn to backGlyph, clearBtn to clearGlyph, backspaceBtn to backspaceGlyph)) {
+        for ((button, glyph) in listOf(clearBtn to clearGlyph, backspaceBtn to backspaceGlyph)) {
             if (glyph.boxWidthPx == boxWidthPx) continue
             glyph.boxWidthPx = boxWidthPx
             button.setCompoundDrawablesWithIntrinsicBounds(glyph, null, null, null)

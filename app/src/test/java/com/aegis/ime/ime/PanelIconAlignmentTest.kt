@@ -499,9 +499,12 @@ class PanelIconAlignmentTest {
         val icon = requireNotNull(lock.compoundDrawables[0])
         assertTrue("$name: lock glyph keeps a drawable box", icon.bounds.width() > 0 && icon.bounds.height() > 0)
         assertTrue("$name: lock glyph stays within the key face", icon.bounds.width() <= lock.width && icon.bounds.height() <= lock.height)
-        assertEquals("$name: back key face is icon-only", "", back.text.toString())
-        val backIcon = requireNotNull(back.compoundDrawables[0])
-        assertTrue("$name: back glyph keeps a drawable box", backIcon.bounds.width() > 0 && backIcon.bounds.height() > 0)
-        assertTrue("$name: back glyph stays within the key face", backIcon.bounds.width() <= back.width && backIcon.bounds.height() <= back.height)
+        assertEquals(
+            "$name: back key face spells out its name",
+            back.context.getString(com.aegis.ime.R.string.panel_back),
+            back.text.toString(),
+        )
+        assertNull("$name: back key face carries no glyph", back.compoundDrawables.firstOrNull { it != null })
+        assertEquals("$name: back label is centred", Gravity.CENTER, back.gravity)
     }
 }

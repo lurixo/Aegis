@@ -90,7 +90,6 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
     private val outlineRect = RectF()
     private val backspaceGlyph = IconDrawable(density, 0.499f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
-    private val collapseGlyph = IconDrawable(density, 0.910f) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = false) }
     private val measurePaint = Paint()
     private var sourceCandidates: List<String>? = null
     private var sourceCandidateProjection: CandidateProjectionPolicy? = null
@@ -141,11 +140,9 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         addView(table, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         rightColumn.applyPalette(palette)
         rightColumn.addView(
-            funcButton("") { onClose() }.apply {
-                contentDescription = context.getString(R.string.panel_back)
-                setCompoundDrawablesWithIntrinsicBounds(collapseGlyph, null, null, null)
+            funcButton(context.getString(R.string.panel_back)) { onClose() }.apply {
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setPadding(0, 0, 0, 0)
-                collapseGlyph.tint(palette.keyLabelSecondary)
             },
             actionSlotLp(),
         )
@@ -159,7 +156,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         )
         rightColumn.addView(
             funcButton(context.getString(R.string.kbd_redo)) { onClear() }.apply {
-                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
+                setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setPadding(0, 0, 0, 0)
             },
             actionSlotLp(),
@@ -216,7 +213,6 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         backspaceFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
         clearFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
         backspaceGlyph.tint(p.keyLabelSecondary)
-        collapseGlyph.tint(p.keyLabelSecondary)
         candidateAdapter.notifyDataSetChanged()
         for (i in readingPool.indices) {
             val color = readingColor(i == renderedSelected)
@@ -298,7 +294,6 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         val actions = actionSpan(width)
         (readingScroll.layoutParams as LayoutParams).width = span.coerceAtLeast(1)
         (rightColumn.layoutParams as LayoutParams).width = actions
-        returnButton().setPadding((actions - collapseGlyph.intrinsicWidth) / 2, 0, 0, 0)
         backspaceButton().setPadding((actions - backspaceGlyph.intrinsicWidth) / 2, 0, 0, 0)
     }
 
@@ -699,7 +694,6 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun backspaceFeedbackLevelForTest(): Float = backspaceFeedback.levelForTest()
     internal fun clearButtonForTest(): TextView = clearButton()
     internal fun clearFeedbackLevelForTest(): Float = clearFeedback.levelForTest()
-    internal fun collapseGlyphForTest(): Drawable = collapseGlyph
     internal fun backspaceGlyphForTest(): Drawable = backspaceGlyph
     internal fun gridScrollYForTest(): Int = gridScrollOffsetForTest
     internal fun firstVisibleCandidateRowForTest(): Int = table.firstVisiblePosition

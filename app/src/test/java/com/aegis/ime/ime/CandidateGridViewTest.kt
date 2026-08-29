@@ -26,7 +26,9 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.widget.TextView
+import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
@@ -125,12 +127,23 @@ class CandidateGridViewTest {
     @Test fun right_controls_share_one_vertical_center_line() {
         val v = measured()
         val columnCenter = actionWidth() / 2
-        val backCenter = v.returnButtonForTest().paddingLeft + v.collapseGlyphForTest().intrinsicWidth / 2
         val deleteCenter = v.backspaceButtonForTest().paddingLeft + v.backspaceGlyphForTest().intrinsicWidth / 2
-        assertTrue("collapse glyph centers on the column center line, got $backCenter vs $columnCenter", kotlin.math.abs(columnCenter - backCenter) <= 1)
-        assertTrue("backspace glyph centers on the same line, got $deleteCenter vs $columnCenter", kotlin.math.abs(columnCenter - deleteCenter) <= 1)
-        assertEquals("collapse and backspace shift right by the same padding", v.returnButtonForTest().paddingLeft, v.backspaceButtonForTest().paddingLeft)
-        assertEquals("redo keeps its label centered so the three share one line", Gravity.CENTER, v.clearButtonForTest().gravity)
+        assertTrue("backspace glyph centers on the column center line, got $deleteCenter vs $columnCenter", kotlin.math.abs(columnCenter - deleteCenter) <= 1)
+        for (control in listOf(v.returnButtonForTest(), v.backspaceButtonForTest(), v.clearButtonForTest())) {
+            assertEquals("every control centres its content", Gravity.CENTER, control.gravity)
+        }
+    }
+
+    @Test fun the_worded_action_controls_read_at_the_panel_action_size() {
+        val v = measured()
+        for ((name, control) in listOf(
+            ctx.getString(R.string.panel_back) to v.returnButtonForTest(),
+            ctx.getString(R.string.kbd_redo) to v.clearButtonForTest(),
+        )) {
+            assertEquals("the control spells out its name", name, control.text.toString())
+            assertNull("no glyph is left beside the words", control.compoundDrawables.firstOrNull { it != null })
+            assertEquals("it is set at the panel action size", ImeType.body * density, control.textSize, 0.01f)
+        }
     }
 
     @Test fun the_action_glyphs_are_drawn_at_the_candidate_size() {
@@ -139,7 +152,6 @@ class CandidateGridViewTest {
             android.graphics.Paint().apply { textSize = 19f * density }.getTextBounds("哦", 0, 1, it)
         }.height()
         val glyphs = listOf(
-            "collapse" to v.collapseGlyphForTest(),
             "backspace" to v.backspaceGlyphForTest(),
         )
 
