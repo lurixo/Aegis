@@ -16,7 +16,7 @@
 package com.aegis.ime.ime
 
 object LargeCommit {
-    const val CHUNK = 100_000
+    const val CHUNK = 16_384
 
     inline fun commit(text: CharSequence, sink: (CharSequence) -> Unit) {
         if (text.length <= CHUNK) { sink(text); return }

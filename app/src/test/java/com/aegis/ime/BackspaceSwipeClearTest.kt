@@ -471,6 +471,15 @@ class BackspaceSwipeClearTest {
         )
     }
 
+    @Test fun one_commit_stays_inside_what_a_binder_transaction_can_carry() {
+        val worst = String(CharArray(LargeCommit.CHUNK) { '\uFFFD' })
+        val bytes = worst.toByteArray(Charsets.UTF_8).size
+        assertTrue(
+            "a commit of ${LargeCommit.CHUNK} characters would put $bytes bytes through one transaction",
+            bytes <= 128 * 1024,
+        )
+    }
+
     @Test fun a_restore_reaches_as_far_as_a_clear_can_capture() {
         assertEquals(
             "a clear that keeps more than a restore can put back would lose the difference",
