@@ -51,7 +51,7 @@ class CandidateGridViewTest {
     private fun dp(v: Int) = (v * density).toInt()
     private fun sideWidth() = ((360 * density) * Layouts.NINE_SIDE_FRACTION).roundToInt()
     private fun actionWidth() = minOf(sideWidth(), dp(Layouts.CANDIDATE_ACTION_WIDTH_DP))
-    private fun tableWidth() = (360 * density).toInt() - sideWidth() - actionWidth() - dp(4 + 4)
+    private fun tableWidth() = (360 * density).toInt() - sideWidth() - actionWidth()
 
     private fun measured(v: CandidateGridView = CandidateGridView(ctx)): CandidateGridView = v.apply {
         measure(
@@ -505,19 +505,30 @@ class CandidateGridViewTest {
         assertEquals("a lone five-grapheme candidate still gets only a quarter of the width", 10f, alone.chipTextSizeSpForTest(0), 0.01f)
     }
 
-    @Test fun reading_rail_is_an_inset_card_matching_the_scroll_column_style() {
+    @Test fun the_reading_column_candidates_and_actions_share_one_ruled_table() {
         val v = measured()
         val side = sideWidth()
-        assertEquals(listOf(side - dp(6), dp(3), dp(3), dp(8), dp(8)), v.railLayoutForTest().toList())
+        assertEquals(
+            "the reading column runs edge to edge with no card inset",
+            listOf(side, 0, 0, 0, 0),
+            v.railLayoutForTest().toList(),
+        )
         assertEquals(actionWidth(), v.rightColumnWidthForTest())
-        assertEquals(8f * density, v.railCornerRadiusForTest(), 0.001f)
         assertFalse("platform scrollbar must stay off in favour of the custom thumb", v.railScrollbarEnabledForTest())
-        assertEquals(listOf(dp(4), dp(4), dp(8), dp(8)), v.tableLayoutForTest().toList())
-        assertEquals(8f * density, v.tableCornerRadiusForTest(), 0.001f)
-        assertNull("the table paints no fill of its own", v.tableBackgroundForTest())
+        assertEquals(
+            "one rule closes the reading column and one closes the candidates",
+            listOf(side, v.width - actionWidth()),
+            v.columnRulesForTest(),
+        )
+        assertEquals(
+            "the action keys are ruled apart at their own boundaries",
+            (1..2).map { v.actionBoundsForTest(it).top },
+            v.actionRulesForTest(),
+        )
+        assertEquals("one outline rounds the whole panel", 8f * density, v.panelCornerRadiusForTest(), 0.001f)
     }
 
-    @Test fun expanded_reading_rail_matches_the_unexpanded_nine_key_scroll_card_width() {
+    @Test fun the_reading_column_spans_the_nine_key_scroll_column_band() {
         val expanded = measured()
         val keyboard = KeyboardView(ctx).apply {
             setLayout(Layouts.forId(LayoutId.NINE, Lang.CN), false, false, Lang.CN)
@@ -527,8 +538,14 @@ class CandidateGridViewTest {
             )
             layout(0, 0, measuredWidth, measuredHeight)
         }
+        val card = keyboard.scrollRegionForTest()
 
-        assertEquals(keyboard.scrollRegionForTest().width(), expanded.railLayoutForTest()[0].toFloat(), 1f)
+        assertEquals(
+            "the reading column covers the nine-key scroll card and the gaps around it",
+            card.left + card.right,
+            expanded.railLayoutForTest()[0].toFloat(),
+            1f,
+        )
     }
 
     @Test fun rail_thumb_is_absent_without_overflow() {
@@ -560,10 +577,24 @@ class CandidateGridViewTest {
         assertEquals(19f, v.readingTextSizeSpForTest(1), 0.01f)
     }
 
-    @Test fun palette_flows_to_rail_and_table_in_static_light_and_dark() {
+    @Test fun the_reading_and_action_columns_stand_apart_from_the_candidate_area() {
         for (pal in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
             val v = CandidateGridView(ctx).apply { applyPalette(pal) }
-            assertEquals(Triple(pal.railBg, pal.separator, Motion.withAlpha(pal.icon, 0x55)), v.railColorsForTest())
+            assertEquals(
+                "the side columns take the rail surface and the candidates sit on the board",
+                Triple(pal.railBg, pal.keyboardBg, pal.railBg),
+                v.columnBackgroundsForTest(),
+            )
+            assertTrue("the two surfaces must actually differ", pal.railBg != pal.keyboardBg)
+        }
+    }
+
+    @Test fun palette_flows_to_every_rule_of_the_table_in_static_light_and_dark() {
+        for (pal in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
+            val v = CandidateGridView(ctx).apply { applyPalette(pal) }
+            assertEquals(pal.separator to Motion.withAlpha(pal.icon, 0x55), v.railColorsForTest())
+            assertEquals(pal.separator, v.panelRuleColorForTest())
+            assertEquals(pal.separator, v.panelOutlineColorForTest())
             assertEquals(pal.separator, v.tableSeparatorColorForTest())
             assertEquals(dp(1), v.tableDividerHeightForTest())
             assertEquals(

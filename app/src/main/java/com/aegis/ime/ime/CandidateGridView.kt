@@ -27,8 +27,8 @@ import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
-import android.graphics.drawable.GradientDrawable
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
@@ -80,8 +80,14 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private val readingColumn = LinearLayout(context).apply { orientation = VERTICAL }
     private val table = TableColumn(context, density)
     private val readingScroll = RailScrollView(context, density)
-    private val gridScroll = FrameLayout(context)
-    private val rightColumn = LinearLayout(context).apply { orientation = VERTICAL }
+    private val rightColumn = ActionColumn(context, density)
+    private val panelRadius = ImeShapes.cardRadiusDp * density
+    private val rulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = density }
+    private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = density
+    }
+    private val outlineRect = RectF()
     private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
     private val collapseGlyph = IconDrawable(density, 9f * (1.64f / 1.40f) / 22f) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = false) }
     private val measurePaint = Paint()
@@ -129,29 +135,9 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         table.adapter = candidateAdapter
 
         readingScroll.addView(readingColumn, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
-        addView(
-            readingScroll,
-            LayoutParams(dp(51), LayoutParams.MATCH_PARENT).apply {
-                leftMargin = dp(3)
-                rightMargin = dp(3)
-                topMargin = dp(8)
-                bottomMargin = dp(8)
-            },
-        )
-        gridScroll.addView(
-            table,
-            FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT).apply {
-                leftMargin = dp(4)
-                rightMargin = dp(4)
-                topMargin = dp(8)
-                bottomMargin = dp(8)
-            },
-        )
-        addView(
-            gridScroll,
-            LayoutParams(0, LayoutParams.MATCH_PARENT, 1f),
-        )
-        rightColumn.setBackgroundColor(palette.keyboardBg)
+        addView(readingScroll, LayoutParams(dp(51), LayoutParams.MATCH_PARENT))
+        addView(table, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
+        rightColumn.applyPalette(palette)
         rightColumn.addView(
             funcButton("") { onClose() }.apply {
                 contentDescription = context.getString(R.string.panel_back)
@@ -227,7 +213,9 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         setBackgroundColor(p.keyboardBg)
         readingScroll.applyPalette(p)
         table.applyPalette(p)
-        rightColumn.setBackgroundColor(p.keyboardBg)
+        rulePaint.color = p.separator
+        outlinePaint.color = p.separator
+        rightColumn.applyPalette(p)
         for (i in 0 until rightColumn.childCount) (rightColumn.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
         returnFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
         backspaceFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
@@ -244,6 +232,17 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
 
     private fun readingColor(on: Boolean): Int = if (on) palette.candidateFirst else palette.candidateText
+
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        val h = height.toFloat()
+        for (rule in listOf(readingScroll.right, table.right)) {
+            canvas.drawLine(rule.toFloat(), 0f, rule.toFloat(), h, rulePaint)
+        }
+        val half = density / 2f
+        outlineRect.set(half, half, width - half, h - half)
+        canvas.drawRoundRect(outlineRect, panelRadius, panelRadius, outlinePaint)
+    }
 
     private fun actionSlotLp() = LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f)
 
@@ -278,11 +277,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private fun updateSideColumns(width: Int) {
         val span = sideSpan(width)
         val actions = actionSpan(width)
-        (readingScroll.layoutParams as LayoutParams).apply {
-            this.width = (span - dp(6)).coerceAtLeast(1)
-            leftMargin = dp(3)
-            rightMargin = dp(3)
-        }
+        (readingScroll.layoutParams as LayoutParams).width = span.coerceAtLeast(1)
         (rightColumn.layoutParams as LayoutParams).width = actions
         returnButton().setPadding((actions - collapseGlyph.intrinsicWidth) / 2, 0, 0, 0)
         backspaceButton().setPadding((actions - backspaceGlyph.intrinsicWidth) / 2, 0, 0, 0)
@@ -345,7 +340,6 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         val tv = TextView(context).apply {
             gravity = Gravity.CENTER
             maxLines = 1
-            setPadding(0, dp(10), 0, dp(10))
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
             setTextColor(palette.candidateText)
             isClickable = true
@@ -357,7 +351,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             palette.candidateText,
         ).also { it.bind { hapticEnabled } }
         readingPool.add(tv)
-        readingColumn.addView(tv, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        readingColumn.addView(tv, LayoutParams(LayoutParams.MATCH_PARENT, candidateRowStride()))
         readingsAllocated++
         return tv
     }
@@ -400,7 +394,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             ?.let { (it * density).toInt() }
             ?: resources.displayMetrics.widthPixels
         val liveWidth = measuringWidthOverride.takeIf { it > 0 } ?: width.takeIf { it > 0 } ?: configuredWidth
-        val tableW = (liveWidth - sideSpan(liveWidth) - actionSpan(liveWidth) - dp(4 + 4)).coerceAtLeast(dp(46))
+        val tableW = (liveWidth - sideSpan(liveWidth) - actionSpan(liveWidth)).coerceAtLeast(dp(46))
         val sourceUnchanged = candidates == sourceCandidates
         val nextSourceIndices = projection?.let { projectedCandidateIndices(candidates, it) }
             ?: candidates.indices.toList()
@@ -540,11 +534,11 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun setSelectionContentVisible(visible: Boolean) {
         val target = if (visible) View.VISIBLE else View.INVISIBLE
         readingScroll.visibility = target
-        gridScroll.visibility = target
+        table.visibility = target
     }
     internal fun readingsAllocatedForTest(): Int = readingsAllocated
     internal fun selectionContentVisibleForTest(): Boolean =
-        readingScroll.visibility == View.VISIBLE && gridScroll.visibility == View.VISIBLE
+        readingScroll.visibility == View.VISIBLE && table.visibility == View.VISIBLE
     internal fun renderedCandidateTextsForTest(): List<String> = renderedCandidates.orEmpty()
     internal fun renderedSourceIndicesForTest(): List<Int> = renderedSourceIndices
     internal fun rowTextsForTest(): List<List<String>> {
@@ -571,15 +565,20 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         val lp = readingScroll.layoutParams as LayoutParams
         return intArrayOf(lp.width, lp.leftMargin, lp.rightMargin, lp.topMargin, lp.bottomMargin)
     }
-    internal fun tableLayoutForTest(): IntArray {
-        val lp = table.layoutParams as FrameLayout.LayoutParams
-        return intArrayOf(lp.leftMargin, lp.rightMargin, lp.topMargin, lp.bottomMargin)
-    }
+    internal fun columnRulesForTest(): List<Int> = listOf(readingScroll.right, table.right)
+    internal fun actionRulesForTest(): List<Int> = rightColumn.ruleYsForTest()
+    internal fun panelCornerRadiusForTest(): Float = panelRadius
+    internal fun panelRuleColorForTest(): Int = rulePaint.color
+    internal fun panelOutlineColorForTest(): Int = outlinePaint.color
     internal fun railThumbRectForTest(): RectF? = readingScroll.thumbRect()
     internal fun railTrackAndContentForTest(): Pair<Int, Int> = readingScroll.height to readingColumn.height
-    internal fun railColorsForTest(): Triple<Int, Int, Int> =
-        Triple(readingScroll.railColorForTest(), readingScroll.separatorColorForTest(), readingScroll.thumbColorForTest())
-    internal fun railCornerRadiusForTest(): Float = readingScroll.cornerRadiusForTest()
+    internal fun railColorsForTest(): Pair<Int, Int> =
+        readingScroll.separatorColorForTest() to readingScroll.thumbColorForTest()
+    internal fun columnBackgroundsForTest(): Triple<Int, Int, Int> = Triple(
+        (readingScroll.background as ColorDrawable).color,
+        (background as ColorDrawable).color,
+        (rightColumn.background as ColorDrawable).color,
+    )
     internal fun railScrollbarEnabledForTest(): Boolean = readingScroll.isVerticalScrollBarEnabled
     internal fun tableSeparatorColorForTest(): Int = table.separatorColorForTest()
     internal fun tableDividerHeightForTest(): Int = table.dividerHeight
@@ -600,8 +599,6 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         return Rect(0, 0, child.width, child.height).also { offsetDescendantRectToMyCoords(child, it) }
     }
     internal fun rightColumnWidthForTest(): Int = rightColumn.layoutParams.width
-    internal fun tableCornerRadiusForTest(): Float = table.cornerRadiusForTest()
-    internal fun tableBackgroundForTest(): Drawable? = table.background
     internal fun renderedReadingTextsForTest(): List<String> {
         val out = ArrayList<String>()
         for (i in 0 until readingColumn.childCount) {
@@ -662,22 +659,16 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
 
     override fun shouldDelayChildPressedState(): Boolean = false
 
-        private val radius = ImeShapes.keyRadiusDp * density
-        private val bg = GradientDrawable().apply { cornerRadius = radius }
         private val separatorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = density }
         private val thumbPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val thumbRect = RectF()
-        private var railColor = 0
 
         init {
             isVerticalScrollBarEnabled = false
-            background = bg
-            clipToOutline = true
         }
 
         fun applyPalette(p: ImePalette) {
-            railColor = p.railBg
-            bg.setColor(p.railBg)
+            setBackgroundColor(p.railBg)
             separatorPaint.color = p.separator
             thumbPaint.color = Motion.withAlpha(p.icon, 0x55)
             invalidate()
@@ -707,7 +698,6 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
                         break
                     }
                 }
-                val inset = 6f * density
                 val viewportTop = scrollY.toFloat()
                 val viewportBottom = viewportTop + height
                 for (i in 0 until last) {
@@ -715,16 +705,38 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
                     if (child.visibility != VISIBLE) continue
                     val y = (column.top + child.bottom).toFloat()
                     if (y < viewportTop || y >= viewportBottom) continue
-                    canvas.drawLine(inset, y, width - inset, y, separatorPaint)
+                    canvas.drawLine(0f, y, width.toFloat(), y, separatorPaint)
                 }
             }
             thumbRect()?.let { canvas.drawRoundRect(it, 2f * density, 2f * density, thumbPaint) }
         }
 
-        fun railColorForTest(): Int = railColor
         fun separatorColorForTest(): Int = separatorPaint.color
         fun thumbColorForTest(): Int = thumbPaint.color
-        fun cornerRadiusForTest(): Float = radius
+    }
+
+    private class ActionColumn(context: Context, private val density: Float) : LinearLayout(context) {
+        private val rulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = density }
+
+        init {
+            orientation = VERTICAL
+        }
+
+        fun applyPalette(p: ImePalette) {
+            setBackgroundColor(p.railBg)
+            rulePaint.color = p.separator
+            invalidate()
+        }
+
+        fun ruleYsForTest(): List<Int> =
+            (0 until childCount - 1).map { getChildAt(it).bottom }
+
+        override fun dispatchDraw(canvas: Canvas) {
+            super.dispatchDraw(canvas)
+            for (y in ruleYsForTest()) {
+                canvas.drawLine(0f, y.toFloat(), width.toFloat(), y.toFloat(), rulePaint)
+            }
+        }
     }
 
     private class CandidateRow(context: Context, density: Float) : LinearLayout(context) {
@@ -751,12 +763,6 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
 
     private class TableColumn(context: Context, private val density: Float) : ListView(context) {
-        private val radius = ImeShapes.cardRadiusDp * density
-        private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            strokeWidth = density
-        }
-        private val outlineRect = RectF()
         private var separatorColor = 0
 
         init {
@@ -769,21 +775,10 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             separatorColor = p.separator
             divider = p.separator.toDrawable()
             dividerHeight = density.toInt().coerceAtLeast(1)
-            outlinePaint.color = p.separator
             invalidate()
         }
 
         fun separatorColorForTest(): Int = separatorColor
-        fun cornerRadiusForTest(): Float = radius
-
-        override fun dispatchDraw(canvas: Canvas) {
-            super.dispatchDraw(canvas)
-            if (childCount == 0) return
-            val w = width.toFloat()
-            val half = density / 2f
-            outlineRect.set(half, half, w - half, height - half)
-            canvas.drawRoundRect(outlineRect, radius, radius, outlinePaint)
-        }
     }
 
     private class IconDrawable(
