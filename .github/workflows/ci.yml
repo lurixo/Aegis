@@ -53,11 +53,29 @@ jobs:
           python3 tools/release/test_build_dictionary_pack.py
           python3 tools/release/test_build_tgh_asset.py
 
-      - name: Set up JDK 25.0.4
-        uses: actions/setup-java@v5
-        with:
-          distribution: temurin
-          java-version: "25.0.4"
+      - name: Install the JDK the local gate runs on
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends openjdk-25-jdk-headless
+          home=/usr/lib/jvm/java-25-openjdk-amd64
+          if [[ ! -x "$home/bin/java" ]]; then
+            echo "the Ubuntu OpenJDK 25 package did not land in $home" >&2
+            exit 1
+          fi
+          echo "JAVA_HOME=$home" >> "$GITHUB_ENV"
+          echo "$home/bin" >> "$GITHUB_PATH"
+
+      - name: Verify the runner JDK matches the local baseline
+        run: |
+          properties="$("$JAVA_HOME/bin/java" -XshowSettings:properties -version 2>&1)"
+          vendor="$(sed -n 's/^ *java\.vendor = //p' <<< "$properties")"
+          runtime="$(sed -n 's/^ *java\.runtime\.version = //p' <<< "$properties")"
+          if [[ "$vendor" != "Ubuntu" || "$runtime" != "25.0.4+7-1-26.04-Ubuntu" ]]; then
+            echo "the runner ships $vendor $runtime, but the local baseline is Ubuntu 25.0.4+7-1-26.04-Ubuntu" >&2
+            exit 1
+          fi
 
       - name: Validate Gradle wrapper
         uses: gradle/actions/wrapper-validation@v6.3.0
