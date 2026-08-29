@@ -269,6 +269,17 @@ class SelectionCopyTest {
             .edit().putBoolean("clip_history", true).commit()
     }
 
+    @Test fun a_password_field_copies_exactly_like_any_other_field() {
+        val f = fixture(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        select(f, "hunter2-and-then-some", 0, 7)
+
+        edit(f.service, EditAction.COPY)
+
+        assertEquals("a password field is an ordinary field", "hunter2", stored(f.service))
+        assertNull("and it still never reaches the system clipboard", systemClip())
+        assertEquals(app.getString(R.string.edit_copy_done), f.service.toastTextForTest())
+    }
+
     @Test fun a_read_the_input_session_ended_under_is_dropped_instead_of_settling_on_a_dead_field() {
         val f = fixture()
         val written = body(ChunkedRead.CHUNK * 3)

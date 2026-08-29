@@ -238,7 +238,7 @@ class AssociationsAndCalcTest {
         val c = KeyboardController(h, emptyEngine)
         c.setLearningBlocked(true)
         "12+3".forEach { c.onKey(digit(it.toString())) }
-        assertTrue("a secure field must not surface a calc result", c.candidateWords().isEmpty())
+        assertTrue("a field that opted out of personalization must not surface a calc result", c.candidateWords().isEmpty())
     }
 
     @Test fun picking_a_calc_candidate_after_learning_becomes_blocked_commits_nothing() {

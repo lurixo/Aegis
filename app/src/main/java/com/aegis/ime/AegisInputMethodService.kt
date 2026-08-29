@@ -167,7 +167,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         redraw()
         if (!landed) toast(uiString(R.string.svc_recents_update_failed))
     }
-    @Volatile private var secureField = false
     @Volatile private var personalizationBlocked = false
 
     private data class EditorTarget(
@@ -190,7 +189,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     internal data class TransientStateSnapshot(
         val inputActive: Boolean,
-        val secure: Boolean,
         val targetPackage: String?,
         val composition: String,
         val editActive: Boolean,
@@ -488,15 +486,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun canRestoreCurrentSession(): Boolean =
-        inputSessionActive && !secureField && currentEditorTarget != null
+        inputSessionActive && currentEditorTarget != null
 
     override fun onStartInput(info: EditorInfo?, restarting: Boolean) {
         super.onStartInput(info, restarting)
 
         val nextTarget = editorTarget(info)
-        val nextSecure = info != null && com.aegis.ime.user.ClipboardPolicy.isSensitive(info.inputType)
         val preserveLayout = nextTarget != null && nextTarget.packageName == layoutSessionPackage
-        val sameRestart = restarting && inputSessionActive && !secureField && !nextSecure &&
+        val sameRestart = restarting && inputSessionActive &&
             currentEditorTarget?.let { previous -> nextTarget?.let(previous::sameEditor) } == true
 
         if (!sameRestart) {
@@ -505,15 +502,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             resetControllerOnNextInputView = true
         }
         if (nextTarget != null) layoutSessionPackage = nextTarget.packageName
-        secureField = nextSecure
         dropChunkedRead()
         selStart = info?.initialSelStart ?: -1
         selEnd = info?.initialSelEnd ?: -1
         currentEditorTarget = nextTarget
         inputSessionActive = nextTarget != null
 
-        personalizationBlocked =
-            info != null && com.aegis.ime.user.ClipboardPolicy.blocksLearning(info.inputType, info.imeOptions)
+        personalizationBlocked = info != null && com.aegis.ime.user.ClipboardPolicy.blocksLearning(info.imeOptions)
         controller.setLearningBlocked(personalizationBlocked)
         val quiet = userStoresLoaded && !liveUserDictHost.writing && !LiveUserData.restoreInProgress
         if (quiet && (!userModel.dirty || !userModel.readable) && userDbFile.lastModified() > userDbMtime) {
@@ -559,7 +554,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         currentEditorTarget = null
         inputSessionActive = false
         resetControllerOnNextInputView = false
-        secureField = false
         personalizationBlocked = false
         if (LiveUserData.restoreInProgress) return
         liveUserDictHost.scheduleSave()
@@ -713,7 +707,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         return TransientStateSnapshot(
             inputActive = inputSessionActive,
-            secure = secureField,
             targetPackage = currentEditorTarget?.packageName,
             composition = composition,
             editActive = panelInput.active,
@@ -728,11 +721,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         syncUiLocale()
         super.onStartInputView(info, restarting)
         val viewTarget = editorTarget(info)
-        val viewSecure = info != null && com.aegis.ime.user.ClipboardPolicy.isSensitive(info.inputType)
-        val viewBlocksPersonalization =
-            info != null && com.aegis.ime.user.ClipboardPolicy.blocksLearning(info.inputType, info.imeOptions)
+        val viewBlocksPersonalization = info != null && com.aegis.ime.user.ClipboardPolicy.blocksLearning(info.imeOptions)
         val preserveLayout = viewTarget != null && viewTarget.packageName == layoutSessionPackage
-        val targetMatches = inputSessionActive && !secureField && !viewSecure &&
+        val targetMatches = inputSessionActive &&
             currentEditorTarget?.let { active -> viewTarget?.let(active::sameEditor) } == true
         if (!targetMatches) {
 
@@ -740,7 +731,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             clearEditorTransientState(resetController = true, abortInline = false, preserveLayout = preserveLayout)
             currentEditorTarget = null
             inputSessionActive = false
-            secureField = viewSecure
             personalizationBlocked = viewBlocksPersonalization
             resetControllerOnNextInputView = true
         }
@@ -1604,7 +1594,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             currentEditorTarget = null
             inputSessionActive = false
             resetControllerOnNextInputView = false
-            secureField = false
             personalizationBlocked = false
         }
     }
@@ -1632,7 +1621,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         layoutSessionPackage = null
         inputSessionActive = false
         resetControllerOnNextInputView = false
-        secureField = false
         personalizationBlocked = false
         super.onUnbindInput()
     }
@@ -1643,7 +1631,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         layoutSessionPackage = null
         inputSessionActive = false
         resetControllerOnNextInputView = false
-        secureField = false
         personalizationBlocked = false
         unregisterBackCallback()
         runCatching { decodeWorker.shutdownNow() }

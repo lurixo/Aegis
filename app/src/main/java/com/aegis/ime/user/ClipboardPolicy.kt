@@ -15,27 +15,12 @@
 
 package com.aegis.ime.user
 
-import android.text.InputType
 import android.view.inputmethod.EditorInfo
 
 object ClipboardPolicy {
 
-    fun isSensitive(inputType: Int): Boolean {
-        val variation = inputType and InputType.TYPE_MASK_VARIATION
-        return when (inputType and InputType.TYPE_MASK_CLASS) {
-            InputType.TYPE_CLASS_TEXT ->
-                variation == InputType.TYPE_TEXT_VARIATION_PASSWORD ||
-                    variation == InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD ||
-                    variation == InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD
-            InputType.TYPE_CLASS_NUMBER ->
-                variation == InputType.TYPE_NUMBER_VARIATION_PASSWORD
-            else -> false
-        }
-    }
-
-    fun blocksLearning(inputType: Int, imeOptions: Int): Boolean =
-        isSensitive(inputType) ||
-            (imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
+    fun blocksLearning(imeOptions: Int): Boolean =
+        (imeOptions and EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING) != 0
 
     fun shouldRestoreCopyBar(lastCopy: String?): Boolean = lastCopy != null
 }

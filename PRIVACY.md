@@ -16,8 +16,8 @@ transmitted anywhere by Aegis:
 
 - **Keystrokes and candidates** — processed on-device by the built-in decoder; not logged off-device.
 - **Learned words and next-word predictions** — the on-device learning model that ranks your
-  frequently/recently used words (`filesDir/userlearn.txt`). No word is learned while you are in a
-  password field, or in any field whose app asks for no personalized learning.
+  frequently/recently used words (`filesDir/userlearn.txt`). No word is learned in a field whose
+  app asks for no personalized learning.
 - **User dictionary** — words you add and words Aegis has learned for you; you can import/export it
   yourself (`filesDir/userdb.txt`).
 - **Clipboard history and saved phrases (常用语)** — kept locally for the clipboard panel
@@ -25,9 +25,8 @@ transmitted anywhere by Aegis:
   can switch the clipboard history off altogether.
 - **Which symbols and emoji you reach for** — used to fill the *Common* tab of those two panels
   (`filesDir/symbol_usage.txt` and `filesDir/emoji/symbol_usage.txt`). Nothing at all is counted in
-  a password field — what you pick there may be part of the password — or in any field whose app
-  asks for no personalized learning; elsewhere it records the symbol you picked and nothing about
-  the field you picked it in.
+  a field whose app asks for no personalized learning; elsewhere it records the symbol you picked
+  and nothing about the field you picked it in.
 - **Your settings**, including the symbols you put on the keyboard yourself and, if you chose to
   save one, the default backup password — that one encrypted with a key held by the Android
   keystore, as described under [Permissions](#permissions).

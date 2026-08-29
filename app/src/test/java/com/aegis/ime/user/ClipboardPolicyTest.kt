@@ -15,7 +15,6 @@
 
 package com.aegis.ime.user
 
-import android.text.InputType
 import android.view.inputmethod.EditorInfo
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -23,40 +22,14 @@ import org.junit.Test
 
 class ClipboardPolicyTest {
 
-    @Test fun text_password_variations_are_sensitive() {
-        assertTrue(ClipboardPolicy.isSensitive(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD))
-        assertTrue(ClipboardPolicy.isSensitive(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD))
-        assertTrue(ClipboardPolicy.isSensitive(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_WEB_PASSWORD))
+    @Test fun learning_blocked_only_when_the_field_opts_out_of_personalized_learning() {
+        assertTrue(ClipboardPolicy.blocksLearning(EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING))
     }
 
-    @Test fun number_password_is_sensitive() {
-        assertTrue(ClipboardPolicy.isSensitive(InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD))
+    @Test fun a_password_field_that_did_not_opt_out_is_learned_from_like_any_other() {
+        assertFalse(ClipboardPolicy.blocksLearning(0))
+        assertFalse(ClipboardPolicy.blocksLearning(EditorInfo.IME_ACTION_DONE))
     }
-
-
-    @Test fun ordinary_fields_are_not_sensitive() {
-        assertFalse(ClipboardPolicy.isSensitive(InputType.TYPE_CLASS_TEXT))
-        assertFalse(ClipboardPolicy.isSensitive(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS))
-        assertFalse(ClipboardPolicy.isSensitive(InputType.TYPE_CLASS_NUMBER))
-        assertFalse(ClipboardPolicy.isSensitive(0))
-    }
-
-
-    @Test fun learning_blocked_for_password_fields() {
-        val pw = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        assertTrue(ClipboardPolicy.blocksLearning(pw, 0))
-        assertTrue(ClipboardPolicy.blocksLearning(InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_VARIATION_PASSWORD, 0))
-    }
-
-    @Test fun learning_blocked_when_field_opts_out_of_personalized_learning() {
-        assertTrue(ClipboardPolicy.blocksLearning(InputType.TYPE_CLASS_TEXT, EditorInfo.IME_FLAG_NO_PERSONALIZED_LEARNING))
-    }
-
-    @Test fun learning_allowed_for_ordinary_fields() {
-        assertFalse(ClipboardPolicy.blocksLearning(InputType.TYPE_CLASS_TEXT, 0))
-        assertFalse(ClipboardPolicy.blocksLearning(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS, EditorInfo.IME_ACTION_DONE))
-    }
-
 
     @Test fun copy_bar_restored_when_a_clip_is_pending() {
         assertTrue(ClipboardPolicy.shouldRestoreCopyBar("copied text"))
@@ -64,10 +37,5 @@ class ClipboardPolicyTest {
 
     @Test fun copy_bar_not_restored_when_no_clip_pending() {
         assertFalse(ClipboardPolicy.shouldRestoreCopyBar(null))
-    }
-
-    @Test fun password_fields_are_still_classified_sensitive_for_the_learning_gate() {
-        assertTrue(ClipboardPolicy.isSensitive(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD))
-        assertTrue(ClipboardPolicy.isSensitive(InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD))
     }
 }

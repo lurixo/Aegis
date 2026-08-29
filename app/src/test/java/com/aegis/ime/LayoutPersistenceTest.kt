@@ -38,7 +38,7 @@ import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], qualifiers = "w853dp-h388dp-land-hdpi")
-class SecureLayoutPersistenceTest {
+class LayoutPersistenceTest {
 
     private val engine = object : CandidateEngine {
         override fun candidates(composing: String, t9: Boolean): List<String> =
@@ -82,7 +82,7 @@ class SecureLayoutPersistenceTest {
             get(view) as KeyboardView
         }
 
-    @Test fun numpad_survives_a_secure_restart_storm_with_field_and_kind_churn() {
+    @Test fun numpad_survives_a_restart_storm_with_field_and_kind_churn() {
         val f = fixture(editor(fieldId = 1))
         f.controller.onKey(Key("", action = KeyAction.SWITCH_NUMPAD))
         assertEquals(LayoutId.NUMPAD, f.controller.activeLayoutId())
@@ -115,19 +115,24 @@ class SecureLayoutPersistenceTest {
         }
     }
 
-    @Test fun secure_restart_clears_composition_and_shift_but_keeps_the_manual_layout() {
+    @Test fun a_password_field_restart_keeps_the_composition_an_ordinary_one_keeps() {
         val password = editor(fieldId = 5, inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
         val f = fixture(password)
         f.controller.switchTextLayoutForTest(nine = false)
         f.controller.onKey(Key("n", output = "n"))
         f.controller.onKey(Key("i", output = "i"))
         assertEquals(LayoutId.ALPHA, f.controller.activeLayoutId())
-        assertTrue(f.controller.preeditForTest().isNotEmpty())
+        val composing = f.controller.preeditForTest()
+        assertTrue(composing.isNotEmpty())
 
         f.service.onStartInput(password, true)
         f.service.onStartInputView(password, true)
 
-        assertEquals("", f.controller.preeditForTest())
+        assertEquals(
+            "a restart in a password field must keep what a restart in any other field keeps",
+            composing,
+            f.controller.preeditForTest(),
+        )
         assertEquals("OFF", f.controller.shiftStateName())
         assertEquals(LayoutId.ALPHA, f.controller.activeLayoutId())
     }
@@ -164,7 +169,7 @@ class SecureLayoutPersistenceTest {
         assertEquals(LayoutId.NINE, f.controller.activeLayoutId())
     }
 
-    @Test fun a_secure_restart_storm_does_not_rebuild_an_unchanged_keyboard() {
+    @Test fun a_restart_storm_does_not_rebuild_an_unchanged_keyboard() {
         val f = fixture(editor(fieldId = 1))
         f.controller.onKey(Key("", action = KeyAction.SWITCH_NUMPAD))
         val kv = keyboardView(f.view)

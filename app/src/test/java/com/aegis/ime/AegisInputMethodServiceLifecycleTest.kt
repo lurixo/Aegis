@@ -1749,35 +1749,17 @@ class AegisInputMethodServiceLifecycleTest {
         assertCleared(f, seeded, "anonymous restarting=false")
     }
 
-    @Test fun secure_session_density_change_replaces_retained_root_without_restoring_transient_state() {
+    @Test fun a_password_field_restart_preserves_exactly_what_an_ordinary_field_restart_preserves() {
         val password = editor(
             inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD,
         )
-        val f = fixture(password)
-        val oldDensityView = f.view
-        assertEquals(1.5f, capturedInputDensity(oldDensityView), 0.001f)
-        val frameworkInputFrame = installFrameworkInputFrame(f)
-
-        try {
-            RuntimeEnvironment.setQualifiers("w320dp-h200dp-land-mdpi")
-            f.service.onConfigurationChanged(
-                Configuration(f.service.resources.configuration).apply {
-                    densityDpi = 160
-                    orientation = Configuration.ORIENTATION_LANDSCAPE
-                },
-            )
-            f.view = cachedPanel(f.service, "inputView") as InputView
-            assertNotSame(oldDensityView, f.view)
-            assertTrue(frameworkInputFrame.getChildAt(0) === f.view)
-            assertEquals(1f, capturedInputDensity(f.view), 0.001f)
-            val state = f.service.transientStateForTest()
-            assertTrue(state.secure)
-            assertEquals("", state.composition)
-            assertFalse(state.editActive)
-            assertNull(state.panel)
-            assertFalse(f.view.hasOverlay())
-        } finally {
-            RuntimeEnvironment.setQualifiers("w853dp-h388dp-land-hdpi")
+        for (kind in StateKind.entries) {
+            fixture(password).also { f ->
+                val seeded = seed(f, kind)
+                f.service.onStartInput(password, true)
+                f.service.onStartInputView(password, true)
+                assertPreserved(f, seeded)
+            }
         }
     }
 
@@ -1798,7 +1780,7 @@ class AegisInputMethodServiceLifecycleTest {
         }
     }
 
-    @Test fun new_different_secure_unknown_and_finishing_targets_clear_every_state_class() {
+    @Test fun new_different_other_kind_unknown_and_finishing_targets_clear_every_state_class() {
         for (kind in StateKind.entries) {
             fixture().also { f ->
                 val seeded = seed(f, kind)
@@ -1827,8 +1809,7 @@ class AegisInputMethodServiceLifecycleTest {
                 )
                 f.service.onStartInput(password, true)
                 f.service.onStartInputView(password, true)
-                assertCleared(f, seeded, "$kind secure target")
-                assertTrue(f.service.transientStateForTest().secure)
+                assertCleared(f, seeded, "$kind other input kind")
             }
             fixture().also { f ->
                 val seeded = seed(f, kind)

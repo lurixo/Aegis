@@ -34,7 +34,7 @@ import java.io.File
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
-class SecureFieldSymbolCountTest {
+class SymbolCountPersonalizationTest {
 
     private val docs = listOf("PRIVACY.md", "README.md", "README.zh-CN.md")
 
@@ -63,11 +63,7 @@ class SecureFieldSymbolCountTest {
             getBoolean(service)
         }
 
-    private fun startedIn(
-        info: EditorInfo,
-        secure: Boolean,
-        blocked: Boolean = secure,
-    ): AegisInputMethodService {
+    private fun startedIn(info: EditorInfo, blocked: Boolean): AegisInputMethodService {
         val service = Robolectric.buildService(AegisInputMethodService::class.java).get()
         val engine = object : CandidateEngine {
             override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
@@ -79,10 +75,6 @@ class SecureFieldSymbolCountTest {
         service.onStartInput(info, false)
         service.onCreateInputView() as InputView
         service.onStartInputView(info, false)
-        assertTrue(
-            "precondition: the service must read this field's secrecy as $secure",
-            secure == flag(service, "secureField"),
-        )
         assertTrue(
             "precondition: the service must read this field's personalization as blocked=$blocked",
             blocked == flag(service, "personalizationBlocked"),
@@ -115,23 +107,23 @@ class SecureFieldSymbolCountTest {
         (panel(service, "emojiView") as EmojiView).onEmoji("😀")
     }
 
-    @Test fun a_password_field_counts_neither_the_symbols_nor_the_emoji_you_pick() {
-        val service = startedIn(password(), secure = true)
+    @Test fun a_password_field_counts_the_symbols_and_emoji_you_pick_like_any_other_field() {
+        val service = startedIn(password(), blocked = false)
 
         pickASymbolAndAnEmoji(service)
 
-        assertFalse(
-            "a symbol picked in a password field may be part of the password, so it must not be counted",
+        assertTrue(
+            "a password field is an ordinary field, so the symbol it took must reach the Common tab",
             "€" in store(service, "symbolUsageStore").recent(),
         )
-        assertFalse(
-            "an emoji picked in a password field may be part of the password, so it must not be counted",
+        assertTrue(
+            "a password field is an ordinary field, so the emoji it took must reach the Common tab",
             "😀" in store(service, "emojiUsageStore").recent(),
         )
     }
 
     @Test fun a_field_that_asks_for_no_personalized_learning_counts_neither_either() {
-        val service = startedIn(noPersonalizedLearning(), secure = false, blocked = true)
+        val service = startedIn(noPersonalizedLearning(), blocked = true)
 
         pickASymbolAndAnEmoji(service)
 
@@ -146,7 +138,7 @@ class SecureFieldSymbolCountTest {
     }
 
     @Test fun an_ordinary_field_still_counts_the_symbols_and_emoji_you_pick() {
-        val service = startedIn(ordinary(), secure = false)
+        val service = startedIn(ordinary(), blocked = false)
 
         pickASymbolAndAnEmoji(service)
 
@@ -160,9 +152,13 @@ class SecureFieldSymbolCountTest {
         )
     }
 
-    @Test fun no_document_claims_a_password_field_learns_nothing_at_all() {
+    @Test fun no_document_singles_out_a_password_field() {
         for (name in docs) {
             val text = File("../$name").readText()
+            assertFalse(
+                "$name still describes a password field as a case of its own",
+                text.contains("password field") || text.contains("密码输入框"),
+            )
             assertFalse(
                 "$name still makes an absolute claim only an audit of every store could carry",
                 text.contains("Nothing at all is learned") || text.contains("一律不学习任何内容"),
@@ -170,52 +166,32 @@ class SecureFieldSymbolCountTest {
         }
     }
 
-    @Test fun the_privacy_statement_stops_the_count_wherever_the_learning_stops() {
+    @Test fun the_privacy_statement_ties_both_gates_to_the_app_opting_out() {
         val privacy = File("../PRIVACY.md").readText()
-        assertFalse(
-            "PRIVACY.md must no longer disclose a count that a password field survives",
-            privacy.contains("a password field included"),
+        assertTrue(
+            "PRIVACY.md must tie the learning gate to the app asking for no personalized learning",
+            privacy.contains("No word is learned in a field whose\n  app asks for no personalized learning."),
         )
         assertTrue(
-            "PRIVACY.md must say the symbol and emoji count is not kept in a password field",
-            privacy.contains("Nothing at all is counted in"),
-        )
-        assertTrue(
-            "PRIVACY.md must say the count stops in an opted-out field too",
-            privacy.contains("or in any field whose app"),
-        )
-        assertTrue(
-            "PRIVACY.md must say the count stops in an opted-out field too",
-            privacy.contains("asks for no personalized learning; elsewhere it records"),
-        )
-        assertTrue(
-            "PRIVACY.md must keep saying no word is learned there either",
-            privacy.contains("No word is learned while you are in a"),
+            "PRIVACY.md must tie the symbol and emoji count to that same gate",
+            privacy.contains("Nothing at all is counted in\n  a field whose app asks for no personalized learning;"),
         )
     }
 
-    @Test fun both_readmes_stop_the_count_wherever_the_learning_stops() {
+    @Test fun both_readmes_tie_both_gates_to_the_app_opting_out() {
         val en = File("../README.md").readText()
         assertTrue(
-            "README.md must say the panels do not count what you pick",
-            en.contains("emoji panels do not count what you pick either"),
+            "README.md must tie the learning gate to the app asking for no personalized learning",
+            en.contains("No word is learned in a field that\n  asks for no personalized learning;"),
         )
         assertTrue(
-            "README.md must extend that to every field the learning stops in",
-            en.contains("no personalized learning; in those fields the symbol and"),
+            "README.md must say the panels stop counting in those same fields",
+            en.contains("in those fields the symbol and emoji panels do not count what\n  you pick either."),
         )
         val zh = File("../README.zh-CN.md").readText()
         assertTrue(
-            "README.zh-CN.md must say the panels do not count what you pick",
-            zh.contains("符号与 emoji 面板也不会记录你选了什么"),
-        )
-        assertTrue(
             "README.zh-CN.md must say the same thing README.md says",
-            zh.contains("不学习任何词；在这些输入框里，"),
-        )
-        assertFalse(
-            "README.zh-CN.md must no longer narrow it back to a password field",
-            zh.contains("在密码输入框里，"),
+            zh.contains("在任何声明不参与个性化学习的输入框里，不学习任何词；在这些输入框里，符号与 emoji 面板也不会记录你选了什么。"),
         )
     }
 }

@@ -184,7 +184,7 @@ class PredictionTest {
         val c = KeyboardController(h, niHaoEngine())
         c.setLearningBlocked(true)
         commitNiHao(c)
-        assertTrue("no personalized predictions in a secure field", c.candidateWords().isEmpty())
+        assertTrue("no personalized predictions once a field opts out", c.candidateWords().isEmpty())
     }
 
     @Test fun reentry_dismisses_a_lingering_prediction() {
