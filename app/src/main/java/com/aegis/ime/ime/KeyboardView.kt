@@ -1098,6 +1098,8 @@ class KeyboardView(context: Context) : View(context) {
                 }
             }
             dk != null && dk.action == KeyAction.BACKSPACE -> {
+                val bounds = downPlaced?.let { it.hitRect ?: it.rect }
+                backspace.move(x, y, bounds == null || bounds.contains(x, y))
                 if (backspace.finish()) currentTarget(x, y)?.let { performClick(); emitKey(it, eventTime) }
                 notifyBackspaceBubble()
             }

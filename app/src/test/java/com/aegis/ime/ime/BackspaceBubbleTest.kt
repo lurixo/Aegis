@@ -258,6 +258,40 @@ class BackspaceBubbleTest {
         assertNull("and the bubble goes with it", iv.backspaceBubbleBoundsForTest())
     }
 
+    @Test fun a_swipe_that_only_shows_up_in_the_release_still_runs() {
+        val iv = inputView()
+        val swipes = ArrayList<Boolean>()
+        val keys = ArrayList<KeyAction?>()
+        iv.onBackspaceSwipe = { swipes += it }
+        iv.onKey = { keys += it.action }
+        attachAndLayout(iv)
+        val key = requireNotNull(iv.keyboardActionBoundsForTest(KeyAction.BACKSPACE))
+
+        iv.send(MotionEvent.ACTION_DOWN, key.centerX(), key.centerY(), 0)
+        iv.send(MotionEvent.ACTION_UP, key.centerX(), key.centerY() - (swipeThreshold + 15f), 16)
+
+        assertEquals("the release carries the swipe even with no move in between", listOf(true), swipes)
+        assertEquals("and a swipe never doubles as a delete", emptyList<KeyAction?>(), keys)
+    }
+
+    @Test fun coming_back_onto_the_key_before_the_release_takes_the_swipe_back() {
+        val iv = inputView()
+        val swipes = ArrayList<Boolean>()
+        val keys = ArrayList<KeyAction?>()
+        iv.onBackspaceSwipe = { swipes += it }
+        iv.onKey = { keys += it.action }
+        attachAndLayout(iv)
+        val key = requireNotNull(iv.keyboardActionBoundsForTest(KeyAction.BACKSPACE))
+
+        iv.send(MotionEvent.ACTION_DOWN, key.centerX(), key.centerY(), 0)
+        iv.send(MotionEvent.ACTION_MOVE, key.centerX(), key.centerY() - (swipeThreshold + 15f), 16)
+        assertTrue("precondition: the bubble is the pressed one before the release", iv.backspaceBubbleArmedForTest())
+        iv.send(MotionEvent.ACTION_UP, key.centerX(), key.centerY(), 32)
+
+        assertEquals("letting go back on the key runs nothing", emptyList<Boolean>(), swipes)
+        assertEquals("and a swipe that was taken back is not a delete either", emptyList<KeyAction?>(), keys)
+    }
+
     @Test fun letting_go_of_a_panel_swipe_unpresses_the_delete_key() {
         val panel = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
         panel.measure(
