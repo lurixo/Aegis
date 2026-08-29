@@ -25,7 +25,6 @@ import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
-import android.widget.FrameLayout
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.Lang
@@ -49,8 +48,6 @@ class CandidateGridViewTest {
     private val ctx = RuntimeEnvironment.getApplication()
     private val density = ctx.resources.displayMetrics.density
 
-    private fun rowPx() = (48 * density).toInt()
-
     private fun dp(v: Int) = (v * density).toInt()
     private fun sideWidth() = ((360 * density) * Layouts.NINE_SIDE_FRACTION).roundToInt()
     private fun actionWidth() = minOf(sideWidth(), dp(Layouts.CANDIDATE_ACTION_WIDTH_DP))
@@ -64,80 +61,32 @@ class CandidateGridViewTest {
         layout(0, 0, measuredWidth, measuredHeight)
     }
 
-    @Test fun right_controls_take_row_one_and_the_seams_under_rows_three_and_five() {
-        val h = (320 * density).toInt()
-        val v = CandidateGridView(ctx)
-        v.measure(
-            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY),
-        )
-        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
-        val back = v.returnButtonForTest().layoutParams as FrameLayout.LayoutParams
-        val delete = v.backspaceButtonForTest().layoutParams as FrameLayout.LayoutParams
-        val clear = v.clearButtonForTest().layoutParams as FrameLayout.LayoutParams
-        val separator = v.tableDividerHeightForTest()
-        val stride = v.candidateRowStrideForTest()
+    @Test fun the_three_controls_split_the_action_column_into_equal_thirds() {
+        for (heightDp in listOf(320, 120)) {
+            val h = (heightDp * density).toInt()
+            val v = CandidateGridView(ctx)
+            v.measure(
+                View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY),
+            )
+            v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+            val actions = (0..2).map { v.actionBoundsForTest(it) }
 
-        assertTrue("the candidate rows keep a separator between them", separator >= 1)
-        assertEquals("the row pitch carries the separator", rowPx() + separator, stride)
-        assertEquals(rowPx(), back.height)
-        assertEquals(rowPx(), delete.height)
-        assertEquals(rowPx(), clear.height)
-        assertEquals("收起 sits on candidate row 1", dp(8), back.topMargin)
-        assertEquals(
-            "退格 centres on the seam under candidate row 3",
-            dp(8) + stride * 2 + rowPx() + separator / 2,
-            delete.topMargin + delete.height / 2,
-        )
-        assertEquals(
-            "重输 centres on the seam under candidate row 5",
-            dp(8) + stride * 4 + rowPx() + separator / 2,
-            clear.topMargin + clear.height / 2,
-        )
-        assertEquals("candidate row 2 stays clear", 0, listOf(back, delete, clear).count { it.topMargin < dp(8) + stride + rowPx() && dp(8) + stride < it.topMargin + it.height })
-        assertTrue("the three controls stay inside the tall column", clear.topMargin + clear.height <= h)
-    }
-
-    @Test fun a_column_that_only_fits_five_rows_falls_back_to_the_even_split() {
-        val probe = CandidateGridView(ctx)
-        probe.measure(
-            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec((320 * density).toInt(), View.MeasureSpec.EXACTLY),
-        )
-        probe.layout(0, 0, probe.measuredWidth, probe.measuredHeight)
-        val stride = probe.candidateRowStrideForTest()
-        val h = dp(8) + stride * 4 + rowPx() + dp(8)
-
-        val v = CandidateGridView(ctx)
-        v.measure(
-            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY),
-        )
-        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
-        val back = v.returnButtonForTest().layoutParams as FrameLayout.LayoutParams
-        val clear = v.clearButtonForTest().layoutParams as FrameLayout.LayoutParams
-
-        assertEquals("candidate row 5 still fits, so a row-aligned rule would take the seam branch", 0, back.topMargin)
-        assertTrue("the retype must stay inside the column, got ${clear.topMargin + clear.height} of $h", clear.topMargin + clear.height <= h)
-    }
-
-    @Test fun short_column_keeps_full_size_primary_controls_and_hides_the_redundant_clear_action() {
-        val h = (120 * density).toInt()
-        val v = CandidateGridView(ctx)
-        v.measure(
-            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
-            View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY),
-        )
-        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
-        val back = v.returnButtonForTest().layoutParams as FrameLayout.LayoutParams
-        val delete = v.backspaceButtonForTest().layoutParams as FrameLayout.LayoutParams
-
-        assertEquals(rowPx(), back.height)
-        assertEquals(rowPx(), delete.height)
-        assertEquals(0, back.topMargin)
-        assertEquals(h, delete.topMargin + delete.height)
-        assertEquals(View.GONE, v.clearButtonForTest().visibility)
-        assertTrue("the two 48dp controls do not overlap", back.topMargin + back.height <= delete.topMargin)
+            assertEquals("${heightDp}dp: 收起 starts at the top of the column", 0, actions[0].top)
+            assertEquals("${heightDp}dp: 重输 ends at the bottom of the column", h, actions[2].bottom)
+            actions.zipWithNext().forEach { (upper, lower) ->
+                assertEquals("${heightDp}dp: the thirds tile with no gap: $actions", upper.bottom, lower.top)
+            }
+            assertTrue(
+                "${heightDp}dp: the three thirds differ by at most a rounding pixel: $actions",
+                actions.maxOf { it.height() } - actions.minOf { it.height() } <= 1,
+            )
+            assertEquals(
+                "${heightDp}dp: every control stays visible however short the column is",
+                listOf(View.VISIBLE, View.VISIBLE, View.VISIBLE),
+                listOf(v.returnButtonForTest(), v.backspaceButtonForTest(), v.clearButtonForTest()).map { it.visibility },
+            )
+        }
     }
 
     @Test fun right_controls_share_one_vertical_center_line() {

@@ -75,16 +75,13 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private fun dp(v: Int) = (v * density).toInt()
     private fun spPx(v: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, v, resources.displayMetrics)
     private val rowHeightPx = dp(48)
-    private val backActionRow = 0
-    private val deleteActionBoundary = 2
-    private val clearActionBoundary = 4
 
     private var palette = ImePalette.STATIC_LIGHT
     private val readingColumn = LinearLayout(context).apply { orientation = VERTICAL }
     private val table = TableColumn(context, density)
     private val readingScroll = RailScrollView(context, density)
     private val gridScroll = FrameLayout(context)
-    private val rightColumn = FrameLayout(context)
+    private val rightColumn = LinearLayout(context).apply { orientation = VERTICAL }
     private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
     private val collapseGlyph = IconDrawable(density, 9f * (1.64f / 1.40f) / 22f) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = false) }
     private val measurePaint = Paint()
@@ -162,7 +159,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
                 setPadding(0, 0, 0, 0)
                 collapseGlyph.tint(palette.keyLabelSecondary)
             },
-            actionLp(backActionRow),
+            actionSlotLp(),
         )
         rightColumn.addView(
             createBackspaceButton().apply {
@@ -170,7 +167,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
                 setPadding(0, 0, 0, 0)
                 backspaceGlyph.tint(palette.keyLabelSecondary)
             },
-            actionBoundaryLp(deleteActionBoundary),
+            actionSlotLp(),
         )
         rightColumn.addView(
             funcButton(context.getString(R.string.kbd_redo)) { onClear() }.apply {
@@ -185,7 +182,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
                     TypedValue.COMPLEX_UNIT_SP,
                 )
             },
-            actionBoundaryLp(clearActionBoundary),
+            actionSlotLp(),
         )
         addView(rightColumn, LayoutParams(dp(Layouts.CANDIDATE_ACTION_WIDTH_DP), LayoutParams.MATCH_PARENT))
         returnFeedback = ImeKeyFeedback(returnButton(), Color.TRANSPARENT, palette.keyLabelSecondary)
@@ -248,35 +245,11 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
 
     private fun readingColor(on: Boolean): Int = if (on) palette.candidateFirst else palette.candidateText
 
-    private fun actionLp(rowIndex: Int) =
-        FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, rowHeightPx, Gravity.TOP)
-            .apply { topMargin = candidateRowTop(rowIndex) }
-
-    private fun actionBoundaryLp(rowIndex: Int) =
-        FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, rowHeightPx, Gravity.TOP)
-            .apply { topMargin = candidateBoundaryTop(rowIndex) }
-
-    private fun tableFrame(): FrameLayout.LayoutParams = table.layoutParams as FrameLayout.LayoutParams
+    private fun actionSlotLp() = LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f)
 
     private fun candidateRowStride(): Int = rowHeightPx + table.dividerHeight
 
-    private fun candidateRowTop(rowIndex: Int): Int = tableFrame().topMargin + candidateRowStride() * rowIndex
-
-    private fun candidateBoundaryCenter(rowIndex: Int): Int =
-        candidateRowTop(rowIndex) + rowHeightPx + table.dividerHeight / 2
-
-    private fun candidateBoundaryTop(rowIndex: Int): Int =
-        candidateBoundaryCenter(rowIndex) - rowHeightPx / 2
-
-    private fun candidateBoundaryFits(availableHeight: Int, rowIndex: Int): Boolean {
-        val frame = tableFrame()
-        val content = availableHeight - frame.topMargin - frame.bottomMargin
-        return content >= candidateBoundaryTop(rowIndex) - frame.topMargin + rowHeightPx
-    }
-
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val mode = MeasureSpec.getMode(heightMeasureSpec)
-        if (mode != MeasureSpec.UNSPECIFIED) updateRightActionLayout(MeasureSpec.getSize(heightMeasureSpec))
         val incomingWidth = MeasureSpec.getSize(widthMeasureSpec)
         if (incomingWidth > 0) updateSideColumns(incomingWidth)
         if (incomingWidth > 0 && incomingWidth != lastMeasuredWidth) {
@@ -313,34 +286,6 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         (rightColumn.layoutParams as LayoutParams).width = actions
         returnButton().setPadding((actions - collapseGlyph.intrinsicWidth) / 2, 0, 0, 0)
         backspaceButton().setPadding((actions - backspaceGlyph.intrinsicWidth) / 2, 0, 0, 0)
-    }
-
-    private fun updateRightActionLayout(availableHeight: Int) {
-        val back = returnButton()
-        val delete = backspaceButton()
-        val clear = clearButton()
-        if (candidateBoundaryFits(availableHeight, clearActionBoundary)) {
-            clear.visibility = View.VISIBLE
-            setActionFrame(back, rowHeightPx, Gravity.TOP, candidateRowTop(backActionRow))
-            setActionFrame(delete, rowHeightPx, Gravity.TOP, candidateBoundaryTop(deleteActionBoundary))
-            setActionFrame(clear, rowHeightPx, Gravity.TOP, candidateBoundaryTop(clearActionBoundary))
-        } else if (availableHeight >= rowHeightPx * 3) {
-            clear.visibility = View.VISIBLE
-            setActionFrame(back, rowHeightPx, Gravity.TOP, 0)
-            setActionFrame(delete, rowHeightPx, Gravity.TOP, (availableHeight - rowHeightPx) / 2)
-            setActionFrame(clear, rowHeightPx, Gravity.TOP, availableHeight - rowHeightPx)
-        } else {
-            clear.visibility = View.GONE
-            setActionFrame(back, rowHeightPx, Gravity.TOP, 0)
-            setActionFrame(delete, rowHeightPx, Gravity.TOP, (availableHeight - rowHeightPx).coerceAtLeast(0))
-        }
-    }
-
-    private fun setActionFrame(view: View, height: Int, gravity: Int, topMargin: Int) {
-        val lp = view.layoutParams as FrameLayout.LayoutParams
-        lp.height = height.coerceAtLeast(0)
-        lp.gravity = gravity
-        lp.topMargin = topMargin.coerceAtLeast(0)
     }
 
     private fun funcButton(label: String, onClick: () -> Unit): TextView = TextView(context).apply {

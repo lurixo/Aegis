@@ -49,7 +49,7 @@ class ExpandedActionRowAlignmentTest {
         "w320dp-h640dp-xhdpi",
     )
 
-    @Test fun the_collapse_covers_row_one_and_the_other_two_centre_on_the_seams() {
+    @Test fun the_three_actions_split_the_column_into_equal_thirds() {
         forEachPortraitDock { grid, label ->
             val density = grid.resources.displayMetrics.density
             val rowHeight = grid.candidateRowHeightForTest()
@@ -60,44 +60,34 @@ class ExpandedActionRowAlignmentTest {
             assertTrue("$label row height $rowHeight must be at least 48dp", rowHeight >= (48 * density).toInt())
             assertTrue("$label must keep a separator between rows, got $separator", separator >= 1)
             assertEquals("$label the row pitch carries the separator", rowHeight + separator, grid.candidateRowStrideForTest())
-            assertTrue("$label must lay out at least five candidate rows: $rows", rows.size >= 5)
             rows.forEach { assertEquals("$label every visible row is one row tall: $rows", rowHeight, it.height()) }
             rows.zipWithNext().forEach { (upper, lower) ->
                 assertEquals("$label rows sit one separator apart: $rows", separator, lower.top - upper.bottom)
             }
 
-            val collapse = actions[0]
-            val firstRow = rows[0]
-            assertEquals("$label the collapse top vs row 1: $collapse vs $firstRow", firstRow.top, collapse.top)
-            assertEquals("$label the collapse bottom vs row 1: $collapse vs $firstRow", firstRow.bottom, collapse.bottom)
-            assertEquals("$label the collapse centre vs row 1", firstRow.centerY(), collapse.centerY())
-
-            listOf(1 to 2, 2 to 4).forEach { (slot, rowIndex) ->
-                val action = actions[slot]
-                val seam = rows[rowIndex].bottom + separator / 2
-                assertEquals(
-                    "$label action $slot centre vs the seam under row ${rowIndex + 1}: $action vs ${rows[rowIndex]}",
-                    seam,
-                    action.centerY(),
-                )
-                assertEquals("$label action $slot height", rowHeight, action.height())
-                assertTrue("$label action $slot stays inside ${grid.height}: $action", action.bottom <= grid.height)
+            assertEquals("$label the collapse starts at the top of the column: $actions", 0, actions[0].top)
+            assertEquals("$label the retype ends at the bottom of the column: $actions", grid.height, actions[2].bottom)
+            actions.zipWithNext().forEach { (upper, lower) ->
+                assertEquals("$label the actions tile the column with no gap: $actions", upper.bottom, lower.top)
             }
+            assertTrue(
+                "$label the three thirds differ by at most a rounding pixel: $actions",
+                actions.maxOf { it.height() } - actions.minOf { it.height() } <= 1,
+            )
             assertFalse(
-                "$label candidate row 2 must stay clear of every action: ${rows[1]} vs $actions",
-                actions.any { it.top < rows[1].bottom && rows[1].top < it.bottom },
+                "$label no action is aligned to a candidate row any more: $actions vs $rows",
+                actions.all { action -> rows.any { it.top == action.top && it.bottom == action.bottom } },
             )
         }
     }
 
-    @Test fun taps_reach_each_action_across_its_whole_row_and_the_gaps_stay_dead() {
+    @Test fun taps_reach_each_action_across_its_whole_third() {
         forEachPortraitDock { grid, label ->
             val fired = IntArray(3)
             grid.onClose = { fired[0]++ }
             grid.onBackspace = { fired[1]++ }
             grid.onClear = { fired[2]++ }
             val actions = (0..2).map { grid.actionBoundsForTest(it) }
-            val rows = grid.visibleCandidateRowsForTest()
 
             actions.forEachIndexed { slot, action ->
                 for (y in listOf(action.top + 1f, action.exactCenterY(), action.bottom - 1f)) {
@@ -112,13 +102,6 @@ class ExpandedActionRowAlignmentTest {
                     }
                 }
             }
-
-            val quiet = fired.copyOf()
-            tap(grid, actions[0].exactCenterX(), rows[1].exactCenterY())
-            assertTrue(
-                "$label a tap beside candidate row 2 must fire nothing: ${fired.toList()}",
-                fired.contentEquals(quiet),
-            )
         }
     }
 
