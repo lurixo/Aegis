@@ -17,7 +17,7 @@ package com.aegis.ime.ime
 
 object ClearedTextRestore {
 
-    const val MAX_CHARS = 16_777_216
+    const val MAX_CHARS = 33_554_432
 
     private const val BREAK = "\n"
 
