@@ -11,8 +11,8 @@
     <string name="setup_first_run_body">Chinese input needs a one-time dictionary download, and Aegis never starts it by itself. When you type pinyin with no dictionary installed, the candidate bar shows a download prompt; tap it to start, or use the dictionary settings below. English typing works offline right away. Downloaded data is stored locally only.</string>
     <string name="setup_first_run_ack">Got it</string>
     <string name="setup_steps_title">Setup steps</string>
-    <string name="setup_enable_button">1 · Enable Aegis in system settings</string>
-    <string name="setup_switch_button">2 · Switch to Aegis IME</string>
+    <string name="setup_enable_button">1. Enable Aegis IME in system settings</string>
+    <string name="setup_switch_button">2. Switch to Aegis IME</string>
     <string name="setup_try_field_label">Try typing here</string>
 
     <string name="settings_group_input_title">Input settings</string>

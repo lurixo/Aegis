@@ -11,8 +11,8 @@
     <string name="setup_first_run_body">中文输入需要一次性下载词库，Aegis 不会自行开始下载。在没有词库时输入拼音，候选栏会出现下载提示，点按即开始；也可在下方词库设置中下载。英文输入无需下载即可离线使用。下载的数据仅存本机。</string>
     <string name="setup_first_run_ack">知道了</string>
     <string name="setup_steps_title">启用步骤</string>
-    <string name="setup_enable_button">1 · 在系统设置中启用 Aegis</string>
-    <string name="setup_switch_button">2 · 切换到 Aegis 输入法</string>
+    <string name="setup_enable_button">1. 在系统设置中启用 Aegis 输入法</string>
+    <string name="setup_switch_button">2. 切换到 Aegis 输入法</string>
     <string name="setup_try_field_label">在此试打</string>
 
     <string name="settings_group_input_title">输入设置</string>
