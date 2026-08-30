@@ -194,8 +194,7 @@ class KeyboardView(context: Context) : View(context) {
     private val shiftActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentBottom; textAlign = Paint.Align.CENTER; textSize = sp(20f) }
     private val accentLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f); typeface = android.graphics.Typeface.DEFAULT }
     private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySub; textAlign = Paint.Align.CENTER; textSize = sp(11f); typeface = android.graphics.Typeface.DEFAULT }
-    private val langActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabelSecondary; textAlign = Paint.Align.CENTER; textSize = sp(20f); typeface = android.graphics.Typeface.DEFAULT }
-    private val langSmallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.RIGHT; textSize = sp(11f); typeface = android.graphics.Typeface.DEFAULT }
+    private val langLabel = ImeSplitLabel(density, sp(20f), sp(18f)).apply { applyColors(palette.keyLabelSecondary, palette.keyHint) }
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
     private val keyEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.shadow }
@@ -218,8 +217,7 @@ class KeyboardView(context: Context) : View(context) {
         shiftActivePaint.color = p.accentBottom
         accentLabelPaint.color = p.accentLabel
         subPaint.color = p.keySub
-        langActivePaint.color = p.keyLabelSecondary
-        langSmallPaint.color = p.keyHint
+        langLabel.applyColors(p.keyLabelSecondary, p.keyHint)
         sepLinePaint.color = p.separator
         pressHighlight.color = Motion.withAlpha(p.keyLabel, 0x22)
         keyEdgePaint.color = p.shadow
@@ -758,20 +756,14 @@ class KeyboardView(context: Context) : View(context) {
     private fun labelScale(rect: RectF): Float = min(1f, rect.height() / rowHeight)
 
     private fun drawLangToggle(canvas: Canvas, rect: RectF) {
-        val cn = context.getString(R.string.lang_cn)
-        val en = context.getString(R.string.lang_en)
-        val active = if (lang == Lang.CN) cn else en
-        val small = if (lang == Lang.CN) en else cn
-        val scale = labelScale(rect)
-        val activeBaseTextSize = langActivePaint.textSize
-        val smallBaseTextSize = langSmallPaint.textSize
-        langActivePaint.textSize = activeBaseTextSize * scale
-        langSmallPaint.textSize = smallBaseTextSize * scale
-        val baseline = rect.centerY() - (langActivePaint.descent() + langActivePaint.ascent()) / 2
-        canvas.drawText(active, rect.centerX(), baseline, langActivePaint)
-        canvas.drawText(small, rect.right - 5 * density * scale, rect.bottom - 6 * density * scale, langSmallPaint)
-        langActivePaint.textSize = activeBaseTextSize
-        langSmallPaint.textSize = smallBaseTextSize
+        langLabel.draw(
+            canvas,
+            rect,
+            context.getString(R.string.lang_cn),
+            context.getString(R.string.lang_en),
+            lang == Lang.CN,
+            labelScale(rect),
+        )
     }
 
     private fun drawShift(canvas: Canvas, rect: RectF) {
@@ -795,6 +787,12 @@ class KeyboardView(context: Context) : View(context) {
         val rect = placed.firstOrNull { it.key.action == KeyAction.BACKSPACE }?.rect ?: fallback
         return minOf(rect.width(), rect.height()) * 0.24f
     }
+
+    internal fun langLabelForTest(): ImeSplitLabel = langLabel
+    internal fun langPlacementForTest(): ImeSplitLabel.Placement? = boundsOfActionForTest(KeyAction.TOGGLE_LANG)?.let {
+        langLabel.layout(it, context.getString(R.string.lang_cn), context.getString(R.string.lang_en), lang == Lang.CN, labelScale(it))
+    }
+    internal fun langLeadingActiveForTest(): Boolean = lang == Lang.CN
 
     internal fun shiftRenderState(): String = if (shiftLocked) "LOCK" else if (shifted) "ONCE" else "OFF"
 
@@ -825,8 +823,8 @@ class KeyboardView(context: Context) : View(context) {
         specialLabelPaint,
         accentLabelPaint,
         subPaint,
-        langActivePaint,
-        langSmallPaint,
+        langLabel.activePaint,
+        langLabel.idlePaint,
         scrollLabelPaint,
         previewLabelPaint,
     ).all { it.typeface === android.graphics.Typeface.DEFAULT }
