@@ -358,6 +358,10 @@
     <string name="copybar_split">拆</string>
     <string name="copybar_collapse">收</string>
     <string name="copybar_no_splittable_content">无可拆分内容</string>
+    <string name="translate_mode_auto">自动</string>
+    <string name="translate_mode_zh_en">中英互译</string>
+    <string name="translate_mode_zh_ja">中日互译</string>
+    <string name="translate_caption">翻译</string>
     <string name="csp_punctuation_title">自定义标点</string>
     <string name="csp_operators_title">自定义运算符</string>
     <string name="csp_section_added">已添加</string>

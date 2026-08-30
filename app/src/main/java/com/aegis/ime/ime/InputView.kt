@@ -48,6 +48,7 @@ import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.KeyboardLayout
 import com.aegis.ime.layout.Lang
+import com.aegis.ime.translate.TranslateMode
 
 class InputView(context: Context) : LinearLayout(context) {
 
@@ -72,6 +73,10 @@ class InputView(context: Context) : LinearLayout(context) {
     var onEditTextChanged: (String) -> Unit = {}
     var onEditSelectionChanged: (Boolean) -> Unit = {}
     var onEditCancel: () -> Unit = {}
+    var onTranslateClose: () -> Unit = {}
+    var onTranslateTextChanged: (String) -> Unit = {}
+    var onTranslateModeChanged: (TranslateMode) -> Unit = {}
+    var onTranslateSelectionChanged: (Boolean) -> Unit = {}
     var onOverlayChanged: () -> Unit = {}
     var onRestoreNotice: () -> Unit = {}
 
@@ -82,6 +87,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private val candidateView = CandidateView(context)
     private val copyBarView = CopyBarView(context)
     private val editBarView = EditBarView(context)
+    private val translateBarView = TranslateBarView(context)
     private val keyboardView = KeyboardView(context)
     private val panelContainer = FrameLayout(context)
     private val gridView = CandidateGridView(context)
@@ -98,6 +104,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private var keyHaptics = false
     private var copyBarActive = false
     private var editBarActive = false
+    private var translateBarActive = false
     private var palette = ImePalette.STATIC_LIGHT
     private var barTrouble: RestoreTrouble? = null
     private var phraseNotice: String? = null
@@ -155,6 +162,7 @@ class InputView(context: Context) : LinearLayout(context) {
         keyboardView.applyPalette(p)
         gridView.applyPalette(p)
         editBarView.applyPalette(p)
+        translateBarView.applyPalette(p)
     }
 
     fun palette(): ImePalette = palette
@@ -355,6 +363,7 @@ class InputView(context: Context) : LinearLayout(context) {
 
     fun showEditBar(active: Boolean) {
         editBarActive = active
+        syncTranslateBar()
         if (active) {
             if (editBarView.visibility != VISIBLE || editBarView.alpha < 1f) {
                 Motion.showNow(editBarView)
@@ -375,7 +384,33 @@ class InputView(context: Context) : LinearLayout(context) {
         editBarView.releaseField()
         Motion.reset(editBarView)
         editBarView.visibility = GONE
+        syncTranslateBar()
     }
+
+    fun showTranslateBar(active: Boolean) {
+        translateBarActive = active
+        syncTranslateBar()
+    }
+
+    private fun syncTranslateBar() {
+        if (translateBarActive && !editBarActive) {
+            if (translateBarView.visibility != VISIBLE || translateBarView.alpha < 1f) Motion.showNow(translateBarView)
+            translateBarView.focusField()
+        } else {
+            translateBarView.dismissModeDialog()
+            translateBarView.releaseField()
+            if (translateBarView.visibility != GONE) Motion.hideNow(translateBarView)
+        }
+    }
+
+    fun isTranslateBarActive(): Boolean = translateBarActive
+    fun isTranslateBarShowing(): Boolean = translateBarView.visibility == VISIBLE
+    fun translateEditable(): PanelEditable = translateBarView.editable()
+    fun translateText(): String = translateBarView.text()
+    fun setTranslateText(t: String) { translateBarView.setText(t) }
+    fun translateMode(): TranslateMode = translateBarView.mode()
+    fun setTranslateMode(m: TranslateMode) { translateBarView.setMode(m) }
+    internal fun translateBarForTest(): TranslateBarView = translateBarView
 
     init {
         orientation = VERTICAL
@@ -402,12 +437,19 @@ class InputView(context: Context) : LinearLayout(context) {
         editBarView.onCancel = { onEditCancel() }
         editBarView.onTextChanged = { text -> onEditTextChanged(text) }
         editBarView.onSelectionState = { has -> onEditSelectionChanged(has) }
+        translateBarView.onClose = { onTranslateClose() }
+        translateBarView.onTextChanged = { text -> onTranslateTextChanged(text) }
+        translateBarView.onModeChanged = { mode -> onTranslateModeChanged(mode) }
+        translateBarView.onSelectionState = { has -> onTranslateSelectionChanged(has) }
+        translateBarView.onDialogVisibilityChanged = { onOverlayChanged() }
         addView(preeditSlot, LayoutParams(LayoutParams.MATCH_PARENT, barTopInsetPx()))
 
         body.orientation = VERTICAL
         body.setBackgroundColor(palette.keyboardBg)
         editBarView.visibility = GONE
         body.addView(editBarView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
+        translateBarView.visibility = GONE
+        body.addView(translateBarView, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         body.addView(candidateView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
         copyBarView.visibility = GONE
         body.addView(copyBarView, LayoutParams(LayoutParams.MATCH_PARENT, dp(44)))
@@ -475,13 +517,14 @@ class InputView(context: Context) : LinearLayout(context) {
                 rowCount = rows,
                 preferredKeyboardHeight = preferredKeyboard,
                 fractionalRows = keyboardView.usesFractionalCellsForSizing(),
-                editBarVisible = editBarView.visibility != GONE,
+                editBarVisible = extraBarVisible(),
                 navBottom = windowNavBottomPx,
             )
         } else {
-            unconstrainedHeightSpec(preferredKeyboard, editBarView.visibility != GONE)
+            unconstrainedHeightSpec(preferredKeyboard, extraBarVisible())
         }
         editBarView.setFieldLineBudget(if (constrainedLandscape) 1 else EditBarView.MAX_FIELD_LINES)
+        translateBarView.setFieldLineBudget(if (constrainedLandscape) 1 else TranslateBarView.MAX_FIELD_LINES)
         if (constrainedLandscape && heightMode == MeasureSpec.EXACTLY) {
             val exactHeight = MeasureSpec.getSize(heightMeasureSpec).coerceAtLeast(0)
             val surplus = (exactHeight - spec.rootHeight).coerceAtLeast(0)
@@ -496,6 +539,8 @@ class InputView(context: Context) : LinearLayout(context) {
         applyHeightSpec(spec)
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
     }
+
+    private fun extraBarVisible(): Boolean = editBarView.visibility != GONE || translateBarView.visibility != GONE
 
     private fun unconstrainedHeightSpec(
         preferredKeyboard: Int,
@@ -533,6 +578,11 @@ class InputView(context: Context) : LinearLayout(context) {
         setHeight(preeditSlot, spec.preeditHeight)
         editBarView.minimumHeight = spec.barHeight
         editBarView.layoutParams?.let { lp ->
+            val want = if (spec.emergency) spec.barHeight else android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            if (lp.height != want) lp.height = want
+        }
+        translateBarView.minimumHeight = spec.barHeight
+        translateBarView.layoutParams?.let { lp ->
             val want = if (spec.emergency) spec.barHeight else android.view.ViewGroup.LayoutParams.WRAP_CONTENT
             if (lp.height != want) lp.height = want
         }
@@ -917,17 +967,24 @@ class InputView(context: Context) : LinearLayout(context) {
         editBarView.setTitle("")
         editBarView.setText("")
         editBarView.visibility = GONE
+        translateBarView.dismissModeDialog()
+        translateBarView.setText("")
+        syncTranslateBar()
 
         onPanelChanged(null)
         onOverlayChanged()
     }
 
-    private enum class BackKind { NONE, PANEL, EDIT_BAR }
+    private enum class BackKind { NONE, TRANSLATE_DIALOG, PANEL, EDIT_BAR }
 
-    fun hasOverlay(): Boolean =
-        if (copyBarActive && copyBarShown) false else currentPanel != null || editBarActive
+    fun hasOverlay(): Boolean = when {
+        translateBarView.isModeDialogShowing() -> true
+        copyBarActive && copyBarShown -> false
+        else -> currentPanel != null || editBarActive
+    }
 
     private fun topOverlay(): Pair<BackKind, View?> = when {
+        translateBarView.isModeDialogShowing() -> BackKind.TRANSLATE_DIALOG to null
         copyBarActive && copyBarShown -> BackKind.NONE to null
         editBarActive -> BackKind.EDIT_BAR to editBarView
         currentPanel != null -> BackKind.PANEL to currentPanel
@@ -936,6 +993,7 @@ class InputView(context: Context) : LinearLayout(context) {
     }
 
     fun closeTopOverlay(): Boolean = when (topOverlay().first) {
+        BackKind.TRANSLATE_DIALOG -> { translateBarView.dismissModeDialog(); true }
         BackKind.EDIT_BAR -> { onEditCancel(); true }
         BackKind.PANEL -> { showPanel(null); true }
         BackKind.NONE -> false
@@ -1061,6 +1119,15 @@ class InputView(context: Context) : LinearLayout(context) {
             current = parentView
         }
         return Rect(x, y, x + descendant.width, y + descendant.height)
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN && translateBarView.isModeDialogShowing() &&
+            !boundsInRoot(translateBarView.modeAnchor()).contains(ev.x.roundToInt(), ev.y.roundToInt())
+        ) {
+            translateBarView.dismissModeDialog()
+        }
+        return super.dispatchTouchEvent(ev)
     }
 
     private fun dispatchTapForTest(x: Float, y: Float): Boolean {

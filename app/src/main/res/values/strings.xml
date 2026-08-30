@@ -361,6 +361,10 @@
     <string name="copybar_split">Split</string>
     <string name="copybar_collapse">Collapse</string>
     <string name="copybar_no_splittable_content">Nothing to split</string>
+    <string name="translate_mode_auto">Auto</string>
+    <string name="translate_mode_zh_en">Chinese ⇄ English</string>
+    <string name="translate_mode_zh_ja">Chinese ⇄ Japanese</string>
+    <string name="translate_caption">Translate</string>
     <string name="csp_punctuation_title">Custom punctuation</string>
     <string name="csp_operators_title">Custom operators</string>
     <string name="csp_section_added">Added</string>
