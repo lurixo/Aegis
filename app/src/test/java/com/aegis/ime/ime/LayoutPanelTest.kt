@@ -120,12 +120,12 @@ class LayoutPanelTest {
 
     @Test fun the_layout_and_edit_functions_have_the_final_toolbar_order() {
         assertEquals(
-            listOf("BRAND", "EMOJI", "LAYOUT", "EDIT", "CLIPBOARD", "PHRASE"),
+            listOf("BRAND", "EMOJI", "LAYOUT", "EDIT", "CLIPBOARD", "TRANSLATE"),
             BarFunction.entries.map { it.name },
         )
         val view = idleBar(360)
         assertEquals(
-            listOf("BRAND", "EMOJI", "LAYOUT", "EDIT", "CLIPBOARD", "PHRASE"),
+            listOf("BRAND", "EMOJI", "LAYOUT", "EDIT", "CLIPBOARD", "TRANSLATE"),
             view.toolbarFunctionsForTest().map { it.name },
         )
         assertEquals(view.toolbarFunctionsForTest().size + 1, view.toolbarControlBoundsForTest().size)

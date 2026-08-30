@@ -427,8 +427,8 @@ class AegisInputMethodServiceLifecycleTest {
         return cachedPanel(service, "editPanelView") as EditPanelView
     }
 
-    private fun showPhrasePanel(service: AegisInputMethodService) {
-        service.javaClass.getDeclaredMethod("showPhrasePanel").apply {
+    private fun toggleTranslateBar(service: AegisInputMethodService) {
+        service.javaClass.getDeclaredMethod("toggleTranslateBar").apply {
             isAccessible = true
             invoke(service)
         }
@@ -451,17 +451,22 @@ class AegisInputMethodServiceLifecycleTest {
         }
     }
 
-    @Test fun phrase_toolbar_entry_opens_the_existing_clipboard_panel_on_the_phrase_tab() {
+    @Test fun translate_toolbar_entry_toggles_the_translate_bar_instead_of_a_panel() {
         val f = fixture()
-        f.controller.onShowPhrases = { showPhrasePanel(f.service) }
+        f.controller.onShowTranslate = { toggleTranslateBar(f.service) }
 
-        f.controller.onBarFunction(BarFunction.PHRASE)
+        f.controller.onBarFunction(BarFunction.TRANSLATE)
 
-        val cv = cachedPanel(f.service, "clipboardView") as ClipboardView
-        assertTrue(f.view.isPanelShowing(cv))
-        assertFalse(cv.isClipboardTabForTest())
-        assertEquals("CLIPBOARD", f.service.transientStateForTest().panel)
-        assertEquals("PHRASES", f.service.transientStateForTest().panelDetail)
+        assertTrue(f.view.isTranslateBarShowing())
+        assertTrue(f.service.translateBarOpenForTest())
+        assertEquals(null, f.service.transientStateForTest().panel)
+        assertTrue("typing now lands in the translate field", f.service.transientStateForTest().editActive)
+
+        f.controller.onBarFunction(BarFunction.TRANSLATE)
+
+        assertFalse(f.view.isTranslateBarShowing())
+        assertFalse(f.service.translateBarOpenForTest())
+        assertFalse(f.service.transientStateForTest().editActive)
     }
 
     @Test fun split_selection_composes_into_one_region_and_finishes_when_the_popup_closes() {

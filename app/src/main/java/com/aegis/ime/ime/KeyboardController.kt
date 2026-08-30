@@ -119,7 +119,7 @@ class KeyboardController(
 
     var onShowEmoji: () -> Unit = {}
     var onShowClipboard: () -> Unit = {}
-    var onShowPhrases: () -> Unit = {}
+    var onShowTranslate: () -> Unit = {}
     var onShowEdit: () -> Unit = {}
     var onShowLayout: () -> Unit = {}
     var onShowSymbols: () -> Unit = {}
@@ -309,7 +309,7 @@ class KeyboardController(
             BarFunction.EMOJI -> onShowEmoji()
             BarFunction.EDIT -> onShowEdit()
             BarFunction.CLIPBOARD -> onShowClipboard()
-            BarFunction.PHRASE -> onShowPhrases()
+            BarFunction.TRANSLATE -> onShowTranslate()
         }
     }
 

@@ -515,35 +515,14 @@ class PanelResetOnExitTest {
             get(service) as ClipboardView
         }
 
-    @Test fun pressing_the_phrases_key_while_it_is_open_returns_to_the_top() = hosted { activity ->
-        val (service, iv) = startedService()
-        activity.setContentView(iv)
-        press(service, "showPhrasePanel")
-        idle()
-        val cv = openClipboardView(service)
-        seedClipboard(cv)
-        iv.showPanel(null); idle()
-        press(service, "showPhrasePanel"); idle()
-        settleClipboard(cv)
-        assertFalse("precondition: the phrases tab is open", cv.isClipboardTabForTest())
-        val target = scrollClipboardDown(cv, "phrases key")
-        assertTrue("precondition: the list is parked away from the top", target > 0)
-
-        press(service, "showPhrasePanel")
-        idle()
-        settleClipboard(cv)
-
-        assertTrue("pressing 常用语 again keeps the panel open", iv.isPanelShowing(cv))
-        assertFalse("pressing 常用语 again stays on the phrases tab", cv.isClipboardTabForTest())
-        assertEquals("pressing 常用语 again returns to the top of the list", 0, cv.listScrollYForTest())
-    }
-
     @Test fun pressing_the_clipboard_key_while_the_panel_is_open_closes_it() = hosted { activity ->
         val (service, iv) = startedService()
         activity.setContentView(iv)
-        press(service, "showPhrasePanel")
+        press(service, "showClipboardPanel")
         idle()
         val cv = openClipboardView(service)
+        cv.showPhraseTab("")
+        idle()
         assertTrue("precondition: the panel is open on the phrases tab", iv.isPanelShowing(cv))
         assertFalse("precondition: the phrases tab is showing", cv.isClipboardTabForTest())
 

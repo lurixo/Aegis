@@ -19,6 +19,7 @@ import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.RectF
 import android.os.Looper
 import android.view.HapticFeedbackConstants
@@ -487,7 +488,7 @@ class CandidateBarChevronTest {
             view.dispatchTouchEvent(MotionEvent.obtain(0, index * 20L, MotionEvent.ACTION_DOWN, rect.centerX(), rect.centerY(), 0))
             view.dispatchTouchEvent(MotionEvent.obtain(0, index * 20L + 10L, MotionEvent.ACTION_UP, rect.centerX(), rect.centerY(), 0))
         }
-        assertEquals(listOf("BRAND", "EMOJI", "LAYOUT", "EDIT", "CLIPBOARD", "PHRASE", "COLLAPSE"), actions)
+        assertEquals(listOf("BRAND", "EMOJI", "LAYOUT", "EDIT", "CLIPBOARD", "TRANSLATE", "COLLAPSE"), actions)
     }
 
     @Test fun idle_toolbar_end_targets_follow_the_visible_capsule_shape() {
@@ -536,7 +537,7 @@ class CandidateBarChevronTest {
             BarFunction.EMOJI to (1.64f to 1.64f),
             BarFunction.EDIT to (1.00f to 1.64f),
             BarFunction.CLIPBOARD to (1.16f to 1.58f),
-            BarFunction.PHRASE to (1.4266667f to 1.64f),
+            BarFunction.TRANSLATE to (1.64f to 1.64f),
         )
         for ((f, wh) in natural) {
             val scale = view.toolbarIconScaleForTest(f)
@@ -551,7 +552,7 @@ class CandidateBarChevronTest {
         }
         assertEquals("EDIT keeps its size", 1f, view.toolbarIconScaleForTest(BarFunction.EDIT), 0.001f)
         assertEquals("EMOJI keeps its size", 1f, view.toolbarIconScaleForTest(BarFunction.EMOJI), 0.001f)
-        assertEquals("the approved phrase glyph keeps its source scale", 1f, view.toolbarIconScaleForTest(BarFunction.PHRASE), 0.001f)
+        assertEquals("the translate glyph keeps its source scale", 1f, view.toolbarIconScaleForTest(BarFunction.TRANSLATE), 0.001f)
         assertEquals(
             "the keyboard glyph now fills the common box height",
             box,
@@ -617,18 +618,13 @@ class CandidateBarChevronTest {
         assertTrue(found)
     }
 
-    @Test fun idle_toolbar_phrase_slot_renders_the_approved_v1_geometry() {
+    @Test fun idle_toolbar_translate_slot_renders_the_two_letter_glyph() {
         val view = idleBar(320)
         val slot = view.toolbarControlBoundsForTest()[5]
         val cx = view.toolbarIconCentersForTest()[5]
         val cy = slot.centerY()
-        val s = 9f * density * view.toolbarIconScaleForTest(BarFunction.PHRASE)
-        val effectiveBounds = RectF(
-            cx - s * 0.8133333f,
-            cy - s * 0.9333333f,
-            cx + s * 0.8133333f,
-            cy + s * 0.9066667f,
-        )
+        val s = 9f * density * view.toolbarIconScaleForTest(BarFunction.TRANSLATE)
+        val effectiveBounds = RectF(cx - s * 0.84f, cy - s * 0.84f, cx + s * 0.84f, cy + s * 0.84f)
         assertTrue(slot.contains(effectiveBounds))
         val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         view.draw(Canvas(bitmap))
@@ -643,10 +639,34 @@ class CandidateBarChevronTest {
             return false
         }
 
-        assertTrue("V1 bubble keeps its right wall", hasIconInkNear(cx + s * 0.7133333f, cy - s * 0.2f))
-        assertTrue("V1 bubble keeps its tail", hasIconInkNear(cx - s * 0.3333333f, cy + s * 0.8066667f))
-        assertTrue("V1 bubble keeps its first text line", hasIconInkNear(cx, cy - s * 0.3944444f))
-        assertTrue("V1 bubble keeps its second text line", hasIconInkNear(cx, cy - s * 0.0444444f))
+        assertTrue("the front tile keeps its left edge", hasIconInkNear(cx - s * 0.84f, cy + s * 0.30f))
+        assertTrue("the back tile keeps its top edge", hasIconInkNear(cx + s * 0.30f, cy - s * 0.84f))
+        fun hasBlendedInkNear(x: Float, y: Float): Boolean {
+            val bg = ImePalette.STATIC_LIGHT.keySurface
+            val radius = (density * 1.5f).toInt().coerceAtLeast(1)
+            for (py in y.toInt() - radius..y.toInt() + radius) {
+                for (px in x.toInt() - radius..x.toInt() + radius) {
+                    val p = bitmap.getPixel(px, py)
+                    val d = abs(Color.red(p) - Color.red(bg)) + abs(Color.green(p) - Color.green(bg)) + abs(Color.blue(p) - Color.blue(bg))
+                    if (d > 60) return true
+                }
+            }
+            return false
+        }
+        assertTrue("the 文 keeps its bar", hasBlendedInkNear(cx + s * 0.35f, cy - s * 0.53f))
+        assertTrue("the A keeps its apex", hasBlendedInkNear(cx - s * 0.30f, cy - s * 0.02f))
+        assertTrue("the A keeps its crossbar", hasBlendedInkNear(cx - s * 0.30f, cy + s * 0.41f))
+        assertFalse(
+            "the front tile punches the back tile bottom edge clear",
+            hasIconInkNear(cx + s * 0.08f, cy + s * 0.26f),
+        )
+        val ink = RectF(effectiveBounds).apply { inset(-(0.9f * density + 1f), -(0.9f * density + 1f)) }
+        for (y in slot.top.toInt() until slot.bottom.toInt()) {
+            for (x in slot.left.toInt() until slot.right.toInt()) {
+                if (bitmap.getPixel(x, y) != ImePalette.STATIC_LIGHT.icon) continue
+                assertTrue("ink at ($x,$y) stays inside the glyph box", ink.contains(x.toFloat(), y.toFloat()))
+            }
+        }
     }
 
 

@@ -112,7 +112,7 @@ class Debug12FixATest {
             val recordOpen = { commitsWhenOpened = host.commits.toList() }
             c.onShowEmoji = recordOpen
             c.onShowClipboard = recordOpen
-            c.onShowPhrases = recordOpen
+            c.onShowTranslate = recordOpen
             c.onShowEdit = recordOpen
             c.onShowLayout = recordOpen
             c.onShowSettings = recordOpen

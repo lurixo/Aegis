@@ -212,6 +212,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var splitSelectionInputConnection: InputConnection? = null
     private var frameworkWillFinishInput = false
     private var panelInputTitle = ""
+    private var translateOpen = false
     private var lastCopy: String? = null
     @Volatile private var userStoresLoaded = false
     @Volatile private var engineSig = ""
@@ -372,7 +373,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller = KeyboardController(this, DictEngine(null, null, null), decodeLane)
         controller.onShowEmoji = { showEmojiPanel() }
         controller.onShowClipboard = { showClipboardPanel() }
-        controller.onShowPhrases = { showPhrasePanel() }
+        controller.onShowTranslate = { toggleTranslateBar() }
         controller.onShowEdit = { showEditPanel() }
         controller.onShowLayout = { showLayoutPanel() }
         controller.onShowSymbols = { showSymbolsPanel() }
@@ -474,9 +475,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun clearEditorTransientState(resetController: Boolean, abortInline: Boolean = true, preserveLayout: Boolean = false) {
-        if (abortInline) abortInlineInput(hideBar = false)
-
         inputView?.clearEditorTransientUiImmediately()
+        if (abortInline) abortInlineInput(hideBar = false)
         dropChunkedRead()
         dropRestoreStream()
         restorablePanel = null
@@ -611,6 +611,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             }
             onEditConfirm = { confirmInlineInput() }
             onEditCancel = { cancelInlineInput() }
+            onTranslateClose = { closeTranslateBar() }
             onOverlayChanged = { syncBackCallback() }
             onRestoreNotice = { openBackup() }
         }
@@ -633,7 +634,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         view.setKeyPreviewAlpha(SettingsHotApply.keyPreviewAlpha(fbPrefs))
         view.setLetterCase(SettingsHotApply.letterCase(fbPrefs))
 
-        if (canRestoreCurrentSession()) restoreTransientUi(view)
+        if (canRestoreCurrentSession()) restoreTransientUi(view) else if (translateOpen) bindTranslateInput(view)
         return view
     }
 
@@ -688,12 +689,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             RestorablePanel.CUSTOM_OPERATORS -> customOperatorView?.let(view::showPanel) ?: showCustomOperatorPanel()
             null -> Unit
         }
-        if (panelInput.active || inputPurpose != null) {
+        if (inputPurpose != null) {
             view.setEditTitle(panelInputTitle)
             view.setEditText(panelTextSnapshot.orEmpty())
             view.showEditBar(true)
             panelInput.begin(view.editEditable())
         }
+        if (translateOpen) bindTranslateInput(view)
     }
 
     internal fun transientStateForTest(): TransientStateSnapshot {
@@ -1278,19 +1280,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
 
-    private fun showPhrasePanel() {
-        val iv = inputView ?: return
-        iv.showPhraseNotice(null)
-        val open = clipboardView
-        if (open != null && iv.isPanelShowing(open)) {
-            open.resetToDefault()
-            open.showPhraseTab("")
-            return
-        }
-        showClipboardPanel()
-        clipboardView?.takeIf(iv::isPanelShowing)?.showPhraseTab("")
-    }
-
     private fun showCustomSymbolPanel() {
         val iv = inputView ?: return
         val panel = customSymbolView ?: CustomSymbolPanel(imeUiContext()).also {
@@ -1497,6 +1486,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         inputPurpose = null; inputCat = ""; inputOld = ""; pendingPhraseAdds = emptyList(); pendingMoveFrom = ""; pendingMoveTexts = emptyList()
         if (returningView == null) return
         returningView.dismissEditBarForPanelReturn()
+        bindTranslateInput(returningView)
         if (returningClipboard != null) {
             if (inlineOriginPhrasesTab) returningClipboard.showPhraseTab(reopenCat) else returningClipboard.reopenAfterInline(reopenCat)
             returningView.showPanelImmediately(returningClipboard)
@@ -1513,7 +1503,41 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         panelInputTitle = ""
         if (hideBar) inputView?.showEditBar(false)
         inputPurpose = null; inputCat = ""; inputOld = ""; pendingPhraseAdds = emptyList(); pendingMoveFrom = ""; pendingMoveTexts = emptyList()
+        bindTranslateInput()
     }
+
+    private fun toggleTranslateBar() {
+        if (translateOpen) closeTranslateBar() else openTranslateBar()
+    }
+
+    private fun openTranslateBar() {
+        if (inputPurpose != null) return
+        val iv = inputView ?: return
+        translateOpen = true
+        iv.showPanel(null)
+        bindTranslateInput(iv)
+    }
+
+    private fun closeTranslateBar() {
+        translateOpen = false
+        if (inputPurpose == null && panelInput.active) {
+            if (::controller.isInitialized) controller.onPanelClear()
+            panelInput.end()
+        }
+        inputView?.let { iv ->
+            iv.setTranslateText("")
+            iv.showTranslateBar(false)
+        }
+    }
+
+    private fun bindTranslateInput(view: InputView? = inputView) {
+        val iv = view ?: return
+        if (!translateOpen || inputPurpose != null) return
+        iv.showTranslateBar(true)
+        panelInput.begin(iv.translateEditable())
+    }
+
+    internal fun translateBarOpenForTest(): Boolean = translateOpen
 
     private fun captureClip() {
         if (LiveUserData.restoreInProgress) return

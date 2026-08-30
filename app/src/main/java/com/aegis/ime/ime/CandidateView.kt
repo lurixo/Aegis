@@ -35,7 +35,7 @@ import com.aegis.ime.layout.Layouts
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-enum class BarFunction { BRAND, EMOJI, LAYOUT, EDIT, CLIPBOARD, PHRASE }
+enum class BarFunction { BRAND, EMOJI, LAYOUT, EDIT, CLIPBOARD, TRANSLATE }
 
 class CandidateView(context: Context) : View(context), KeyHapticsAware {
 
@@ -68,7 +68,7 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
         BarFunction.LAYOUT,
         BarFunction.EDIT,
         BarFunction.CLIPBOARD,
-        BarFunction.PHRASE,
+        BarFunction.TRANSLATE,
     )
     private val funcRects = ArrayList<RectF>().also { l -> repeat(functions.size) { l.add(RectF()) } }
     private val collapseRect = RectF()
@@ -430,7 +430,7 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
             BarFunction.EMOJI -> Glyphs.drawEmoji(c, iconPaint, cx, cy, gs)
             BarFunction.EDIT -> Glyphs.drawEditCaret(c, iconPaint, cx, cy, gs)
             BarFunction.CLIPBOARD -> Glyphs.drawClipboard(c, iconPaint, cx, cy, gs)
-            BarFunction.PHRASE -> Glyphs.drawCommonPhrase(c, iconPaint, cx, cy, gs)
+            BarFunction.TRANSLATE -> Glyphs.drawTranslate(c, iconPaint, cx, cy, gs)
         }
     }
 
@@ -440,7 +440,7 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
         BarFunction.EMOJI -> fitScale(EMOJI_GLYPH_WIDTH, EMOJI_GLYPH_HEIGHT)
         BarFunction.EDIT -> fitScale(EDIT_GLYPH_WIDTH, EDIT_GLYPH_HEIGHT)
         BarFunction.CLIPBOARD -> fitScale(CLIPBOARD_GLYPH_WIDTH, CLIPBOARD_GLYPH_HEIGHT)
-        BarFunction.PHRASE -> fitScale(PHRASE_GLYPH_WIDTH, PHRASE_GLYPH_HEIGHT)
+        BarFunction.TRANSLATE -> fitScale(TRANSLATE_GLYPH_WIDTH, TRANSLATE_GLYPH_HEIGHT)
     }
 
     override fun computeScroll() {
@@ -645,8 +645,8 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
         private const val EDIT_GLYPH_HEIGHT = 1.64f
         private const val CLIPBOARD_GLYPH_WIDTH = 1.16f
         private const val CLIPBOARD_GLYPH_HEIGHT = 1.58f
-        private const val PHRASE_GLYPH_WIDTH = 1.4266667f
-        private const val PHRASE_GLYPH_HEIGHT = 1.64f
+        private const val TRANSLATE_GLYPH_WIDTH = 1.64f
+        private const val TRANSLATE_GLYPH_HEIGHT = 1.64f
         private const val CHEVRON_GLYPH_WIDTH = 1.40f
         private const val CHEVRON_GLYPH_HEIGHT = 0.76f
         private val CHEVRON_SCALE = fitScale(CHEVRON_GLYPH_WIDTH, CHEVRON_GLYPH_HEIGHT)

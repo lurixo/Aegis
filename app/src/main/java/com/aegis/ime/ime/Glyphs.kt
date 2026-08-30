@@ -18,6 +18,8 @@ package com.aegis.ime.ime
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
+import android.graphics.PorterDuff
+import android.graphics.PorterDuffXfermode
 import android.graphics.RectF
 
 object Glyphs {
@@ -53,25 +55,41 @@ object Glyphs {
         c.drawLine(cx - w * 0.5f, cy + h * 0.3f, cx + w * 0.5f, cy + h * 0.3f, paint)
     }
 
-    fun drawCommonPhrase(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
-        val bubble = Path().apply {
-            moveTo(cx - s * 0.48f, cy - s * 0.8333333f)
-            lineTo(cx + s * 0.48f, cy - s * 0.8333333f)
-            quadTo(cx + s * 0.7133333f, cy - s * 0.8333333f, cx + s * 0.7133333f, cy - s * 0.6f)
-            lineTo(cx + s * 0.7133333f, cy + s * 0.1888889f)
-            quadTo(cx + s * 0.7133333f, cy + s * 0.4222222f, cx + s * 0.48f, cy + s * 0.4222222f)
-            lineTo(cx + s * 0.0277778f, cy + s * 0.4222222f)
-            lineTo(cx - s * 0.3333333f, cy + s * 0.8066667f)
-            lineTo(cx - s * 0.2488889f, cy + s * 0.4222222f)
-            lineTo(cx - s * 0.48f, cy + s * 0.4222222f)
-            quadTo(cx - s * 0.7133333f, cy + s * 0.4222222f, cx - s * 0.7133333f, cy + s * 0.1888889f)
-            lineTo(cx - s * 0.7133333f, cy - s * 0.6f)
-            quadTo(cx - s * 0.7133333f, cy - s * 0.8333333f, cx - s * 0.48f, cy - s * 0.8333333f)
-            close()
-        }
-        c.drawPath(bubble, paint)
-        c.drawLine(cx - s * 0.4166667f, cy - s * 0.3944444f, cx + s * 0.4166667f, cy - s * 0.3944444f, paint)
-        c.drawLine(cx - s * 0.4166667f, cy - s * 0.0444444f, cx + s * 0.1722222f, cy - s * 0.0444444f, paint)
+    private val translateClearPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+    }
+
+    fun drawTranslate(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float) {
+        val ext = s * 0.84f
+        val tile = s * 0.54f
+        val off = s * 0.30f
+        val r = s * 0.15f
+        val layer = c.saveLayer(cx - ext - paint.strokeWidth, cy - ext - paint.strokeWidth, cx + ext + paint.strokeWidth, cy + ext + paint.strokeWidth, null)
+        val bx = cx + off; val by = cy - off
+        c.drawRoundRect(bx - tile, by - tile, bx + tile, by + tile, r, r, paint)
+        val gs = tile * 0.64f
+        val gx = bx + tile * 0.10f
+        val gy = by - tile * 0.10f
+        val save = paint.strokeWidth
+        paint.strokeWidth = save * 0.80f
+        c.drawLine(gx, gy - gs, gx, gy - gs * 0.52f, paint)
+        c.drawLine(gx - gs * 0.80f, gy - gs * 0.52f, gx + gs * 0.80f, gy - gs * 0.52f, paint)
+        c.drawLine(gx + gs * 0.52f, gy - gs * 0.12f, gx - gs * 0.58f, gy + gs * 0.92f, paint)
+        c.drawLine(gx - gs * 0.52f, gy - gs * 0.12f, gx + gs * 0.58f, gy + gs * 0.92f, paint)
+        paint.strokeWidth = save
+        val fx = cx - off; val fy = cy + off
+        val gap = paint.strokeWidth * 0.9f
+        c.drawRoundRect(fx - tile - gap, fy - tile - gap, fx + tile + gap, fy + tile + gap, r + gap, r + gap, translateClearPaint)
+        c.drawRoundRect(fx - tile, fy - tile, fx + tile, fy + tile, r, r, paint)
+        val ah = tile * 0.60f
+        val aw = tile * 0.52f
+        paint.strokeWidth = save * 0.80f
+        c.drawLine(fx - aw, fy + ah, fx, fy - ah, paint)
+        c.drawLine(fx, fy - ah, fx + aw, fy + ah, paint)
+        c.drawLine(fx - aw * 0.62f, fy + ah * 0.35f, fx + aw * 0.62f, fy + ah * 0.35f, paint)
+        paint.strokeWidth = save
+        c.restoreToCount(layer)
     }
 
     fun drawLock(c: Canvas, paint: Paint, cx: Float, cy: Float, s: Float, closed: Boolean) {
