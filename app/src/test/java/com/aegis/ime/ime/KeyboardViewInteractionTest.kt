@@ -551,4 +551,61 @@ class KeyboardViewInteractionTest {
         assertEquals("the operator strip tracks the finger 1:1", 40f, v.scrollOffsetForTest(), 0.5f)
         v.send(MotionEvent.ACTION_UP, x, y0 - 40f, 32)
     }
+
+    private fun idle(ms: Long) = Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ms))
+
+    @Test fun the_scroll_column_thumb_stays_hidden_until_the_user_scrolls() {
+        val v = nineView(Layouts.ninePunctuation(), composing = false)
+        assertTrue("precondition: the punctuation column overflows", v.maxScrollForTest() > 0f)
+        assertEquals("nothing is scrolling, so no thumb", 0f, v.scrollbarAlphaForTest(), 0f)
+        v.tap(v.cx(), v.colCellY(0))
+        assertEquals("a tap is not a scroll", 0f, v.scrollbarAlphaForTest(), 0f)
+    }
+
+    @Test fun a_drag_shows_the_thumb_and_it_fades_out_on_the_toast_timing() {
+        val v = nineView(Layouts.ninePunctuation(), composing = false)
+        val x = v.cx()
+        v.send(MotionEvent.ACTION_DOWN, x, v.regTop() + v.cellH() * 3.5f, 0)
+        v.send(MotionEvent.ACTION_MOVE, x, v.regTop() + v.cellH() * 2.5f, 300)
+        idle(ScrollbarFade.FADE_MS)
+        assertEquals("the drag faded the thumb in", 1f, v.scrollbarAlphaForTest(), 0f)
+        v.send(MotionEvent.ACTION_MOVE, x, v.regTop() + v.cellH() * 2.5f, 600)
+        v.send(MotionEvent.ACTION_UP, x, v.regTop() + v.cellH() * 2.5f, 600)
+        assertFalse("precondition: the paused release does not fling", v.isFlingingForTest())
+        idle(ScrollbarFade.HOLD_MS - ScrollbarFade.FADE_MS)
+        assertEquals("shown for the toast hold after the last movement, not the release", 1f, v.scrollbarAlphaForTest(), 0f)
+        idle(ScrollbarFade.FADE_MS / 2)
+        assertEquals("then it fades on the toast fade", 0.5f, v.scrollbarAlphaForTest(), 0.02f)
+        idle(ScrollbarFade.FADE_MS / 2)
+        assertEquals(0f, v.scrollbarAlphaForTest(), 0f)
+    }
+
+    @Test fun a_running_fling_keeps_the_thumb_shown() {
+        val v = longComboView()
+        v.fastFlickUp()
+        assertTrue("precondition: a fling is running", v.isFlingingForTest())
+        assertEquals("the release itself is not a frame yet", 0f, v.scrollbarAlphaForTest(), 0f)
+        v.computeScroll()
+        idle(ScrollbarFade.FADE_MS)
+        assertEquals("each fling frame counts as scrolling", 1f, v.scrollbarAlphaForTest(), 0f)
+    }
+
+    @Test fun revealing_the_marked_reading_does_not_flash_the_thumb() {
+        val v = longComboView()
+        val marked = (1..24).map { Key("p$it", output = "p$it", action = KeyAction.PICK_READING, accent = it == 20) }
+        v.setLayout(Layouts.nine(marked, composing = true), false, false, Lang.CN)
+        assertTrue("precondition: the column scrolled to reveal the mark", v.scrollOffsetForTest() > 0f)
+        idle(ScrollbarFade.FADE_MS)
+        assertEquals("a programmatic reveal is not a user scroll", 0f, v.scrollbarAlphaForTest(), 0f)
+    }
+
+    @Test fun a_new_column_hides_the_thumb_at_once() {
+        val v = longComboView()
+        v.fastFlickUp()
+        v.computeScroll()
+        idle(ScrollbarFade.FADE_MS)
+        assertEquals(1f, v.scrollbarAlphaForTest(), 0f)
+        v.setLayout(Layouts.nine(Layouts.ninePunctuation(), composing = false), false, false, Lang.CN)
+        assertEquals("swapping the column resets the scroll and its thumb", 0f, v.scrollbarAlphaForTest(), 0f)
+    }
 }

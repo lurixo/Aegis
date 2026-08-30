@@ -23,6 +23,7 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.util.TypedValue
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
@@ -81,6 +82,8 @@ class KeyboardView(context: Context) : View(context) {
     private val tmpRect = RectF()
     private val scrollSlop = 6f * resources.displayMetrics.density
     private val fling = FlingScroller(context)
+    private val scrollbarFade = ScrollbarFade()
+    private val scrollbarTick = Runnable { invalidate() }
 
     private val repeatHandler = Handler(Looper.getMainLooper())
     private var downKey: Key? = null
@@ -200,7 +203,7 @@ class KeyboardView(context: Context) : View(context) {
     private val sepLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.separator; strokeWidth = density }
     private val pressHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.keyLabel, 0x22) }
     private val scrollTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.railBg }
-    private val scrollbarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.icon, 0x55) }
+    private val scrollbarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.icon, SCROLLBAR_ALPHA) }
     private val scrollLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.LEFT; textSize = sp(17f); typeface = android.graphics.Typeface.DEFAULT }
     private val inkBounds = android.graphics.Rect()
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f * density; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
@@ -221,7 +224,7 @@ class KeyboardView(context: Context) : View(context) {
         pressHighlight.color = Motion.withAlpha(p.keyLabel, 0x22)
         keyEdgePaint.color = p.shadow
         scrollTrackPaint.color = p.railBg
-        scrollbarPaint.color = withAlpha(p.icon, 0x55)
+        scrollbarPaint.color = withAlpha(p.icon, SCROLLBAR_ALPHA)
         scrollLabelPaint.color = p.keyLabel
         previewFillPaint.color = p.keySurface
         previewOutlinePaint.color = p.separator
@@ -248,7 +251,7 @@ class KeyboardView(context: Context) : View(context) {
         shiftLocked = isLocked
         lang = language
         scrollColumn = newLayout.scrollColumn
-        if (!sameColumn) { fling.forceFinish(); scrollY = 0f }
+        if (!sameColumn) { fling.forceFinish(); scrollY = 0f; scrollbarFade.hide() }
         if (width > 0) relayout()
         requestLayout()
         invalidate()
@@ -457,6 +460,7 @@ class KeyboardView(context: Context) : View(context) {
         fling.computeOffset()?.let {
             scrollY = it
             clampScroll()
+            scrollbarFade.scrolled(SystemClock.uptimeMillis())
             postInvalidateOnAnimation()
         }
     }
@@ -513,12 +517,19 @@ class KeyboardView(context: Context) : View(context) {
         canvas.restore()
         val contentH = sc.items.size * scrollCellH
         val trackH = scrollRegion.height()
-        if (contentH > trackH + 0.5f) {
+        val now = SystemClock.uptimeMillis()
+        val alpha = scrollbarFade.alphaAt(now)
+        if (contentH > trackH + 0.5f && alpha > 0f) {
             val thumbH = maxOf(18f * density, trackH * trackH / contentH)
             val thumbTop = scrollRegion.top + (scrollY / (contentH - trackH)) * (trackH - thumbH)
             val right = scrollRegion.right - 2f * density
             tmpRect.set(right - 2.5f * density, thumbTop, right, thumbTop + thumbH)
+            scrollbarPaint.alpha = (SCROLLBAR_ALPHA * alpha).roundToInt()
             canvas.drawRoundRect(tmpRect, 2f * density, 2f * density, scrollbarPaint)
+        }
+        removeCallbacks(scrollbarTick)
+        scrollbarFade.nextTickDelayMs(now)?.let { delay ->
+            if (delay <= 0L) postOnAnimation(scrollbarTick) else postDelayed(scrollbarTick, delay)
         }
     }
 
@@ -1180,8 +1191,11 @@ class KeyboardView(context: Context) : View(context) {
             hidePreview()
         }
         if (scrolling) {
+            val before = scrollY
             scrollY += scrollLastY - y
-            clampScroll(); invalidate()
+            clampScroll()
+            if (scrollY != before) scrollbarFade.scrolled(SystemClock.uptimeMillis())
+            invalidate()
         }
         scrollLastY = y
     }
@@ -1217,6 +1231,7 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     internal fun scrollOffsetForTest(): Float = scrollY
+    internal fun scrollbarAlphaForTest(): Float = scrollbarFade.alphaAt(SystemClock.uptimeMillis())
     internal fun scrollRegionForTest(): RectF = RectF(scrollRegion)
     internal fun scrollCellHeightForTest(): Float = scrollCellH
     internal fun scrollColumnKeysForTest(): List<Key> = scrollColumn?.items ?: emptyList()
@@ -1273,6 +1288,7 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     override fun onDetachedFromWindow() {
+        removeCallbacks(scrollbarTick)
         cancelKeyHold()
         backspace.cancel()
         notifyBackspaceBubble()
@@ -1315,6 +1331,7 @@ class KeyboardView(context: Context) : View(context) {
         const val INK_CENTERED_GLYPHS = "，。"
         const val KEYPAD_INK_CENTERED_GLYPHS = "，。,."
         const val SCROLL_LABEL_INSET_DP = 12f
+        const val SCROLLBAR_ALPHA = 0x55
         const val SPACE_MARKER_FRACTION = 0.34f
         const val SCROLL_LABEL_MIN_DP = 11f
     }
