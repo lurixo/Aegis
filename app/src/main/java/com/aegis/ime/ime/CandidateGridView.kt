@@ -23,6 +23,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.ColorFilter
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.Rect
 import android.graphics.RectF
@@ -85,6 +86,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private val readingScroll = RailScrollView(context, density)
     private val rightColumn = ActionColumn(context, density)
     private val panelRadius = ImeShapes.cardRadiusDp * density
+    private val panelClip = Path()
     private val rulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = density }
     private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -164,9 +166,9 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             actionSlotLp(),
         )
         addView(rightColumn, LayoutParams(dp(Layouts.CANDIDATE_ACTION_WIDTH_DP), LayoutParams.MATCH_PARENT))
-        returnFeedback = ImeKeyFeedback(returnButton(), Color.TRANSPARENT, palette.keyLabelSecondary)
+        returnFeedback = actionFeedback(returnButton())
         returnFeedback.bind { hapticEnabled }
-        backspaceFeedback = ImeKeyFeedback(backspaceButton(), Color.TRANSPARENT, palette.keyLabelSecondary)
+        backspaceFeedback = actionFeedback(backspaceButton())
         backspaceTouch = ImeBackspaceTouch(
             backspaceButton(),
             backspaceFeedback,
@@ -177,9 +179,17 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         )
         backspaceTouch.canSwipe = { up -> up }
         backspaceTouch.repeats = false
-        clearFeedback = ImeKeyFeedback(clearButton(), Color.TRANSPARENT, palette.keyLabelSecondary)
+        clearFeedback = actionFeedback(clearButton())
         clearFeedback.bind { hapticEnabled }
     }
+
+    private fun actionFeedback(button: TextView): ImeKeyFeedback = ImeKeyFeedback(
+        button,
+        Color.TRANSPARENT,
+        palette.keyLabelSecondary,
+        radiusDp = 0f,
+        faceInsetPxOverride = 0f,
+    )
 
     override fun resetToDefault() {
         resetViewportToStart()
@@ -227,8 +237,17 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
 
     private fun readingColor(on: Boolean): Int = if (on) palette.candidateFirst else palette.candidateText
 
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        panelClip.reset()
+        panelClip.addRoundRect(0f, 0f, w.toFloat(), h.toFloat(), panelRadius, panelRadius, Path.Direction.CW)
+    }
+
     override fun dispatchDraw(canvas: Canvas) {
+        val saved = canvas.save()
+        canvas.clipPath(panelClip)
         super.dispatchDraw(canvas)
+        canvas.restoreToCount(saved)
         val h = height.toFloat()
         for (rule in listOf(readingScroll.right, table.right)) {
             canvas.drawLine(rule.toFloat(), 0f, rule.toFloat(), h, rulePaint)
@@ -695,6 +714,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private fun backspaceButton(): TextView = rightColumn.getChildAt(1) as TextView
     private fun clearButton(): TextView = rightColumn.getChildAt(2) as TextView
     internal fun returnButtonForTest(): TextView = returnButton()
+    internal fun actionSurfaceForTest(index: Int): ImeKeySurface = rightColumn.getChildAt(index).background as ImeKeySurface
     internal fun returnFeedbackLevelForTest(): Float = returnFeedback.levelForTest()
     internal fun backspaceButtonForTest(): TextView = backspaceButton()
     internal fun backspaceFeedbackLevelForTest(): Float = backspaceFeedback.levelForTest()

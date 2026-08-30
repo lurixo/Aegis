@@ -751,6 +751,24 @@ class CandidateGridViewTest {
         }
     }
 
+    @Test fun the_action_key_press_highlight_fills_its_whole_slot_square() {
+        val v = measured()
+        for ((index, label) in listOf("返回", "退格", "重输").withIndex()) {
+            val surface = v.actionSurfaceForTest(index)
+            assertEquals(
+                "$label press highlight fills the slot edge to edge",
+                RectF(0f, 0f, 40f, 30f),
+                surface.faceBoundsForTest(40, 30),
+            )
+            assertEquals(
+                "$label press highlight has no corner of its own; the panel clip rounds the outer corners",
+                0f,
+                surface.cornerRadiusPx,
+                0f,
+            )
+        }
+    }
+
     @Test fun the_reading_and_action_columns_stand_apart_from_the_candidate_area() {
         for (pal in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
             val v = CandidateGridView(ctx).apply { applyPalette(pal) }
