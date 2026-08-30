@@ -89,6 +89,9 @@ import com.aegis.ime.R
 import com.aegis.ime.ui.theme.AppShapes
 import com.aegis.ime.ui.theme.AppSpacing
 import com.aegis.ime.ui.theme.SettingsMotion
+import android.widget.EditText
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.viewinterop.AndroidView
 
 class SetupActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -280,8 +283,16 @@ internal fun DictSettingsPage(onBack: () -> Unit) {
 }
 
 @Composable
-internal fun AboutPage(resumeSignal: Int, onBack: () -> Unit, onOpenLicenses: () -> Unit) {
+internal fun AboutPage(
+    resumeSignal: Int,
+    onBack: () -> Unit,
+    onOpenLicenses: () -> Unit,
+    startSilentInput: (View) -> Unit = ::startSilentInputSession,
+    showInputMethodPicker: (Context) -> Unit = ::showSystemInputMethodPicker,
+) {
     val context = LocalContext.current
+    var silentEditor by remember { mutableStateOf<View?>(null) }
+    var switchReturnsToTryField by remember { mutableStateOf<Boolean?>(null) }
     var typed by remember { mutableStateOf("") }
     var tryFieldFocused by remember { mutableStateOf(false) }
     var tryFieldImeRequest by remember { mutableIntStateOf(0) }
@@ -332,6 +343,25 @@ internal fun AboutPage(resumeSignal: Int, onBack: () -> Unit, onOpenLicenses: ()
         )
     }
 
+    DisposableEffect(hostView, switchReturnsToTryField) {
+        val returnToTryField = switchReturnsToTryField ?: return@DisposableEffect onDispose {}
+        val observer = hostView.viewTreeObserver
+        var pickerTookFocus = !hostView.hasWindowFocus()
+        val listener = ViewTreeObserver.OnWindowFocusChangeListener { hasFocus ->
+            if (!hasFocus) {
+                pickerTookFocus = true
+                return@OnWindowFocusChangeListener
+            }
+            if (!pickerTookFocus) return@OnWindowFocusChangeListener
+            switchReturnsToTryField = null
+            val editor = silentEditor ?: return@OnWindowFocusChangeListener
+            if (!editor.isFocused) return@OnWindowFocusChangeListener
+            if (returnToTryField) tryFieldFocusRequester.requestFocus() else editor.clearFocus()
+        }
+        observer.addOnWindowFocusChangeListener(listener)
+        onDispose { if (observer.isAlive) observer.removeOnWindowFocusChangeListener(listener) }
+    }
+
     SettingsPageColumn(stringResource(R.string.settings_group_about_title), onBack) {
         AppVersionCard()
 
@@ -349,10 +379,31 @@ internal fun AboutPage(resumeSignal: Int, onBack: () -> Unit, onOpenLicenses: ()
                         )
                     },
                     onSwitch = {
-                        val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE)
-                            as InputMethodManager
-                        imm.showInputMethodPicker()
+                        val editor = silentEditor
+                        val returnToTryField = tryFieldFocused
+                        if (editor != null && editor.requestFocus()) {
+                            switchReturnsToTryField = returnToTryField
+                            startSilentInput(editor)
+                            editor.post { showInputMethodPicker(context) }
+                        } else {
+                            showInputMethodPicker(context)
+                        }
                     },
+                )
+                AndroidView(
+                    factory = { viewContext ->
+                        EditText(viewContext).apply {
+                            showSoftInputOnFocus = false
+                            isFocusable = true
+                            isFocusableInTouchMode = true
+                            isCursorVisible = false
+                            background = null
+                            alpha = 0f
+                            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                        }
+                    },
+                    modifier = Modifier.size(1.dp).testTag("setup_silent_editor"),
+                    update = { silentEditor = it },
                 )
             }
         }
@@ -550,6 +601,16 @@ internal fun synchronousTopInsetPx(
     !isAttachedToDisplayTop -> 0
     maximumIgnoringVisibilityTop > 0 -> maximumIgnoringVisibilityTop
     else -> 0
+}
+
+internal fun startSilentInputSession(view: View) {
+    val imm = view.context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+    imm.restartInput(view)
+}
+
+internal fun showSystemInputMethodPicker(context: Context) {
+    val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+    imm.showInputMethodPicker()
 }
 
 private val IME_SHOW_RETRY_DELAYS_MS = longArrayOf(
