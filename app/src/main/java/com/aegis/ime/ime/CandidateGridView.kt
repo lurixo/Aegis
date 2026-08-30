@@ -47,6 +47,8 @@ import androidx.core.graphics.drawable.toDrawable
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.ime.theme.ImeType
+import com.aegis.ime.layout.Lang
+import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -79,6 +81,10 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private fun dp(v: Int) = (v * density).toInt()
     private fun spPx(v: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, v, resources.displayMetrics)
     private var rowHeightPx = dp(48)
+    private var coveredBarHeightPx = 0
+    private var readingRowHeightPx = readingRowHeightFor(
+        LandscapeDockSizing.preferredKeyboardHeight(Layouts.forId(LayoutId.NINE, Lang.CN).rowCount, density),
+    )
 
     private var palette = ImePalette.STATIC_LIGHT
     private val readingColumn = LinearLayout(context).apply { orientation = VERTICAL }
@@ -261,12 +267,27 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
 
     private fun candidateRowStride(): Int = rowHeightPx + table.dividerHeight
 
+    private fun readingRowHeightFor(panelHeight: Int): Int {
+        val cell = KeyboardView.nineScrollCellHeight(panelHeight - coveredBarHeightPx, density)
+        if (cell <= 0f) return 1
+        val rows = (panelHeight / cell).roundToInt().coerceAtLeast(1)
+        return (panelHeight / rows).coerceAtLeast(1)
+    }
+
+    override fun setCoveredBarHeight(px: Int) {
+        if (px == coveredBarHeightPx) return
+        coveredBarHeightPx = px
+        requestLayout()
+    }
+
     private fun updateRowHeight(panelHeight: Int) {
         val content = panelHeight - (ROWS - 1) * table.dividerHeight
         val next = ((content + ROWS - 1) / ROWS).coerceAtLeast(1)
-        if (next == rowHeightPx) return
+        val nextReading = readingRowHeightFor(panelHeight)
+        if (next == rowHeightPx && nextReading == readingRowHeightPx) return
         rowHeightPx = next
-        for (tile in readingPool) setChildHeight(tile, candidateRowStride())
+        readingRowHeightPx = nextReading
+        for (tile in readingPool) setChildHeight(tile, readingRowHeightPx)
         for (i in 0 until table.childCount) {
             val row = table.getChildAt(i) as? CandidateRow ?: continue
             for (k in 0 until row.childCount) setChildHeight(row.getChildAt(k), rowHeightPx)
@@ -389,7 +410,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             faceInsetPxOverride = 0f,
         ).also { it.bind { hapticEnabled } }
         readingPool.add(tv)
-        readingColumn.addView(tv, LayoutParams(LayoutParams.MATCH_PARENT, candidateRowStride()))
+        readingColumn.addView(tv, LayoutParams(LayoutParams.MATCH_PARENT, readingRowHeightPx))
         readingsAllocated++
         return tv
     }
@@ -670,6 +691,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun tableDividerForTest(): Drawable? = table.divider
     internal fun candidateRowHeightForTest(): Int = rowHeightPx
     internal fun candidateRowStrideForTest(): Int = candidateRowStride()
+    internal fun readingRowHeightForTest(): Int = readingRowHeightPx
     internal fun visibleCandidateRowsForTest(): List<Rect> {
         val out = ArrayList<Rect>()
         for (offset in 0 until table.childCount) {

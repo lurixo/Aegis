@@ -93,9 +93,61 @@ class CandidateGridViewTest {
                 rows.last().bottom >= h,
             )
             assertEquals(
-                "${heightDp}dp: the reading tiles keep the candidate row pitch",
+                "${heightDp}dp: the table pitch carries the separator",
                 v.candidateRowStrideForTest(),
                 v.candidateRowHeightForTest() + separator,
+            )
+        }
+    }
+
+    @Test fun the_reading_rows_tile_the_column_in_whole_nine_key_sized_rows() {
+        val bar = dp(44)
+        for (keyboardDp in listOf(206, 250)) {
+            val keyboardH = (keyboardDp * density).toInt()
+            val keyboard = KeyboardView(ctx).apply {
+                setLayout(Layouts.forId(LayoutId.NINE, Lang.CN), false, false, Lang.CN)
+                measure(
+                    View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(keyboardH, View.MeasureSpec.EXACTLY),
+                )
+                layout(0, 0, measuredWidth, measuredHeight)
+            }
+            val v = CandidateGridView(ctx).apply {
+                setCoveredBarHeight(bar)
+                setReadings((1..12).map { "r$it" })
+                setCandidates((1..8).map { "候$it" })
+            }
+            val panelH = keyboardH + bar
+            v.measure(
+                View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(panelH, View.MeasureSpec.EXACTLY),
+            )
+            v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+            val cell = keyboard.scrollCellHeightForTest()
+            val rows = (panelH / cell).roundToInt()
+            val rowHeight = v.readingRowHeightForTest()
+
+            assertEquals(
+                "${keyboardDp}dp: the column splits into the whole number of rows closest to nine-key scroll cells",
+                panelH / rows,
+                rowHeight,
+            )
+            assertTrue(
+                "${keyboardDp}dp: no fraction of a row is left under the last one ($panelH vs $rows x $rowHeight)",
+                panelH - rows * rowHeight < rows,
+            )
+            assertTrue(
+                "${keyboardDp}dp: a reading row stays within half a nine-key cell of that cell ($rowHeight vs $cell)",
+                kotlin.math.abs(rowHeight - cell) <= cell / 2f,
+            )
+            assertEquals(
+                "${keyboardDp}dp: every laid-out reading tile takes that height",
+                List(12) { rowHeight },
+                (0 until 12).map { requireNotNull(v.readingTileForTest(it)).height },
+            )
+            assertTrue(
+                "${keyboardDp}dp: the reading rows do not follow the candidate rows",
+                rowHeight < v.candidateRowHeightForTest(),
             )
         }
     }

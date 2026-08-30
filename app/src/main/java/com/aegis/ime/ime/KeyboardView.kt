@@ -162,7 +162,7 @@ class KeyboardView(context: Context) : View(context) {
     private val retargetHysteresis = 4f * density
     private val retargetDistance = 24f * density
     private val shortPageRowExtra = 2f * density
-    private val gap = 6f * density
+    private val gap = KEY_GAP_DP * density
     private val keyRadius = ImeShapes.keyRadiusDp * density
 
     var hapticEnabled = false
@@ -315,8 +315,7 @@ class KeyboardView(context: Context) : View(context) {
                 (sc.x + sc.w) * w - horizontalGap,
                 (sc.y + sc.h) * h - verticalGap,
             )
-            val visible = (sc.h / sc.cellHFrac).roundToInt().coerceAtLeast(1)
-            scrollCellH = scrollRegion.height() / visible
+            scrollCellH = scrollCellHeight(sc, h, verticalGap)
             clampScroll()
             if (pendingAccentReveal) {
                 revealScrollIndex(scrollAccentIndex)
@@ -1326,6 +1325,20 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     internal companion object {
+        const val KEY_GAP_DP = 6f
+
+        fun nineScrollCellHeight(keyboardHeight: Int, density: Float): Float {
+            val nine = Layouts.forId(LayoutId.NINE, Lang.CN)
+            val column = nine.scrollColumn ?: return 0f
+            val available = LandscapeDockSizing.effectiveVerticalGap(keyboardHeight, nine.rowCount, density, fractionalRows = true)
+            return scrollCellHeight(column, keyboardHeight.toFloat(), minOf(KEY_GAP_DP * density / 2f, available / 2f))
+        }
+
+        fun scrollCellHeight(column: ScrollColumn, keyboardHeight: Float, verticalGap: Float): Float {
+            val visible = (column.h / column.cellHFrac).roundToInt().coerceAtLeast(1)
+            return (column.h * keyboardHeight - 2f * verticalGap) / visible
+        }
+
         const val LONG_PRESS_MS = 300L
         const val RETARGET_HOLD_MS = 120L
         const val INK_CENTERED_GLYPHS = "，。"
