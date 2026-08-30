@@ -84,10 +84,11 @@ Chinese input stays locked, while English and every panel keep working.
 The settings screen additionally offers an **optional** enhancement model (the ~420 MB octagram
 grammar) for sharper next-word and whole-sentence ranking; that one is fetched only when you tap to
 start it. Once a file is installed, its card offers a check-for-updates button, and a check that
-finds a newer file continues straight into the download. Beyond those two downloads and the update
+finds a newer file continues straight into the download. Beyond those two downloads, the update
 checks that go with them (a small metadata file for the dictionary, a `HEAD` request for the model),
-Aegis's own code makes no network requests, and nothing Aegis does reaches the network unless you
-ask it to.
+and the translate bar — which sends only the text you type into that bar to Google Translate while
+it is open — Aegis's own code makes no network requests, and nothing Aegis does reaches the network
+unless you ask it to.
 
 ## Features
 
@@ -121,6 +122,9 @@ ask it to.
   all, and clear. The history can also be switched off entirely.
 - **Saved phrases (常用语):** reusable phrases in categories you name, reorder and move between,
   each with an optional note, importable and exportable as a plain text file.
+- **Translate bar:** a toolbar entry opens a bar above the candidate strip; what you type into it is
+  sent to Google Translate and lands in the field you are editing as live output that follows your
+  edits — auto-detected, Chinese ⇄ English or Chinese ⇄ Japanese — until you close the bar.
 - **Symbol & edit panels:** a symbol board with a *Common* tab plus Chinese, English, currency, web,
   math, Greek, arrow, super/subscript, numbering, IPA and pinyin categories and a lock toggle; and a
   text-editing panel with cursor movement, line start/end, selection, select-all, copy, cut, paste
@@ -158,13 +162,16 @@ not depend on our word alone:
   own namespace, and asks for nothing on your device.
 - **`INTERNET`** fetches the dictionary pack (offered by the keyboard while no pack is installed,
   because no Chinese dictionary ships in the APK, and started only when you tap), the optional
-  enhancement model (only when *you* tap to start it), and the update checks for those two. **No
-  network request is ever made while you type, and nothing you type is ever sent.**
+  enhancement model (only when *you* tap to start it), the update checks for those two, and the
+  translate bar, which sends only the text typed into that bar to Google Translate
+  (`translate-pa.googleapis.com`, over HTTPS). **Outside the translate bar, no network request is
+  ever made while you type, and nothing you type is ever sent.**
 - **`USE_BIOMETRIC`** is used only for the default backup password: saving it, or filling it into a
   backup dialog, needs a biometric or screen-lock confirmation first.
 - Your **keystrokes, candidates, learned words, user dictionary, and clipboard never leave the
-  device**: they live in the app's private storage (`filesDir`). The only way any of it leaves is a
-  file *you* export — a backup, your user dictionary, or your phrases — to a location you pick.
+  device**: they live in the app's private storage (`filesDir`). The only ways any of it leaves are
+  a file *you* export — a backup, your user dictionary, or your phrases — to a location you pick,
+  and the text you type into the translate bar, which goes to Google Translate and nowhere else.
 - Aegis is excluded from Android's **cloud backup and device-to-device transfer**, so its data is
   not carried off the device that way either.
 - There is **no analytics, no telemetry, and no account.**

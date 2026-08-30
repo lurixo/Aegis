@@ -5,9 +5,10 @@ what Aegis does and does not do with that data. It is consistent with the
 [Privacy & permissions](README.md#privacy--permissions) section of the README.
 
 **Short version:** what you type stays on your device. Aegis has no analytics, no telemetry, and no
-account, and nothing you type is ever sent anywhere. The only network use in Aegis's own code is
-fetching the Chinese dictionary pack and the optional enhancement model, and checking whether a
-newer one exists.
+account, and, apart from the translate bar, nothing you type is ever sent anywhere. The only network
+use in Aegis's own code is fetching the Chinese dictionary pack and the optional enhancement model,
+checking whether a newer one exists, and sending the text you type into the translate bar to Google
+Translate.
 
 ## What Aegis stores, and where
 
@@ -41,7 +42,7 @@ usable elsewhere.
 
 Aegis's own manifest declares **two** Android permissions:
 
-- **`INTERNET`** — used for the downloads and update checks described under
+- **`INTERNET`** — used for the downloads, update checks and translation requests described under
   [Network use](#network-use), and for nothing else.
 - **`USE_BIOMETRIC`** — used **only** for the default backup password: saving that password, or
   filling it into a backup dialog, requires a biometric or screen-lock confirmation first. The
@@ -54,13 +55,14 @@ protection level, so only code signed with the same key could ever hold it. It i
 counting the permissions in the installed APK gives the same answer as counting them here.
 
 There is **no** permission for contacts, location, microphone, storage of your personal files,
-device identifiers, or similar. No keystroke ever triggers a network request, and nothing you type
-is ever sent.
+device identifiers, or similar. Outside the translate bar, no keystroke ever triggers a network
+request, and nothing you type is ever sent.
 
 ## Network use
 
-Aegis's own code goes online for two kinds of thing only: fetching a resource file, and checking
-whether a newer one exists. All of it is over HTTPS.
+Aegis's own code goes online for three kinds of thing only: fetching a resource file, checking
+whether a newer one exists, and translating the text you type into the translate bar. All of it is
+over HTTPS.
 
 - **The Chinese dictionary pack.** No Chinese dictionary ships in the APK, and the keyboard never
   starts this download by itself. When you type Chinese with no pack installed, the candidate strip
@@ -74,11 +76,17 @@ whether a newer one exists. All of it is over HTTPS.
   sends a `HEAD` request to the model's URL to compare version markers. Both happen only when you
   tap, and if either finds a newer file it goes straight on to download it. Nothing in Aegis's own
   code makes an automatic request of any kind.
-- As with any download, the server that hosts the file necessarily sees a normal request (for
-  example, your IP address and the file requested). Aegis does not add identifiers, tracking
-  parameters, or analytics to these requests, and sends none of your typing data with them.
+- **The translate bar.** While the bar opened from the toolbar is up, the text you type into it —
+  and only that text — is sent to Google Translate at `translate-pa.googleapis.com` after you pause
+  typing, and the reply is placed in the field you are editing. Nothing typed anywhere else is sent,
+  no request goes out while the bar is closed, and what Google does with the text it receives is
+  governed by Google's own privacy terms.
+- As with any request, the server on the other end necessarily sees a normal request (for example,
+  your IP address and the file or text requested). Aegis does not add identifiers, tracking
+  parameters, or analytics to these requests, and sends none of your other typing data with them.
 
-Nothing else — no keystrokes, no candidates, no learned words, no clipboard — is ever sent.
+Nothing else — no keystrokes outside the translate bar, no candidates, no learned words, no
+clipboard — is ever sent.
 
 **One part of the APK is not Aegis's own code.** The APK carries `androidx.emoji2`, which arrives as
 part of Jetpack Compose. It registers a start-up task
