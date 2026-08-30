@@ -21,6 +21,7 @@ import android.graphics.Color
 import android.graphics.RectF
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
+import android.os.Looper
 import android.text.TextUtils
 import android.view.Gravity
 import android.view.MotionEvent
@@ -42,7 +43,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
+import java.time.Duration
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -653,6 +656,67 @@ class CandidateGridViewTest {
         val scrolled = requireNotNull(v.railThumbRectForTest())
         val expectedTop = 120f + 120f / (contentH - trackH) * (trackH - expectedH)
         assertEquals(expectedTop, scrolled.top, 0.01f)
+    }
+
+    private fun idle(ms: Long) = Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(ms))
+
+    private fun overflowingRail(): CandidateGridView =
+        measured(CandidateGridView(ctx).apply { setReadings((1..30).map { "r$it" }) })
+
+    private fun CandidateGridView.railTouch(action: Int, x: Float, y: Float, t: Long) =
+        dispatchTouchEvent(MotionEvent.obtain(0, t, action, x, y, 0))
+
+    @Test fun rail_thumb_stays_hidden_until_the_user_scrolls() {
+        val v = overflowingRail()
+        assertEquals("nothing scrolled, so no thumb", 0f, v.railThumbAlphaForTest(), 0f)
+        v.scrollForTest(gridY = 0, readingY = 120)
+        idle(ScrollbarFade.FADE_MS)
+        assertEquals("a programmatic scroll is not a user scroll", 0f, v.railThumbAlphaForTest(), 0f)
+    }
+
+    @Test fun dragging_the_readings_shows_the_thumb_and_it_fades_on_the_toast_timing() {
+        val v = overflowingRail()
+        val x = v.railLayoutForTest()[0] / 2f
+        val y0 = v.height * 0.8f
+        val step = 40f * density
+        v.railTouch(MotionEvent.ACTION_DOWN, x, y0, 0)
+        v.railTouch(MotionEvent.ACTION_MOVE, x, y0 - step, 50)
+        v.railTouch(MotionEvent.ACTION_MOVE, x, y0 - 2 * step, 100)
+        assertTrue("precondition: the drag scrolled the readings", v.readingScrollYForTest() > 0)
+        idle(ScrollbarFade.FADE_MS)
+        assertEquals("the drag faded the thumb in", 1f, v.railThumbAlphaForTest(), 0f)
+        v.railTouch(MotionEvent.ACTION_MOVE, x, y0 - 2 * step, 500)
+        v.railTouch(MotionEvent.ACTION_UP, x, y0 - 2 * step, 500)
+        val settled = v.readingScrollYForTest()
+        idle(ScrollbarFade.HOLD_MS - ScrollbarFade.FADE_MS)
+        assertEquals("a paused release does not fling", settled, v.readingScrollYForTest())
+        assertEquals("shown for the toast hold after the last movement, not the release", 1f, v.railThumbAlphaForTest(), 0f)
+        idle(ScrollbarFade.FADE_MS / 2)
+        assertEquals("then it fades on the toast fade", 0.5f, v.railThumbAlphaForTest(), 0.02f)
+        idle(ScrollbarFade.FADE_MS / 2)
+        assertEquals(0f, v.railThumbAlphaForTest(), 0f)
+    }
+
+    @Test fun a_reading_fling_frame_shows_the_thumb() {
+        val v = overflowingRail()
+        v.flingReadingsForTest(3000)
+        idle(16)
+        v.stepReadingFlingForTest()
+        assertTrue("precondition: the fling moved the readings", v.readingScrollYForTest() > 0)
+        idle(ScrollbarFade.FADE_MS)
+        assertEquals("each fling frame counts as scrolling", 1f, v.railThumbAlphaForTest(), 0f)
+    }
+
+    @Test fun reopening_the_panel_hides_the_rail_thumb() {
+        val v = overflowingRail()
+        v.flingReadingsForTest(3000)
+        idle(16)
+        v.stepReadingFlingForTest()
+        idle(ScrollbarFade.FADE_MS)
+        assertEquals(1f, v.railThumbAlphaForTest(), 0f)
+        v.prepareForOpen()
+        assertEquals("the viewport reset drops the thumb with it", 0f, v.railThumbAlphaForTest(), 0f)
+        assertEquals(0, v.readingScrollYForTest())
     }
 
     @Test fun readings_keep_title_size_without_scaling() {

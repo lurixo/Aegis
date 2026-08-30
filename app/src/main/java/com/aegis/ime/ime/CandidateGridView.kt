@@ -29,9 +29,11 @@ import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
+import android.os.SystemClock
 import android.text.TextUtils
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.BaseAdapter
@@ -195,6 +197,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
 
     private fun resetViewportToStart() {
         table.fling(0)
+        readingScroll.settle()
         readingScroll.scrollTo(0, 0)
         table.setSelectionFromTop(0, 0)
         gridScrollOffsetForTest = 0
@@ -631,6 +634,9 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun panelRuleColorForTest(): Int = rulePaint.color
     internal fun panelOutlineColorForTest(): Int = outlinePaint.color
     internal fun railThumbRectForTest(): RectF? = readingScroll.thumbRect()
+    internal fun railThumbAlphaForTest(): Float = readingScroll.thumbAlpha()
+    internal fun flingReadingsForTest(velocityY: Int) = readingScroll.fling(velocityY)
+    internal fun stepReadingFlingForTest() = readingScroll.computeScroll()
     internal fun railTrackAndContentForTest(): Pair<Int, Int> = readingScroll.height to readingColumn.height
     internal fun railColorsForTest(): Pair<Int, Int> =
         readingScroll.separatorColorForTest() to readingScroll.thumbColorForTest()
@@ -721,6 +727,10 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         private val separatorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = density }
         private val thumbPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val thumbRect = RectF()
+        private val fade = ScrollbarFade()
+        private val fadeTick = Runnable { invalidate() }
+        private var touching = false
+        private var flinging = false
 
         init {
             isVerticalScrollBarEnabled = false
@@ -729,8 +739,38 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         fun applyPalette(p: ImePalette) {
             setBackgroundColor(p.railBg)
             separatorPaint.color = p.separator
-            thumbPaint.color = Motion.withAlpha(p.icon, 0x55)
+            thumbPaint.color = Motion.withAlpha(p.icon, KeyboardView.SCROLLBAR_ALPHA)
             invalidate()
+        }
+
+        fun settle() {
+            flinging = false
+            fade.hide()
+        }
+
+        fun thumbAlpha(): Float = fade.alphaAt(SystemClock.uptimeMillis())
+
+        override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+            when (ev.actionMasked) {
+                MotionEvent.ACTION_DOWN -> { touching = true; flinging = false }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> touching = false
+            }
+            return super.dispatchTouchEvent(ev)
+        }
+
+        override fun fling(velocityY: Int) {
+            flinging = true
+            super.fling(velocityY)
+        }
+
+        override fun onScrollChanged(l: Int, t: Int, oldl: Int, oldt: Int) {
+            super.onScrollChanged(l, t, oldl, oldt)
+            if ((touching || flinging) && t != oldt) fade.scrolled(SystemClock.uptimeMillis())
+        }
+
+        override fun onDetachedFromWindow() {
+            removeCallbacks(fadeTick)
+            super.onDetachedFromWindow()
         }
 
         fun thumbRect(): RectF? {
@@ -767,7 +807,18 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
                     canvas.drawLine(0f, y, width.toFloat(), y, separatorPaint)
                 }
             }
-            thumbRect()?.let { canvas.drawRoundRect(it, 2f * density, 2f * density, thumbPaint) }
+            val now = SystemClock.uptimeMillis()
+            val alpha = fade.alphaAt(now)
+            if (alpha > 0f) {
+                thumbRect()?.let {
+                    thumbPaint.alpha = (KeyboardView.SCROLLBAR_ALPHA * alpha).roundToInt()
+                    canvas.drawRoundRect(it, 2f * density, 2f * density, thumbPaint)
+                }
+            }
+            removeCallbacks(fadeTick)
+            fade.nextTickDelayMs(now)?.let { delay ->
+                if (delay <= 0L) postOnAnimation(fadeTick) else postDelayed(fadeTick, delay)
+            }
         }
 
         fun separatorColorForTest(): Int = separatorPaint.color
