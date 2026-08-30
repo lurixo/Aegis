@@ -288,8 +288,8 @@ class SymbolPanelPlacementTest {
         layout(sv)
         layout(ev)
 
-        assertEquals("symbol cells are ruled apart in the separator colour", light.separator, sv.gridRuleColorForTest())
-        assertEquals("emoji cells are ruled apart in the separator colour", light.separator, ev.gridRuleColorForTest())
+        assertEquals("symbol cells are ruled apart in the grid line colour", light.gridLine, sv.gridRuleColorForTest())
+        assertEquals("emoji cells are ruled apart in the grid line colour", light.gridLine, ev.gridRuleColorForTest())
         assertEquals("symbols underline the selected tab", idx("en"), sv.categoryRailForTest().selectedIndex)
         assertEquals("emoji underline the selected tab", 1, ev.categoryRailForTest().selectedIndex)
         for ((name, rail) in listOf("symbols" to sv.categoryRailForTest(), "emoji" to ev.categoryRailForTest())) {
@@ -350,7 +350,7 @@ class SymbolPanelPlacementTest {
             )
         }
         for ((label, frame) in listOf("symbols" to sv.panelFrameForTest(), "emoji" to ev.panelFrameForTest())) {
-            assertEquals("$label panel is outlined in the separator colour", light.separator, frame.outlineColor)
+            assertEquals("$label panel is outlined in the grid line colour", light.gridLine, frame.outlineColor)
             assertEquals("$label panel rounds on the card radius", ImeShapes.cardRadiusDp * density, frame.cornerRadiusPx, 0.001f)
         }
         assertFalse("the symbol viewport no longer clips a table card", sv.gridViewportForTest().clipToOutline)

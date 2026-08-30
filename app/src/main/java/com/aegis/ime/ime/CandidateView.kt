@@ -99,6 +99,7 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
     private val padding = 14f * density
     private val capMarginH = 8f * density
     private val capMarginV = ImeShapes.toolbarCapsuleMarginDp * density
+    private val ruleWidth = ImeShapes.gridLinePx(density)
 
     private fun sp(value: Float) =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
@@ -126,7 +127,7 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
         strokeJoin = Paint.Join.ROUND
     }
     private val capsulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
-    private val sepPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.separator }
+    private val sepPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.gridLine }
     private val pressPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val tmpRect = RectF()
     private val toolbarBounds = RectF()
@@ -139,7 +140,7 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
         gatePaint.color = p.candidateFirst
         iconPaint.color = p.icon
         capsulePaint.color = p.keySurface
-        sepPaint.color = p.separator
+        sepPaint.color = p.gridLine
         invalidate()
     }
 
@@ -305,12 +306,13 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
             drawPressLayer(canvas, PressKind.CANDIDATE, i, left, 4f * density, left + r.width(), height - 4f * density)
             canvas.drawText(items[i], left + padding, baseline, if (i == 0) firstPaint else textPaint)
             if (i != items.size - 1) {
-                canvas.drawRect(r.right - scrollX, height * 0.25f, r.right - scrollX + density, height * 0.75f, sepPaint)
+                val x = (r.right - scrollX).roundToInt().toFloat()
+                canvas.drawRect(x, height * 0.25f, x + ruleWidth, height * 0.75f, sepPaint)
             }
         }
         canvas.restore()
 
-        canvas.drawRect(visibleW, height * 0.25f, visibleW + density, height * 0.75f, sepPaint)
+        canvas.drawRect(visibleW, height * 0.25f, visibleW + ruleWidth, height * 0.75f, sepPaint)
         drawPressLayer(canvas, PressKind.EXPAND, -1, visibleW, 4f * density, width.toFloat(), height - 4f * density)
         val chCx = visibleW + expandW / 2f; val chCy = height / 2f; val chS = 9f * density * CHEVRON_SCALE
         Glyphs.drawChevron(canvas, iconPaint, chCx, chCy, chS, down = !expanded)

@@ -908,14 +908,14 @@ class CandidateGridViewTest {
     @Test fun palette_flows_to_every_rule_of_the_table_in_static_light_and_dark() {
         for (pal in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
             val v = CandidateGridView(ctx).apply { applyPalette(pal) }
-            assertEquals(pal.separator to Motion.withAlpha(pal.icon, 0x55), v.railColorsForTest())
-            assertEquals(pal.separator, v.panelRuleColorForTest())
-            assertEquals(pal.separator, v.panelOutlineColorForTest())
-            assertEquals(pal.separator, v.tableSeparatorColorForTest())
-            assertEquals(dp(1), v.tableDividerHeightForTest())
+            assertEquals(pal.gridLine to Motion.withAlpha(pal.icon, 0x55), v.railColorsForTest())
+            assertEquals(pal.gridLine, v.panelRuleColorForTest())
+            assertEquals(pal.gridLine, v.panelOutlineColorForTest())
+            assertEquals(pal.gridLine, v.tableSeparatorColorForTest())
+            assertEquals(ImeShapes.gridLinePx(density).toInt(), v.tableDividerHeightForTest())
             assertEquals(
-                "the candidate row separator paints the palette separator colour",
-                pal.separator,
+                "the candidate row separator paints the palette grid line colour",
+                pal.gridLine,
                 (v.tableDividerForTest() as ColorDrawable).color,
             )
         }

@@ -15,6 +15,8 @@
 
 package com.aegis.ime.ime.theme
 
+import kotlin.math.roundToInt
+
 object ImeShapes {
     const val keyRadiusDp = 10f
     const val toolbarFeedbackRadiusDp = 6f
@@ -26,4 +28,6 @@ object ImeShapes {
     const val surfaceTopRadiusDp = 12f
     const val floatRadiusDp = 12f
     const val bubbleRadiusDp = 14f
+
+    fun gridLinePx(density: Float): Float = maxOf(1f, (density / 2f).roundToInt().toFloat())
 }

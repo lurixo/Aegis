@@ -234,7 +234,7 @@ class SymbolsView(context: Context) :
             addView(content, LayoutParams(LayoutParams.MATCH_PARENT, gridAreaHeightPx()))
             addView(railScroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         }
-        panelFrame.outlineColor = palette.separator
+        panelFrame.outlineColor = palette.gridLine
         panelFrame.apply {
             addView(panelColumn, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
             addView(clearDialog, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
@@ -271,10 +271,10 @@ class SymbolsView(context: Context) :
         setBackgroundColor(p.keyboardBg)
         railScroll.setBackgroundColor(p.keyboardBg)
         actionColumnView.applyPalette(p)
-        grid.ruleColor = p.separator
-        panelFrame.outlineColor = p.separator
+        grid.ruleColor = p.gridLine
+        panelFrame.outlineColor = p.gridLine
         rail.underlineColor = p.accentBottom
-        railScroll.ruleColor = p.separator
+        railScroll.ruleColor = p.gridLine
         for (button in listOf(backBtn, clearBtn, backspaceBtn)) button.setTextColor(p.keyLabelSecondary)
         backFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
         clearFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)

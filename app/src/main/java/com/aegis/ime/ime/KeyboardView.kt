@@ -199,7 +199,7 @@ class KeyboardView(context: Context) : View(context) {
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
     private val keyEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.shadow }
     private val spaceMarkerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-    private val sepLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.separator; strokeWidth = density }
+    private val sepLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.gridLine; strokeWidth = ImeShapes.gridLinePx(density) }
     private val pressHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.keyLabel, 0x22) }
     private val scrollTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.railBg }
     private val scrollbarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.icon, SCROLLBAR_ALPHA) }
@@ -218,7 +218,7 @@ class KeyboardView(context: Context) : View(context) {
         accentLabelPaint.color = p.accentLabel
         subPaint.color = p.keySub
         langLabel.applyColors(p.keyLabelSecondary, p.keyHint)
-        sepLinePaint.color = p.separator
+        sepLinePaint.color = p.gridLine
         pressHighlight.color = Motion.withAlpha(p.keyLabel, 0x22)
         keyEdgePaint.color = p.shadow
         scrollTrackPaint.color = p.railBg
@@ -506,7 +506,8 @@ class KeyboardView(context: Context) : View(context) {
             val cellCy = (top + bottom) / 2f
             canvas.drawText(label, cellCx - inkBounds.exactCenterX(), cellCy - inkBounds.exactCenterY(), paint)
             if (i < sc.items.size - 1 && bottom < scrollRegion.bottom) {
-                canvas.drawLine(scrollRegion.left + 6 * density, bottom, scrollRegion.right - 6 * density, bottom, sepLinePaint)
+                val ruleY = bottom.roundToInt() - sepLinePaint.strokeWidth / 2f
+                canvas.drawLine(scrollRegion.left + 6 * density, ruleY, scrollRegion.right - 6 * density, ruleY, sepLinePaint)
             }
         }
         paint.textSize = baseTextSize

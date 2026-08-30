@@ -46,7 +46,7 @@ class ImeVisualPolishTest {
     @Test fun the_candidate_bar_shares_the_board_floor_without_a_bottom_rule() {
         val palette = ImePalette.STATIC_LIGHT.copy(
             keyboardBg = android.graphics.Color.WHITE,
-            separator = android.graphics.Color.RED,
+            gridLine = android.graphics.Color.RED,
         )
         val v = CandidateView(ctx).apply {
             applyPalette(palette)
@@ -63,7 +63,7 @@ class ImeVisualPolishTest {
 
         assertEquals("the bar shares the board floor", palette.keyboardBg, bmp.getPixel((2 * density).toInt(), (2 * density).toInt()))
         for (x in 0 until v.width) {
-            assertNotEquals("no rule closes the candidate bar at x=$x", palette.separator, bmp.getPixel(x, v.height - 1))
+            assertNotEquals("no rule closes the candidate bar at x=$x", palette.gridLine, bmp.getPixel(x, v.height - 1))
         }
 
         val idle = CandidateView(ctx).apply { applyPalette(palette) }
@@ -76,7 +76,7 @@ class ImeVisualPolishTest {
         idle.draw(android.graphics.Canvas(idleBmp))
         assertEquals("the toolbar shares the board floor", palette.keyboardBg, idleBmp.getPixel((2 * density).toInt(), (2 * density).toInt()))
         for (x in 0 until idle.width) {
-            assertNotEquals("no rule closes the toolbar at x=$x", palette.separator, idleBmp.getPixel(x, idle.height - 1))
+            assertNotEquals("no rule closes the toolbar at x=$x", palette.gridLine, idleBmp.getPixel(x, idle.height - 1))
         }
     }
 

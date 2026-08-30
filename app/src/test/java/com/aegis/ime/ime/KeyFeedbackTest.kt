@@ -73,6 +73,7 @@ class KeyFeedbackTest {
             keyboardBg = Color.BLACK,
             keySurface = Color.WHITE,
             separator = Color.RED,
+            gridLine = Color.RED,
         )
         val view = keyboardView(keyboardLayout, language = language).apply { applyPalette(palette) }
         val bounds = view.keyBoundsForTest().first { (key, _) -> key.action == KeyAction.COMMIT && !key.accent }.second

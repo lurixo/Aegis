@@ -54,7 +54,7 @@ internal fun panelActionSlot(slot: FrameLayout, button: View): FrameLayout =
     }
 
 internal class ImePanelFaceGrid(context: Context, density: Float) : GridLayout(context) {
-    private val rulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = density }
+    private val rulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = ImeShapes.gridLinePx(density) }
 
     var ruleColor: Int
         get() = rulePaint.color
@@ -79,7 +79,7 @@ internal class ImePanelFaceGrid(context: Context, density: Float) : GridLayout(c
 
 internal class ImePanelFrame(context: Context, density: Float) : FrameLayout(context) {
     private val radius = ImeShapes.cardRadiusDp * density
-    private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = density }
+    private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = ImeShapes.gridLinePx(density) }
     private val outlineRect = RectF()
     private val clip = Path()
 
@@ -150,7 +150,7 @@ internal class ImePanelCategoryRail(context: Context, density: Float) : LinearLa
 }
 
 internal class ImePanelCategoryBar(context: Context, density: Float) : HorizontalScrollView(context) {
-    private val rulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = density }
+    private val rulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = ImeShapes.gridLinePx(density) }
 
     init {
         isHorizontalScrollBarEnabled = false
@@ -171,7 +171,7 @@ internal class ImePanelCategoryBar(context: Context, density: Float) : Horizonta
 }
 
 internal class ImePanelActionColumn(context: Context, density: Float) : LinearLayout(context) {
-    private val rulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = density }
+    private val rulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = ImeShapes.gridLinePx(density) }
 
     init {
         orientation = VERTICAL
@@ -179,14 +179,15 @@ internal class ImePanelActionColumn(context: Context, density: Float) : LinearLa
 
     fun applyPalette(p: ImePalette) {
         setBackgroundColor(p.railBg)
-        rulePaint.color = p.separator
+        rulePaint.color = p.gridLine
         invalidate()
     }
 
     override fun dispatchDraw(canvas: Canvas) {
         super.dispatchDraw(canvas)
+        val half = rulePaint.strokeWidth / 2f
         for (index in 0 until childCount - 1) {
-            val y = getChildAt(index).bottom.toFloat()
+            val y = getChildAt(index).bottom - half
             canvas.drawLine(0f, y, width.toFloat(), y, rulePaint)
         }
     }

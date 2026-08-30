@@ -94,10 +94,10 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private val singlesKey = SplitLabelKey(context)
     private val panelRadius = ImeShapes.cardRadiusDp * density
     private val panelClip = Path()
-    private val rulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = density }
+    private val rulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = ImeShapes.gridLinePx(density) }
     private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        strokeWidth = density
+        strokeWidth = ImeShapes.gridLinePx(density)
     }
     private val outlineRect = RectF()
     private val backspaceGlyph = IconDrawable(density, Glyphs.backspaceInk)
@@ -240,8 +240,8 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         setBackgroundColor(p.keyboardBg)
         readingScroll.applyPalette(p)
         table.applyPalette(p)
-        rulePaint.color = p.separator
-        outlinePaint.color = p.separator
+        rulePaint.color = p.gridLine
+        outlinePaint.color = p.gridLine
         rightColumn.applyPalette(p)
         for (i in 0 until rightColumn.childCount) (rightColumn.getChildAt(i) as? TextView)?.setTextColor(p.keyLabelSecondary)
         returnFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
@@ -274,10 +274,11 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         super.dispatchDraw(canvas)
         canvas.restoreToCount(saved)
         val h = height.toFloat()
+        val ruleHalf = rulePaint.strokeWidth / 2f
         for (rule in listOf(readingScroll.right, table.right)) {
-            canvas.drawLine(rule.toFloat(), 0f, rule.toFloat(), h, rulePaint)
+            canvas.drawLine(rule - ruleHalf, 0f, rule - ruleHalf, h, rulePaint)
         }
-        val half = density / 2f
+        val half = outlinePaint.strokeWidth / 2f
         outlineRect.set(half, half, width - half, h - half)
         canvas.drawRoundRect(outlineRect, panelRadius, panelRadius, outlinePaint)
     }
@@ -636,7 +637,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
                 row.addView(newChip(), LayoutParams(0, rowHeightPx))
             }
             row.columns = count
-            row.separatorColor = palette.separator
+            row.separatorColor = palette.gridLine
             for (k in 0 until row.childCount) {
                 val chip = row.getChildAt(k) as TextView
                 if (k >= count) {
@@ -832,7 +833,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
 
     override fun shouldDelayChildPressedState(): Boolean = false
 
-        private val separatorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = density }
+        private val separatorPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = ImeShapes.gridLinePx(density) }
         private val thumbPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private val thumbRect = RectF()
         private val fade = ScrollbarFade()
@@ -846,7 +847,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
 
         fun applyPalette(p: ImePalette) {
             setBackgroundColor(p.railBg)
-            separatorPaint.color = p.separator
+            separatorPaint.color = p.gridLine
             thumbPaint.color = Motion.withAlpha(p.icon, KeyboardView.SCROLLBAR_ALPHA)
             invalidate()
         }
@@ -907,12 +908,13 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
                 }
                 val viewportTop = scrollY.toFloat()
                 val viewportBottom = viewportTop + height
+                val half = separatorPaint.strokeWidth / 2f
                 for (i in 0 until last) {
                     val child = column.getChildAt(i)
                     if (child.visibility != VISIBLE) continue
                     val y = (column.top + child.bottom).toFloat()
-                    if (y < viewportTop || y >= viewportBottom) continue
-                    canvas.drawLine(0f, y, width.toFloat(), y, separatorPaint)
+                    if (y <= viewportTop || y - separatorPaint.strokeWidth >= viewportBottom) continue
+                    canvas.drawLine(0f, y - half, width.toFloat(), y - half, separatorPaint)
                 }
             }
             val now = SystemClock.uptimeMillis()
@@ -934,7 +936,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
 
     private class ActionColumn(context: Context, private val density: Float) : LinearLayout(context) {
-        private val rulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = density }
+        private val rulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = ImeShapes.gridLinePx(density) }
 
         init {
             orientation = VERTICAL
@@ -942,7 +944,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
 
         fun applyPalette(p: ImePalette) {
             setBackgroundColor(p.railBg)
-            rulePaint.color = p.separator
+            rulePaint.color = p.gridLine
             invalidate()
         }
 
@@ -959,7 +961,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
 
     private class CandidateRow(context: Context, density: Float) : LinearLayout(context) {
-        private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = density }
+        private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = ImeShapes.gridLinePx(density) }
         var columns = 0
         var separatorColor: Int
             get() = linePaint.color
@@ -974,9 +976,10 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
 
         override fun dispatchDraw(canvas: Canvas) {
             super.dispatchDraw(canvas)
+            val half = linePaint.strokeWidth / 2f
             for (i in 0 until (columns - 1).coerceAtLeast(0)) {
-                val child = getChildAt(i)
-                canvas.drawLine(child.right.toFloat(), 0f, child.right.toFloat(), height.toFloat(), linePaint)
+                val x = getChildAt(i).right - half
+                canvas.drawLine(x, 0f, x, height.toFloat(), linePaint)
             }
         }
     }
@@ -986,14 +989,14 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
 
         init {
             isVerticalScrollBarEnabled = false
-            dividerHeight = density.toInt().coerceAtLeast(1)
+            dividerHeight = ImeShapes.gridLinePx(density).toInt()
             selector = 0x00000000.toDrawable()
         }
 
         fun applyPalette(p: ImePalette) {
-            separatorColor = p.separator
-            divider = p.separator.toDrawable()
-            dividerHeight = density.toInt().coerceAtLeast(1)
+            separatorColor = p.gridLine
+            divider = p.gridLine.toDrawable()
+            dividerHeight = ImeShapes.gridLinePx(density).toInt()
             invalidate()
         }
 
