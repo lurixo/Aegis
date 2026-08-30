@@ -196,7 +196,7 @@ internal fun AppSection(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = AppShapes.section,
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        color = MaterialTheme.colorScheme.surfaceDim,
         tonalElevation = 0.dp,
     ) {
         Column(content = content)
