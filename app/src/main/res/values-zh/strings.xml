@@ -362,6 +362,7 @@
     <string name="translate_mode_zh_en">中英互译</string>
     <string name="translate_mode_zh_ja">中日互译</string>
     <string name="translate_caption">翻译</string>
+    <string name="translate_failed_cause">翻译失败：%1$s</string>
     <string name="csp_punctuation_title">自定义标点</string>
     <string name="csp_operators_title">自定义运算符</string>
     <string name="csp_section_added">已添加</string>

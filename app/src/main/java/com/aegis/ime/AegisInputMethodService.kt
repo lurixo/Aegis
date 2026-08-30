@@ -75,6 +75,9 @@ import com.aegis.ime.user.UserDeletionPromises
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
+import com.aegis.ime.dict.ModelDownload
+import com.aegis.ime.translate.TranslateClient
+import com.aegis.ime.translate.TranslateMode
 import java.io.File
 
 class AegisInputMethodService : InputMethodService(), ImeHost {
@@ -91,6 +94,16 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         main = mainLane,
         logError = { Log.e("Aegis", "decode failed", it) },
     )
+    private val translateWorker: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "aegis-translate").apply { isDaemon = true }
+        }
+    private val translateLane = DecodeLane(
+        worker = translateWorker,
+        main = mainLane,
+        logError = { Log.w("Aegis", "translate failed", it) },
+    )
+    private var translateClient = TranslateClient()
     @Volatile private var panelTextSnapshot: String? = null
     private val userModel = UserModel()
     private val userLearning = UserLearning()
@@ -213,6 +226,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var frameworkWillFinishInput = false
     private var panelInputTitle = ""
     private var translateOpen = false
+    private var translateInputConnection: InputConnection? = null
+    private var translatePending: Runnable? = null
     private var lastCopy: String? = null
     @Volatile private var userStoresLoaded = false
     @Volatile private var engineSig = ""
@@ -253,6 +268,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun uiString(res: Int): String = imeUiContext().getString(res)
+
+    private fun uiString(res: Int, vararg args: Any): String = imeUiContext().getString(res, *args)
 
     private fun syncUiLocale() {
         if (inputView == null) return
@@ -475,6 +492,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun clearEditorTransientState(resetController: Boolean, abortInline: Boolean = true, preserveLayout: Boolean = false) {
+        finishTranslation()
         inputView?.clearEditorTransientUiImmediately()
         if (abortInline) abortInlineInput(hideBar = false)
         dropChunkedRead()
@@ -545,6 +563,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         try {
             clipboardView?.finishSplitSelection()
             inputView?.finishCopySplitSelection()
+            finishTranslation()
         } finally {
             frameworkWillFinishInput = false
         }
@@ -623,6 +642,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         view.onEditTextChanged = { txt -> panelTextSnapshot = txt }
         view.onEditSelectionChanged = { has ->
+            if (panelInput.active) editPanelView?.setHasSelection(has)
+        }
+        view.onTranslateTextChanged = { text -> scheduleTranslation(text) }
+        view.onTranslateModeChanged = { mode ->
+            setTranslateMode(mode)
+            scheduleTranslation(view.translateText())
+        }
+        view.onTranslateSelectionChanged = { has ->
             if (panelInput.active) editPanelView?.setHasSelection(has)
         }
         controller.attachView(view)
@@ -1520,6 +1547,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun closeTranslateBar() {
         translateOpen = false
+        finishTranslation()
         if (inputPurpose == null && panelInput.active) {
             if (::controller.isInitialized) controller.onPanelClear()
             panelInput.end()
@@ -1533,11 +1561,72 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun bindTranslateInput(view: InputView? = inputView) {
         val iv = view ?: return
         if (!translateOpen || inputPurpose != null) return
+        iv.setTranslateMode(translateMode())
         iv.showTranslateBar(true)
         panelInput.begin(iv.translateEditable())
     }
 
+    private fun translateMode(): TranslateMode = runCatching {
+        TranslateMode.valueOf(getSharedPreferences("aegis", MODE_PRIVATE).getString(PREF_TRANSLATE_MODE, null) ?: TranslateMode.AUTO.name)
+    }.getOrDefault(TranslateMode.AUTO)
+
+    private fun setTranslateMode(mode: TranslateMode) {
+        getSharedPreferences("aegis", MODE_PRIVATE).edit().putString(PREF_TRANSLATE_MODE, mode.name).apply()
+    }
+
+    private fun scheduleTranslation(text: String) {
+        translatePending?.let(mainHandler::removeCallbacks)
+        translatePending = null
+        translateLane.markSatisfiedSynchronously()
+        translateClient.abort()
+        if (text.isBlank()) {
+            translateInputConnection?.setComposingText("", 1)
+            return
+        }
+        val request = Runnable {
+            translatePending = null
+            val mode = translateMode()
+            translateLane.submit(
+                compute = { runCatching { translateClient.translate(text, mode) } },
+                apply = { outcome ->
+                    outcome.fold(
+                        onSuccess = { applyTranslation(it) },
+                        onFailure = { toast(uiString(R.string.translate_failed_cause, translateFailureCause(it))) },
+                    )
+                },
+            )
+        }
+        translatePending = request
+        mainHandler.postDelayed(request, TRANSLATE_DEBOUNCE_MS)
+    }
+
+    private fun translateFailureCause(failure: Throwable): String = uiString(
+        when (ModelDownload.classifyRequestFailure(failure)) {
+            ModelDownload.CheckFailure.OFFLINE -> R.string.download_cause_offline
+            ModelDownload.CheckFailure.TIMEOUT -> R.string.download_cause_timeout
+            ModelDownload.CheckFailure.SERVER, ModelDownload.CheckFailure.PARSE -> R.string.download_cause_server
+        },
+    )
+
+    private fun applyTranslation(text: String) {
+        if (!translateOpen) return
+        val connection = translateInputConnection ?: currentInputConnection?.also { translateInputConnection = it }
+        connection?.setComposingText(text, 1)
+    }
+
+    private fun finishTranslation() {
+        translatePending?.let(mainHandler::removeCallbacks)
+        translatePending = null
+        translateClient.abort()
+        translateLane.markSatisfiedSynchronously()
+        val connection = translateInputConnection ?: return
+        translateInputConnection = null
+        if (!frameworkWillFinishInput) connection.finishComposingText()
+    }
+
     internal fun translateBarOpenForTest(): Boolean = translateOpen
+
+    internal fun setTranslateClientForTest(client: TranslateClient) { translateClient = client }
 
     private fun captureClip() {
         if (LiveUserData.restoreInProgress) return
@@ -1863,6 +1952,8 @@ private const val STREAM_CHUNK = 16_384
 private const val TRIM_WINDOW = 8
 private const val NAV_WINDOW = 16_384
 private const val READ_TIMEOUT_MS = 1_500L
+private const val PREF_TRANSLATE_MODE = "translate_mode"
+private const val TRANSLATE_DEBOUNCE_MS = 300L
 
 internal fun quarantineCorruptStore(file: java.io.File): Boolean {
     if (!file.exists()) return false
