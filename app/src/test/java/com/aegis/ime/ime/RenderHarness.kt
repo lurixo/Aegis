@@ -397,7 +397,7 @@ class RenderHarness {
             val v = EditBarView(ctx).apply { applyPalette(pal); setTitle(ctx.getString(com.aegis.ime.R.string.svc_edit_phrase)); setText("你好世界") }
             snap(v, h, "edit_bar_$t.png")
             assertTrue("$t: edit bar missing 确定", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.editbar_confirm)))
-            assertTrue("$t: edit bar missing 取消", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.clip_cancel)))
+            assertTrue("$t: edit bar missing 返回", v.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.panel_back)))
         }
     }
 
