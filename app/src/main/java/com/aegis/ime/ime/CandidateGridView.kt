@@ -412,7 +412,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             if (tile.text != readings[i]) {
                 tile.text = readings[i]
             }
-            val target = spPx(ImeType.title)
+            val target = spPx(ImeType.candidate)
             if (abs(tile.textSize - target) > 0.5f) tile.setTextSize(TypedValue.COMPLEX_UNIT_PX, target)
             tile.visibility = View.VISIBLE
         }
@@ -434,7 +434,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         val tv = TextView(context).apply {
             gravity = Gravity.CENTER
             maxLines = 1
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.candidate)
             setTextColor(palette.candidateText)
             isClickable = true
             setOnClickListener(readingClick)
@@ -470,7 +470,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         tableW * (offset + span) / COLUMNS - tableW * offset / COLUMNS
 
     private fun candidateSpan(text: String, tableW: Int): Int {
-        measurePaint.textSize = spPx(ImeType.title)
+        measurePaint.textSize = spPx(ImeType.candidate)
         val needed = measurePaint.measureText(text) + dp(8 + 8)
         for (span in 1 until COLUMNS) {
             if (needed <= trackWidth(tableW, 0, span).toFloat()) return span
@@ -580,7 +580,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
 
     private fun cellTextSize(text: String, cellWidth: Int): Float {
-        val base = ImeType.title
+        val base = ImeType.candidate
         val avail = (cellWidth - dp(8 + 8)).toFloat()
         if (avail <= 0f) return 10f
         measurePaint.textSize = spPx(base)
@@ -595,7 +595,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             maxLines = 1
             ellipsize = TextUtils.TruncateAt.END
             setPadding(dp(8), 0, dp(8), 0)
-            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.title)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.candidate)
             setTextColor(palette.candidateText)
             isClickable = true
             setOnClickListener(chipClick)

@@ -108,16 +108,16 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
 
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = palette.candidateText
-        textSize = sp(ImeType.title)
+        textSize = sp(ImeType.candidate)
     }
     private val firstPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = palette.candidateFirst
-        textSize = sp(ImeType.title)
+        textSize = sp(ImeType.candidate)
         typeface = android.graphics.Typeface.DEFAULT_BOLD
     }
     private val gatePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         color = palette.candidateFirst
-        textSize = sp(ImeType.title)
+        textSize = sp(ImeType.candidate)
     }
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = palette.icon

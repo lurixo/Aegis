@@ -21,6 +21,7 @@ object ImeType {
     const val label = 14f
     const val body = 16f
     const val subtitle = 18f
+    const val candidate = 18f
     const val title = 19f
     const val display = 22f
 }

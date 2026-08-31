@@ -391,7 +391,7 @@ class CandidateGridViewTest {
             listOf(2, 1, 1, 3, 1),
             (0..4).map { v.chipSpanForTest(it) },
         )
-        for (i in 0..4) assertEquals("merging keeps candidate $i at base size", 19f, v.chipTextSizeSpForTest(i), 0.01f)
+        for (i in 0..4) assertEquals("merging keeps candidate $i at base size", 18f, v.chipTextSizeSpForTest(i), 0.01f)
         val tableW = tableWidth()
         assertEquals("a merged row still spans the table exactly", tableW, (0..2).sumOf { v.chipCellWidthForTest(it) })
     }
@@ -411,7 +411,7 @@ class CandidateGridViewTest {
             listOf(2, 2, 4),
             (0..2).map { v.chipSpanForTest(it) },
         )
-        for (i in 0..2) assertEquals(19f, v.chipTextSizeSpForTest(i), 0.01f)
+        for (i in 0..2) assertEquals(18f, v.chipTextSizeSpForTest(i), 0.01f)
     }
 
     @Test fun engine_order_is_preserved_and_picks_stay_global_across_rows() {
@@ -621,14 +621,14 @@ class CandidateGridViewTest {
         v.setCandidates(listOf("一", "二二", "三三三"))
         assertEquals(listOf(listOf("一", "二二", "三三三")), v.rowTextsForTest())
         assertEquals("only the three-grapheme candidate needs a second track", listOf(1, 1, 2), (0..2).map { v.chipSpanForTest(it) })
-        for (i in 0..2) assertEquals("cell $i keeps base size, never shrunk", 19f, v.chipTextSizeSpForTest(i), 0.01f)
+        for (i in 0..2) assertEquals("cell $i keeps base size, never shrunk", 18f, v.chipTextSizeSpForTest(i), 0.01f)
     }
 
     @Test fun an_under_filled_row_keeps_the_base_size_and_still_fills_the_width() {
         val v = measured()
         v.setCandidates(listOf("优", "沃", "卧", "奏", "窝"))
         assertEquals("four single-grapheme candidates fill a row and the fifth stands alone", listOf(4, 1), v.rowColumnCountsForTest())
-        for (i in 0..4) assertEquals("under-filled candidate $i stays at base 19sp, never enlarged", 19f, v.chipTextSizeSpForTest(i), 0.01f)
+        for (i in 0..4) assertEquals("under-filled candidate $i stays at base 18sp, never enlarged", 18f, v.chipTextSizeSpForTest(i), 0.01f)
         val tableW = tableWidth()
         assertEquals("the sparse row still spreads edge to edge with no trailing empty cell", tableW, (0..3).sumOf { v.chipCellWidthForTest(it) })
     }
@@ -638,8 +638,8 @@ class CandidateGridViewTest {
         v.setCandidates(listOf("你让我说什么说", "你"))
         assertEquals(listOf(listOf("你让我说什么说", "你")), v.rowTextsForTest())
         assertEquals("the long candidate merges three tracks", listOf(3, 1), (0..1).map { v.chipSpanForTest(it) })
-        assertEquals("merging leaves it at base size", 19f, v.chipTextSizeSpForTest(0), 0.01f)
-        assertEquals("its row-mate keeps base size too", 19f, v.chipTextSizeSpForTest(1), 0.01f)
+        assertEquals("merging leaves it at base size", 18f, v.chipTextSizeSpForTest(0), 0.01f)
+        assertEquals("its row-mate keeps base size too", 18f, v.chipTextSizeSpForTest(1), 0.01f)
     }
 
     @Test fun overlong_candidates_shrink_to_the_floor_and_ellipsize() {
@@ -846,8 +846,8 @@ class CandidateGridViewTest {
     @Test fun readings_keep_title_size_without_scaling() {
         val v = CandidateGridView(ctx)
         v.setReadings(listOf("ni", "zhuang"))
-        assertEquals(19f, v.readingTextSizeSpForTest(0), 0.01f)
-        assertEquals(19f, v.readingTextSizeSpForTest(1), 0.01f)
+        assertEquals(18f, v.readingTextSizeSpForTest(0), 0.01f)
+        assertEquals(18f, v.readingTextSizeSpForTest(1), 0.01f)
     }
 
     @Test fun the_press_highlight_covers_the_whole_candidate_and_reading_cell() {
