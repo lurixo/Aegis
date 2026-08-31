@@ -148,6 +148,7 @@ class EditBarView(context: Context) : LinearLayout(context) {
         minWidth = dp(56)
         setPadding(dp(12), 0, dp(12), 0)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+        setTypeface(null, android.graphics.Typeface.BOLD)
     }
 
     fun applyPalette(p: ImePalette) {
@@ -161,9 +162,9 @@ class EditBarView(context: Context) : LinearLayout(context) {
         fieldBox.background = GradientDrawable().apply { setColor(p.keySurface); cornerRadius = ImeShapes.inputRadiusDp * density }
         field.background = null
         back.applyTint(p.keyLabel)
-        confirm.setTextColor(p.accentBottom)
-        confirm.background = GradientDrawable().apply { setColor(Motion.withAlpha(p.accentBottom, 0x22)); cornerRadius = ImeShapes.toolbarFeedbackRadiusDp * density }
-        Motion.applyTapFeedback(confirm, p.accentBottom, radiusDp = ImeShapes.toolbarFeedbackRadiusDp)
+        confirm.setTextColor(p.keyLabel)
+        confirm.background = null
+        Motion.applyTapFeedback(confirm, p.keyLabel, radiusDp = ImeShapes.toolbarFeedbackRadiusDp)
     }
 
     fun setFieldLineBudget(lines: Int) {

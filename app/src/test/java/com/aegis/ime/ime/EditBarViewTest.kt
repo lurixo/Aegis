@@ -220,15 +220,19 @@ class EditBarViewTest {
         assertFalse("a short name needs no scrolling", f.canScrollVertically(1) || f.canScrollVertically(-1))
     }
 
-    @Test fun confirm_accents_and_the_back_control_stays_neutral_in_both_palettes() {
+    @Test fun both_bar_controls_stay_neutral_text_in_both_palettes() {
         for (palette in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
             val view = EditBarView(ctx).apply { applyPalette(palette) }
             val back = action(view, ctx.getString(com.aegis.ime.R.string.panel_back))
             val confirm = action(view, ctx.getString(com.aegis.ime.R.string.editbar_confirm))
             assertTrue("the bar leads with the shared panel back control", back is PanelHeaderBackControl)
             assertEquals(palette.keyLabel, back.currentTextColor)
-            assertEquals(palette.accentBottom, confirm.currentTextColor)
-            assertEquals(Motion.withAlpha(palette.accentBottom, 0x22), (confirm.background as GradientDrawable).color?.defaultColor)
+            assertEquals("confirm uses the body text color, not the accent", palette.keyLabel, confirm.currentTextColor)
+            assertNull("confirm paints no key face", confirm.background)
+            assertTrue("confirm is emphasised by weight instead of color", confirm.typeface.isBold)
+            val ripple = confirm.foreground as? android.graphics.drawable.RippleDrawable
+                ?: throw AssertionError("confirm keeps rounded tap feedback")
+            assertTrue((ripple.findDrawableByLayerId(android.R.id.mask) as GradientDrawable).cornerRadius > 0f)
         }
     }
 
