@@ -54,7 +54,7 @@ jobs:
           python3 tools/release/test_build_tgh_asset.py
 
       - name: Set up JDK 25.0.4
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v6
         with:
           distribution: temurin
           java-version: "25.0.4"
