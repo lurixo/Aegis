@@ -879,6 +879,13 @@ class Debug17PanelTest {
         assertEquals(pal.keyLabel, done.currentTextColor)
         assertEquals(dragCategories.currentTextColor, done.currentTextColor)
         assertTrue(done.background is ImeKeySurface)
+        assertEquals("done is a text action without a key face", Color.TRANSPARENT, bgColor(done))
+
+        val sort = phraseView().apply { enterSortModeForTest() }
+        val sortDone = textViews(sort).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_done) }
+        assertEquals(pal.keyLabel, sortDone.currentTextColor)
+        assertTrue(sortDone.background is ImeKeySurface)
+        assertEquals("sort done is a text action without a key face", Color.TRANSPARENT, bgColor(sortDone))
 
         val expanded = clipView().apply { expandForTest("hello") }
         val actions = textViews(expanded)

@@ -1873,9 +1873,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             }, ll(0, WC, 1f))
             addView(TextView(context).apply {
                 text = context.getString(R.string.clip_done); gravity = Gravity.END
-                setTextColor(ACCENT); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+                setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setOnClickListener { exitSortMode() }
-                bindImmediateAction(this, ACCENT)
+                bindImmediateAction(this, TEXT_DARK, faceColor = Color.TRANSPARENT)
             }, ll(0, dp(48), 1f))
         }
         main.addView(topBar, ll(MP, WC))
@@ -1953,7 +1953,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
                 setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
                 setPadding(dp(12), 0, dp(14), 0)
                 setOnClickListener { exitCategorySortMode() }
-                bindImmediateAction(this, TEXT_DARK)
+                bindImmediateAction(this, TEXT_DARK, faceColor = Color.TRANSPARENT)
             }, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
         }
         main.addView(topBar, ll(MP, WC))
