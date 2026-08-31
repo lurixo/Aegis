@@ -870,6 +870,8 @@ class Debug17PanelTest {
         assertEquals(pal.keyLabel, cancel.currentTextColor)
         assertTrue(selectAll.background is ImeKeySurface)
         assertTrue(cancel.background is ImeKeySurface)
+        assertEquals("select all is a text action without a key face", Color.TRANSPARENT, bgColor(selectAll))
+        assertEquals("cancel is a text action without a key face", Color.TRANSPARENT, bgColor(cancel))
 
         val categorySort = phraseView().apply { enterCategorySortModeForTest() }
         val done = textViews(categorySort).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_done) }
@@ -885,20 +887,22 @@ class Debug17PanelTest {
         assertTrue(actions.all { it.currentTextColor == pal.keyLabel })
     }
 
-    @Test fun select_mode_action_buttons_match_top_action_colors_when_enabled() {
+    @Test fun select_mode_action_buttons_are_text_actions_when_enabled() {
         val clip = clipView().apply { enterSelectForTest(listOf("hello")) }
         for (label in listOf(ctx.getString(com.aegis.ime.R.string.clip_add_phrase), ctx.getString(com.aegis.ime.R.string.clip_delete))) {
             val button = textViews(clip).first { it.text?.toString() == label }
-            assertEquals("$label uses top action background", pal.keySurface, bgColor(button))
-            assertEquals("$label uses top action text", pal.keyLabel, button.currentTextColor)
+            assertTrue("$label keeps the shared key feedback surface", button.background is ImeKeySurface)
+            assertEquals("$label draws no key face", Color.TRANSPARENT, bgColor(button))
+            assertEquals("$label uses body text color", pal.keyLabel, button.currentTextColor)
             assertTrue("$label remains clickable when enabled", button.hasOnClickListeners())
         }
 
         val phrase = phraseView().apply { enterSelectForTest(listOf("你好")) }
         for (label in listOf(ctx.getString(com.aegis.ime.R.string.clip_move_to_category), ctx.getString(com.aegis.ime.R.string.clip_delete))) {
             val button = textViews(phrase).first { it.text?.toString() == label }
-            assertEquals("$label uses top action background", pal.keySurface, bgColor(button))
-            assertEquals("$label uses top action text", pal.keyLabel, button.currentTextColor)
+            assertTrue("$label keeps the shared key feedback surface", button.background is ImeKeySurface)
+            assertEquals("$label draws no key face", Color.TRANSPARENT, bgColor(button))
+            assertEquals("$label uses body text color", pal.keyLabel, button.currentTextColor)
             assertTrue("$label remains clickable when enabled", button.hasOnClickListeners())
         }
     }

@@ -735,7 +735,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
     internal fun hasPendingListAppendForTest(): Boolean = pendingListAppend != null
     internal fun disabledActionTextColorForTest(): Int = TEXT_DARK
-    internal fun disabledActionBackgroundColorForTest(): Int = CARD
+    internal fun disabledActionBackgroundColorForTest(): Int = BG
     internal fun selectAllActionForTest(): TextView? = selectAllAction
     internal fun cancelSelectActionForTest(): TextView? = cancelSelectAction
     internal fun listScrollRawTopForTest(): Int {
@@ -2171,7 +2171,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
                 compoundDrawablePadding = paint.measureText(" ").roundToInt().coerceAtLeast(1)
                 setPadding(dp(9), 0, dp(10), 0)
                 setOnClickListener { st.selectAll(all); rebindVisibleSelectRows(all); applySelectionState?.invoke() }
-                bindImmediateAction(this, TEXT_DARK)
+                bindImmediateAction(this, TEXT_DARK, faceColor = Color.TRANSPARENT)
             }
             selectAllAction = selectAll
             addView(selectAll, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
@@ -2733,7 +2733,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             if (enabled) {
                 setOnClickListener { onClick() }
             }
-            bindImmediateAction(this, TEXT_DARK)
+            bindImmediateAction(this, TEXT_DARK, faceColor = Color.TRANSPARENT)
         }
 
     private fun glyphPaint(tint: Int) = Paint(Paint.ANTI_ALIAS_FLAG).apply {

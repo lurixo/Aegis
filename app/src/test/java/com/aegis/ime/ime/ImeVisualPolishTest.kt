@@ -260,7 +260,7 @@ class ImeVisualPolishTest {
         assertDisabledButton(add, palette)
         assertDisabledButton(delete, palette)
         assertEquals(palette.keyLabel, v.disabledActionTextColorForTest())
-        assertEquals(palette.keySurface, v.disabledActionBackgroundColorForTest())
+        assertEquals(palette.keyboardBg, v.disabledActionBackgroundColorForTest())
     }
 
     private fun assertPhraseDisabledActionContrast(palette: ImePalette) {
@@ -278,9 +278,10 @@ class ImeVisualPolishTest {
     }
 
     private fun assertDisabledButton(tv: TextView, palette: ImePalette) {
-        assertTrue("disabled immediate action keeps the shared key surface", tv.background is ImeKeySurface)
-        val bg = palette.keySurface
-        assertEquals(palette.keySurface, bg)
+        val surface = tv.background as? ImeKeySurface
+            ?: throw AssertionError("disabled immediate action keeps the shared key surface")
+        assertEquals("a text action draws no key face", Color.TRANSPARENT, surface.faceColor)
+        val bg = palette.keyboardBg
         assertEquals(palette.keyLabel, tv.currentTextColor)
         assertTrue("disabled action text contrast is readable", contrastRatio(tv.currentTextColor, bg) >= 4.5)
         assertTrue("disabled action stays disabled", !tv.hasOnClickListeners())
