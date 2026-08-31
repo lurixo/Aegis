@@ -527,38 +527,34 @@ class CandidateBarChevronTest {
         }
     }
 
-    @Test fun seven_toolbar_glyphs_fit_one_common_icon_box() {
+    @Test fun seven_toolbar_glyphs_share_one_optical_icon_box() {
         val view = idleBar(360)
         val s = 9f * density
         val box = 1.64f * s
-        val natural = listOf(
-            BarFunction.BRAND to (1.28f to 1.59f),
-            BarFunction.LAYOUT to (1.40f to 1.40f),
-            BarFunction.EMOJI to (1.64f to 1.64f),
-            BarFunction.EDIT to (1.00f to 1.64f),
-            BarFunction.CLIPBOARD to (1.16f to 1.58f),
-            BarFunction.TRANSLATE to (1.64f to 1.64f),
+        data class IconSpec(val f: BarFunction, val w: Float, val h: Float, val optical: Float)
+        val specs = listOf(
+            IconSpec(BarFunction.BRAND, 1.28f, 1.59f, 1.06f),
+            IconSpec(BarFunction.LAYOUT, 1.40f, 1.40f, 0.96f),
+            IconSpec(BarFunction.EMOJI, 1.64f, 1.64f, 1.00f),
+            IconSpec(BarFunction.EDIT, 1.00f, 1.64f, 1.02f),
+            IconSpec(BarFunction.CLIPBOARD, 1.16f, 1.58f, 1.06f),
+            IconSpec(BarFunction.TRANSLATE, 1.64f, 1.64f, 0.98f),
         )
-        for ((f, wh) in natural) {
-            val scale = view.toolbarIconScaleForTest(f)
-            val w = wh.first * s * scale
-            val h = wh.second * s * scale
-            assertTrue("$f width fits the box", w <= box + 0.02f * density)
-            assertTrue("$f height fits the box", h <= box + 0.02f * density)
-            assertTrue(
-                "$f fills the box in exactly one dimension",
-                abs(w - box) <= 0.02f * density || abs(h - box) <= 0.02f * density,
+        for (spec in specs) {
+            val scale = view.toolbarIconScaleForTest(spec.f)
+            assertEquals(
+                "${spec.f} matches its optical fit",
+                minOf(1.64f / spec.w, 1.64f / spec.h) * spec.optical,
+                scale,
+                0.001f,
+            )
+            assertEquals(
+                "${spec.f} fills the box at its optical factor",
+                box * spec.optical,
+                maxOf(spec.w, spec.h) * s * scale,
+                0.02f * density,
             )
         }
-        assertEquals("EDIT keeps its size", 1f, view.toolbarIconScaleForTest(BarFunction.EDIT), 0.001f)
-        assertEquals("EMOJI keeps its size", 1f, view.toolbarIconScaleForTest(BarFunction.EMOJI), 0.001f)
-        assertEquals("the translate glyph keeps its source scale", 1f, view.toolbarIconScaleForTest(BarFunction.TRANSLATE), 0.001f)
-        assertEquals(
-            "the keyboard glyph now fills the common box height",
-            box,
-            1.40f * s * view.toolbarIconScaleForTest(BarFunction.LAYOUT),
-            0.02f * density,
-        )
         val chevron = view.toolbarChevronBoundsForTest()
         assertEquals("the collapse chevron is width-bounded to the box", box, chevron.width(), 0.02f * density)
         assertTrue("the collapse chevron is no longer over-wide", chevron.width() < 1.64f * 9f * density * 1.2f)

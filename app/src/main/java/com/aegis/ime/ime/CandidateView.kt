@@ -435,12 +435,12 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
     }
 
     private fun iconScale(f: BarFunction): Float = when (f) {
-        BarFunction.BRAND -> fitScale(BRAND_GLYPH_WIDTH, BRAND_GLYPH_HEIGHT)
-        BarFunction.LAYOUT -> fitScale(LAYOUT_GLYPH_WIDTH, LAYOUT_GLYPH_HEIGHT)
-        BarFunction.EMOJI -> fitScale(EMOJI_GLYPH_WIDTH, EMOJI_GLYPH_HEIGHT)
-        BarFunction.EDIT -> fitScale(EDIT_GLYPH_WIDTH, EDIT_GLYPH_HEIGHT)
-        BarFunction.CLIPBOARD -> fitScale(CLIPBOARD_GLYPH_WIDTH, CLIPBOARD_GLYPH_HEIGHT)
-        BarFunction.TRANSLATE -> fitScale(TRANSLATE_GLYPH_WIDTH, TRANSLATE_GLYPH_HEIGHT)
+        BarFunction.BRAND -> fitScale(BRAND_GLYPH_WIDTH, BRAND_GLYPH_HEIGHT) * BRAND_OPTICAL
+        BarFunction.LAYOUT -> fitScale(LAYOUT_GLYPH_WIDTH, LAYOUT_GLYPH_HEIGHT) * LAYOUT_OPTICAL
+        BarFunction.EMOJI -> fitScale(EMOJI_GLYPH_WIDTH, EMOJI_GLYPH_HEIGHT) * EMOJI_OPTICAL
+        BarFunction.EDIT -> fitScale(EDIT_GLYPH_WIDTH, EDIT_GLYPH_HEIGHT) * EDIT_OPTICAL
+        BarFunction.CLIPBOARD -> fitScale(CLIPBOARD_GLYPH_WIDTH, CLIPBOARD_GLYPH_HEIGHT) * CLIPBOARD_OPTICAL
+        BarFunction.TRANSLATE -> fitScale(TRANSLATE_GLYPH_WIDTH, TRANSLATE_GLYPH_HEIGHT) * TRANSLATE_OPTICAL
     }
 
     override fun computeScroll() {
@@ -647,6 +647,12 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
         private const val CLIPBOARD_GLYPH_HEIGHT = 1.58f
         private const val TRANSLATE_GLYPH_WIDTH = 1.64f
         private const val TRANSLATE_GLYPH_HEIGHT = 1.64f
+        private const val BRAND_OPTICAL = 1.06f
+        private const val LAYOUT_OPTICAL = 0.96f
+        private const val EMOJI_OPTICAL = 1.00f
+        private const val EDIT_OPTICAL = 1.02f
+        private const val CLIPBOARD_OPTICAL = 1.06f
+        private const val TRANSLATE_OPTICAL = 0.98f
         private const val CHEVRON_GLYPH_WIDTH = 1.40f
         private const val CHEVRON_GLYPH_HEIGHT = 0.76f
         private val CHEVRON_SCALE = fitScale(CHEVRON_GLYPH_WIDTH, CHEVRON_GLYPH_HEIGHT)
