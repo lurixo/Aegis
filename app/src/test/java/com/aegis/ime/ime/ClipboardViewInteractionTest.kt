@@ -277,11 +277,13 @@ class ClipboardViewInteractionTest {
 
         val split = clipView(listOf("one two")).apply { showSplitForTest("one two") }
         layout(split)
-        assertImmediateKey(
-            split,
-            textViews(overlayOf(split)).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_copy_all) },
-            "copy all split blocks",
-        )
+        val copyAll = textViews(overlayOf(split)).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_copy_all) }
+        val splitBack = textViews(overlayOf(split)).single { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_back) }
+        assertImmediateKey(split, copyAll, "copy all split blocks")
+        for ((name, action) in listOf("copy all" to copyAll, "split back" to splitBack)) {
+            assertEquals("$name is a text action without a key face", Color.TRANSPARENT, (action.background as ImeKeySurface).faceColor)
+            assertEquals("$name uses the body text color", pal.keyLabel, action.currentTextColor)
+        }
     }
 
     @Test fun content_navigation_keeps_complex_gestures_while_simple_menu_actions_use_key_feedback() {

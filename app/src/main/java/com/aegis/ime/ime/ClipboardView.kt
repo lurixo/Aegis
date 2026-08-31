@@ -2512,15 +2512,15 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setPadding(dp(12), 0, dp(12), 0)
             setOnClickListener { hideOverlay() }
-            bindImmediateAction(this, TEXT_DARK)
+            bindImmediateAction(this, TEXT_DARK, faceColor = Color.TRANSPARENT)
         }, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
         footer.addView(View(context), ll(0, dp(1), 1f))
         if (blocks.isNotEmpty()) footer.addView(TextView(context).apply {
             this.text = context.getString(R.string.clip_copy_all); gravity = Gravity.CENTER
-            setTextColor(SPLIT_BLOCK_BG); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
+            setTextColor(TEXT_DARK); setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setPadding(dp(12), 0, dp(12), 0)
             setOnClickListener { onCopyBlocksToAegis(blocks) }
-            bindImmediateAction(this, SPLIT_BLOCK_BG, Motion.withAlpha(SPLIT_BLOCK_BG, 0x22))
+            bindImmediateAction(this, TEXT_DARK, faceColor = Color.TRANSPARENT)
         }, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
         panel.addView(footer, ll(MP, WC))
         showOverlay(panel, maxWidthDp = 340)

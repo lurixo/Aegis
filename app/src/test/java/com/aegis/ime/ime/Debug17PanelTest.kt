@@ -632,14 +632,16 @@ class Debug17PanelTest {
         assertEquals(listOf(listOf("你好", "abc", "def")), batches)
     }
 
-    @Test fun split_chooser_hides_original_preview_and_accents_copy_all() {
+    @Test fun split_chooser_hides_original_preview_and_keeps_copy_all_as_body_text() {
         val v = clipView()
         v.showSplitForTest("你好abc def")
         assertFalse("original preview removed", "你好abc def" in labels(overlayOf(v)))
-        assertEquals(pal.keyLabel, textViews(overlayOf(v)).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_back) }.currentTextColor)
+        val back = textViews(overlayOf(v)).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_back) }
         val copyAll = textViews(overlayOf(v)).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_copy_all) }
-        assertEquals(pal.accentBottom, copyAll.currentTextColor)
-        assertEquals(Motion.withAlpha(pal.accentBottom, 0x22), bgColor(copyAll))
+        assertEquals(pal.keyLabel, back.currentTextColor)
+        assertEquals(pal.keyLabel, copyAll.currentTextColor)
+        assertEquals(Color.TRANSPARENT, bgColor(back))
+        assertEquals(Color.TRANSPARENT, bgColor(copyAll))
     }
 
     @Test fun phrase_note_is_displayed_but_pick_commits_the_original() {
