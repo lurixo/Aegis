@@ -23,6 +23,7 @@ import android.text.TextWatcher
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.View
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -46,10 +47,13 @@ class EditBarView(context: Context) : LinearLayout(context) {
     private val cursorDrawable = GradientDrawable().apply { setSize(maxOf(1, dp(2)), 0) }
     private var suppressTextCallback = false
 
-    private val title = TextView(context).apply {
-        gravity = Gravity.CENTER_VERTICAL
-        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.label)
-        setPadding(dp(12), 0, dp(6), 0)
+    private val label = TextView(context).apply {
+        maxLines = 1
+        ellipsize = android.text.TextUtils.TruncateAt.END
+        includeFontPadding = false
+        gravity = Gravity.CENTER_VERTICAL or Gravity.START
+        setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.caption)
+        setPadding(dp(12), dp(FIELD_INSET_DP), dp(12), 0)
     }
     private val field = object : EditText(context) {
         override fun onTouchEvent(e: MotionEvent): Boolean {
@@ -72,9 +76,14 @@ class EditBarView(context: Context) : LinearLayout(context) {
         isCursorVisible = true
         setHorizontallyScrolling(false)
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
-        setPadding(dp(12), dp(6), dp(12), dp(6))
-        minHeight = dp(36)
+        setPadding(dp(12), 0, dp(12), dp(FIELD_INSET_DP))
         isVerticalScrollBarEnabled = true
+    }
+    private val fieldBox = LinearLayout(context).apply {
+        orientation = VERTICAL
+        minimumHeight = dp(LABELED_FIELD_HEIGHT_DP)
+        addView(label, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(CAPTION_ROW_DP)))
+        addView(field, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
     private val cancel = btn(context.getString(R.string.editbar_cancel))
     private val confirm = btn(context.getString(R.string.editbar_confirm))
@@ -104,9 +113,8 @@ class EditBarView(context: Context) : LinearLayout(context) {
     init {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        addView(title, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
         addView(
-            field,
+            fieldBox,
             LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
                 gravity = Gravity.CENTER_VERTICAL
                 val m = (ImeShapes.toolbarCapsuleMarginDp * density).toInt()
@@ -144,12 +152,13 @@ class EditBarView(context: Context) : LinearLayout(context) {
     fun applyPalette(p: ImePalette) {
         palette = p
         setBackgroundColor(p.keyboardBg)
-        title.setTextColor(p.keyHint)
+        label.setTextColor(p.keyHint)
         field.setTextColor(p.keyLabel)
         cursorDrawable.setColor(p.accentBottom)
         field.setTextCursorDrawable(cursorDrawable)
         field.highlightColor = Motion.withAlpha(p.accentBottom, 0x55)
-        field.background = GradientDrawable().apply { setColor(p.keySurface); cornerRadius = ImeShapes.inputRadiusDp * density }
+        fieldBox.background = GradientDrawable().apply { setColor(p.keySurface); cornerRadius = ImeShapes.inputRadiusDp * density }
+        field.background = null
         cancel.setTextColor(p.keyLabel)
         cancel.background = GradientDrawable().apply { setColor(p.keySurface); cornerRadius = ImeShapes.toolbarFeedbackRadiusDp * density }
         confirm.setTextColor(p.accentBottom)
@@ -159,11 +168,17 @@ class EditBarView(context: Context) : LinearLayout(context) {
     }
 
     fun setFieldLineBudget(lines: Int) {
+        val compact = lines <= 1
+        label.visibility = if (compact) GONE else VISIBLE
+        val top = if (compact) dp(COMPACT_FIELD_INSET_DP) else 0
+        val bottom = dp(if (compact) COMPACT_FIELD_INSET_DP else FIELD_INSET_DP)
+        if (field.paddingTop != top || field.paddingBottom != bottom) field.setPadding(dp(12), top, dp(12), bottom)
+        fieldBox.minimumHeight = dp(if (compact) COMPACT_FIELD_HEIGHT_DP else LABELED_FIELD_HEIGHT_DP)
         val limit = field.lineHeight * lines.coerceIn(1, MAX_FIELD_LINES) + field.paddingTop + field.paddingBottom
         if (field.maxHeight != limit) field.maxHeight = limit
     }
 
-    fun setTitle(t: String) { title.text = t }
+    fun setTitle(t: String) { label.text = t }
 
     fun setText(t: String) {
         suppressTextCallback = true
@@ -186,7 +201,14 @@ class EditBarView(context: Context) : LinearLayout(context) {
 
     internal fun fieldForTest(): EditText = field
 
+    internal fun fieldBoxForTest(): View = fieldBox
+
     companion object {
         const val MAX_FIELD_LINES = 4
+        const val LABELED_FIELD_HEIGHT_DP = 46
+        const val COMPACT_FIELD_HEIGHT_DP = 36
+        const val CAPTION_ROW_DP = 21
+        private const val FIELD_INSET_DP = 5
+        private const val COMPACT_FIELD_INSET_DP = 6
     }
 }

@@ -392,7 +392,7 @@ class RenderHarness {
     }
 
     @Test fun edit_bar() {
-        val h = (44 * density).toInt()
+        val h = (56 * density).toInt()
         for ((t, pal) in themes) {
             val v = EditBarView(ctx).apply { applyPalette(pal); setTitle(ctx.getString(com.aegis.ime.R.string.svc_edit_phrase)); setText("你好世界") }
             snap(v, h, "edit_bar_$t.png")

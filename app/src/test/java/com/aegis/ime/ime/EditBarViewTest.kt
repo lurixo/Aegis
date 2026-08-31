@@ -25,6 +25,7 @@ import com.aegis.ime.ime.theme.ImePalette
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -60,7 +61,7 @@ class EditBarViewTest {
         val margin = (com.aegis.ime.ime.theme.ImeShapes.toolbarCapsuleMarginDp * density).toInt()
         val sides = textViews(v).filterNot { it === field(v) }.filter { it.isClickable }
         assertTrue("the bar has side controls", sides.isNotEmpty())
-        val flp = field(v).layoutParams as android.view.ViewGroup.MarginLayoutParams
+        val flp = v.fieldBoxForTest().layoutParams as android.view.ViewGroup.MarginLayoutParams
         assertEquals("the field keeps the toolbar capsule top margin", margin, flp.topMargin)
         assertEquals("the field keeps the toolbar capsule bottom margin", margin, flp.bottomMargin)
         for (side in sides) {
@@ -68,6 +69,46 @@ class EditBarViewTest {
             assertEquals("a side control keeps the toolbar capsule top margin", margin, lp.topMargin)
             assertEquals("a side control keeps the toolbar capsule bottom margin", margin, lp.bottomMargin)
         }
+    }
+
+    @Test fun the_title_sits_inside_the_field_as_a_caption() {
+        val palette = ImePalette.STATIC_LIGHT
+        val v = EditBarView(ctx).apply { applyPalette(palette); setTitle("编辑常用语"); setText("你好") }
+        layout(v)
+        val box = v.fieldBoxForTest()
+        val caption = textViews(v).single { it.text?.toString() == "编辑常用语" }
+        assertTrue("the caption lives in the field box", caption.parent === box)
+        assertTrue("the editor lives in the same field box", field(v).parent === box)
+        assertTrue("the caption sits above the editor", caption.bottom <= field(v).top)
+        assertEquals(com.aegis.ime.ime.theme.ImeType.caption, caption.textSize / ctx.resources.displayMetrics.scaledDensity, 0.01f)
+        assertEquals(palette.keyHint, caption.currentTextColor)
+        assertEquals("the box carries the field surface", palette.keySurface, (box.background as GradientDrawable).color?.defaultColor)
+        assertNull("the editor paints no second surface inside the box", field(v).background)
+        val density = ctx.resources.displayMetrics.density
+        assertEquals("the caption row is fixed", (EditBarView.CAPTION_ROW_DP * density).toInt(), caption.height)
+        val f = field(v)
+        assertTrue("the editor shows its line", f.height >= f.lineHeight + f.paddingTop + f.paddingBottom)
+        val labelled = maxOf((EditBarView.LABELED_FIELD_HEIGHT_DP * density).toInt(), caption.height + f.height)
+        assertEquals("caption plus one line fill the labelled field height", labelled, box.height)
+        assertEquals("the bar is the field plus the capsule margins", box.height + 2 * (com.aegis.ime.ime.theme.ImeShapes.toolbarCapsuleMarginDp * density).toInt(), v.height)
+    }
+
+    @Test fun a_one_line_budget_drops_the_caption_and_the_compact_field_comes_back() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT); setTitle("编辑常用语"); setText("你好") }
+        val caption = textViews(v).single { it.text?.toString() == "编辑常用语" }
+        val density = ctx.resources.displayMetrics.density
+        v.setFieldLineBudget(1)
+        layout(v)
+        assertEquals(View.GONE, caption.visibility)
+        val f = field(v)
+        val compact = maxOf((EditBarView.COMPACT_FIELD_HEIGHT_DP * density).toInt(), f.height)
+        assertEquals(compact, v.fieldBoxForTest().height)
+        v.setFieldLineBudget(EditBarView.MAX_FIELD_LINES)
+        layout(v)
+        assertEquals(View.VISIBLE, caption.visibility)
+        val labelled = maxOf((EditBarView.LABELED_FIELD_HEIGHT_DP * density).toInt(), caption.height + f.height)
+        assertEquals(labelled, v.fieldBoxForTest().height)
+        assertTrue("the labelled field is taller than the compact one", labelled > compact)
     }
 
     @Test fun the_caret_follows_the_palette_accent_across_palette_changes() {
