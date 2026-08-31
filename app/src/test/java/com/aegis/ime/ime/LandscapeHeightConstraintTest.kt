@@ -837,12 +837,12 @@ class TinyPanelViewportConstraintTest {
         val authoredTextSizes = clipboardFixedTextSizes(clipboard)
         layoutAtMost(iv, 320, 200)
         settleUiAnimations()
-        var cancel = assertClipboardModeReadable(iv, clipboard, ctx.getString(com.aegis.ime.R.string.clip_cancel))
+        var cancel = assertClipboardModeReadable(iv, clipboard, ctx.getString(com.aegis.ime.R.string.clip_back))
         assertClipboardFixedTextScales(clipboard, authoredTextSizes)
         val stableSelectBounds = clipboardModeBoundsSnapshot(iv, clipboard)
         repeat(2) {
             layoutAtMost(iv, 320, 200)
-            cancel = assertClipboardModeReadable(iv, clipboard, ctx.getString(com.aegis.ime.R.string.clip_cancel))
+            cancel = assertClipboardModeReadable(iv, clipboard, ctx.getString(com.aegis.ime.R.string.clip_back))
             assertEquals("identical select-mode measures must not alternate compact/overflow states", stableSelectBounds, clipboardModeBoundsSnapshot(iv, clipboard))
         }
         settleUiAnimations()

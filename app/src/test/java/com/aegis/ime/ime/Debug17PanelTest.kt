@@ -865,7 +865,7 @@ class Debug17PanelTest {
     @Test fun edit_chrome_and_action_rows_use_enabled_colors_and_rounded_surfaces() {
         val selected = clipView().apply { enterSelectForTest() }
         val selectAll = textViews(selected).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_select_all) }
-        val cancel = textViews(selected).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_cancel) }
+        val cancel = textViews(selected).first { it.text?.toString() == ctx.getString(com.aegis.ime.R.string.clip_back) }
         assertEquals(pal.keyLabel, selectAll.currentTextColor)
         assertEquals(pal.keyLabel, cancel.currentTextColor)
         assertTrue(selectAll.background is ImeKeySurface)

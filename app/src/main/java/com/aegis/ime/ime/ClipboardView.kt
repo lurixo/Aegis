@@ -2200,7 +2200,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
                 }
                 addView(countView, ll(WC, MP))
             }, ll(0, dp(COMPACT_ACTION_HEIGHT_DP), 1f))
-            val cancel = compactActionButton(context.getString(R.string.clip_cancel), true) { exitSelect() }
+            val cancel = compactActionButton(context.getString(R.string.clip_back), true) { exitSelect() }
             cancelSelectAction = cancel
             addView(cancel, ll(WC, dp(COMPACT_ACTION_HEIGHT_DP)))
         }
