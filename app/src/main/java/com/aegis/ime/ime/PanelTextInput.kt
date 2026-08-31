@@ -26,17 +26,31 @@ interface PanelEditable {
 class PanelTextInput {
 
     private var target: PanelEditable? = null
+    private var presented: () -> Boolean = { true }
 
-    val active: Boolean get() = target != null
+    val active: Boolean get() = live() != null
 
-    fun begin(editable: PanelEditable) { target = editable }
+    fun begin(editable: PanelEditable, presented: () -> Boolean = { true }) {
+        target = editable
+        this.presented = presented
+    }
 
-    fun end() { target = null }
+    fun end() {
+        target = null
+        presented = { true }
+    }
 
-    fun text(): String = target?.snapshot() ?: ""
+    private fun live(): PanelEditable? {
+        val t = target ?: return null
+        if (presented()) return t
+        end()
+        return null
+    }
+
+    fun text(): String = live()?.snapshot() ?: ""
 
     fun commit(text: CharSequence): Boolean {
-        val t = target ?: return false
+        val t = live() ?: return false
         t.replace(start(t), end(t), text)
         return true
     }
@@ -44,7 +58,7 @@ class PanelTextInput {
     fun newline(): Boolean = commit("\n")
 
     fun backspace(): Boolean {
-        val t = target ?: return false
+        val t = live() ?: return false
         val s = start(t)
         if (s != end(t)) { t.replace(s, end(t), ""); return true }
         if (s <= 0) return true
@@ -54,7 +68,7 @@ class PanelTextInput {
     }
 
     fun deleteSelection(): Boolean {
-        val t = target ?: return false
+        val t = live() ?: return false
         val s = start(t)
         val e = end(t)
         if (s == e) return false
@@ -63,20 +77,20 @@ class PanelTextInput {
     }
 
     fun textBefore(n: Int): String? {
-        val t = target ?: return null
+        val t = live() ?: return null
         val s = start(t)
         return t.snapshot().substring(maxOf(0, s - n), s)
     }
 
     fun replaceBefore(length: Int, text: CharSequence): Boolean {
-        val t = target ?: return false
+        val t = live() ?: return false
         val s = start(t)
         t.replace(maxOf(0, s - length), s, text)
         return true
     }
 
     fun move(move: SelectionMath.Move, extend: Boolean): Boolean {
-        val t = target ?: return false
+        val t = live() ?: return false
         val text = t.snapshot()
         if (extend) {
             t.setSelection(t.selectionStart(), SelectionMath.step(text, t.selectionEnd(), move))
@@ -93,20 +107,20 @@ class PanelTextInput {
     }
 
     fun selectAll(): Boolean {
-        val t = target ?: return false
+        val t = live() ?: return false
         t.setSelection(0, t.snapshot().length)
         return true
     }
 
     fun selectedText(): String? {
-        val t = target ?: return null
+        val t = live() ?: return null
         val s = start(t)
         val e = end(t)
         return if (s == e) null else t.snapshot().substring(s, e)
     }
 
     fun hasSelection(): Boolean {
-        val t = target ?: return false
+        val t = live() ?: return false
         return start(t) != end(t)
     }
 

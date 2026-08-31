@@ -226,6 +226,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var frameworkWillFinishInput = false
     private var panelInputTitle = ""
     private var translateOpen = false
+    private var translateEngaged = true
     private var translateInputConnection: InputConnection? = null
     private var translatePending: Runnable? = null
     private var lastCopy: String? = null
@@ -631,6 +632,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onEditConfirm = { confirmInlineInput() }
             onEditCancel = { cancelInlineInput() }
             onTranslateClose = { closeTranslateBar() }
+            onTranslateFieldTap = { resumeTranslateRouting() }
             onOverlayChanged = { syncBackCallback() }
             onRestoreNotice = { openBackup() }
         }
@@ -720,7 +722,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             view.setEditTitle(panelInputTitle)
             view.setEditText(panelTextSnapshot.orEmpty())
             view.showEditBar(true)
-            panelInput.begin(view.editEditable())
+            panelInput.begin(view.editEditable()) { view.isEditBarShowing() }
         }
         if (translateOpen) bindTranslateInput(view)
     }
@@ -1449,7 +1451,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         iv.setEditTitle(title)
         iv.setEditText(initial)
         iv.showEditBar(true)
-        panelInput.begin(iv.editEditable())
+        panelInput.begin(iv.editEditable()) { iv.isEditBarShowing() }
     }
 
     private fun confirmInlineInput() {
@@ -1541,6 +1543,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (inputPurpose != null) return
         val iv = inputView ?: return
         translateOpen = true
+        translateEngaged = true
         iv.showPanel(null)
         bindTranslateInput(iv)
     }
@@ -1562,8 +1565,39 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val iv = view ?: return
         if (!translateOpen || inputPurpose != null) return
         iv.setTranslateMode(translateMode())
+        iv.setTranslateFieldEngaged(translateEngaged)
         iv.showTranslateBar(true)
-        panelInput.begin(iv.translateEditable())
+        if (translateEngaged) panelInput.begin(iv.translateEditable()) { iv.isTranslateBarShowing() }
+    }
+
+    private fun pauseTranslateRouting() {
+        if (!translateOpen || !translateEngaged || inputPurpose != null) return
+        translateEngaged = false
+        if (panelInput.active) {
+            if (::controller.isInitialized) controller.onPanelClear()
+            panelInput.end()
+        }
+        finishTranslation()
+        inputView?.let { iv ->
+            iv.setTranslateText("")
+            iv.setTranslateFieldEngaged(false)
+        }
+    }
+
+    private fun resumeTranslateRouting() {
+        if (!translateOpen || translateEngaged || inputPurpose != null) return
+        translateEngaged = true
+        bindTranslateInput()
+    }
+
+    override fun onUpdateEditorToolType(toolType: Int) {
+        super.onUpdateEditorToolType(toolType)
+        pauseTranslateRouting()
+    }
+
+    @Suppress("OVERRIDE_DEPRECATION")
+    override fun onViewClicked(focusChanged: Boolean) {
+        pauseTranslateRouting()
     }
 
     private fun translateMode(): TranslateMode = runCatching {

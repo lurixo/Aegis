@@ -45,6 +45,7 @@ class TranslateBarView(context: Context) : LinearLayout(context) {
     var onModeChanged: (TranslateMode) -> Unit = {}
     var onSelectionState: ((Boolean) -> Unit)? = null
     var onDialogVisibilityChanged: () -> Unit = {}
+    var onFieldTap: () -> Unit = {}
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
@@ -65,6 +66,7 @@ class TranslateBarView(context: Context) : LinearLayout(context) {
     }
     private val field = object : EditText(context) {
         override fun onTouchEvent(e: MotionEvent): Boolean {
+            if (e.actionMasked == MotionEvent.ACTION_DOWN) onFieldTap()
             if (canScrollVertically(1) || canScrollVertically(-1)) parent?.requestDisallowInterceptTouchEvent(true)
             return super.onTouchEvent(e)
         }

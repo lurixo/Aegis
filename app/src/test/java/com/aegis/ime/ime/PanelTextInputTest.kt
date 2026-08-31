@@ -74,6 +74,23 @@ class PanelTextInputTest {
         assertEquals("", p.text())
     }
 
+    @Test fun a_field_that_is_no_longer_presented_releases_routing_to_the_editor() {
+        var shown = true
+        val target = FakeEditable("ab")
+        val p = PanelTextInput().apply { begin(target) { shown } }
+        assertTrue(p.active)
+        assertTrue(p.commit("c"))
+        shown = false
+        assertFalse("a hidden field must not swallow typing", p.commit("d"))
+        assertFalse(p.active)
+        assertFalse(p.backspace())
+        assertNull(p.textBefore(3))
+        assertEquals("", p.text())
+        assertEquals("the hidden field keeps what it had", "abc", target.snapshot())
+        shown = true
+        assertFalse("routing stays released until the host binds again", p.commit("e"))
+    }
+
     @Test fun end_restores_normal_routing() {
         val (p, _) = open("xy")
         assertTrue(p.commit("z"))

@@ -74,6 +74,7 @@ class InputView(context: Context) : LinearLayout(context) {
     var onEditSelectionChanged: (Boolean) -> Unit = {}
     var onEditCancel: () -> Unit = {}
     var onTranslateClose: () -> Unit = {}
+    var onTranslateFieldTap: () -> Unit = {}
     var onTranslateTextChanged: (String) -> Unit = {}
     var onTranslateModeChanged: (TranslateMode) -> Unit = {}
     var onTranslateSelectionChanged: (Boolean) -> Unit = {}
@@ -105,6 +106,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private var copyBarActive = false
     private var editBarActive = false
     private var translateBarActive = false
+    private var translateFieldEngaged = true
     private var palette = ImePalette.STATIC_LIGHT
     private var barTrouble: RestoreTrouble? = null
     private var phraseNotice: String? = null
@@ -392,10 +394,16 @@ class InputView(context: Context) : LinearLayout(context) {
         syncTranslateBar()
     }
 
+    fun setTranslateFieldEngaged(engaged: Boolean) {
+        if (translateFieldEngaged == engaged) return
+        translateFieldEngaged = engaged
+        syncTranslateBar()
+    }
+
     private fun syncTranslateBar() {
         if (translateBarActive && !editBarActive) {
             if (translateBarView.visibility != VISIBLE || translateBarView.alpha < 1f) Motion.showNow(translateBarView)
-            translateBarView.focusField()
+            if (translateFieldEngaged) translateBarView.focusField() else translateBarView.releaseField()
         } else {
             translateBarView.dismissModeDialog()
             translateBarView.releaseField()
@@ -442,6 +450,7 @@ class InputView(context: Context) : LinearLayout(context) {
         translateBarView.onModeChanged = { mode -> onTranslateModeChanged(mode) }
         translateBarView.onSelectionState = { has -> onTranslateSelectionChanged(has) }
         translateBarView.onDialogVisibilityChanged = { onOverlayChanged() }
+        translateBarView.onFieldTap = { onTranslateFieldTap() }
         addView(preeditSlot, LayoutParams(LayoutParams.MATCH_PARENT, barTopInsetPx()))
 
         body.orientation = VERTICAL

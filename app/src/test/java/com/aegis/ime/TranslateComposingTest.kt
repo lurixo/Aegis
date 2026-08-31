@@ -17,6 +17,7 @@ package com.aegis.ime
 
 import android.os.Looper
 import android.text.InputType
+import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
@@ -230,6 +231,39 @@ class TranslateComposingTest {
         s.controller.onBarFunction(BarFunction.TRANSLATE)
         s.controller.onBarFunction(BarFunction.TRANSLATE)
         assertEquals("the bar reopens on the remembered mode", TranslateMode.ZH_JA, s.view.translateMode())
+    }
+
+    @Test fun tapping_the_target_editor_pauses_translation_and_the_field_tap_resumes_it() {
+        val script = Script { body -> if ("再见" in body) """[["Goodbye"],["zh-CN"]]""" else """[["Hello"],["zh-CN"]]""" }
+        val s = started(script)
+        val connection = Connection(s.view)
+        install(s.service, connection)
+        s.controller.onBarFunction(BarFunction.TRANSLATE)
+        type(s.service, "你好")
+        settle { connection.composings.isNotEmpty() }
+
+        s.service.onUpdateEditorToolType(MotionEvent.TOOL_TYPE_FINGER)
+        assertEquals("the standing translation is committed in place", 1, connection.finishes)
+        assertEquals("the consumed source leaves the field", "", s.view.translateText())
+        assertTrue("the bar itself stays open", s.view.isTranslateBarShowing())
+
+        type(s.service, "raw")
+        settle()
+        assertEquals("typing after the tap lands raw in the editor", "Helloraw", connection.editable.toString())
+        assertEquals("nothing new is translated", listOf("Hello"), connection.composings)
+        assertEquals(1, script.bodies.size)
+
+        val down = MotionEvent.obtain(0L, 0L, MotionEvent.ACTION_DOWN, 1f, 1f, 0)
+        try {
+            s.view.translateBarForTest().fieldForTest().dispatchTouchEvent(down)
+        } finally {
+            down.recycle()
+        }
+        type(s.service, "再见")
+        settle { connection.composings.size == 2 }
+        assertEquals("再见", s.view.translateText())
+        assertEquals(listOf("Hello", "Goodbye"), connection.composings)
+        assertEquals("HellorawGoodbye", connection.editable.toString())
     }
 
     @Test fun an_editor_switch_leaves_the_old_translation_behind_and_composes_into_the_new_editor() {
