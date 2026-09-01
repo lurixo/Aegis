@@ -87,7 +87,7 @@ class ImeVisualPolishTest {
     }
 
     @Test fun shared_aegis_surface_radii_keep_the_taskbar_capsule() {
-        assertEquals(8f, ImeShapes.keyRadiusDp, 0f)
+        assertEquals(10f, ImeShapes.keyRadiusDp, 0f)
         assertEquals(6f, ImeShapes.toolbarFeedbackRadiusDp, 0f)
         assertEquals(8f, ImeShapes.cardRadiusDp, 0f)
         assertEquals(8f, ImeShapes.inputRadiusDp, 0f)

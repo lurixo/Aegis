@@ -98,7 +98,7 @@ open class PreeditView(context: Context) : View(context) {
         if (shownText.isEmpty()) return
         val textX = leftInset + candPad
         val w = textPaint.measureText(shownText) + pad * 2
-        val r = ImeShapes.keyRadiusDp * density
+        val r = ImeShapes.cardRadiusDp * density
         tab.set(textX - pad, 0f, textX - pad + w, height.toFloat() + r)
         canvas.drawRoundRect(tab, r, r, tabPaint)
         val baseline = height / 2f - (textPaint.descent() + textPaint.ascent()) / 2

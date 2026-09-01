@@ -28,6 +28,7 @@ import android.view.View
 import android.widget.TextView
 import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId

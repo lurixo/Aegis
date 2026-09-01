@@ -195,6 +195,7 @@ class KeyboardView(context: Context) : View(context) {
     private val langSmallPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyHint; textAlign = Paint.Align.RIGHT; textSize = sp(11f); typeface = android.graphics.Typeface.DEFAULT }
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
+    private val keyEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.shadow }
     private val sepLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.separator; strokeWidth = density }
     private val pressHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.keyLabel, 0x22) }
     private val scrollTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.railBg }
@@ -217,6 +218,7 @@ class KeyboardView(context: Context) : View(context) {
         langSmallPaint.color = p.keyHint
         sepLinePaint.color = p.separator
         pressHighlight.color = Motion.withAlpha(p.keyLabel, 0x22)
+        keyEdgePaint.color = p.shadow
         scrollTrackPaint.color = p.railBg
         scrollbarPaint.color = withAlpha(p.icon, 0x55)
         scrollLabelPaint.color = p.keyLabel
@@ -615,6 +617,9 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private fun drawKey(canvas: Canvas, rect: RectF, accent: Boolean, rail: Boolean, pressLevel: Float) {
+        tmpRect.set(rect)
+        tmpRect.offset(0f, density)
+        canvas.drawRoundRect(tmpRect, keyRadius, keyRadius, keyEdgePaint)
         if (accent) {
             fillPaint.color = palette.accentBottom
             canvas.drawRoundRect(rect, keyRadius, keyRadius, fillPaint)
