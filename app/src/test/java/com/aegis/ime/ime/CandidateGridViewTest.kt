@@ -152,7 +152,7 @@ class CandidateGridViewTest {
         }
     }
 
-    @Test fun the_three_controls_split_the_action_column_into_equal_thirds() {
+    @Test fun the_four_controls_sit_on_the_four_candidate_rows() {
         for (heightDp in listOf(320, 120)) {
             val h = (heightDp * density).toInt()
             val v = CandidateGridView(ctx)
@@ -161,21 +161,25 @@ class CandidateGridViewTest {
                 View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY),
             )
             v.layout(0, 0, v.measuredWidth, v.measuredHeight)
-            val actions = (0..2).map { v.actionBoundsForTest(it) }
+            val stride = v.candidateRowStrideForTest()
+            val rowHeight = v.candidateRowHeightForTest()
+            val actions = (0..3).map { v.actionBoundsForTest(it) }
 
-            assertEquals("${heightDp}dp: 收起 starts at the top of the column", 0, actions[0].top)
-            assertEquals("${heightDp}dp: 重输 ends at the bottom of the column", h, actions[2].bottom)
-            actions.zipWithNext().forEach { (upper, lower) ->
-                assertEquals("${heightDp}dp: the thirds tile with no gap: $actions", upper.bottom, lower.top)
+            actions.forEachIndexed { index, action ->
+                assertEquals("${heightDp}dp: control $index starts on candidate row $index: $actions", index * stride, action.top)
             }
+            actions.take(3).forEachIndexed { index, action ->
+                assertEquals("${heightDp}dp: control $index ends where the next row starts: $actions", (index + 1) * stride, action.bottom)
+            }
+            assertEquals("${heightDp}dp: 全部/单字 ends at the bottom of the column", h, actions[3].bottom)
             assertTrue(
-                "${heightDp}dp: the three thirds differ by at most a rounding pixel: $actions",
-                actions.maxOf { it.height() } - actions.minOf { it.height() } <= 1,
+                "${heightDp}dp: the last control is one row tall bar the rounding: $actions vs $rowHeight",
+                actions[3].height() in (rowHeight - CandidateGridView.ROWS + 1)..rowHeight,
             )
             assertEquals(
                 "${heightDp}dp: every control stays visible however short the column is",
-                listOf(View.VISIBLE, View.VISIBLE, View.VISIBLE),
-                listOf(v.returnButtonForTest(), v.backspaceButtonForTest(), v.clearButtonForTest()).map { it.visibility },
+                List(4) { View.VISIBLE },
+                (0..3).map { v.actionBoundsForTest(it) }.map { if (it.isEmpty) View.GONE else View.VISIBLE },
             )
         }
     }
@@ -645,6 +649,74 @@ class CandidateGridViewTest {
         assertEquals(TextUtils.TruncateAt.END, v.chipEllipsizeForTest(0))
     }
 
+    @Test fun the_fourth_action_toggles_between_all_candidates_and_singles_only() {
+        val picked = ArrayList<Int>()
+        val v = measured(CandidateGridView(ctx).apply { onPick = { picked.add(it) } })
+        v.setCandidates(listOf("你好", "你", "泥", "你们", "拟"), projection = CandidateProjectionPolicy.PINYIN)
+        val toggle = v.singlesButtonForTest()
+
+        assertEquals(
+            "the key carries 全部 leading and 单字 trailing",
+            ctx.getString(R.string.panel_all) to ctx.getString(R.string.panel_singles),
+            v.singlesWordsForTest(),
+        )
+        assertFalse("the toggle opens on 全部", v.singlesOnlyForTest())
+        assertEquals(listOf("你好", "你们", "你", "泥", "拟"), v.renderedCandidateTextsForTest())
+
+        assertTrue(toggle.performClick())
+        assertTrue("the toggle now sits on 单字", v.singlesOnlyForTest())
+        assertEquals("only the single characters remain", listOf("你", "泥", "拟"), v.renderedCandidateTextsForTest())
+        assertEquals("each survivor keeps its engine index", listOf(1, 2, 4), v.renderedSourceIndicesForTest())
+        assertTrue(v.tapCandidateForTest(1))
+        assertEquals(listOf(2), picked)
+
+        assertTrue(toggle.performClick())
+        assertFalse(v.singlesOnlyForTest())
+        assertEquals(listOf("你好", "你们", "你", "泥", "拟"), v.renderedCandidateTextsForTest())
+    }
+
+    @Test fun the_singles_filter_follows_new_candidates_and_resets_when_the_panel_reopens() {
+        val v = measured()
+        v.setCandidates(listOf("你好", "你"))
+        assertTrue(v.singlesButtonForTest().performClick())
+        assertEquals(listOf("你"), v.renderedCandidateTextsForTest())
+
+        v.setCandidates(listOf("我们", "我", "握"))
+        assertEquals("a fresh list is filtered the same way", listOf("我", "握"), v.renderedCandidateTextsForTest())
+
+        v.prepareForOpen()
+        assertFalse("reopening the panel returns to 全部", v.singlesOnlyForTest())
+        assertEquals(listOf("我们", "我", "握"), v.renderedCandidateTextsForTest())
+    }
+
+    @Test fun the_singles_key_draws_both_words_and_sizes_the_active_one_up_across_palettes() {
+        val v = measured(CandidateGridView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) })
+        val label = v.singlesLabelForTest()
+        val key = v.singlesButtonForTest()
+        val face = RectF(0f, 0f, key.width.toFloat(), key.height.toFloat())
+        val (all, singles) = v.singlesWordsForTest()
+
+        assertEquals("the active word is set at the body size", ImeType.body * density, label.activePaint.textSize, 0.01f)
+        assertEquals("the idle word is one size down at the label size", ImeType.label * density, label.idlePaint.textSize, 0.01f)
+        assertEquals(ImePalette.STATIC_LIGHT.keyLabelSecondary, label.activePaint.color)
+        assertEquals(ImePalette.STATIC_LIGHT.keyHint, label.idlePaint.color)
+        val placed = label.layout(face, all, singles, leadingActive = true)
+        val leading = placed.leading
+        val trailing = placed.trailing
+        assertTrue("全部 sits in the upper-left of the key: $leading in $face", leading.centerX() < face.centerX() && leading.centerY() < face.centerY())
+        assertTrue("单字 sits in the lower-right of the key: $trailing in $face", trailing.centerX() > face.centerX() && trailing.centerY() > face.centerY())
+        assertTrue("the words keep clear of each other", leading.bottom <= trailing.top || leading.right <= trailing.left)
+
+        assertTrue(key.performClick())
+        assertTrue(v.singlesOnlyForTest())
+        v.applyPalette(ImePalette.STATIC_DARK)
+        assertEquals("a palette change keeps the on state", true, v.singlesOnlyForTest())
+        assertEquals(ImePalette.STATIC_DARK.keyLabelSecondary, label.activePaint.color)
+        assertEquals(ImePalette.STATIC_DARK.keyHint, label.idlePaint.color)
+        assertTrue(key.performClick())
+        assertFalse(v.singlesOnlyForTest())
+    }
+
     @Test fun the_reading_column_candidates_and_actions_share_one_ruled_table() {
         val v = measured()
         val side = sideWidth()
@@ -662,7 +734,7 @@ class CandidateGridViewTest {
         )
         assertEquals(
             "the action keys are ruled apart at their own boundaries",
-            (1..2).map { v.actionBoundsForTest(it).top },
+            (1..3).map { v.actionBoundsForTest(it).top },
             v.actionRulesForTest(),
         )
         assertEquals("one outline rounds the whole panel", 8f * density, v.panelCornerRadiusForTest(), 0.001f)

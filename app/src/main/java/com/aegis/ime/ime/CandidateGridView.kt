@@ -91,6 +91,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private val table = TableColumn(context, density)
     private val readingScroll = RailScrollView(context, density)
     private val rightColumn = ActionColumn(context, density)
+    private val singlesKey = SplitLabelKey(context)
     private val panelRadius = ImeShapes.cardRadiusDp * density
     private val panelClip = Path()
     private val rulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = density }
@@ -108,6 +109,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private var renderedCandidateWidth = 0
     private var renderedReadings: List<String>? = null
     private var renderedSelected = Int.MIN_VALUE
+    private var singlesOnly = false
     private var candidateRebuilds = 0
     private var readingRebuilds = 0
     private var measuringWidthOverride = 0
@@ -136,6 +138,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private val returnFeedback: ImeKeyFeedback
     private val backspaceFeedback: ImeKeyFeedback
     private val clearFeedback: ImeKeyFeedback
+    private val singlesFeedback: ImeKeyFeedback
     private val backspaceTouch: ImeBackspaceTouch
 
     init {
@@ -171,6 +174,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
             },
             actionSlotLp(),
         )
+        rightColumn.addView(singlesKey, actionSlotLp())
         addView(rightColumn, LayoutParams(dp(Layouts.CANDIDATE_ACTION_WIDTH_DP), LayoutParams.MATCH_PARENT))
         returnFeedback = actionFeedback(returnButton())
         returnFeedback.bind { hapticEnabled }
@@ -187,9 +191,12 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         backspaceTouch.repeats = false
         clearFeedback = actionFeedback(clearButton())
         clearFeedback.bind { hapticEnabled }
+        singlesFeedback = actionFeedback(singlesButton())
+        singlesFeedback.bind { hapticEnabled }
+        alignActionSlots()
     }
 
-    private fun actionFeedback(button: TextView): ImeKeyFeedback = ImeKeyFeedback(
+    private fun actionFeedback(button: View): ImeKeyFeedback = ImeKeyFeedback(
         button,
         Color.TRANSPARENT,
         palette.keyLabelSecondary,
@@ -204,11 +211,20 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         returnFeedback.reset()
         backspaceTouch.cancel()
         clearFeedback.reset()
+        singlesFeedback.reset()
     }
 
     fun prepareForOpen() {
         resetViewportOnLayout = true
         resetViewportToStart()
+        setSinglesOnly(false)
+    }
+
+    private fun setSinglesOnly(on: Boolean) {
+        if (on == singlesOnly) return
+        singlesOnly = on
+        singlesKey.invalidate()
+        sourceCandidates?.let { setCandidates(it, sourceCandidateProjection) }
     }
 
     private fun resetViewportToStart() {
@@ -231,6 +247,9 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         returnFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
         backspaceFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
         clearFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
+        singlesFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
+        singlesKey.label.applyColors(p.keyLabelSecondary, p.keyHint)
+        singlesKey.invalidate()
         backspaceGlyph.tint(p.keyLabelSecondary)
         candidateAdapter.notifyDataSetChanged()
         for (i in readingPool.indices) {
@@ -287,11 +306,27 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         if (next == rowHeightPx && nextReading == readingRowHeightPx) return
         rowHeightPx = next
         readingRowHeightPx = nextReading
+        alignActionSlots()
         for (tile in readingPool) setChildHeight(tile, readingRowHeightPx)
         for (i in 0 until table.childCount) {
             val row = table.getChildAt(i) as? CandidateRow ?: continue
             for (k in 0 until row.childCount) setChildHeight(row.getChildAt(k), rowHeightPx)
             row.requestLayout()
+        }
+    }
+
+    private fun alignActionSlots() {
+        val stride = candidateRowStride()
+        for (i in 0 until rightColumn.childCount) {
+            val slot = rightColumn.getChildAt(i)
+            val lp = slot.layoutParams as LayoutParams
+            val last = i == rightColumn.childCount - 1
+            val height = if (last) 0 else stride
+            val weight = if (last) 1f else 0f
+            if (lp.height == height && lp.weight == weight) continue
+            lp.height = height
+            lp.weight = weight
+            slot.layoutParams = lp
         }
     }
 
@@ -357,6 +392,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         returnFeedback.reset()
         backspaceTouch.cancel()
         clearFeedback.reset()
+        singlesFeedback.reset()
         super.onDetachedFromWindow()
     }
 
@@ -476,6 +512,16 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         }
     }
 
+    private fun sourceIndicesFor(
+        candidates: List<String>,
+        tableW: Int,
+        projection: CandidateProjectionPolicy?,
+    ): List<Int> {
+        val projected = projection?.let { projectedCandidateIndices(candidates, tableW, it) }
+            ?: candidates.indices.toList()
+        return if (singlesOnly) projected.filter { GraphemeText.clusterCount(candidates[it]) == 1 } else projected
+    }
+
     fun setCandidates(candidates: List<String>, projection: CandidateProjectionPolicy? = null) {
         val configuredWidth = resources.configuration.screenWidthDp
             .takeIf { it > 0 }
@@ -484,8 +530,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         val liveWidth = measuringWidthOverride.takeIf { it > 0 } ?: width.takeIf { it > 0 } ?: configuredWidth
         val tableW = (liveWidth - sideSpan(liveWidth) - actionSpan(liveWidth)).coerceAtLeast(dp(46))
         val sourceUnchanged = candidates == sourceCandidates
-        val nextSourceIndices = projection?.let { projectedCandidateIndices(candidates, tableW, it) }
-            ?: candidates.indices.toList()
+        val nextSourceIndices = sourceIndicesFor(candidates, tableW, projection)
         if (sourceUnchanged && nextSourceIndices == renderedSourceIndices && tableW == renderedCandidateWidth) {
             sourceCandidateProjection = projection
             return
@@ -627,10 +672,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         if (candidates != sourceCandidates) return true
         if (projection == sourceCandidateProjection) return false
         if (renderedCandidateWidth <= 0) return true
-        val nextSourceIndices = projection?.let {
-            projectedCandidateIndices(candidates, renderedCandidateWidth, it)
-        } ?: candidates.indices.toList()
-        return nextSourceIndices != renderedSourceIndices
+        return sourceIndicesFor(candidates, renderedCandidateWidth, projection) != renderedSourceIndices
     }
     internal fun setSelectionContentVisible(visible: Boolean) {
         val target = if (visible) View.VISIBLE else View.INVISIBLE
@@ -735,6 +777,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     private fun returnButton(): TextView = rightColumn.getChildAt(0) as TextView
     private fun backspaceButton(): TextView = rightColumn.getChildAt(1) as TextView
     private fun clearButton(): TextView = rightColumn.getChildAt(2) as TextView
+    private fun singlesButton(): View = rightColumn.getChildAt(3)
     internal fun returnButtonForTest(): TextView = returnButton()
     internal fun actionSurfaceForTest(index: Int): ImeKeySurface = rightColumn.getChildAt(index).background as ImeKeySurface
     internal fun returnFeedbackLevelForTest(): Float = returnFeedback.levelForTest()
@@ -742,6 +785,10 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     internal fun backspaceFeedbackLevelForTest(): Float = backspaceFeedback.levelForTest()
     internal fun clearButtonForTest(): TextView = clearButton()
     internal fun clearFeedbackLevelForTest(): Float = clearFeedback.levelForTest()
+    internal fun singlesButtonForTest(): View = singlesButton()
+    internal fun singlesOnlyForTest(): Boolean = singlesOnly
+    internal fun singlesLabelForTest(): ImeSplitLabel = singlesKey.label
+    internal fun singlesWordsForTest(): Pair<String, String> = singlesKey.leading to singlesKey.trailing
     internal fun backspaceGlyphForTest(): Drawable = backspaceGlyph
     internal fun gridScrollYForTest(): Int = gridScrollOffsetForTest
     internal fun firstVisibleCandidateRowForTest(): Int = table.firstVisiblePosition
@@ -761,6 +808,25 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         (readingColumn.getChildAt(index) as? TextView)?.currentTextColor
     internal fun selectedReadingBackgroundForTest(index: Int): Drawable? =
         (readingColumn.getChildAt(index) as? TextView)?.background
+
+    private inner class SplitLabelKey(context: Context) : View(context) {
+        val label = ImeSplitLabel(density, spPx(ImeType.body), spPx(ImeType.label))
+        val leading: String = context.getString(R.string.panel_all)
+        val trailing: String = context.getString(R.string.panel_singles)
+        private val face = RectF()
+
+        init {
+            isClickable = true
+            label.applyColors(palette.keyLabelSecondary, palette.keyHint)
+            setOnClickListener { setSinglesOnly(!singlesOnly) }
+        }
+
+        override fun onDraw(canvas: Canvas) {
+            super.onDraw(canvas)
+            face.set(0f, 0f, width.toFloat(), height.toFloat())
+            label.draw(canvas, face, leading, trailing, !singlesOnly)
+        }
+    }
 
     private class RailScrollView(context: Context, private val density: Float) : ScrollView(context) {
 
@@ -885,8 +951,9 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
 
         override fun dispatchDraw(canvas: Canvas) {
             super.dispatchDraw(canvas)
+            val half = rulePaint.strokeWidth / 2f
             for (y in ruleYsForTest()) {
-                canvas.drawLine(0f, y.toFloat(), width.toFloat(), y.toFloat(), rulePaint)
+                canvas.drawLine(0f, y - half, width.toFloat(), y - half, rulePaint)
             }
         }
     }

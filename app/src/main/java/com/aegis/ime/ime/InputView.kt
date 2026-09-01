@@ -1040,6 +1040,7 @@ class InputView(context: Context) : LinearLayout(context) {
         gridView.returnButtonForTest(),
         gridView.backspaceButtonForTest(),
         gridView.clearButtonForTest(),
+        gridView.singlesButtonForTest(),
     ).map(::boundsInRoot)
 
     internal fun expandedGridForTest(): CandidateGridView = gridView

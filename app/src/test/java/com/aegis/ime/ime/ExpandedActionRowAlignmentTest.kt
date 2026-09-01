@@ -29,7 +29,6 @@ import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -49,12 +48,12 @@ class ExpandedActionRowAlignmentTest {
         "w320dp-h640dp-xhdpi",
     )
 
-    @Test fun the_three_actions_split_the_column_into_equal_thirds() {
+    @Test fun the_four_actions_sit_on_the_four_candidate_rows() {
         forEachPortraitDock { grid, label ->
             val rowHeight = grid.candidateRowHeightForTest()
             val separator = grid.tableDividerHeightForTest()
             val rows = grid.visibleCandidateRowsForTest()
-            val actions = (0..2).map { grid.actionBoundsForTest(it) }
+            val actions = (0..3).map { grid.actionBoundsForTest(it) }
 
             assertTrue("$label must keep a separator between rows, got $separator", separator >= 1)
             assertEquals("$label the row pitch carries the separator", rowHeight + separator, grid.candidateRowStrideForTest())
@@ -70,34 +69,36 @@ class ExpandedActionRowAlignmentTest {
                 assertEquals("$label rows sit one separator apart: $rows", separator, lower.top - upper.bottom)
             }
 
-            assertEquals("$label the collapse starts at the top of the column: $actions", 0, actions[0].top)
-            assertEquals("$label the retype ends at the bottom of the column: $actions", grid.height, actions[2].bottom)
+            actions.forEachIndexed { index, action ->
+                assertEquals("$label action $index starts on candidate row $index: $actions vs $rows", rows[index].top, action.top)
+            }
             actions.zipWithNext().forEach { (upper, lower) ->
                 assertEquals("$label the actions tile the column with no gap: $actions", upper.bottom, lower.top)
             }
-            assertTrue(
-                "$label the three thirds differ by at most a rounding pixel: $actions",
-                actions.maxOf { it.height() } - actions.minOf { it.height() } <= 1,
-            )
-            assertFalse(
-                "$label no action is aligned to a candidate row any more: $actions vs $rows",
-                actions.all { action -> rows.any { it.top == action.top && it.bottom == action.bottom } },
-            )
+            rows.zipWithNext().forEachIndexed { index, (_, lower) ->
+                assertEquals("$label the rule under action $index lands on the next row's top: $actions vs $rows", lower.top, actions[index].bottom)
+            }
+            assertEquals("$label the last action ends at the bottom of the column: $actions", grid.height, actions[3].bottom)
         }
     }
 
-    @Test fun taps_reach_each_action_across_its_whole_third() {
+    @Test fun taps_reach_each_action_across_its_whole_row() {
         forEachPortraitDock { grid, label ->
-            val fired = IntArray(3)
+            val fired = IntArray(4)
             grid.onClose = { fired[0]++ }
             grid.onBackspace = { fired[1]++ }
             grid.onClear = { fired[2]++ }
-            val actions = (0..2).map { grid.actionBoundsForTest(it) }
+            var singles = grid.singlesOnlyForTest()
+            val actions = (0..3).map { grid.actionBoundsForTest(it) }
 
             actions.forEachIndexed { slot, action ->
                 for (y in listOf(action.top + 1f, action.exactCenterY(), action.bottom - 1f)) {
                     val before = fired.copyOf()
                     assertTrue("$label a tap at ${action.exactCenterX()},$y must be handled", tap(grid, action.exactCenterX(), y))
+                    if (grid.singlesOnlyForTest() != singles) {
+                        singles = grid.singlesOnlyForTest()
+                        fired[3]++
+                    }
                     fired.forEachIndexed { other, count ->
                         assertEquals(
                             "$label a tap at ${action.exactCenterX()},$y on action $slot fired action $other",
