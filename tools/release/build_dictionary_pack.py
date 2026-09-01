@@ -53,12 +53,12 @@ LM_BETA31_EXPECTED_SHA256 = "c3fc0a2891cfdeabf0a8fe92e6109da83209dc5852be24f0aed
 LM_BETA31_EXPECTED_SIZE = 16_069_924
 FIXED_JAVA_HOME = Path("/usr/lib/jvm/java-25-openjdk-amd64")
 FIXED_JAVA_VERSION = [
-    'openjdk version "25.0.3" 2026-04-21',
-    "OpenJDK Runtime Environment (build 25.0.3+9-2-26.04.2-Ubuntu)",
-    "OpenJDK 64-Bit Server VM (build 25.0.3+9-2-26.04.2-Ubuntu, mixed mode, sharing)",
+    'openjdk version "25.0.4" 2026-07-21',
+    "OpenJDK Runtime Environment (build 25.0.4+7-1-26.04-Ubuntu)",
+    "OpenJDK 64-Bit Server VM (build 25.0.4+7-1-26.04-Ubuntu, mixed mode, sharing)",
 ]
-FIXED_GRADLE_VERSION = "9.7.0"
-FIXED_GRADLE_REVISION = "3defbfc59d757b873d787b2261de5c7f8a00970a"
+FIXED_GRADLE_VERSION = "9.7.1"
+FIXED_GRADLE_REVISION = "92f0512e7f06d84621afba191f75e265363890cf"
 TOOL_DISTRIBUTION_RELATIVE = Path("tools/build/install/tools")
 TOOL_EXECUTABLE_RELATIVE = TOOL_DISTRIBUTION_RELATIVE / "bin/tools"
 TOOL_LIBRARY_RELATIVE = TOOL_DISTRIBUTION_RELATIVE / "lib/tools.jar"
@@ -203,7 +203,7 @@ def fixed_gradle_identity(repo_root, environment):
         or revision_match is None
         or revision_match.group(1) != FIXED_GRADLE_REVISION
         or launcher_match is None
-        or not launcher_match.group(1).startswith("25.0.3 ")
+        or not launcher_match.group(1).startswith("25.0.4 ")
         or daemon_match is None
         or not daemon_match.group(1).startswith(str(FIXED_JAVA_HOME))
     ):
