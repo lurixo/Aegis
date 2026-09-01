@@ -43,6 +43,7 @@ class EditBarView(context: Context) : LinearLayout(context) {
     private fun dp(v: Int) = (v * density).toInt()
 
     private var palette = ImePalette.STATIC_LIGHT
+    private val cursorDrawable = GradientDrawable().apply { setSize(maxOf(1, dp(2)), 0) }
     private var suppressTextCallback = false
 
     private val title = TextView(context).apply {
@@ -145,9 +146,8 @@ class EditBarView(context: Context) : LinearLayout(context) {
         setBackgroundColor(p.keyboardBg)
         title.setTextColor(p.keyHint)
         field.setTextColor(p.keyLabel)
-        field.setTextCursorDrawable(
-            GradientDrawable().apply { setColor(p.accentBottom); setSize(maxOf(1, dp(2)), 0) },
-        )
+        cursorDrawable.setColor(p.accentBottom)
+        field.setTextCursorDrawable(cursorDrawable)
         field.highlightColor = Motion.withAlpha(p.accentBottom, 0x55)
         field.background = GradientDrawable().apply { setColor(p.keySurface); cornerRadius = ImeShapes.inputRadiusDp * density }
         cancel.setTextColor(p.keyLabel)

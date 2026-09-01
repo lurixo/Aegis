@@ -70,6 +70,17 @@ class EditBarViewTest {
         }
     }
 
+    @Test fun the_caret_follows_the_palette_accent_across_palette_changes() {
+        val v = EditBarView(ctx)
+        v.applyPalette(ImePalette.STATIC_LIGHT)
+        val f = v.fieldForTest()
+        val caret = f.textCursorDrawable as GradientDrawable
+        assertEquals(ImePalette.STATIC_LIGHT.accentBottom, caret.color!!.defaultColor)
+        v.applyPalette(ImePalette.STATIC_DARK)
+        assertEquals("the cached caret instance takes the new accent", ImePalette.STATIC_DARK.accentBottom, caret.color!!.defaultColor)
+        assertTrue("the field still holds the same caret instance", f.textCursorDrawable === caret)
+    }
+
     @Test fun the_field_is_a_real_editor_that_never_summons_another_ime() {
         val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
         val f = field(v)
