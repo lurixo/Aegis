@@ -147,8 +147,8 @@ class PanelActionKeyParityTest {
         assertEquals(surface(emojiTab).cornerRadiusPx, surface(symbolTab).cornerRadiusPx, 0f)
         assertEquals(surface(emojiTab).cornerRadiusPx, surface(emojiCell).cornerRadiusPx, 0f)
         assertEquals(surface(symbolTab).cornerRadiusPx, surface(symbolCell).cornerRadiusPx, 0f)
-        assertEquals(palette.keySurface, surface(emojiTab).faceColor)
-        assertEquals(palette.keySurface, surface(symbolTab).faceColor)
+        assertEquals(Color.TRANSPARENT, surface(emojiTab).faceColor)
+        assertEquals(Color.TRANSPARENT, surface(symbolTab).faceColor)
         assertEquals(Color.TRANSPARENT, surface(emojiCell).faceColor)
         assertEquals(Color.TRANSPARENT, surface(symbolCell).faceColor)
 
@@ -206,13 +206,18 @@ class PanelActionKeyParityTest {
         bottomActions: List<View>,
     ) {
         assertEquals("$name keeps exactly one selected category", 1, tabs.count { it.isSelected })
+        assertEquals(
+            "$name underline follows the selection",
+            selected,
+            (tabs.first().parent as ImePanelCategoryRail).selectedIndex,
+        )
         tabs.forEachIndexed { index, tab ->
             assertEquals("$name category $index selected state", index == selected, tab.isSelected)
             val surface = tab.background as? ImeKeySurface
             assertNotNull("$name category $index uses the shared key surface", surface)
             assertEquals(
                 "$name category $index resting face",
-                if (index == selected) palette.keySurface else Color.TRANSPARENT,
+                Color.TRANSPARENT,
                 requireNotNull(surface).faceColor,
             )
             assertFalse("$name category $index has no platform ripple", tab.foreground is RippleDrawable)

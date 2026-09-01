@@ -101,15 +101,18 @@ class ImeVisualPolishTest {
         assertTrue("clickable helper uses RippleDrawable feedback", v.foreground is RippleDrawable)
     }
 
-    @Test fun symbols_and_emoji_recent_tabs_use_rounded_selected_and_pressed_shapes() {
+    @Test fun symbols_and_emoji_category_tabs_mark_selection_with_an_accent_underline() {
         val palette = ImePalette.STATIC_LIGHT
         val symbols = SymbolsView(ctx).apply { applyPalette(palette); refresh() }
         val emoji = EmojiView(ctx).apply { applyPalette(palette) }
 
-        assertRoundedRailTab(symbols.railTabForTest(0), "symbols 常用", palette.keySurface)
-        assertRoundedRailTab(emoji.railTabForTest(0), "emoji 常用", palette.keySurface)
-        assertRoundedRailTab(symbols.railTabForTest(1), "symbols 中文", Color.TRANSPARENT)
-        assertRoundedRailTab(emoji.railTabForTest(1), "emoji 笑脸", Color.TRANSPARENT)
+        for (tab in listOf(symbols.railTabForTest(0), emoji.railTabForTest(0), symbols.railTabForTest(1), emoji.railTabForTest(1))) {
+            assertRoundedRailTab(tab, "category ${tab.text}", Color.TRANSPARENT)
+        }
+        assertEquals("symbols keep the accent underline", palette.accentBottom, symbols.categoryRailForTest().underlineColor)
+        assertEquals("emoji keep the accent underline", palette.accentBottom, emoji.categoryRailForTest().underlineColor)
+        assertEquals("selected symbols tab carries the underline", 0, symbols.categoryRailForTest().selectedIndex)
+        assertEquals("selected emoji tab carries the underline", 0, emoji.categoryRailForTest().selectedIndex)
     }
 
     @Test fun copy_bar_background_uses_the_toolbar_capsule_radius() {

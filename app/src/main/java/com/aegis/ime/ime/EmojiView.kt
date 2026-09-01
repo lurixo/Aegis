@@ -67,11 +67,8 @@ class EmojiView(context: Context) :
 
     private var palette = ImePalette.STATIC_LIGHT
     private var selected = 0
-    private val rail = LinearLayout(context).apply { orientation = HORIZONTAL }
-    private val railScroll = HorizontalScrollView(context).apply {
-        isHorizontalScrollBarEnabled = false
-        addView(rail)
-    }
+    private val rail = ImePanelCategoryRail(context, density)
+    private val railScroll = ImePanelCategoryBar(context, density).apply { addView(rail) }
     private val grid = ImePanelFaceGrid(context, density).apply {
         layoutDirection = View.LAYOUT_DIRECTION_LTR
         columnCount = COLUMNS
@@ -231,6 +228,8 @@ class EmojiView(context: Context) :
         actionColumnView.applyPalette(p)
         grid.ruleColor = p.separator
         panelFrame.outlineColor = p.separator
+        rail.underlineColor = p.accentBottom
+        railScroll.ruleColor = p.separator
         for (button in listOf(backBtn, clearBtn, backspaceBtn)) button.setTextColor(p.keyLabelSecondary)
         backFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
         clearFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
@@ -303,6 +302,7 @@ class EmojiView(context: Context) :
     internal fun categoryBarForTest(): View = railScroll
     internal fun gridRuleColorForTest(): Int = grid.ruleColor
     internal fun panelFrameForTest(): ImePanelFrame = panelFrame
+    internal fun categoryRailForTest(): ImePanelCategoryRail = rail
     internal fun actionColumnForTest(): View = actionColumnView
     internal fun gridCellTextsForTest(): List<String> =
         (0 until grid.childCount).mapNotNull { (grid.getChildAt(it) as? TextView)?.text?.toString() }
@@ -406,13 +406,14 @@ class EmojiView(context: Context) :
     }
 
     private fun styleRail(crossfadeFrom: Int) {
+        rail.selectedIndex = selected
         for (i in 0 until rail.childCount) {
             val tab = rail.getChildAt(i) as TextView
             val on = i == selected
             tab.isSelected = on
-            val color = if (on) palette.candidateFirst else palette.keyLabelSecondary
+            val color = if (on) palette.keyLabel else palette.keyLabelSecondary
             if (crossfadeFrom >= 0 && (i == selected || i == crossfadeFrom)) crossfadeTabColor(tab, color) else tab.setTextColor(color)
-            railFeedback[tab]?.update(if (on) palette.keySurface else Color.TRANSPARENT, color)
+            railFeedback[tab]?.update(Color.TRANSPARENT, color)
         }
     }
 
@@ -462,8 +463,8 @@ class EmojiView(context: Context) :
         isSelected = on
         railFeedback[this] = ImeKeyFeedback(
             this,
-            if (on) palette.keySurface else Color.TRANSPARENT,
-            if (on) palette.candidateFirst else palette.keyLabelSecondary,
+            Color.TRANSPARENT,
+            if (on) palette.keyLabel else palette.keyLabelSecondary,
             faceInsetDp = 0f,
             radiusDp = 0f,
         ).also { it.bind { hapticEnabled } }

@@ -31,6 +31,7 @@ import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.GridLayout
+import android.widget.HorizontalScrollView
 import android.widget.LinearLayout
 import android.widget.ScrollView
 import com.aegis.ime.ime.theme.ImePalette
@@ -112,6 +113,60 @@ internal class ImePanelFrame(context: Context, density: Float) : FrameLayout(con
 internal class ImePanelViewport(context: Context) : ScrollView(context) {
     init {
         isVerticalScrollBarEnabled = false
+    }
+}
+
+internal class ImePanelCategoryRail(context: Context, density: Float) : LinearLayout(context) {
+    private val underlineHeight = 4f * density
+    private val underlinePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    init {
+        orientation = HORIZONTAL
+    }
+
+    var underlineColor: Int
+        get() = underlinePaint.color
+        set(value) {
+            underlinePaint.color = value
+            invalidate()
+        }
+
+    var selectedIndex = 0
+        set(value) {
+            field = value
+            invalidate()
+        }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        val child = getChildAt(selectedIndex) ?: return
+        if (child.visibility != View.VISIBLE) return
+        canvas.drawRect(child.left.toFloat(), height - underlineHeight, child.right.toFloat(), height.toFloat(), underlinePaint)
+    }
+
+    internal fun underlineBoundsForTest(): RectF? = getChildAt(selectedIndex)?.let {
+        RectF(it.left.toFloat(), height - underlineHeight, it.right.toFloat(), height.toFloat())
+    }
+}
+
+internal class ImePanelCategoryBar(context: Context, density: Float) : HorizontalScrollView(context) {
+    private val rulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = density }
+
+    init {
+        isHorizontalScrollBarEnabled = false
+    }
+
+    var ruleColor: Int
+        get() = rulePaint.color
+        set(value) {
+            rulePaint.color = value
+            invalidate()
+        }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        val y = rulePaint.strokeWidth / 2f
+        canvas.drawLine(scrollX.toFloat(), y, (scrollX + width).toFloat(), y, rulePaint)
     }
 }
 

@@ -281,7 +281,8 @@ class SymbolPanelPlacementTest {
         }
     }
 
-    @Test fun both_panels_rule_their_grid_like_the_expanded_candidates() {
+    @Test fun both_panels_shade_their_faces_and_underline_the_selected_category() {
+        val density = ctx.resources.displayMetrics.density
         val sv = SymbolsView(ctx).apply { applyPalette(light); openCategoryForTest(idx("en")) }
         val ev = EmojiView(ctx).apply { applyPalette(light); openCategoryForTest(1) }
         layout(sv)
@@ -289,6 +290,14 @@ class SymbolPanelPlacementTest {
 
         assertEquals("symbol cells are ruled apart in the separator colour", light.separator, sv.gridRuleColorForTest())
         assertEquals("emoji cells are ruled apart in the separator colour", light.separator, ev.gridRuleColorForTest())
+        assertEquals("symbols underline the selected tab", idx("en"), sv.categoryRailForTest().selectedIndex)
+        assertEquals("emoji underline the selected tab", 1, ev.categoryRailForTest().selectedIndex)
+        for ((name, rail) in listOf("symbols" to sv.categoryRailForTest(), "emoji" to ev.categoryRailForTest())) {
+            assertEquals("$name underline takes the accent", light.accentBottom, rail.underlineColor)
+            val underline = requireNotNull(rail.underlineBoundsForTest())
+            assertEquals("$name underline closes on the bar's bottom edge", rail.height.toFloat(), underline.bottom, 0f)
+            assertEquals("$name underline stands four dp tall", 4f * density, underline.height(), 0.001f)
+        }
     }
 
     @Test fun panels_keep_the_toolbar_capsule_margin_above_their_frame() {
