@@ -20,6 +20,7 @@ import com.aegis.ime.R
 import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.RectF
 import android.os.Handler
 import android.os.Looper
@@ -80,6 +81,8 @@ class KeyboardView(context: Context) : View(context) {
     private var scrollLastY = 0f
     private var scrolling = false
     private val tmpRect = RectF()
+    private val scrollTrackPath = Path()
+    private val scrollPressPath = Path()
     private val scrollSlop = 6f * resources.displayMetrics.density
     private val fling = FlingScroller(context)
     private val scrollbarFade = ScrollbarFade()
@@ -496,7 +499,12 @@ class KeyboardView(context: Context) : View(context) {
             if (pressLevel > 0f) {
                 tmpRect.set(scrollRegion.left, top, scrollRegion.right, bottom)
                 pressHighlight.color = Motion.stateLayerColor(palette.keyLabel, pressLevel)
-                canvas.drawRoundRect(tmpRect, keyRadius * 0.6f, keyRadius * 0.6f, pressHighlight)
+                scrollTrackPath.reset()
+                scrollTrackPath.addRoundRect(scrollRegion, keyRadius, keyRadius, Path.Direction.CW)
+                scrollPressPath.reset()
+                scrollPressPath.addRect(tmpRect, Path.Direction.CW)
+                scrollPressPath.op(scrollTrackPath, Path.Op.INTERSECT)
+                canvas.drawPath(scrollPressPath, pressHighlight)
             }
             val label = displayLabel(key)
             paint.color = if (key.accent) palette.candidateFirst else baseColor

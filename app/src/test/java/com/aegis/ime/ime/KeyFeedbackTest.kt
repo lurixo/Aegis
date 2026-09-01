@@ -19,6 +19,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.RectF
+import android.os.Looper
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
@@ -30,6 +31,7 @@ import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
+import java.time.Duration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -180,6 +182,28 @@ class KeyFeedbackTest {
         assertEquals(palette.keySurface, fillAt(view.boundsOfActionForTest(KeyAction.SPACE)!!))
         assertEquals(palette.accentBottom, fillAt(view.boundsOfActionForTest(KeyAction.ENTER)!!))
         assertEquals(palette.keySurface, fillAt(view.boundsOfLabelForTest("q")!!))
+    }
+
+    @Config(sdk = [34], qualifiers = "xxhdpi")
+    @Test fun the_pressed_scroll_cell_highlight_fills_the_cell_and_stops_at_the_track_corners() {
+        val palette = ImePalette.STATIC_LIGHT.copy(keyboardBg = Color.BLACK, railBg = Color.WHITE, keyLabel = Color.RED)
+        val view = keyboardView(Layouts.nine(Layouts.ninePunctuation(), composing = false), language = Lang.CN)
+            .apply { applyPalette(palette) }
+        val region = view.scrollRegionForTest()
+        val cellH = view.scrollCellHeightForTest()
+        val cellTop = region.top + 3f * cellH
+        view.down(region.centerX(), cellTop + cellH / 2f)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(Motion.PRESS_IN))
+        val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+        view.draw(Canvas(bitmap))
+        val inset = 2f * density
+        fun pixel(x: Float, y: Float) = bitmap.getPixel(x.toInt(), y.toInt())
+        fun tinted(pixel: Int) = Color.red(pixel) > Color.green(pixel) && Color.green(pixel) == Color.blue(pixel)
+        assertTrue("the square top-left corner of the pressed cell is tinted", tinted(pixel(region.left + inset, cellTop + inset)))
+        assertTrue("the square top-right corner of the pressed cell is tinted", tinted(pixel(region.right - inset, cellTop + inset)))
+        assertTrue("the highlight reaches the bottom edge between the arcs", tinted(pixel(region.centerX(), region.bottom - inset)))
+        assertEquals("outside the rounded track corner stays the board", palette.keyboardBg, pixel(region.left + 0.5f, region.bottom - 0.5f))
+        assertEquals("the unpressed cell above keeps the bare rail", palette.railBg, pixel(region.left + inset, cellTop - inset))
     }
 
 
