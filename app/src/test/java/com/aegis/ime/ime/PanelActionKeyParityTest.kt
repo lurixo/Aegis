@@ -20,6 +20,7 @@ import android.content.res.Configuration
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.RectF
+import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.RippleDrawable
 import android.os.Looper
 import android.view.HapticFeedbackConstants
@@ -132,6 +133,20 @@ class PanelActionKeyParityTest {
             emoji.categoryBarForTest().height,
             symbols.categoryBarForTest().height,
         )
+        for ((name, panel) in listOf("emoji" to emoji, "symbol" to symbols)) {
+            val column = if (panel is EmojiView) panel.actionColumnForTest() else (panel as SymbolsView).actionColumnForTest()
+            val bar = if (panel is EmojiView) panel.categoryBarForTest() else (panel as SymbolsView).categoryBarForTest()
+            assertEquals(
+                "the $name action column takes the rail surface of the nine-key scroll column",
+                palette.railBg,
+                (column.background as ColorDrawable).color,
+            )
+            assertEquals(
+                "the $name category bar takes the rail surface of the nine-key scroll column",
+                palette.railBg,
+                (bar.background as ColorDrawable).color,
+            )
+        }
         assertEquals("an emoji category fills the bar height", emoji.categoryBarForTest().height, emojiTab.height)
         assertEquals("a symbol category fills the bar height", symbols.categoryBarForTest().height, symbolTab.height)
         assertTrue("an emoji category is as wide as its own label", emojiTab.width > 0)
