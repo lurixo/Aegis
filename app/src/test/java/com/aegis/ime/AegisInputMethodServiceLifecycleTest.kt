@@ -1785,14 +1785,19 @@ class AegisInputMethodServiceLifecycleTest {
         }
     }
 
-    @Test fun new_different_other_kind_unknown_and_finishing_targets_clear_every_state_class() {
+    @Test fun a_same_identified_editor_start_without_the_restart_flag_keeps_transient_state() {
         for (kind in StateKind.entries) {
             fixture().also { f ->
                 val seeded = seed(f, kind)
                 f.service.onStartInput(editor(), false)
                 f.service.onStartInputView(editor(), false)
-                assertCleared(f, seeded, "$kind same-target restarting=false")
+                assertPreserved(f, seeded)
             }
+        }
+    }
+
+    @Test fun new_different_other_kind_unknown_and_finishing_targets_clear_every_state_class() {
+        for (kind in StateKind.entries) {
             fixture().also { f ->
                 val seeded = seed(f, kind)
                 val differentField = editor(fieldId = 202)

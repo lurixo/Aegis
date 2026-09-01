@@ -512,7 +512,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
         val nextTarget = editorTarget(info)
         val preserveLayout = nextTarget != null && nextTarget.packageName == layoutSessionPackage
-        val sameRestart = restarting && inputSessionActive &&
+        val identified = nextTarget != null && (nextTarget.fieldId != null || nextTarget.fieldName != null)
+        val sameRestart = (restarting || identified) && inputSessionActive &&
             currentEditorTarget?.let { previous -> nextTarget?.let(previous::sameEditor) } == true
 
         if (!sameRestart) {
