@@ -28,6 +28,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.layout.EmojiCatalog
 import com.aegis.ime.layout.SymbolCatalog
 import java.time.Duration
@@ -135,10 +136,11 @@ class PanelActionKeyParityTest {
         assertEquals("a symbol category fills the bar height", symbols.categoryBarForTest().height, symbolTab.height)
         assertTrue("an emoji category is as wide as its own label", emojiTab.width > 0)
         assertTrue("a symbol category is as wide as its own label", symbolTab.width > 0)
-        assertEquals("a cell face covers the whole emoji cell", emojiCell.width.toFloat(), emojiCellFace.width(), 0f)
-        assertEquals("a cell face covers the whole emoji cell", emojiCell.height.toFloat(), emojiCellFace.height(), 0f)
-        assertEquals("a cell face covers the whole symbol cell", symbolCell.width.toFloat(), symbolCellFace.width(), 0f)
-        assertEquals("a cell face covers the whole symbol cell", symbolCell.height.toFloat(), symbolCellFace.height(), 0f)
+        val cellInset = 0f
+        assertEquals("a cell face fills the emoji cell", emojiCell.width - cellInset, emojiCellFace.width(), 0f)
+        assertEquals("a cell face fills the emoji cell", emojiCell.height - cellInset, emojiCellFace.height(), 0f)
+        assertEquals("a cell face fills the symbol cell", symbolCell.width - cellInset, symbolCellFace.width(), 0f)
+        assertEquals("a cell face fills the symbol cell", symbolCell.height - cellInset, symbolCellFace.height(), 0f)
         assertEquals("a category face covers its whole tab", emojiTab.width.toFloat(), emojiTabFace.width(), 0f)
         assertEquals("a category face covers its whole tab", symbolTab.width.toFloat(), symbolTabFace.width(), 0f)
         assertEquals(emojiCellFace.width(), symbolCellFace.width(), 0f)
@@ -379,9 +381,20 @@ class PanelActionKeyParityTest {
                 assertEquals("emoji category $index starts at the top", 0, emoji.gridScrollYForTest())
                 val cell = requireNotNull(emoji.gridCellForTest(0))
                 val cellFace = faceBounds(emoji, cell)
-                assertEquals("emoji category $index opens on the first row", 0f, cellFace.top, 0f)
-                assertEquals("an emoji cell face is one row tall", emoji.cellHeightForTest().toFloat(), cellFace.height(), 0f)
-                assertEquals("an emoji cell face covers its cell", cell.width.toFloat(), cellFace.width(), 0f)
+                val gap = (ImeShapes.toolbarCapsuleMarginDp * emoji.resources.displayMetrics.density).toInt().toFloat()
+                assertEquals("emoji category $index opens on the first row", gap, cellFace.top, 0f)
+                assertEquals(
+                    "an emoji cell face is one row tall",
+                    emoji.cellHeightForTest() - 0f,
+                    cellFace.height(),
+                    0f,
+                )
+                assertEquals(
+                    "an emoji cell face fills its cell",
+                    cell.width - 0f,
+                    cellFace.width(),
+                    0f,
+                )
                 emojiFaceWidth?.let { assertEquals("emoji category $index cell width", it, cellFace.width(), 0f) }
                     ?: run { emojiFaceWidth = cellFace.width() }
             }
@@ -402,9 +415,20 @@ class PanelActionKeyParityTest {
                 val lead = requireNotNull(symbols.gridCellForTest(texts.first()))
                 val leadFace = faceBounds(symbols, lead)
                 val cellFace = faceBounds(symbols, requireNotNull(symbols.gridCellForTest(texts.first { it.length == 1 })))
-                assertEquals("symbol category $index opens on the first row", 0f, leadFace.top, 0f)
-                assertEquals("a symbol cell face is one row tall", symbols.cellHeightForTest().toFloat(), leadFace.height(), 0f)
-                assertEquals("a symbol cell face covers its cell", lead.width.toFloat(), leadFace.width(), 0f)
+                val gap = (ImeShapes.toolbarCapsuleMarginDp * symbols.resources.displayMetrics.density).toInt().toFloat()
+                assertEquals("symbol category $index opens on the first row", gap, leadFace.top, 0f)
+                assertEquals(
+                    "a symbol cell face is one row tall",
+                    symbols.cellHeightForTest() - 0f,
+                    leadFace.height(),
+                    0f,
+                )
+                assertEquals(
+                    "a symbol cell face fills its cell",
+                    lead.width - 0f,
+                    leadFace.width(),
+                    0f,
+                )
                 symbolFaceWidth?.let { assertEquals("symbol category $index cell width", it, cellFace.width(), 0f) }
                     ?: run { symbolFaceWidth = cellFace.width() }
             }
@@ -423,11 +447,12 @@ class PanelActionKeyParityTest {
         val metrics = ImePanelSurfaceMetrics.resolve(symbols.resources.displayMetrics.density)
         val singleFace = surface(single).faceBoundsForTest(single.width, single.height)
         val wideFace = surface(wide).faceBoundsForTest(wide.width, wide.height)
-        assertEquals("a single-column face covers its cell", single.width, singleFace.width().toInt())
-        assertEquals("a two-column face covers both cells", wide.width, wideFace.width().toInt())
-        assertEquals("the wide face is exactly two cells with no gap", singleFace.width() * 2, wideFace.width(), 0f)
-        assertEquals(symbols.cellHeightForTest().toFloat(), singleFace.height(), 0f)
-        assertEquals(symbols.cellHeightForTest().toFloat(), wideFace.height(), 0f)
+        val faceInset = 0f
+        assertEquals("a single-column face fills its cell", single.width - faceInset, singleFace.width(), 0f)
+        assertEquals("a two-column face fills both cells", wide.width - faceInset, wideFace.width(), 0f)
+        assertEquals("the wide face bridges the inner gap", singleFace.width() * 2 + faceInset, wideFace.width(), 0f)
+        assertEquals(symbols.cellHeightForTest() - faceInset, singleFace.height(), 0f)
+        assertEquals(symbols.cellHeightForTest() - faceInset, wideFace.height(), 0f)
     }
 
     @Test fun emoji_and_symbol_category_tabs_share_action_surfaces_selection_and_stable_geometry() {

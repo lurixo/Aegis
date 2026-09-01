@@ -26,9 +26,11 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.layout.SymbolCatalog
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -271,9 +273,10 @@ class SymbolPanelPlacementTest {
                     is EmojiView -> Triple(panel.cellHeightForTest(), panel.gridViewportForTest(), panel.categoryBarForTest())
                     else -> throw AssertionError("unexpected panel")
                 }
-                assertEquals("a grid row is a fifth of $height", height / 5, row)
-                assertEquals("the grid holds four fifths of $height", 4 * (height / 5), grid.height)
-                assertEquals("the categories take the fifth row of $height", height - 4 * (height / 5), bar.height)
+                val split = height - (ImeShapes.toolbarCapsuleMarginDp * ctx.resources.displayMetrics.density).toInt()
+                assertEquals("a grid row is a fifth of the height under the margin at $height", split / 5, row)
+                assertEquals("the grid holds four fifths at $height", 4 * (split / 5), grid.height)
+                assertEquals("the categories take the fifth row at $height", split - 4 * (split / 5), bar.height)
             }
         }
     }
@@ -284,13 +287,39 @@ class SymbolPanelPlacementTest {
         layout(sv)
         layout(ev)
 
-        assertEquals("symbol rows are ruled in the separator colour", light.separator, sv.gridSeparatorColorForTest())
-        assertEquals("the symbol table is outlined in it too", light.separator, sv.gridOutlineColorForTest())
-        assertEquals("emoji rows are ruled in the separator colour", light.separator, ev.gridSeparatorColorForTest())
-        assertEquals("the emoji table is outlined in it too", light.separator, ev.gridOutlineColorForTest())
+        assertEquals("symbol cells are ruled apart in the separator colour", light.separator, sv.gridRuleColorForTest())
+        assertEquals("emoji cells are ruled apart in the separator colour", light.separator, ev.gridRuleColorForTest())
     }
 
-    @Test fun panel_cells_are_square_and_only_the_table_corners_stay_round() {
+    @Test fun panels_keep_the_toolbar_capsule_margin_above_their_frame() {
+        val density = ctx.resources.displayMetrics.density
+        val gap = (ImeShapes.toolbarCapsuleMarginDp * density).toInt()
+        val sv = SymbolsView(ctx).apply { applyPalette(light); openCategoryForTest(idx("en")) }
+        val ev = EmojiView(ctx).apply { applyPalette(light); openCategoryForTest(1) }
+        layout(sv)
+        layout(ev)
+
+        for ((name, panel, frame) in listOf(
+            Triple("symbols", sv as ViewGroup, sv.panelFrameForTest()),
+            Triple("emoji", ev as ViewGroup, ev.panelFrameForTest()),
+        )) {
+            assertEquals("$name frame starts one capsule margin below the top edge", gap, frame.top)
+            assertEquals("$name frame closes on the panel bottom edge", panel.height, frame.bottom)
+        }
+        assertEquals(
+            "symbol rows split the remaining height evenly",
+            (sv.height - gap) / (SymbolsView.ROWS + 1),
+            sv.cellHeightForTest(),
+        )
+        assertEquals(
+            "emoji rows split the remaining height evenly",
+            (ev.height - gap) / (EmojiView.ROWS + 1),
+            ev.cellHeightForTest(),
+        )
+    }
+
+    @Test fun panel_cells_tile_one_ruled_table_inside_a_rounded_frame() {
+        val density = ctx.resources.displayMetrics.density
         val sv = SymbolsView(ctx).apply { applyPalette(light); openCategoryForTest(idx("en")) }
         val ev = EmojiView(ctx).apply { applyPalette(light); openCategoryForTest(1) }
         layout(sv)
@@ -303,21 +332,20 @@ class SymbolPanelPlacementTest {
         for ((label, cell) in cells) {
             val surface = cell.background as ImeKeySurface
             assertEquals("$label face has no resting fill of its own", Color.TRANSPARENT, surface.faceColor)
-            assertEquals("$label cell faces meet at right angles", 0f, surface.faceCornerRadiusPx, 0.001f)
+            assertEquals("$label face has no corner of its own", 0f, surface.faceCornerRadiusPx, 0f)
+            assertEquals("$label press feedback is square too", 0f, surface.cornerRadiusPx, 0f)
             assertEquals(
-                "$label press feedback stays a rounded rectangle",
-                8f * ctx.resources.displayMetrics.density,
-                surface.cornerRadiusPx,
-                0.001f,
-            )
-            assertEquals(
-                "$label cell face covers the whole cell",
+                "$label face fills its cell edge to edge",
                 RectF(0f, 0f, 40f, 30f),
                 surface.faceBoundsForTest(40, 30),
             )
         }
-        assertTrue("the symbol table clips its four outer corners round", sv.gridViewportForTest().clipToOutline)
-        assertTrue("the emoji table clips its four outer corners round", ev.gridViewportForTest().clipToOutline)
+        for ((label, frame) in listOf("symbols" to sv.panelFrameForTest(), "emoji" to ev.panelFrameForTest())) {
+            assertEquals("$label panel is outlined in the separator colour", light.separator, frame.outlineColor)
+            assertEquals("$label panel rounds on the card radius", ImeShapes.cardRadiusDp * density, frame.cornerRadiusPx, 0.001f)
+        }
+        assertFalse("the symbol viewport no longer clips a table card", sv.gridViewportForTest().clipToOutline)
+        assertFalse("the emoji viewport no longer clips a table card", ev.gridViewportForTest().clipToOutline)
     }
 
     @Test fun panel_actions_and_categories_are_drawn_at_the_symbol_size() {

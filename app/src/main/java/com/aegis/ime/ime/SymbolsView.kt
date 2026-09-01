@@ -36,8 +36,8 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.core.widget.TextViewCompat
 import com.aegis.ime.ime.theme.ImePalette
-import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.ime.theme.ImeShapes
+import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.layout.SymbolCatalog
 
 class SymbolsView(context: Context) :
@@ -76,7 +76,7 @@ class SymbolsView(context: Context) :
         isHorizontalScrollBarEnabled = false
         addView(rail)
     }
-    private val grid = ImePanelTableGrid(context, density).apply {
+    private val grid = ImePanelFaceGrid(context, density).apply {
         layoutDirection = View.LAYOUT_DIRECTION_LTR
         columnCount = COLUMNS
     }
@@ -87,12 +87,14 @@ class SymbolsView(context: Context) :
         addView(netBar, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
         addView(grid, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT))
     }
-    private val gridScroll = ImePanelTableViewport(context, density).apply {
+    private val gridScroll = ImePanelViewport(context).apply {
         addView(gridHolder)
         isFillViewport = true
     }
     private var gridRow: LinearLayout? = null
     private val clearDialog = PanelConfirmationOverlay(context)
+    private val panelFrame = ImePanelFrame(context, density)
+    private val frameTopGapPx = (ImeShapes.toolbarCapsuleMarginDp * density).toInt()
     private val backBtn = barButton("") { onBack() }
     private val backSlot = FrameLayout(context)
     private val lockBtn = barButton("") { toggleLock() }
@@ -236,11 +238,12 @@ class SymbolsView(context: Context) :
             addView(content, LayoutParams(LayoutParams.MATCH_PARENT, gridAreaHeightPx()))
             addView(railScroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         }
-        val panelFrame = FrameLayout(context).apply {
+        panelFrame.outlineColor = palette.separator
+        panelFrame.apply {
             addView(panelColumn, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
             addView(clearDialog, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         }
-        addView(panelFrame, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        addView(panelFrame, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = frameTopGapPx })
         updateLockFace()
     }
 
@@ -272,8 +275,8 @@ class SymbolsView(context: Context) :
         setBackgroundColor(p.keyboardBg)
         railScroll.setBackgroundColor(p.keyboardBg)
         actionColumnView.setBackgroundColor(p.keyboardBg)
-        grid.separatorColor = p.separator
-        gridScroll.applyOutlineColor(p.separator)
+        grid.ruleColor = p.separator
+        panelFrame.outlineColor = p.separator
         for (button in listOf(backBtn, clearBtn, backspaceBtn)) button.setTextColor(p.keyLabelSecondary)
         backFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
         clearFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
@@ -454,7 +457,7 @@ class SymbolsView(context: Context) :
             fitActionIcons(incomingWidth - gridWidthPx())
         }
         if (incomingHeight > 0) {
-            updateRowHeight(incomingHeight / (ROWS + 1))
+            updateRowHeight((incomingHeight - frameTopGapPx) / (ROWS + 1))
         }
         applyPanelBands()
         if (incomingWidth > 0 && incomingWidth != lastFlowWidth) {
@@ -562,7 +565,7 @@ class SymbolsView(context: Context) :
             if (on) palette.keySurface else Color.TRANSPARENT,
             if (on) palette.candidateFirst else palette.keyLabelSecondary,
             faceInsetDp = 0f,
-            radiusDp = ImeShapes.keyRadiusDp,
+            radiusDp = 0f,
         ).also { it.bind { hapticEnabled } }
         setOnClickListener { showCategory(index) }
     }
@@ -604,8 +607,8 @@ class SymbolsView(context: Context) :
             tile,
             Color.TRANSPARENT,
             palette.keyLabel,
+            radiusDp = 0f,
             faceInsetPxOverride = 0f,
-            faceRadiusDp = 0f,
         ).also {
             it.bind { hapticEnabled }
             tileFeedback[tile] = it
@@ -732,8 +735,8 @@ class SymbolsView(context: Context) :
 
     internal fun cellHeightForTest(): Int = cellHeightPx
     internal fun categoryBarForTest(): View = railScroll
-    internal fun gridSeparatorColorForTest(): Int = grid.separatorColor
-    internal fun gridOutlineColorForTest(): Int = gridScroll.outlineColorForTest()
+    internal fun gridRuleColorForTest(): Int = grid.ruleColor
+    internal fun panelFrameForTest(): ImePanelFrame = panelFrame
     internal fun actionColumnForTest(): View = actionColumnView
     internal fun gridTileHeightsForTest(): List<Int> =
         (0 until grid.childCount).map { grid.getChildAt(it).layoutParams.height }

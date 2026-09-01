@@ -98,7 +98,7 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
     private val density = resources.displayMetrics.density
     private val padding = 14f * density
     private val capMarginH = 8f * density
-    private val capMarginV = 5f * density
+    private val capMarginV = ImeShapes.toolbarCapsuleMarginDp * density
 
     private fun sp(value: Float) =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)

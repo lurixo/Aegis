@@ -19,6 +19,7 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.ColorFilter
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
@@ -27,9 +28,7 @@ import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
-import android.graphics.Outline
 import android.view.ViewGroup
-import android.view.ViewOutlineProvider
 import android.widget.FrameLayout
 import android.widget.GridLayout
 import android.widget.ScrollView
@@ -51,64 +50,66 @@ internal fun panelActionSlot(slot: FrameLayout, button: View): FrameLayout =
         )
     }
 
-internal class ImePanelTableGrid(context: Context, density: Float) : GridLayout(context) {
-    private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = density }
+internal class ImePanelFaceGrid(context: Context, density: Float) : GridLayout(context) {
+    private val rulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = density }
 
-    var separatorColor: Int
-        get() = linePaint.color
+    var ruleColor: Int
+        get() = rulePaint.color
         set(value) {
-            linePaint.color = value
+            rulePaint.color = value
             invalidate()
         }
 
     override fun dispatchDraw(canvas: Canvas) {
         super.dispatchDraw(canvas)
+        val half = rulePaint.strokeWidth / 2f
         for (index in 0 until childCount) {
             val child = getChildAt(index)
-            if (child.visibility != View.VISIBLE) continue
-            val right = child.right.toFloat()
-            val bottom = child.bottom.toFloat()
-            if (child.right < width) canvas.drawLine(right, child.top.toFloat(), right, bottom, linePaint)
-            if (child.bottom < height) canvas.drawLine(child.left.toFloat(), bottom, right, bottom, linePaint)
+            if (child.visibility != View.VISIBLE || child.background !is ImeKeySurface) continue
+            val right = child.right - half
+            val bottom = child.bottom - half
+            canvas.drawLine(right, child.top.toFloat(), right, child.bottom.toFloat(), rulePaint)
+            canvas.drawLine(child.left.toFloat(), bottom, child.right.toFloat(), bottom, rulePaint)
         }
     }
 }
 
-internal class ImePanelTableViewport(context: Context, private val density: Float) : ScrollView(context) {
+internal class ImePanelFrame(context: Context, density: Float) : FrameLayout(context) {
     private val radius = ImeShapes.cardRadiusDp * density
-    private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeWidth = density
-    }
+    private val outlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = density }
     private val outlineRect = RectF()
+    private val clip = Path()
 
-    init {
-        isVerticalScrollBarEnabled = false
-        outlineProvider = object : ViewOutlineProvider() {
-            override fun getOutline(view: View, outline: Outline) {
-                outline.setRoundRect(0, 0, view.width, view.height, radius)
-            }
+    var outlineColor: Int
+        get() = outlinePaint.color
+        set(value) {
+            outlinePaint.color = value
+            invalidate()
         }
-        clipToOutline = true
-    }
 
-    fun applyOutlineColor(color: Int) {
-        outlinePaint.color = color
-        invalidate()
-    }
+    val cornerRadiusPx: Float
+        get() = radius
 
-    internal fun outlineColorForTest(): Int = outlinePaint.color
+    override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
+        super.onSizeChanged(w, h, oldw, oldh)
+        clip.reset()
+        clip.addRoundRect(0f, 0f, w.toFloat(), h.toFloat(), radius, radius, Path.Direction.CW)
+    }
 
     override fun dispatchDraw(canvas: Canvas) {
+        val saved = canvas.save()
+        canvas.clipPath(clip)
         super.dispatchDraw(canvas)
-        val half = density / 2f
-        outlineRect.set(
-            scrollX + half,
-            scrollY + half,
-            scrollX + width - half,
-            scrollY + height - half,
-        )
+        canvas.restoreToCount(saved)
+        val half = outlinePaint.strokeWidth / 2f
+        outlineRect.set(half, half, width - half, height - half)
         canvas.drawRoundRect(outlineRect, radius, radius, outlinePaint)
+    }
+}
+
+internal class ImePanelViewport(context: Context) : ScrollView(context) {
+    init {
+        isVerticalScrollBarEnabled = false
     }
 }
 

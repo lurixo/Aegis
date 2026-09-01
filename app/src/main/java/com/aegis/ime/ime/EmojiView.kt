@@ -72,18 +72,20 @@ class EmojiView(context: Context) :
         isHorizontalScrollBarEnabled = false
         addView(rail)
     }
-    private val grid = ImePanelTableGrid(context, density).apply {
+    private val grid = ImePanelFaceGrid(context, density).apply {
         layoutDirection = View.LAYOUT_DIRECTION_LTR
         columnCount = COLUMNS
     }
     private var gridCellWidthPx = surfaceMetrics.minimumGridCellWidthPx
     private var cellHeightPx = surfaceMetrics.gridCellHeightPx
     private var gridRow: LinearLayout? = null
-    private val gridScroll = ImePanelTableViewport(context, density).apply {
+    private val gridScroll = ImePanelViewport(context).apply {
         addView(grid)
         isFillViewport = true
     }
     private val clearDialog = PanelConfirmationOverlay(context)
+    private val panelFrame = ImePanelFrame(context, density)
+    private val frameTopGapPx = (ImeShapes.toolbarCapsuleMarginDp * density).toInt()
     private val gridFrame = FrameLayout(context)
     private val variantGenderRow = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER }
     private val variantSkinRow = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER }
@@ -213,11 +215,12 @@ class EmojiView(context: Context) :
             addView(content, LayoutParams(LayoutParams.MATCH_PARENT, gridAreaHeightPx()))
             addView(railScroll, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
         }
-        val panelFrame = FrameLayout(context).apply {
+        panelFrame.outlineColor = palette.separator
+        panelFrame.apply {
             addView(panelColumn, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
             addView(clearDialog, FrameLayout.LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
         }
-        addView(panelFrame, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
+        addView(panelFrame, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f).apply { topMargin = frameTopGapPx })
         showCategory(0)
     }
 
@@ -226,8 +229,8 @@ class EmojiView(context: Context) :
         setBackgroundColor(p.keyboardBg)
         railScroll.setBackgroundColor(p.keyboardBg)
         actionColumnView.setBackgroundColor(p.keyboardBg)
-        grid.separatorColor = p.separator
-        gridScroll.applyOutlineColor(p.separator)
+        grid.ruleColor = p.separator
+        panelFrame.outlineColor = p.separator
         for (button in listOf(backBtn, clearBtn, backspaceBtn)) button.setTextColor(p.keyLabelSecondary)
         backFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
         clearFeedback.update(Color.TRANSPARENT, p.keyLabelSecondary)
@@ -298,8 +301,8 @@ class EmojiView(context: Context) :
     internal fun gridColumnCountForTest(): Int = grid.columnCount
     internal fun cellHeightForTest(): Int = cellHeightPx
     internal fun categoryBarForTest(): View = railScroll
-    internal fun gridSeparatorColorForTest(): Int = grid.separatorColor
-    internal fun gridOutlineColorForTest(): Int = gridScroll.outlineColorForTest()
+    internal fun gridRuleColorForTest(): Int = grid.ruleColor
+    internal fun panelFrameForTest(): ImePanelFrame = panelFrame
     internal fun actionColumnForTest(): View = actionColumnView
     internal fun gridCellTextsForTest(): List<String> =
         (0 until grid.childCount).mapNotNull { (grid.getChildAt(it) as? TextView)?.text?.toString() }
@@ -356,7 +359,7 @@ class EmojiView(context: Context) :
             fitActionIcons(totalWidth - gridWidthPx())
         }
         if (totalHeight > 0) {
-            updateRowHeight(totalHeight / (ROWS + 1))
+            updateRowHeight((totalHeight - frameTopGapPx) / (ROWS + 1))
         }
         applyPanelBands()
         super.onMeasure(widthMeasureSpec, heightMeasureSpec)
@@ -462,7 +465,7 @@ class EmojiView(context: Context) :
             if (on) palette.keySurface else Color.TRANSPARENT,
             if (on) palette.candidateFirst else palette.keyLabelSecondary,
             faceInsetDp = 0f,
-            radiusDp = ImeShapes.keyRadiusDp,
+            radiusDp = 0f,
         ).also { it.bind { hapticEnabled } }
         setOnClickListener { showCategory(index) }
     }
@@ -489,8 +492,8 @@ class EmojiView(context: Context) :
             tv,
             Color.TRANSPARENT,
             palette.keyLabel,
+            radiusDp = 0f,
             faceInsetPxOverride = 0f,
-            faceRadiusDp = 0f,
         ).also {
             it.bind { hapticEnabled }
             emojiFeedback[tv] = it
