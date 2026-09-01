@@ -30,6 +30,7 @@ import android.view.ViewConfiguration
 import androidx.core.graphics.withClip
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
+import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.layout.Layouts
 import kotlin.math.abs
 import kotlin.math.roundToInt
@@ -106,16 +107,16 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
 
     private val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = palette.candidateText
-        textSize = sp(18f)
+        textSize = sp(ImeType.title)
     }
     private val firstPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = palette.candidateFirst
-        textSize = sp(18f)
+        textSize = sp(ImeType.title)
         typeface = android.graphics.Typeface.DEFAULT_BOLD
     }
     private val gatePaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
         color = palette.candidateFirst
-        textSize = sp(18f)
+        textSize = sp(ImeType.title)
     }
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         color = palette.icon
