@@ -710,13 +710,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val view = candidateView ?: return
         when (restorablePanel) {
             RestorablePanel.EXPANDED_CANDIDATES -> view.showExpandedCandidates()
-            RestorablePanel.EDIT -> editPanelView?.let(view::showPanel) ?: showEditPanel()
-            RestorablePanel.LAYOUT -> presentLayoutPanel()
-            RestorablePanel.EMOJI -> emojiView?.let(view::showPanel) ?: showEmojiPanel()
-            RestorablePanel.CLIPBOARD -> restoreClipboardPanel()
-            RestorablePanel.SYMBOLS -> symbolsView?.let(view::showPanel) ?: showSymbolsPanel()
-            RestorablePanel.CUSTOM_SYMBOLS -> customSymbolView?.let(view::showPanel) ?: showCustomSymbolPanel()
-            RestorablePanel.CUSTOM_OPERATORS -> customOperatorView?.let(view::showPanel) ?: showCustomOperatorPanel()
+            RestorablePanel.EDIT -> restorePanel(view, editPanelView) { showEditPanel() }
+            RestorablePanel.LAYOUT -> if (!view.isPanelShowing(layoutPanelView)) presentLayoutPanel()
+            RestorablePanel.EMOJI -> restorePanel(view, emojiView) { showEmojiPanel() }
+            RestorablePanel.CLIPBOARD -> if (!view.isPanelShowing(clipboardView)) restoreClipboardPanel()
+            RestorablePanel.SYMBOLS -> restorePanel(view, symbolsView) { showSymbolsPanel() }
+            RestorablePanel.CUSTOM_SYMBOLS -> restorePanel(view, customSymbolView) { showCustomSymbolPanel() }
+            RestorablePanel.CUSTOM_OPERATORS -> restorePanel(view, customOperatorView) { showCustomOperatorPanel() }
             null -> Unit
         }
         if (inputPurpose != null) {
@@ -726,6 +726,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             panelInput.begin(view.editEditable()) { view.isEditBarShowing() }
         }
         if (translateOpen) bindTranslateInput(view)
+    }
+
+    private fun restorePanel(view: InputView, panel: View?, show: () -> Unit) {
+        if (view.isPanelShowing(panel)) return
+        if (panel != null) view.showPanel(panel) else show()
     }
 
     internal fun transientStateForTest(): TransientStateSnapshot {

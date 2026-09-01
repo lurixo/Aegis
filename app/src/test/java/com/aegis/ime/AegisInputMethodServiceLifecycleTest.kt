@@ -1796,6 +1796,24 @@ class AegisInputMethodServiceLifecycleTest {
         }
     }
 
+    @Test fun a_same_editor_start_keeps_the_emoji_clear_confirmation_up() {
+        val f = fixture()
+        f.service.javaClass.getDeclaredMethod("showEmojiPanel").apply { isAccessible = true }.invoke(f.service)
+        val panel = requireNotNull(cachedPanel(f.service, "emojiView")) as EmojiView
+        panel.clearBtnForTest().performClick()
+        assertEquals(View.VISIBLE, panel.clearDialogForTest().visibility)
+
+        f.service.onStartInput(f.info, true)
+        f.service.onStartInputView(f.info, true)
+        assertTrue(f.view.isPanelShowing(panel))
+        assertEquals("a same-editor restart keeps the confirmation up", View.VISIBLE, panel.clearDialogForTest().visibility)
+
+        f.service.onStartInput(f.info, false)
+        f.service.onStartInputView(f.info, false)
+        assertTrue(f.view.isPanelShowing(panel))
+        assertEquals("a stable same-editor start without the restart flag keeps it too", View.VISIBLE, panel.clearDialogForTest().visibility)
+    }
+
     @Test fun new_different_other_kind_unknown_and_finishing_targets_clear_every_state_class() {
         for (kind in StateKind.entries) {
             fixture().also { f ->

@@ -286,6 +286,7 @@ class EmojiView(context: Context) :
     internal fun toggleLockForTest() = toggleLock()
     internal fun backBtnForTest(): TextView = backBtn
     internal fun clearBtnForTest(): TextView = clearBtn
+    internal fun clearDialogForTest(): PanelConfirmationOverlay = clearDialog
     internal fun backspaceBtnForTest(): TextView = backspaceBtn
     internal fun lockBtnForTest(): TextView = lockBtn
     internal fun lockSlotForTest(): View = lockSlot
