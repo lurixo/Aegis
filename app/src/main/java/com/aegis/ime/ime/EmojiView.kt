@@ -109,16 +109,16 @@ class EmojiView(context: Context) :
     private var variantGenderForm = ""
     private var variantOwnsPointer = false
     private var locked = false
-    private val backGlyph = IconDrawable(density, 0.41f) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }
+    private val backGlyph = IconDrawable(density, 0.530f) { c, p, x, y, s -> Glyphs.drawBack(c, p, x, y, s) }
     private val backBtn = barButton("") { onBack() }
     private val backSlot = FrameLayout(context)
     private val lockBtn = barButton("") { toggleLock() }
     private val lockSlot = FrameLayout(context)
     private val lockGlyph = LockDrawable(density)
-    private val clearGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y - s * 0.06f, s) }
+    private val clearGlyph = IconDrawable(density, 0.545f) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y - s * 0.06f, s) }
     private val clearBtn = barButton("") { showClearConfirmation() }
     private val clearSlot = FrameLayout(context)
-    private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
+    private val backspaceGlyph = IconDrawable(density, 0.615f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
     private val backspaceBtn = barButton("") { onBackspace() }
     private val backspaceSlot = FrameLayout(context)
     private val actionSlots = listOf(backSlot, clearSlot, lockSlot, backspaceSlot)
@@ -699,7 +699,7 @@ class EmojiView(context: Context) :
         fun tint(color: Int) { paint.color = color; invalidateSelf() }
         override fun draw(canvas: Canvas) {
             val b = bounds
-            Glyphs.drawLock(canvas, paint, b.exactCenterX(), b.exactCenterY(), 18 * density * 0.48f, closed)
+            Glyphs.drawLock(canvas, paint, b.exactCenterX(), b.exactCenterY(), ImeType.display * density * 0.455f, closed)
         }
         override fun getIntrinsicWidth() = boxWidthPx
         override fun getIntrinsicHeight() = (ImePanelSurfaceMetrics.FACE_HEIGHT_DP * density).toInt()

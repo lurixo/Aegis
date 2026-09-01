@@ -133,29 +133,29 @@ class CandidateGridViewTest {
         assertEquals("redo keeps its label centered so the three share one line", Gravity.CENTER, v.clearButtonForTest().gravity)
     }
 
-    @Test fun grid_collapse_glyph_matches_the_toolbar_collapse_chevron_box() {
+    @Test fun the_action_glyphs_are_drawn_at_the_candidate_size() {
         val v = CandidateGridView(ctx)
-        val collapse = glyphInkBounds(v.collapseGlyphForTest())
-        val backspace = glyphInkBounds(v.backspaceGlyphForTest())
-        val boxWidth = 1.64f * 9f * density
-        val stroke = 2f * density
-        assertEquals(
-            "collapse chevron ink fills the toolbar collapse icon box width: collapse=${collapse.width()}",
-            boxWidth + stroke,
-            collapse.width(),
-            3f * density,
+        val glyphHeight = android.graphics.Rect().also {
+            android.graphics.Paint().apply { textSize = 19f * density }.getTextBounds("哦", 0, 1, it)
+        }.height()
+        val glyphs = listOf(
+            "collapse" to v.collapseGlyphForTest(),
+            "backspace" to v.backspaceGlyphForTest(),
         )
-        assertEquals(
-            "collapse chevron keeps the toolbar chevron aspect: collapse=${collapse.height()}",
-            boxWidth * (0.76f / 1.40f) + stroke,
-            collapse.height(),
-            3f * density,
-        )
-        assertTrue(
-            "resized collapse chevron is shorter than the backspace glyph: " +
-                "collapse=${collapse.height()} backspace=${backspace.height()}",
-            collapse.height() < backspace.height(),
-        )
+
+        for ((label, glyph) in glyphs) {
+            val ink = glyphInkBounds(glyph)
+            assertEquals(
+                "$label ink stands as tall as a candidate character",
+                glyphHeight.toFloat(),
+                ink.height(),
+                2f * density,
+            )
+            assertTrue(
+                "$label ink stays inside the action column: ${ink.width()} of ${glyph.intrinsicWidth}",
+                ink.width() <= glyph.intrinsicWidth,
+            )
+        }
     }
 
     private fun glyphInkBounds(d: Drawable): RectF {

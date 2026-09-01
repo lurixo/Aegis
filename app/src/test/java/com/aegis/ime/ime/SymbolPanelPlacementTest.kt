@@ -15,13 +15,18 @@
 
 package com.aegis.ime.ime
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
+import android.graphics.drawable.Drawable
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeType
 import com.aegis.ime.layout.SymbolCatalog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -315,6 +320,50 @@ class SymbolPanelPlacementTest {
         assertTrue("the emoji table clips its four outer corners round", ev.gridViewportForTest().clipToOutline)
     }
 
+    @Test fun panel_actions_and_categories_are_drawn_at_the_symbol_size() {
+        val density = ctx.resources.displayMetrics.density
+        val glyphHeight = Rect().also {
+            Paint().apply { textSize = ImeType.display * density }.getTextBounds("哦", 0, 1, it)
+        }.height()
+
+        val sv = SymbolsView(ctx).apply { applyPalette(light) }
+        val ev = EmojiView(ctx).apply { applyPalette(light) }
+        layout(sv)
+        layout(ev)
+        val actions = listOf(
+            "symbols back" to sv.backBtnForTest(),
+            "symbols clear" to sv.clearBtnForTest(),
+            "symbols lock" to sv.lockBtnForTest(),
+            "symbols backspace" to sv.backspaceBtnForTest(),
+            "emoji back" to ev.backBtnForTest(),
+            "emoji clear" to ev.clearBtnForTest(),
+            "emoji lock" to ev.lockBtnForTest(),
+            "emoji backspace" to ev.backspaceBtnForTest(),
+        )
+
+        for ((label, button) in actions) {
+            val icon = requireNotNull(button.compoundDrawables.firstOrNull { it != null }) { "$label has no icon" }
+            val ink = inkBounds(icon)
+            assertTrue(
+                "$label icon ink height ${ink.height()} must match the $glyphHeight symbol glyph",
+                kotlin.math.abs(ink.height() - glyphHeight) <= (2 * density).toInt() + 1,
+            )
+            assertTrue("$label icon stays inside its cell", ink.width() <= icon.intrinsicWidth)
+        }
+        assertEquals(
+            "symbol categories are set at the body size",
+            ImeType.body * density,
+            sv.railTabForTest(0).textSize,
+            0.01f,
+        )
+        assertEquals(
+            "emoji categories are set at the body size",
+            ImeType.body * density,
+            ev.railTabForTest(0).textSize,
+            0.01f,
+        )
+    }
+
     @Test fun every_category_tab_hugs_its_label() {
         val density = ctx.resources.displayMetrics.density
         val sv = SymbolsView(ctx).apply { applyPalette(light); openCategoryForTest(idx("en")) }
@@ -342,5 +391,27 @@ class SymbolPanelPlacementTest {
                 )
             }
         }
+    }
+
+    private fun inkBounds(d: Drawable): Rect {
+        val w = maxOf(d.intrinsicWidth, 1)
+        val h = maxOf(d.intrinsicHeight, 1)
+        d.setBounds(0, 0, w, h)
+        val bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        d.draw(Canvas(bmp))
+        var l = w
+        var t = h
+        var r = -1
+        var b = -1
+        for (y in 0 until h) {
+            for (x in 0 until w) {
+                if (Color.alpha(bmp.getPixel(x, y)) == 0) continue
+                if (x < l) l = x
+                if (x > r) r = x
+                if (y < t) t = y
+                if (y > b) b = y
+            }
+        }
+        return Rect(l, t, r + 1, b + 1)
     }
 }

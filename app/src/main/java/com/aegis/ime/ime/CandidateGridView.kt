@@ -89,8 +89,8 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         strokeWidth = density
     }
     private val outlineRect = RectF()
-    private val backspaceGlyph = IconDrawable(density, 0.42f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
-    private val collapseGlyph = IconDrawable(density, 9f * (1.64f / 1.40f) / 22f) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = false) }
+    private val backspaceGlyph = IconDrawable(density, 0.499f) { c, p, x, y, s -> Glyphs.drawBackspace(c, p, x, y, s) }
+    private val collapseGlyph = IconDrawable(density, 0.910f) { c, p, x, y, s -> Glyphs.drawChevron(c, p, x, y, s, down = false) }
     private val measurePaint = Paint()
     private var sourceCandidates: List<String>? = null
     private var sourceCandidateProjection: CandidateProjectionPolicy? = null
@@ -854,16 +854,17 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         private val sFactor: Float,
         private val render: (Canvas, Paint, Float, Float, Float) -> Unit,
     ) : Drawable() {
+        private val iconBoxPx = (22 * density)
         private val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE; strokeWidth = 2f * density; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND
         }
         fun tint(color: Int) { paint.color = color; invalidateSelf() }
         override fun draw(canvas: Canvas) {
             val b = bounds
-            render(canvas, paint, b.exactCenterX(), b.exactCenterY(), minOf(b.width(), b.height()) * sFactor)
+            render(canvas, paint, b.exactCenterX(), b.exactCenterY(), iconBoxPx * sFactor)
         }
-        override fun getIntrinsicWidth() = (22 * density).toInt()
-        override fun getIntrinsicHeight() = (22 * density).toInt()
+        override fun getIntrinsicWidth() = (Layouts.CANDIDATE_ACTION_WIDTH_DP * density).toInt()
+        override fun getIntrinsicHeight() = (ImePanelSurfaceMetrics.FACE_HEIGHT_DP * density).toInt()
         override fun setAlpha(alpha: Int) {}
         override fun setColorFilter(colorFilter: ColorFilter?) {}
         @Deprecated("Deprecated in Java")
