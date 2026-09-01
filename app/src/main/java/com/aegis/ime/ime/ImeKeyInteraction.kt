@@ -31,7 +31,9 @@ import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.widget.FrameLayout
 import android.widget.GridLayout
+import android.widget.LinearLayout
 import android.widget.ScrollView
+import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 
 interface KeyHapticsAware {
@@ -110,6 +112,28 @@ internal class ImePanelFrame(context: Context, density: Float) : FrameLayout(con
 internal class ImePanelViewport(context: Context) : ScrollView(context) {
     init {
         isVerticalScrollBarEnabled = false
+    }
+}
+
+internal class ImePanelActionColumn(context: Context, density: Float) : LinearLayout(context) {
+    private val rulePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { strokeWidth = density }
+
+    init {
+        orientation = VERTICAL
+    }
+
+    fun applyPalette(p: ImePalette) {
+        setBackgroundColor(p.railBg)
+        rulePaint.color = p.separator
+        invalidate()
+    }
+
+    override fun dispatchDraw(canvas: Canvas) {
+        super.dispatchDraw(canvas)
+        for (index in 0 until childCount - 1) {
+            val y = getChildAt(index).bottom.toFloat()
+            canvas.drawLine(0f, y, width.toFloat(), y, rulePaint)
+        }
     }
 }
 

@@ -274,7 +274,7 @@ class SymbolsView(context: Context) :
         palette = p
         setBackgroundColor(p.keyboardBg)
         railScroll.setBackgroundColor(p.keyboardBg)
-        actionColumnView.setBackgroundColor(p.keyboardBg)
+        actionColumnView.applyPalette(p)
         grid.ruleColor = p.separator
         panelFrame.outlineColor = p.separator
         for (button in listOf(backBtn, clearBtn, backspaceBtn)) button.setTextColor(p.keyLabelSecondary)
@@ -822,10 +822,9 @@ class SymbolsView(context: Context) :
         }
     }
 
-    private fun actionColumn(): View = LinearLayout(context).apply {
-        orientation = VERTICAL
+    private fun actionColumn(): ImePanelActionColumn = ImePanelActionColumn(context, density).apply {
         layoutDirection = View.LAYOUT_DIRECTION_LTR
-        setBackgroundColor(palette.keyboardBg)
+        applyPalette(palette)
         backBtn.gravity = Gravity.CENTER; backBtn.setPadding(0, 0, 0, 0)
         clearBtn.gravity = Gravity.CENTER; clearBtn.setPadding(0, 0, 0, 0)
         lockBtn.gravity = Gravity.CENTER; lockBtn.setPadding(0, 0, 0, 0)
