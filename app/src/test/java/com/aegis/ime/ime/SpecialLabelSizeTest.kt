@@ -80,7 +80,7 @@ class SpecialLabelSizeTest {
         return drawn[0]
     }
 
-    private fun assertBottomRowSharesTheSpaceLabelSize(
+    private fun assertBottomRowLabelsRenderAtTheDesignedSize(
         tag: String,
         widths: List<String>,
         view: (Lang) -> KeyboardView,
@@ -90,29 +90,28 @@ class SpecialLabelSizeTest {
             RuntimeEnvironment.setQualifiers(q)
             RuntimeEnvironment.setQualifiers("+zh-rCN")
             val canvas = record(laidOut(view(Lang.CN)))
-            val space = only(canvas, "空格")
-            if (abs(space - sp(20f)) > 0.5f) {
-                fails.add("$tag $q 空格 is ${space}px, not the designed ${sp(20f)}px")
+            if (canvas.texts.containsKey("空格")) {
+                fails.add("$tag $q still spells out 空格 instead of the space marker")
             }
             for (label in listOf("符号", "123")) {
                 val drawn = only(canvas, label)
-                if (abs(drawn - space) > 0.5f) {
-                    fails.add("$tag $q $label is ${drawn}px against 空格 ${space}px")
+                if (abs(drawn - sp(20f)) > 0.5f) {
+                    fails.add("$tag $q $label is ${drawn}px, not the designed ${sp(20f)}px")
                 }
             }
         }
-        assertTrue("bottom-row labels do not share the designed size: $fails", fails.isEmpty())
+        assertTrue("bottom-row labels do not hold the designed size: $fails", fails.isEmpty())
     }
 
     @Test fun cn_qwerty_bottom_row_labels_render_at_the_designed_size() =
-        assertBottomRowSharesTheSpaceLabelSize(
+        assertBottomRowLabelsRenderAtTheDesignedSize(
             "qwerty",
             listOf("w393dp-h851dp-xxhdpi", "w411dp-h891dp-xxhdpi", "w480dp-h900dp-hdpi"),
             ::qwerty,
         )
 
     @Test fun cn_nine_bottom_row_labels_render_at_the_designed_size() =
-        assertBottomRowSharesTheSpaceLabelSize(
+        assertBottomRowLabelsRenderAtTheDesignedSize(
             "nine",
             listOf("w320dp-h650dp-xhdpi", "w360dp-h740dp-xxhdpi", "w393dp-h851dp-xxhdpi", "w411dp-h891dp-xxhdpi", "w480dp-h900dp-hdpi"),
             ::nine,
@@ -139,23 +138,22 @@ class SpecialLabelSizeTest {
         assertTrue("bottom-row punctuation was reached by the label fitting: $fails", fails.isEmpty())
     }
 
-    @Test fun cn_bottom_row_labels_stay_near_the_space_label_on_narrow_screens() {
+    @Test fun cn_bottom_row_labels_stay_near_the_designed_size_on_narrow_screens() {
         val fails = ArrayList<String>()
         for (q in WIDTHS) {
             RuntimeEnvironment.setQualifiers(q)
             RuntimeEnvironment.setQualifiers("+zh-rCN")
             for ((name, view) in listOf("qwerty" to qwerty(Lang.CN), "nine" to nine(Lang.CN))) {
                 val canvas = record(laidOut(view))
-                val space = only(canvas, "空格")
                 for (label in listOf("符号", "123")) {
                     val drawn = only(canvas, label)
-                    if (drawn < space * NARROW_FLOOR) {
-                        fails.add("$q $name $label is ${drawn}px against 空格 ${space}px")
+                    if (drawn < sp(20f) * NARROW_FLOOR) {
+                        fails.add("$q $name $label is ${drawn}px against the designed ${sp(20f)}px")
                     }
                 }
             }
         }
-        assertTrue("bottom-row labels shrink far past the space label: $fails", fails.isEmpty())
+        assertTrue("bottom-row labels shrink far past the designed size: $fails", fails.isEmpty())
     }
 
     private companion object {

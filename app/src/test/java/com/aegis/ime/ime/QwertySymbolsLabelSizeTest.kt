@@ -84,21 +84,18 @@ class QwertySymbolsLabelSizeTest {
             RuntimeEnvironment.setQualifiers("+en")
             val canvas = record(laidOut(qwerty()))
             assertFalse("$q still draws 'Symbols' as a single fitted line", canvas.texts.containsKey("Symbols"))
-            val space = only(canvas, "Space")
-            if (abs(space - sp(20f)) > 0.5f) {
-                fails.add("$q Space is ${space}px, not the designed ${sp(20f)}px")
-            }
+            assertFalse("$q still spells out Space instead of the space marker", canvas.texts.containsKey("Space"))
             for (line in listOf("Sym", "bols")) {
                 val drawn = only(canvas, line)
-                if (abs(drawn - space) > 0.5f) {
-                    fails.add("$q $line is ${drawn}px against Space ${space}px")
+                if (abs(drawn - sp(20f)) > 0.5f) {
+                    fails.add("$q $line is ${drawn}px, not the designed ${sp(20f)}px")
                 }
             }
         }
         assertTrue("the Symbols label does not share the designed size: $fails", fails.isEmpty())
     }
 
-    @Test fun en_qwerty_symbols_label_stays_near_the_space_label_on_narrow_screens() {
+    @Test fun en_qwerty_symbols_label_stays_near_the_designed_size_on_narrow_screens() {
         val fails = ArrayList<String>()
         for (q in listOf(
             "w250dp-h700dp-mdpi",
@@ -112,17 +109,17 @@ class QwertySymbolsLabelSizeTest {
             RuntimeEnvironment.setQualifiers("+en")
             val canvas = record(laidOut(qwerty()))
             assertFalse("$q still draws 'Symbols' as a single fitted line", canvas.texts.containsKey("Symbols"))
-            val space = only(canvas, "Space")
+            assertFalse("$q still spells out Space instead of the space marker", canvas.texts.containsKey("Space"))
             val head = only(canvas, "Sym")
             val tail = only(canvas, "bols")
             if (abs(head - tail) > 0.5f) {
                 fails.add("$q lines differ: Sym ${head}px against bols ${tail}px")
             }
-            if (head < space * NARROW_FLOOR) {
-                fails.add("$q Sym is ${head}px against Space ${space}px")
+            if (head < sp(20f) * NARROW_FLOOR) {
+                fails.add("$q Sym is ${head}px against the designed ${sp(20f)}px")
             }
         }
-        assertTrue("the Symbols label shrinks far past the space label: $fails", fails.isEmpty())
+        assertTrue("the Symbols label shrinks far past the designed size: $fails", fails.isEmpty())
     }
 
     private companion object {

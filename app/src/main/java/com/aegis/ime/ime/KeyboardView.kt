@@ -196,6 +196,7 @@ class KeyboardView(context: Context) : View(context) {
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
     private val keyEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.shadow }
+    private val spaceMarkerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val sepLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.separator; strokeWidth = density }
     private val pressHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.keyLabel, 0x22) }
     private val scrollTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.railBg }
@@ -638,6 +639,7 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private fun drawLabel(canvas: Canvas, p: Placed) {
+        if (p.key.action == KeyAction.SPACE && !p.key.rail) { drawSpaceMarker(canvas, p.rect); return }
         if (p.key.action == KeyAction.TOGGLE_LANG) { drawLangToggle(canvas, p.rect); return }
         if (p.key.action == KeyAction.SHIFT) { drawShift(canvas, p.rect); return }
         if (p.key.action == KeyAction.BACKSPACE) { drawKeyGlyph(canvas, p.rect, palette.keyLabel) { c, pt, x, y, s -> Glyphs.drawBackspace(c, pt, x, y, s) }; return }
@@ -733,6 +735,14 @@ class KeyboardView(context: Context) : View(context) {
         val baseline = rect.centerY() - (paint.descent() + paint.ascent()) / 2f
         canvas.drawText(head, rect.centerX(), baseline - step, paint)
         canvas.drawText(tail, rect.centerX(), baseline + step, paint)
+    }
+
+    private fun drawSpaceMarker(canvas: Canvas, rect: RectF) {
+        val w = rect.width() * SPACE_MARKER_FRACTION
+        val h = 2f * density
+        tmpRect.set(rect.centerX() - w / 2f, rect.centerY() - h / 2f, rect.centerX() + w / 2f, rect.centerY() + h / 2f)
+        spaceMarkerPaint.color = Motion.withAlpha(palette.keySub, 0x80)
+        canvas.drawRoundRect(tmpRect, h / 2f, h / 2f, spaceMarkerPaint)
     }
 
     private fun labelScale(rect: RectF): Float = min(1f, rect.height() / rowHeight)
@@ -1299,12 +1309,13 @@ class KeyboardView(context: Context) : View(context) {
         return true
     }
 
-    private companion object {
+    internal companion object {
         const val LONG_PRESS_MS = 300L
         const val RETARGET_HOLD_MS = 120L
         const val INK_CENTERED_GLYPHS = "，。"
         const val KEYPAD_INK_CENTERED_GLYPHS = "，。,."
         const val SCROLL_LABEL_INSET_DP = 12f
+        const val SPACE_MARKER_FRACTION = 0.34f
         const val SCROLL_LABEL_MIN_DP = 11f
     }
 }

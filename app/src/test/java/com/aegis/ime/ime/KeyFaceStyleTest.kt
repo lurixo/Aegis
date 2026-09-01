@@ -105,6 +105,37 @@ class KeyFaceStyleTest {
         return canvas
     }
 
+    @Test fun space_draws_a_centred_marker_bar_instead_of_its_label() {
+        for (id in listOf(LayoutId.ALPHA, LayoutId.NINE, LayoutId.NUMBER)) {
+            val v = laidOut(id)
+            val cell = requireNotNull(v.boundsOfActionForTest(KeyAction.SPACE)) { "$id has no space key" }
+
+            val ink = inkIn(v, cell)
+            assertTrue("$id: the marker is a thin bar: $ink", ink.height() <= 3f * density)
+            assertEquals(
+                "$id: the marker is centred in the key",
+                cell.centerX(),
+                ink.exactCenterX(),
+                2f * density,
+            )
+            assertEquals(
+                "$id: the marker takes about a third of the key",
+                cell.width() * KeyboardView.SPACE_MARKER_FRACTION,
+                ink.width().toFloat(),
+                2f * density,
+            )
+        }
+    }
+
+    @Test fun the_numpad_space_still_spells_out_its_label() {
+        val numpad = record(laidOut(LayoutId.NUMPAD))
+        val alpha = record(laidOut(LayoutId.ALPHA))
+        val label = ctx.getString(R.string.kbd_space)
+
+        assertTrue("the numpad space stays worded", numpad.drawn.any { it.first == label })
+        assertFalse("the alpha space carries no worded label", alpha.drawn.any { it.first == label })
+    }
+
     @Test fun every_face_casts_a_one_dp_bottom_edge_shadow() {
         val palette = ImePalette.STATIC_LIGHT.copy(
             keyboardBg = Color.WHITE,
