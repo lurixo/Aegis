@@ -104,7 +104,14 @@ class EditBarView(context: Context) : LinearLayout(context) {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         addView(title, LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        addView(field, LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { gravity = Gravity.CENTER_VERTICAL })
+        addView(
+            field,
+            LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                gravity = Gravity.CENTER_VERTICAL
+                val m = (ImeShapes.toolbarCapsuleMarginDp * density).toInt()
+                topMargin = m; bottomMargin = m
+            },
+        )
         addView(cancel, btnLp(startDp = 6))
         addView(confirm, btnLp(startDp = 6, endDp = 8))
         cancel.setOnClickListener { onCancel() }
@@ -122,7 +129,8 @@ class EditBarView(context: Context) : LinearLayout(context) {
 
     private fun btnLp(startDp: Int, endDp: Int = 0) =
         LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.MATCH_PARENT).apply {
-            topMargin = dp(4); bottomMargin = dp(4); marginStart = dp(startDp); marginEnd = dp(endDp)
+            val m = (ImeShapes.toolbarCapsuleMarginDp * density).toInt()
+            topMargin = m; bottomMargin = m; marginStart = dp(startDp); marginEnd = dp(endDp)
         }
 
     private fun btn(s: String) = TextView(context).apply {

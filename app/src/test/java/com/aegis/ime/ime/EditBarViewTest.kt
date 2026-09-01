@@ -54,6 +54,22 @@ class EditBarViewTest {
         v.layout(0, 0, v.measuredWidth, v.measuredHeight)
     }
 
+    @Test fun the_bar_keeps_the_toolbar_capsule_margin_above_its_row() {
+        val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        val density = ctx.resources.displayMetrics.density
+        val margin = (com.aegis.ime.ime.theme.ImeShapes.toolbarCapsuleMarginDp * density).toInt()
+        val sides = textViews(v).filterNot { it === field(v) }.filter { it.isClickable }
+        assertTrue("the bar has side controls", sides.isNotEmpty())
+        val flp = field(v).layoutParams as android.view.ViewGroup.MarginLayoutParams
+        assertEquals("the field keeps the toolbar capsule top margin", margin, flp.topMargin)
+        assertEquals("the field keeps the toolbar capsule bottom margin", margin, flp.bottomMargin)
+        for (side in sides) {
+            val lp = side.layoutParams as android.view.ViewGroup.MarginLayoutParams
+            assertEquals("a side control keeps the toolbar capsule top margin", margin, lp.topMargin)
+            assertEquals("a side control keeps the toolbar capsule bottom margin", margin, lp.bottomMargin)
+        }
+    }
+
     @Test fun the_field_is_a_real_editor_that_never_summons_another_ime() {
         val v = EditBarView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
         val f = field(v)
