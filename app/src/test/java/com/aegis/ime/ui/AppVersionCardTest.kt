@@ -45,7 +45,7 @@ class AppVersionCardTest {
         val info = ctx.packageManager
             .getPackageInfo(ctx.packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
 
-        assertEquals(9012L, info.longVersionCode)
+        assertEquals(9051L, info.longVersionCode)
     }
 
     @Test fun release_version_code_matches_the_beta_candidate() {
