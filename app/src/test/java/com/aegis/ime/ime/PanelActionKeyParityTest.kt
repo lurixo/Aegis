@@ -241,6 +241,12 @@ class PanelActionKeyParityTest {
             val surface = action.background as? ImeKeySurface
             assertNotNull("$name bottom action $index keeps the shared key surface", surface)
             assertEquals("$name bottom action $index has no resting key face", Color.TRANSPARENT, requireNotNull(surface).faceColor)
+            assertEquals("$name bottom action $index press highlight is square; the frame rounds the outer corner", 0f, surface.cornerRadiusPx, 0f)
+            assertEquals(
+                "$name bottom action $index press highlight fills its slot edge to edge",
+                RectF(0f, 0f, 40f, 30f),
+                surface.faceBoundsForTest(40, 30),
+            )
             assertFalse("$name bottom action $index has no platform ripple", action.foreground is RippleDrawable)
         }
     }

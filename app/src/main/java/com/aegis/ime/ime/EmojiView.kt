@@ -121,10 +121,10 @@ class EmojiView(context: Context) :
     private val backspaceSlot = FrameLayout(context)
     private val actionSlots = listOf(backSlot, clearSlot, lockSlot, backspaceSlot)
     private val actionColumnView = actionColumn()
-    private val backFeedback = ImeKeyFeedback(backBtn, Color.TRANSPARENT, palette.keyLabelSecondary, faceInsetDp = 0f)
-    private val lockFeedback = ImeKeyFeedback(lockBtn, Color.TRANSPARENT, palette.keyLabelSecondary, faceInsetDp = 0f)
-    private val clearFeedback = ImeKeyFeedback(clearBtn, Color.TRANSPARENT, palette.keyLabelSecondary, faceInsetDp = 0f)
-    private val backspaceFeedback = ImeKeyFeedback(backspaceBtn, Color.TRANSPARENT, palette.keyLabelSecondary, faceInsetDp = 0f)
+    private val backFeedback = ImeKeyFeedback(backBtn, Color.TRANSPARENT, palette.keyLabelSecondary, faceInsetDp = 0f, radiusDp = 0f)
+    private val lockFeedback = ImeKeyFeedback(lockBtn, Color.TRANSPARENT, palette.keyLabelSecondary, faceInsetDp = 0f, radiusDp = 0f)
+    private val clearFeedback = ImeKeyFeedback(clearBtn, Color.TRANSPARENT, palette.keyLabelSecondary, faceInsetDp = 0f, radiusDp = 0f)
+    private val backspaceFeedback = ImeKeyFeedback(backspaceBtn, Color.TRANSPARENT, palette.keyLabelSecondary, faceInsetDp = 0f, radiusDp = 0f)
     private val backspaceTouch = ImeBackspaceTouch(
         backspaceBtn,
         backspaceFeedback,
