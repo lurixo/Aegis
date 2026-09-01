@@ -1169,12 +1169,20 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun nav(keyCode: Int, move: SelectionMath.Move) {
-        if (!selecting) { sendKey(keyCode, false); return }
         val ic = currentInputConnection
         val window = ic?.takeIf { trackedSelectionSpan() <= ChunkedRead.DIRECT_MAX }?.let(::caretWindow)
-        if (ic == null || window == null) { sendKey(keyCode, true); return }
+        if (ic == null || window == null) { sendKey(keyCode, selecting); return }
         val base = window.base
         val text = window.text
+        if (!selecting) {
+            val lo = base + window.start
+            val hi = base + window.end
+            val collapsing = lo != hi && (move == SelectionMath.Move.LEFT || move == SelectionMath.Move.RIGHT)
+            val from = if (move == SelectionMath.Move.LEFT || move == SelectionMath.Move.UP || move == SelectionMath.Move.HOME) lo else hi
+            val next = if (collapsing) from else base + SelectionMath.step(text, from - base, move)
+            ic.setSelection(next, next)
+            return
+        }
         if (selAnchor < 0) selAnchor = base + window.start
         if (selMoving < 0) selMoving = base + window.end
         selMoving = base + SelectionMath.step(text, selMoving - base, move)

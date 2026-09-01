@@ -103,6 +103,7 @@ class AegisInputMethodServiceLifecycleTest {
         var hidesSelection = false
         var hidesExtractedSelection = false
         var hidesExtractedText = false
+        var hidesSurroundingOffset = false
         var contextMenuAccepted = true
 
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
@@ -149,7 +150,8 @@ class AegisInputMethodServiceLifecycleTest {
             val selEnd = maxOf(a, b)
             val from = maxOf(0, selStart - beforeLength)
             val to = minOf(content.length, selEnd + afterLength)
-            return SurroundingText(content.subSequence(from, to), selStart - from, selEnd - from, from)
+            val offset = if (hidesSurroundingOffset) -1 else from
+            return SurroundingText(content.subSequence(from, to), selStart - from, selEnd - from, offset)
         }
 
         override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? {
@@ -1107,6 +1109,72 @@ class AegisInputMethodServiceLifecycleTest {
                 selectionStart(connection) to selectionEnd(connection),
             )
         }
+    }
+
+    @Test fun edit_panel_arrows_place_the_caret_without_sending_navigation_keys() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("ab\ncd", 1)
+        connection.setSelection(1, 1)
+
+        handleEdit(f.service, EditAction.UP)
+        assertEquals("up on the first line parks at the start instead of leaving the field", 0 to 0, selectionStart(connection) to selectionEnd(connection))
+        handleEdit(f.service, EditAction.DOWN)
+        assertEquals("down keeps the column on the next line", 3 to 3, selectionStart(connection) to selectionEnd(connection))
+        handleEdit(f.service, EditAction.DOWN)
+        assertEquals("down on the last line parks at the end instead of leaving the field", 5 to 5, selectionStart(connection) to selectionEnd(connection))
+        handleEdit(f.service, EditAction.HOME)
+        assertEquals(3 to 3, selectionStart(connection) to selectionEnd(connection))
+        handleEdit(f.service, EditAction.END)
+        assertEquals(5 to 5, selectionStart(connection) to selectionEnd(connection))
+        handleEdit(f.service, EditAction.LEFT)
+        assertEquals(4 to 4, selectionStart(connection) to selectionEnd(connection))
+        handleEdit(f.service, EditAction.RIGHT)
+        assertEquals(5 to 5, selectionStart(connection) to selectionEnd(connection))
+
+        connection.setSelection(1, 4)
+        handleEdit(f.service, EditAction.LEFT)
+        assertEquals("left collapses a selection to its start", 1 to 1, selectionStart(connection) to selectionEnd(connection))
+        connection.setSelection(1, 4)
+        handleEdit(f.service, EditAction.RIGHT)
+        assertEquals("right collapses a selection to its end", 4 to 4, selectionStart(connection) to selectionEnd(connection))
+
+        assertTrue("caret moves never reach the editor as key events", connection.sentKeyCodes.isEmpty())
+        assertEquals("ab\ncd", connection.editable.toString())
+
+        connection.hidesExtractedText = true
+        connection.setSelection(2, 2)
+        handleEdit(f.service, EditAction.LEFT)
+        assertEquals("an editor that hides its text still gets the key fallback", listOf(KeyEvent.KEYCODE_DPAD_LEFT), connection.sentKeyCodes)
+    }
+
+    @Test fun edit_panel_navigation_falls_back_to_extracted_text_when_offsets_are_unknown() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.hidesSurroundingOffset = true
+        connection.commitText("ab\ncd", 1)
+        connection.setSelection(4, 4)
+
+        handleEdit(f.service, EditAction.HOME)
+        assertEquals("home reaches the paragraph start through the extracted text", 3 to 3, selectionStart(connection) to selectionEnd(connection))
+        handleEdit(f.service, EditAction.END)
+        assertEquals(5 to 5, selectionStart(connection) to selectionEnd(connection))
+        handleEdit(f.service, EditAction.UP)
+        assertEquals(2 to 2, selectionStart(connection) to selectionEnd(connection))
+
+        connection.setSelection(4, 4)
+        handleEdit(f.service, EditAction.START_SELECT)
+        handleEdit(f.service, EditAction.RIGHT)
+        assertEquals("the selection anchors at the live caret, not the document start", 4 to 5, selectionStart(connection) to selectionEnd(connection))
+        handleEdit(f.service, EditAction.START_SELECT)
+
+        assertTrue("no navigation key reaches the editor", connection.sentKeyCodes.isEmpty())
+
+        connection.hidesExtractedText = true
+        handleEdit(f.service, EditAction.END)
+        assertEquals("with neither source the key fallback remains", listOf(KeyEvent.KEYCODE_MOVE_END), connection.sentKeyCodes)
     }
 
     @Test fun actions_that_keep_the_anchor_leave_the_editor_text_alone() {
