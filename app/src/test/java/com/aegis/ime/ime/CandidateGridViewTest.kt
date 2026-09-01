@@ -524,7 +524,7 @@ class CandidateGridViewTest {
         val v = measured()
         v.setCandidates(listOf("优", "沃", "卧", "奏", "窝"))
         assertEquals("four single-grapheme candidates fill a row and the fifth stands alone", listOf(4, 1), v.rowColumnCountsForTest())
-        for (i in 0..4) assertEquals("under-filled candidate $i stays at base 18sp, never enlarged", 18f, v.chipTextSizeSpForTest(i), 0.01f)
+        for (i in 0..4) assertEquals("under-filled candidate $i stays at base 19sp, never enlarged", 19f, v.chipTextSizeSpForTest(i), 0.01f)
         val tableW = tableWidth()
         assertEquals("the sparse row still spreads edge to edge with no trailing empty cell", tableW, (0..3).sumOf { v.chipCellWidthForTest(it) })
     }
@@ -607,8 +607,8 @@ class CandidateGridViewTest {
     @Test fun readings_keep_title_size_without_scaling() {
         val v = CandidateGridView(ctx)
         v.setReadings(listOf("ni", "zhuang"))
-        assertEquals(18f, v.readingTextSizeSpForTest(0), 0.01f)
-        assertEquals(18f, v.readingTextSizeSpForTest(1), 0.01f)
+        assertEquals(19f, v.readingTextSizeSpForTest(0), 0.01f)
+        assertEquals(19f, v.readingTextSizeSpForTest(1), 0.01f)
     }
 
     @Test fun palette_flows_to_rail_and_table_in_static_light_and_dark() {

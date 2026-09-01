@@ -20,6 +20,6 @@ object ImeType {
     const val sectionTitle = 13f
     const val label = 14f
     const val body = 16f
-    const val title = 18f
+    const val title = 19f
     const val display = 22f
 }
