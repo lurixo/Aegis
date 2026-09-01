@@ -12,7 +12,8 @@ Translate.
 
 ## What Aegis stores, and where
 
-All of the following is kept **only** in the app's own private storage on your device and is never
+All of the following is kept **only** in the app's own private storage on your device and, apart
+from the text you type into the translate bar (see [Network use](#network-use)), is never
 transmitted anywhere by Aegis:
 
 - **Keystrokes and candidates** — processed on-device by the built-in decoder; not logged off-device.
@@ -32,11 +33,11 @@ transmitted anywhere by Aegis:
   save one, the default backup password — that one encrypted with a key held by the Android
   keystore, as described under [Permissions](#permissions).
 
-None of it leaves that storage on its own. The one way any of it does leave is a file **you**
-export — a backup, your user dictionary, or your phrases. Android asks you where each file should
-go, and Aegis writes it to the place you picked and nowhere else. A backup is encrypted with the
-password you type for it; a dictionary or phrase export is plain text, which is what makes it
-usable elsewhere.
+None of it leaves that storage on its own. Apart from the translate bar, the one way any of it does
+leave is a file **you** export — a backup, your user dictionary, or your phrases. Android asks you
+where each file should go, and Aegis writes it to the place you picked and nowhere else. A backup is
+encrypted with the password you type for it; a dictionary or phrase export is plain text, which is
+what makes it usable elsewhere.
 
 ## Permissions
 

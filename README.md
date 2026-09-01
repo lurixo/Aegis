@@ -10,8 +10,8 @@
 
 **Aegis** is an offline-first Android input method for **Simplified Chinese** and **English**.
 It is built on the open **rime-wanxiang** CC BY dictionaries with a **self-built decoder**; no
-rime / librime at runtime. Everything you type stays on your device: **no network request is ever
-made while you type, and nothing you type is ever sent.**
+rime / librime at runtime. **Outside the translate bar, no network request is ever made while you
+type, and nothing you type is ever sent**; the translate bar sends only what you type into it.
 
 **English** | [简体中文](README.zh-CN.md)
 
@@ -93,9 +93,10 @@ unless you ask it to.
 ## Features
 
 - **Keyboards:** **26-key full pinyin**, **9-key T9** and an **English 26-key** layout, plus
-  **number**, **symbol** and **numeric-keypad** layouts, on a self-drawn View+Canvas keyboard. In
-  landscape the keyboard keeps its portrait width and docks to one side, so the app behind it stays
-  reachable.
+  **number**, **symbol** and **numeric-keypad** layouts, on a self-drawn View+Canvas keyboard. With
+  next-word suggestions on, typing on the English layout also gets word completions from the
+  English table in the dictionary pack. In landscape the keyboard keeps its portrait width and docks
+  to one side, so the app behind it stays reachable.
 - **Lattice Viterbi decoder:** over a memory-mapped dictionary, scored by unigram log-probability
   plus a **character-bigram** context model; with the enhancement model installed, a further
   next-word and whole-sentence reranking pass runs on top.
@@ -106,6 +107,8 @@ unless you ask it to.
 - **Syllable control:** on the 9-key keyboard a side column lists the readings for what you typed
   and locks the one you pick; picking a locked reading again offers the characters that share it.
   While composing, a segmentation key splits a run of letters where you want it.
+- **Expanded candidates:** the chevron at the end of the candidate strip unfolds it into a full
+  panel; the *All* / *Single* key under its *Retype* key narrows the list to single characters.
 - **CN-EN mixed input:** commit English words (e.g. `wifi`) without switching language.
 - **On-device learning:** frequently and recently used words rank up and next-word pairs are
   learned. Automatic learning has its own switch, and next-word suggestions in the candidate strip
@@ -120,15 +123,20 @@ unless you ask it to.
   picking several in a row.
 - **Clipboard history:** clips you copy are kept for reuse, with per-item and batch delete, select
   all, and clear. The history can also be switched off entirely.
-- **Saved phrases (常用语):** reusable phrases in categories you name, reorder and move between,
-  each with an optional note, importable and exportable as a plain text file.
-- **Translate bar:** a toolbar entry opens a bar above the candidate strip; what you type into it is
-  sent to Google Translate and lands in the field you are editing as live output that follows your
-  edits — auto-detected, Chinese ⇄ English or Chinese ⇄ Japanese — until you close the bar.
+- **Saved phrases (常用语):** the *Phrases* tab of the clipboard panel keeps reusable phrases in
+  categories you name, reorder and move between, each with an optional note, importable and
+  exportable as a plain text file.
+- **Translate bar:** the toolbar's translate key opens a bar above the candidate strip; what you
+  type into it is sent to Google Translate and lands in the field you are editing as live output
+  that follows your edits — auto-detected, Chinese ⇄ English or Chinese ⇄ Japanese — until you
+  close the bar or tap the key again.
 - **Symbol & edit panels:** a symbol board with a *Common* tab plus Chinese, English, currency, web,
-  math, Greek, arrow, super/subscript, numbering, IPA and pinyin categories and a lock toggle; and a
-  text-editing panel with cursor movement, line start/end, selection, select-all, copy, cut, paste
-  and delete.
+  math, Greek, arrows, super/subscript, numbers, IPA and pinyin categories and a lock toggle; and a
+  text-editing panel with cursor movement, line start/end, start/end selection, select-all, copy,
+  cut, paste and delete. Copy and cut there go into the Aegis clipboard, not the system one, so they
+  need clipboard history to be on and are refused with a notice otherwise; a very large selection
+  is read in bounded chunks, and if not all of it can be taken a notice says how many characters
+  were copied. Paste inserts the newest Aegis clip.
 - **Custom symbols:** choose which punctuation sits in the 9-key side column and which operators sit
   on the numeric keypad.
 - **Symbol & emoji associations:** typing pinyin can offer matching symbols and emoji directly in
@@ -199,11 +207,13 @@ Prerequisites:
 ```
 
 No dictionary-derived asset is packaged in the APK: `app/build.gradle.kts` excludes
-`aegis_dict.bin`, `aegis_t9.bin`, `aegis_jianpin.bin` and the character-bigram context model
-`aegis_lm.bin` from the packaged assets. All four are downloaded at runtime into
-`filesDir/downloaded/` as members of one dictionary pack; the three dictionaries are the only
-source of Chinese candidates and `aegis_lm.bin` reranks them. Decoding does not strictly require
-`aegis_lm.bin`, but a pack missing it counts as incomplete and the app offers the download again.
+`aegis_dict.bin`, `aegis_t9.bin`, `aegis_jianpin.bin`, the character-bigram context model
+`aegis_lm.bin` and the English table `aegis_english.bin` from the packaged assets. All five are
+downloaded at runtime into `filesDir/downloaded/` as members of one dictionary pack; the three
+Chinese dictionaries are the only source of Chinese candidates, `aegis_lm.bin` reranks them, and
+the English table (`aegis_en_full.bin` inside the pack) supplies English word completions. Decoding
+does not strictly require `aegis_lm.bin`, but a pack missing it counts as incomplete and the app
+offers the download again; the English table is an optional member.
 
 The APK does carry one generated table of Aegis's own, `aegis_tgh.bin`: a character grading table
 derived from the national standard 通用规范汉字表 (8105 characters, levels 1 / 2 / 3), used to decide
@@ -272,10 +282,12 @@ and a signature or attestation.
 ## Architecture
 
 - `app/.../ime`: IME service, self-drawn keyboard/candidate views, panels (emoji, clipboard,
-  symbols, custom symbols, edit), copy bar, input state machine.
+  symbols, custom symbols, edit), copy bar, translate bar, input state machine.
 - `app/.../decoder`: `PinyinDecoder` (word-lattice Viterbi; exact > fuzzy > jianpin edges).
 - `app/.../dict`: mmap readers `BinaryDict`, `CharBigramLM`, `Fuzzy`, `OctagramReader`, and
-  `ModelDownload` — the one place any network request is made.
+  `ModelDownload` — downloads and update checks; one of the two places a network request is made.
+- `app/.../translate`: `TranslateClient` — the translate bar's request to Google Translate, the
+  other place a network request is made — and `TranslateDirection`, which picks the target language.
 - `app/.../engine`: candidate assembly, symbol/emoji associations, calculator.
 - `app/.../layout`: key and layout definitions, symbol and emoji catalogs.
 - `app/.../user`: on-device data — `UserModel` and `UserLearning`, clipboard and phrase store,
