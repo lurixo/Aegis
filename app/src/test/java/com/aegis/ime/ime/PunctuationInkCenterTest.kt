@@ -273,7 +273,7 @@ class PunctuationInkCenterTest {
         }
     }
 
-    @Test fun qwerty_sub_hint_is_enlarged_and_deepened() {
+    @Test fun qwerty_sub_hint_steps_back_to_the_sub_role() {
         for (lang in listOf(Lang.CN, Lang.EN)) {
             val v = layOut(qwerty(lang))
             val canvas = AnchorRecordingCanvas(Bitmap.createBitmap(v.measuredWidth, v.measuredHeight, Bitmap.Config.ARGB_8888))
@@ -291,9 +291,9 @@ class PunctuationInkCenterTest {
                 val hint = canvas.texts.filter { it.first == sub }.map { it.second }
                 if (hint.size != 1) { fails.add("$lang hint '$sub' drawn ${hint.size} times"); continue }
                 val h = hint[0]
-                val expected = sp(12f) * scale
+                val expected = sp(11f) * scale
                 if (kotlin.math.abs(h.textSize - expected) > 0.5f) fails.add("$lang '$sub' size ${h.textSize} != $expected")
-                if (h.color != pal.keyLabelSecondary) fails.add("$lang '$sub' color ${Integer.toHexString(h.color)} != keyLabelSecondary ${Integer.toHexString(pal.keyLabelSecondary)}")
+                if (h.color != pal.keySub) fails.add("$lang '$sub' color ${Integer.toHexString(h.color)} != keySub ${Integer.toHexString(pal.keySub)}")
             }
             assertTrue("qwerty sub-hint size/color not pinned ($lang): $fails", fails.isEmpty())
         }
