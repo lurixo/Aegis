@@ -649,7 +649,7 @@ def write_zip(zip_path, entries):
             info = zipfile.ZipInfo(entry_name, date_time=(1980, 1, 1, 0, 0, 0))
             info.compress_type = zipfile.ZIP_DEFLATED
             info.external_attr = 0o100644 << 16
-            zf.writestr(info, file_path.read_bytes())
+            zf.writestr(info, file_path.read_bytes(), compresslevel=9)
 
 
 def build_info(

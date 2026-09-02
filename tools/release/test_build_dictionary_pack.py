@@ -3,6 +3,7 @@
 # SPDX-License-Identifier: GPL-3.0-only
 #
 
+import base64
 import contextlib
 import hashlib
 import io
@@ -14,6 +15,7 @@ import sys
 import tempfile
 import unittest
 import zipfile
+import zlib
 from pathlib import Path
 from types import SimpleNamespace
 from unittest import mock
@@ -44,6 +46,19 @@ def minimal_language_model() -> bytes:
         + struct.pack("<ii", 0, 0)
         + struct.pack("<i", 0)
     )
+
+
+def deflate_size(data: bytes, level: int) -> int:
+    compressor = zlib.compressobj(level, zlib.DEFLATED, -15)
+    return len(compressor.compress(data) + compressor.flush())
+
+
+def deflate_witness() -> bytes:
+    lines = []
+    for index in range(8000):
+        digest = hashlib.sha256(str(index).encode("ascii")).digest()[:9]
+        lines.append(f"{base64.b64encode(digest).decode('ascii')} key{index % 977}\n")
+    return "".join(lines).encode("ascii")
 
 
 class AttributionTextTest(unittest.TestCase):
@@ -89,7 +104,7 @@ class AttributionTextTest(unittest.TestCase):
 
 
 class DeterministicPackWithNoticeTest(unittest.TestCase):
-    def _pack(self, work: Path) -> Path:
+    def _pack(self, work: Path, bin_payload: bytes = b"") -> Path:
         staging = work / "staging"
         staging.mkdir()
         notice = staging / bp.NOTICE_NAME
@@ -97,7 +112,7 @@ class DeterministicPackWithNoticeTest(unittest.TestCase):
         entries = [(bp.NOTICE_NAME, notice)]
         for zip_entry, _runtime, _key in bp.OUTPUTS:
             p = staging / zip_entry
-            p.write_bytes(zip_entry.encode("utf-8") * 7)
+            p.write_bytes(bin_payload or zip_entry.encode("utf-8") * 7)
             entries.append((zip_entry, p))
         lm = staging / bp.LM_ENTRY
         lm.write_bytes(minimal_language_model())
@@ -129,6 +144,18 @@ class DeterministicPackWithNoticeTest(unittest.TestCase):
                 body = zf.read(bp.NOTICE_NAME).decode("utf-8")
                 self.assertIn("CC BY 4.0", body)
                 self.assertIn("amzxyz", body)
+
+    def test_every_entry_is_deflated_at_the_level_the_build_info_declares(self):
+        witness = deflate_witness()
+        self.assertNotEqual(deflate_size(witness, 6), deflate_size(witness, 9))
+        with tempfile.TemporaryDirectory() as a:
+            with zipfile.ZipFile(self._pack(Path(a), witness)) as zf:
+                for info in zf.infolist():
+                    self.assertEqual(
+                        deflate_size(zf.read(info), 9),
+                        info.compress_size,
+                        f"{info.filename} must carry the level 9 deflate stream",
+                    )
 
 
 class DownloadableComponentProtocolTest(unittest.TestCase):
