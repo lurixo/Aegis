@@ -75,7 +75,7 @@ Menu names vary slightly by device, but the flow is the standard Android one:
 
 **English typing works straight away; Chinese needs one download first.** The APK carries no Chinese
 dictionary, and the keyboard never fetches the dictionary pack on its own. When you type Chinese with
-no pack installed, the candidate strip offers the download — a ~103 MB transfer that expands to
+no pack installed, the candidate strip offers the download — a ~104 MB transfer that expands to
 ~275 MB in the app's private storage, not restricted to Wi-Fi — and it starts only when you tap
 there, or on the dictionary card in the settings screen. An interrupted transfer resumes where it
 stopped, and the pack is checked against its SHA-256 before it is installed. Until it finishes,

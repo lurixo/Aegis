@@ -17,8 +17,8 @@ an independent project not affiliated with the RIME project.
 - **Copyright:** © amzxyz and the rime-wanxiang contributors
 - **License:** Creative Commons Attribution 4.0 International (CC BY 4.0) —
   <https://creativecommons.org/licenses/by/4.0/> (full text in Appendix B)
-- **Source:** <https://github.com/amzxyz/rime-wanxiang> (tag `v17.3.0`, commit
-  `296f90d17e6b587b6fabcd661686e66372f2afaa`)
+- **Source:** <https://github.com/amzxyz/rime-wanxiang> (tag `v17.9.6`, commit
+  `888700fe930e6ba45ef92da7c512ddd4ddaa501a`)
 - **Used in:** the downloadable dictionary pack — `aegis_{dict,t9,jianpin}.bin`, which is where every
   Chinese candidate comes from, `aegis_lm.bin`, the character-bigram context model, and
   `aegis_english.bin`, the English word list behind English completions; nothing derived from these

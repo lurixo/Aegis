@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "schema_name": "aegis.resource-build-info",
-  "generated_at": "2026-08-15T18:24:00Z",
+  "generated_at": "2026-09-04T11:35:56Z",
   "app": {
     "project": "Aegis",
     "repository": "https://github.com/lurixo/Aegis",
@@ -17,15 +17,15 @@
         "release_url": "https://github.com/lurixo/Aegis/releases/tag/dict-latest",
         "prerelease": false,
         "published_at": null,
-        "sha256": "00985ca708cf016f8c03a943536c38663dae2b2e1f38637c409c641469e9f047",
-        "size_bytes": 103491091
+        "sha256": "5076aec34ee5a898278354dc68d039636922a63e492076e2fb63cb61d10d24e6",
+        "size_bytes": 103959272
       },
       "source": {
         "repo": "https://github.com/amzxyz/rime-wanxiang",
         "ref_type": "tag",
-        "tag": "v17.3.0",
+        "tag": "v17.9.6",
         "branch": null,
-        "commit": "296f90d17e6b587b6fabcd661686e66372f2afaa",
+        "commit": "888700fe930e6ba45ef92da7c512ddd4ddaa501a",
         "license": "CC-BY-4.0",
         "attribution_file_in_pack": "NOTICE.txt",
         "tables": [
@@ -48,86 +48,86 @@
           {
             "table": "zi",
             "path": "dicts/zi.dict.yaml",
-            "sha256": "c16613c9c37e94aa00092d02ecb7f7a82d955e7d975944135b45e19bf9cd919c",
-            "size_bytes": 616448
+            "sha256": "22557df39d24f89651ad2e3437a8db4975ee3d46a492e163f0096db7c6725a1b",
+            "size_bytes": 616495
           },
           {
             "table": "jichu",
             "path": "dicts/jichu.dict.yaml",
-            "sha256": "e314c2549427d72d4df7aa27e2b86de6243db26eb25b147718cfb1359d9a2f4f",
-            "size_bytes": 44916965
+            "sha256": "89fd5e57a37b8693e81d52cf778eed7bc5ef532e9cf3713855301ac1bb7c090d",
+            "size_bytes": 45100437
           },
           {
             "table": "lianxiang",
             "path": "dicts/lianxiang.dict.yaml",
-            "sha256": "95d415acd8f40e6b762d0ee3063290db56f173cc11a226faebab6b17b7255e55",
-            "size_bytes": 7827007
+            "sha256": "fa4aa459fe8369c28ec26c0ea84ffceaebaf7121e8b9fa3e293a60ec3136d375",
+            "size_bytes": 7837865
           },
           {
             "table": "cuoyin",
             "path": "dicts/cuoyin.dict.yaml",
-            "sha256": "6c546b41f4f6bf2c04b538e7758ce9756fab6e1ffbdce0bc16d2b181ece96e7f",
-            "size_bytes": 6542
+            "sha256": "d43014e32f856cf6d9520940db8b79c72e6fa452744191ba40a09906a095af68",
+            "size_bytes": 8092
           },
           {
             "table": "duoyin",
             "path": "dicts/duoyin.dict.yaml",
-            "sha256": "651ad750ba96ed62a96fec6df3392326bdc569d05a1d9575d974b8a83da570c7",
-            "size_bytes": 141937
+            "sha256": "af4b4c61a1777a17d82b407400ee76e36237b5cb0860b2224b21ff553a2a59dd",
+            "size_bytes": 142079
           },
           {
             "table": "shici",
             "path": "dicts/shici.dict.yaml",
-            "sha256": "2d89abb6fbd8b04b32718203e63cf02d96a5aaf4cea0cce2e0269e05dee7f58b",
-            "size_bytes": 16425140
+            "sha256": "88f542152172f596c21c67c88d516913a4a8b63b4474d4b9c622ad801acd2cd9",
+            "size_bytes": 16425451
           },
           {
             "table": "diming",
             "path": "dicts/diming.dict.yaml",
-            "sha256": "574a2b4dd710af4b036fa79ee2b5c29cc574bc1fd29bd24daadae4e4528ec1ae",
-            "size_bytes": 3146377
+            "sha256": "b8645145a2d7b059a2fb61f92281ef1a29afe156ae9ffea63292ccd8504a5a65",
+            "size_bytes": 3146032
           },
           {
             "table": "yixue",
             "path": "dicts/yixue.dict.yaml",
-            "sha256": "25d51f8fe9103a608fd8678df46301c6b3962240045de35a56d45baae9e40e48",
-            "size_bytes": 826199
+            "sha256": "2c7bbfcbbf9dbe489f6e5a7a3e274d584cf4f101b5a65a98601f40c37a14417c",
+            "size_bytes": 826306
           },
           {
             "table": "huaxue",
             "path": "dicts/huaxue.dict.yaml",
-            "sha256": "871491cabc2e7c2ad61d38cba15f07c688249d9788785298c0a2dabff48c9661",
-            "size_bytes": 793402
+            "sha256": "8bb424375410bc3bc29c299fc2062bcd41a54987e0cf04d7da90dc0190ee1de7",
+            "size_bytes": 793145
           },
           {
             "table": "yaopin",
             "path": "dicts/yaopin.dict.yaml",
-            "sha256": "afa3485d702e10454ffec331a0a325d5d44d595d7cb1bacf6e3f50540529c1f4",
-            "size_bytes": 574266
+            "sha256": "990b4fb34bd0a5875e80d97d5face39d439c584a89343dee3048959fe2692a3e",
+            "size_bytes": 574075
           },
           {
             "table": "mingren",
             "path": "dicts/mingren.dict.yaml",
-            "sha256": "86ca6b0c01a527e9726096235b9281fe3310b451605cf0a0da60719b36194864",
-            "size_bytes": 216826
+            "sha256": "146dc67d389895eb770ff5b4178e6a549d96f0a2a91e4a11c5ed49ab66ae478e",
+            "size_bytes": 550703
           },
           {
             "table": "yiren",
             "path": "dicts/yiren.dict.yaml",
-            "sha256": "a53c868d46c180c2a2c6a7eb32f452b4ba475de4f528f8326063204a9371b767",
-            "size_bytes": 296458
+            "sha256": "7ae426f11357a8edf2c79eb1d7a94b1b1ca20906a6be04e5b09a9cf3f5a63453",
+            "size_bytes": 361938
           },
           {
             "table": "wuzhong",
             "path": "dicts/wuzhong.dict.yaml",
-            "sha256": "9cfd2dba770fda12a131b3e1adf1baf005541f3c15b26d5ea565f9bf76b75468",
-            "size_bytes": 2014030
+            "sha256": "04433dc8341bfe1274a22bc445bf49822c985d4528465e5c4d228d2c430c62dd",
+            "size_bytes": 2014049
           },
           {
             "table": "renming",
             "path": "dicts/renming.dict.yaml",
-            "sha256": "ad344fe58025d4ed090fdf3c56e745ee2b3659a69075c26ffc0806c391781010",
-            "size_bytes": 555844
+            "sha256": "3efba5a182a205f1492d5021afc4b1804e6dbb9c30ec1ef6dc04964556fd6162",
+            "size_bytes": 558388
           }
         ],
         "english_tables": [
@@ -137,7 +137,7 @@
       "build": {
         "pack_state": "published",
         "builder_path": "tools/src/main/kotlin/com/aegis/tools/DictBuilder.kt",
-        "builder_commit": "9c4937e4cf82ca3c5d6e2620c6d1641f23ef08c4",
+        "builder_commit": "cc411999ea0d23711ac25c91f4f826dca4649b5d",
         "builder_tree_dirty": true,
         "builder_tree_dirt": [
           {
@@ -157,17 +157,17 @@
           "schema_version": 1,
           "java": {
             "java_home": "/usr/lib/jvm/java-25-openjdk-amd64",
-            "java_executable_sha256": "1a86d087fa5a5be1ed3e8a531ae891da85fc80aad15ab6fa98060763f2eb7000",
+            "java_executable_sha256": "c324471f8b7933a3cb401eafbc35a7055443779b438a3ab928bda3867a1b8ab1",
             "version": [
-              "openjdk version \"25.0.3\" 2026-04-21",
-              "OpenJDK Runtime Environment (build 25.0.3+9-2-26.04.2-Ubuntu)",
-              "OpenJDK 64-Bit Server VM (build 25.0.3+9-2-26.04.2-Ubuntu, mixed mode, sharing)"
+              "openjdk version \"25.0.4\" 2026-07-21",
+              "OpenJDK Runtime Environment (build 25.0.4+7-1-26.04-Ubuntu)",
+              "OpenJDK 64-Bit Server VM (build 25.0.4+7-1-26.04-Ubuntu, mixed mode, sharing)"
             ]
           },
           "gradle": {
-            "version": "9.7.0",
-            "revision": "3defbfc59d757b873d787b2261de5c7f8a00970a",
-            "launcher_jvm": "25.0.3 (Ubuntu 25.0.3+9-2-26.04.2-Ubuntu)",
+            "version": "9.7.1",
+            "revision": "92f0512e7f06d84621afba191f75e265363890cf",
+            "launcher_jvm": "25.0.4 (Ubuntu 25.0.4+7-1-26.04-Ubuntu)",
             "daemon_jvm": "/usr/lib/jvm/java-25-openjdk-amd64 (no Daemon JVM specified, using current Java home)",
             "wrapper_files": [
               {
@@ -183,7 +183,7 @@
               {
                 "path": "gradle/wrapper/gradle-wrapper.properties",
                 "size_bytes": 281,
-                "sha256": "fc913ffa0625b544190844a506086ca0b93c4361986e820e10dd64c088257bf7"
+                "sha256": "d01b41913834fb3cb14e71f69a08898e6a47e663b08f5c9b8c7e0772c38889d2"
               }
             ]
           },
@@ -205,7 +205,7 @@
               },
               {
                 "path": "tools/build/install/tools/lib/annotations-13.0.jar",
-                "mode": 436,
+                "mode": 420,
                 "size_bytes": 17536,
                 "sha256": "ace2a10dc8e2d5fd34925ecac03e4988b2c0f851650c94b8cef49ba1bd111478"
               },
@@ -218,8 +218,8 @@
               {
                 "path": "tools/build/install/tools/lib/tools.jar",
                 "mode": 436,
-                "size_bytes": 101470,
-                "sha256": "4a8c03b72b8b64df8b3658f8bdcb87059db995d52cc63887c6edaf35ae702db1"
+                "size_bytes": 77981,
+                "sha256": "3b10a93a8d483407666f5138447259d7b9e35074535004b769046810f9b150f5"
               }
             ]
           },
@@ -299,11 +299,11 @@
               "min_bigram": 1,
               "java_runtime": {
                 "java_home": "/usr/lib/jvm/java-25-openjdk-amd64",
-                "java_executable_sha256": "1a86d087fa5a5be1ed3e8a531ae891da85fc80aad15ab6fa98060763f2eb7000",
+                "java_executable_sha256": "c324471f8b7933a3cb401eafbc35a7055443779b438a3ab928bda3867a1b8ab1",
                 "version": [
-                  "openjdk version \"25.0.3\" 2026-04-21",
-                  "OpenJDK Runtime Environment (build 25.0.3+9-2-26.04.2-Ubuntu)",
-                  "OpenJDK 64-Bit Server VM (build 25.0.3+9-2-26.04.2-Ubuntu, mixed mode, sharing)"
+                  "openjdk version \"25.0.4\" 2026-07-21",
+                  "OpenJDK Runtime Environment (build 25.0.4+7-1-26.04-Ubuntu)",
+                  "OpenJDK 64-Bit Server VM (build 25.0.4+7-1-26.04-Ubuntu, mixed mode, sharing)"
                 ]
               },
               "output": {
@@ -355,32 +355,32 @@
             "zip_entry": "aegis_dict_full.bin",
             "runtime_name": "aegis_dict.bin",
             "kind": "dictionary",
-            "sha256": "c73daad8c7d7ddd81f2049191eecdba0e870b75c0255a179769e89dabce1e5c1",
-            "size_bytes": 98774394,
+            "sha256": "fa61e02ec6d65fcddba7b68139e201074f4bc8f684ff4e8d1a319473cb061030",
+            "size_bytes": 99558762,
             "key_type": "letter"
           },
           {
             "zip_entry": "aegis_t9_full.bin",
             "runtime_name": "aegis_t9.bin",
             "kind": "dictionary",
-            "sha256": "7bcbb3acd35b4a187c5ffb5292edafdf59397fd5c58ed57a711e29b17969bf6e",
-            "size_bytes": 94698807,
+            "sha256": "55b12f51af003c91a7dad270511d3522ec8021a8f925e22238f471a5aa3e3a2f",
+            "size_bytes": 95433249,
             "key_type": "digit"
           },
           {
             "zip_entry": "aegis_jianpin_full.bin",
             "runtime_name": "aegis_jianpin.bin",
             "kind": "dictionary",
-            "sha256": "99f330ba45d8ac0e850b5c3e563cdf4a3a9069fdb75127760bd637515399ff1c",
-            "size_bytes": 62708171,
+            "sha256": "87fa5c9419cb60b1ec7c5c041ede01b653153bacf6d54605b08f9f3839b13df3",
+            "size_bytes": 63154902,
             "key_type": "initials"
           },
           {
             "zip_entry": "aegis_lm.bin",
             "runtime_name": "aegis_lm.bin",
             "kind": "language_model",
-            "sha256": "eddb4e0aac0598bd8084db6061a81d4736391854fadcfdf6d44bf57c14c57929",
-            "size_bytes": 16065928,
+            "sha256": "0419f540e048108cb52dbaa89b2a8d8ecb60bcc3203c92fc5e019a220b5d344e",
+            "size_bytes": 16137124,
             "format": "AEGL v1",
             "compatibility_profile": "beta31-9484292",
             "min_bigram": 1
@@ -389,8 +389,8 @@
             "zip_entry": "aegis_en_full.bin",
             "runtime_name": "aegis_english.bin",
             "kind": "dictionary",
-            "sha256": "3223d03e2326f9d238e70b5f6fc0aba4b2003f407aedf1f7f58ab514f788682b",
-            "size_bytes": 2872063,
+            "sha256": "b41e0bb2c52793be72383e6760aaf4dde6e3f1f1965dc84c01ca2e940bd91b4f",
+            "size_bytes": 2938002,
             "key_type": "english_word"
           }
         ],
@@ -435,23 +435,23 @@
           },
           "binaries": {
             "aegis_dict_full.bin": {
-              "sha256_before": "2138b6607634bde969279629c9fda74c17e7cc016bc8f262f122a5b2efc109ca",
-              "sha256": "2abe07a6fe0bb4256091da20a0d73acb5b5e21118b77f95829668c09bc3ee921",
-              "size_bytes": 98897076,
+              "sha256_before": "fc0afe703eb773e3f35fbdddccb91020a1e0781d5341801289a5cf60cb550b60",
+              "sha256": "a0f60f6ea9a0e0cc77a852d1a16780994a495aef9b7ac64ad109bba771a52a9f",
+              "size_bytes": 99682238,
               "dropped_single_entries": 448,
               "preserved_by_unreachable_protection": 0
             },
             "aegis_t9_full.bin": {
-              "sha256_before": "14d322b8742108e20d5725bec093381d357a4328c3d7a2d0aa2b285a11e79b6c",
-              "sha256": "ef3725ee84e1327c872109b03dc647c9795b88df1acbe8cced949dd23ce8ca5b",
-              "size_bytes": 94819218,
+              "sha256_before": "957225f8efdd66738c5a3336fd7111a1da835069324fdffaa9bdc53483913560",
+              "sha256": "6291a7d2d32b47d03e039b6b5c75d975102b662e28bd30d05181e5c9d01f202a",
+              "size_bytes": 95554439,
               "dropped_single_entries": 434,
               "preserved_by_unreachable_protection": 0
             },
             "aegis_jianpin_full.bin": {
-              "sha256_before": "85ef2b7251e88824277dc21009fa031c7953f20a367c035309346def2f05aa66",
-              "sha256": "b79cc91f8382c4f5fa51af23b72ca5295cbb704149d801b9ee7f5f5e3cbec5ef",
-              "size_bytes": 62799547,
+              "sha256_before": "58c12667214a90d037b55b9bfb5dca302d5e56b128bc329ade6ed7bbb8c4a0e1",
+              "sha256": "e034741cd05c348cbadb9feb19b43ae685914c66b04ac62fea5e23795ed4e839",
+              "size_bytes": 63246910,
               "dropped_single_entries": 354,
               "preserved_by_unreachable_protection": 0
             }
@@ -464,8 +464,8 @@
           "postprocessor": {
             "path": "aegis-dict-automation/bin/apply_reading_gate.py",
             "repo_remotes": [],
-            "repo_commit": "0929dc0c14491d13d89d1d2ed9b5373624a7cbcc",
-            "repo_tree": "c3ae15536245befe5557c0c2464c3e1a2629532a",
+            "repo_commit": "42b4fd2ad6884751d6588932c1cc3d563927b86d",
+            "repo_tree": "f39f298f7e0759b263c120adf7ea46d3652f4576",
             "repo_tree_dirty": false,
             "repo_tree_dirt": []
           }
@@ -501,21 +501,42 @@
             "name": "reviewed-han-adjudications.tsv",
             "sha256": "615df28f84b10616464f79317534c906ddf6fbb63b76f6f11a0db87246b4750a",
             "denied_codepoints": 2876,
-            "effect": "drop phrases and non-standard standalone keys; approved level-1/2 standalone pinyin entries are re-injected"
+            "effect": "drop phrases and non-standard standalone keys; approved level-1/2 standalone pinyin entries are re-injected; entries carrying non-Han codepoints outside the audit's allowed set are dropped"
+          },
+          "standard_reading_restriction": {
+            "readings_file": "Unihan_Readings-17.0.0.txt",
+            "readings_sha256": "575e69c9ad85a4737a889a4f94cbd987042a90a1a6cc16dd3f4ed995c715b17c",
+            "guifan_tsv_file": "tongyong-guifan-hanzi-8105.tsv",
+            "guifan_tsv_sha256": "ee3936042828c1b7db4ffa5293caac7696853c6121f7c9f8b5d084c5bd97e895",
+            "covered_codepoints": 8105,
+            "restricted_characters": 29,
+            "characters_removed_entirely": "滧烻硔"
+          },
+          "frequency_adjudication_policy": {
+            "enabled": true,
+            "name": "reviewed-frequency-adjudications.tsv",
+            "sha256": "7b8075956cd5992d869de651fe21544974936255a73379a8e7361e814dc9c00f",
+            "upstream_verified": true,
+            "rows": [],
+            "capped_entries_by_binary": {
+              "aegis_dict_full.bin": 0,
+              "aegis_t9_full.bin": 0,
+              "aegis_jianpin_full.bin": 0
+            }
           },
           "postprocessor": {
             "path": "aegis-dict-automation/bin/inject_gb18030_pinyin_support.py",
             "repo_remotes": [],
-            "repo_commit": "0929dc0c14491d13d89d1d2ed9b5373624a7cbcc",
-            "repo_tree": "c3ae15536245befe5557c0c2464c3e1a2629532a",
+            "repo_commit": "42b4fd2ad6884751d6588932c1cc3d563927b86d",
+            "repo_tree": "f39f298f7e0759b263c120adf7ea46d3652f4576",
             "repo_tree_dirty": false,
             "repo_tree_dirt": []
           }
         },
         "finalization": {
-          "builder_commit": "9c4937e4cf82ca3c5d6e2620c6d1641f23ef08c4",
+          "builder_commit": "cc411999ea0d23711ac25c91f4f826dca4649b5d",
           "builder_path": "tools/release/build_dictionary_pack.py",
-          "tooling_identity_sha256": "761e1c569dcedbf3d18f24098a27dec3d5dacaa940301674d31838fc4417f780"
+          "tooling_identity_sha256": "56f00b4955b331584ee1812424e4fc9609bbd3201ba943f09230c979f16649e3"
         },
         "english_table": {
           "zip_entry": "aegis_en_full.bin",
@@ -524,21 +545,22 @@
             "repo": "https://github.com/amzxyz/rime-wanxiang",
             "path": "dicts/en.dict.yaml",
             "ref_type": "tag",
-            "tag": "v17.3.0",
-            "commit": "296f90d17e6b587b6fabcd661686e66372f2afaa",
+            "tag": "v17.9.6",
+            "commit": "888700fe930e6ba45ef92da7c512ddd4ddaa501a",
             "license": "CC-BY-4.0",
-            "source_bytes": 1529349,
-            "source_sha256": "aa05e6e213a6c7f953b595e43d0573c01617ab1af15a69e9fb2fb7d8e01faed1",
+            "source_bytes": 1568910,
+            "source_sha256": "a0672c2f23f1550b92143cdbc25760fe11c08dc0c03b908ec026cd89162e8272",
             "header_lines": 7,
-            "body_lines": 71686,
+            "body_lines": 73158,
             "skipped_blank_or_comment_rows": 0,
-            "weightless_rows": 128,
+            "weightless_rows": 226,
             "weightless_default": 1
           },
           "normalization": {
             "key": "NFKD fold, keep ASCII letters and digits, lowercase",
             "word": "upstream text column verbatim",
-            "freq": "upstream weight column; weightless rows default to 1"
+            "freq": "upstream weight column; weightless rows default to 1",
+            "duplicates": "identical (word, code) rows keep their highest weight"
           },
           "charset_audit": {
             "word_charset": " !\"#&'+,-./0123456789:;?ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz·àçé",
@@ -561,70 +583,45 @@
             ]
           },
           "entries": {
-            "rows_in": 71686,
-            "entries_out": 71686,
+            "rows_in": 73158,
+            "entries_out": 73157,
             "dropped_empty_key": 0,
-            "duplicate_source_pairs": 0,
-            "normalization_folded_rows": 9,
-            "normalization_collision_ratio": 0.00012555,
-            "normalization_collisions": [
-              [
-                "deepseek",
-                "DeepSeek"
-              ],
-              [
-                "downie",
-                "Downie"
-              ],
-              [
-                "hell",
-                "he'll"
-              ],
-              [
-                "kw",
-                "kW"
-              ],
-              [
-                "shadowrocket",
-                "Shadowrocket"
-              ],
-              [
-                "shed",
-                "she'd"
-              ],
-              [
-                "shell",
-                "she'll"
-              ],
-              [
-                "well",
-                "we'll"
-              ],
-              [
-                "yesido",
-                "Yes, I do."
-              ]
+            "duplicate_source_pairs": 1,
+            "duplicate_source_rows_folded": 1,
+            "duplicate_source_ratio": 1.367e-05,
+            "duplicate_source_examples": [
+              {
+                "word": "awk",
+                "code": "awk",
+                "kept_weight": 1210,
+                "dropped_weights": [
+                  4
+                ]
+              }
             ],
-            "distinct_keys": 71103,
-            "keys_with_multiple_words": 504,
+            "normalization_folded_rows": 0,
+            "normalization_collision_ratio": 0.0,
+            "normalization_collisions": [],
+            "distinct_keys": 72393,
+            "keys_with_multiple_words": 679,
             "weight_min": 1,
             "weight_max": 4709228,
-            "weight_sum": 73703896,
-            "weight_mean": 1028.1491,
-            "freq_one_count": 5360,
-            "freq_one_ratio": 0.074771
+            "weight_sum": 73700563,
+            "weight_mean": 1007.4301,
+            "freq_one_count": 5302,
+            "freq_one_ratio": 0.072474
           },
           "binary": {
-            "size_bytes": 2872063,
-            "sha256": "3223d03e2326f9d238e70b5f6fc0aba4b2003f407aedf1f7f58ab514f788682b",
-            "num_keys": 71103,
-            "num_entries": 71677,
-            "total_freq": 73703807,
-            "key_blob_len": 574836,
-            "word_blob_len": 583835,
+            "size_bytes": 2938002,
+            "sha256": "b41e0bb2c52793be72383e6760aaf4dde6e3f1f1965dc84c01ca2e940bd91b4f",
+            "num_keys": 72393,
+            "num_entries": 73157,
+            "total_freq": 73700563,
+            "key_blob_len": 589779,
+            "word_blob_len": 601591,
             "min_freq": 1,
             "max_freq": 4709228,
-            "unique_freqs": 4664,
+            "unique_freqs": 4665,
             "keys_sorted": true,
             "entries_freq_desc": true,
             "prefix_probes": {
@@ -652,6 +649,7 @@
               "keyb": [
                 "keyboard",
                 "keyboards",
+                "key-based authentication",
                 "Keyboard Maestro"
               ],
               "th": [
@@ -666,7 +664,7 @@
                 "Pythagoras",
                 "Pythagorean",
                 "Pythagoreans",
-                "Pythagoreanize"
+                "PyTorch"
               ]
             }
           },
@@ -699,10 +697,10 @@
         "release_tag": "LTS",
         "release_url": "https://github.com/amzxyz/RIME-LMDG/releases/tag/LTS",
         "prerelease": false,
-        "published_at": "2026-08-13T15:59:48Z",
-        "sha256": "6bcd6ac61369b7401823f7dce59a26598140eac5b943cf3866e9f41204b6adfb",
-        "size_bytes": 420258860,
-        "github_asset_id": 513184442
+        "published_at": "2026-09-02T14:43:49Z",
+        "sha256": "f583629e26ca0599a70038c1b0b8041b0a1f8ab7e6de5a665b9ce446aad81c22",
+        "size_bytes": 420354092,
+        "github_asset_id": 541313682
       },
       "source": {
         "repo": "https://github.com/amzxyz/RIME-LMDG",
