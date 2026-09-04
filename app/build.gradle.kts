@@ -239,7 +239,7 @@ tasks.withType<Test>().configureEach {
     inputs.file(
         providers.environmentVariable("AEGIS_COVERAGE_DIGEST_BASELINE")
             .map(::file)
-            .orElse(layout.projectDirectory.file("src/test/resources/coverage-identity-7907381b.tsv").asFile),
+            .orElse(layout.projectDirectory.file("src/test/resources/coverage-identity-7eee8a41.tsv").asFile),
     ).withPropertyName("coverageIdentityDigestBaseline")
         .withPathSensitivity(PathSensitivity.NONE)
     inputs.file(providers.environmentVariable("AEGIS_GRAM").map(::file))

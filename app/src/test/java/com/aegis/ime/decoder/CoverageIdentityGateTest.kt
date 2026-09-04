@@ -27,14 +27,14 @@ import java.security.MessageDigest
 class CoverageIdentityGateTest {
 
     private companion object {
-        const val BASELINE_RESOURCE = "/coverage-identity-7907381b.tsv"
-        const val BASELINE_COMMIT = "7907381b7eda9e11c48bd08a5b5ad532df11d71c"
-        const val DICTIONARY_PACK_SHA256 = "00985ca708cf016f8c03a943536c38663dae2b2e1f38637c409c641469e9f047"
+        const val BASELINE_RESOURCE = "/coverage-identity-7eee8a41.tsv"
+        const val BASELINE_COMMIT = "7eee8a41995bff047908a4e615394d7dc3e31a80"
+        const val DICTIONARY_PACK_SHA256 = "5076aec34ee5a898278354dc68d039636922a63e492076e2fb63cb61d10d24e6"
         val ASSET_SHA256 = linkedMapOf(
-            "aegis_dict.bin" to "c73daad8c7d7ddd81f2049191eecdba0e870b75c0255a179769e89dabce1e5c1",
-            "aegis_t9.bin" to "7bcbb3acd35b4a187c5ffb5292edafdf59397fd5c58ed57a711e29b17969bf6e",
-            "aegis_jianpin.bin" to "99f330ba45d8ac0e850b5c3e563cdf4a3a9069fdb75127760bd637515399ff1c",
-            "aegis_lm.bin" to "eddb4e0aac0598bd8084db6061a81d4736391854fadcfdf6d44bf57c14c57929",
+            "aegis_dict.bin" to "fa61e02ec6d65fcddba7b68139e201074f4bc8f684ff4e8d1a319473cb061030",
+            "aegis_t9.bin" to "55b12f51af003c91a7dad270511d3522ec8021a8f925e22238f471a5aa3e3a2f",
+            "aegis_jianpin.bin" to "87fa5c9419cb60b1ec7c5c041ede01b653153bacf6d54605b08f9f3839b13df3",
+            "aegis_lm.bin" to "0419f540e048108cb52dbaa89b2a8d8ecb60bcc3203c92fc5e019a220b5d344e",
         )
         const val CANONICAL =
             "last coveredLen per word; words sorted by UTF-16; SHA-256 over BE32 UTF-8-length, UTF-8 word, BE32 coveredLen"
@@ -297,7 +297,7 @@ class CoverageIdentityGateTest {
                 "drift=${drifted.size}, added=${added.size}, dropped=${dropped.size}",
         )
         assertTrue(
-            "candidate groups must keep the 7907381b per-probe (word, coveredLen) digest: " +
+            "candidate groups must keep the 7eee8a41 per-probe (word, coveredLen) digest: " +
                 "${drifted.size} drifted, ${added.size} added, ${dropped.size} dropped; " +
                 "first: ${drifted.take(4)} ${added.take(4)} ${dropped.take(4)}",
             drifted.isEmpty() && added.isEmpty() && dropped.isEmpty(),
