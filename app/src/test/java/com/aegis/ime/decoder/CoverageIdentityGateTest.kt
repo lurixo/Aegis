@@ -243,7 +243,18 @@ class CoverageIdentityGateTest {
     }
 
     @Test fun everyCandidateKeepsTheKeyCountItAteInTheBaseline() {
-        assumeTrue(FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile))
+        assumeTrue(
+            "coverage identity gate runs only in the dictionary-release verification",
+            System.getenv("AEGIS_DICTIONARY_RELEASE_VERIFY") == "1",
+        )
+        assertTrue(
+            "dictionary-release verification sets AEGIS_COVERAGE_DIGEST_BASELINE",
+            System.getenv("AEGIS_COVERAGE_DIGEST_BASELINE")?.isNotBlank() == true,
+        )
+        assertTrue(
+            "dictionary-release verification provides every decoder asset",
+            FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile),
+        )
         verifyAssetIdentity()
         val baseline = baselineDigests()
         val current = probeDigests()

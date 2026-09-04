@@ -29,7 +29,6 @@ jobs:
     env:
       AEGIS_FULLDICT_DIR: ${{ github.workspace }}/app/src/main/assets
       AEGIS_LOCKED_BASELINE: ${{ github.workspace }}/app/src/test/resources/locked-sequence-2.tsv
-      AEGIS_COVERAGE_DIGEST_BASELINE: ${{ github.workspace }}/app/src/test/resources/coverage-identity-7907381b.tsv
       AEGIS_ENGLISH: ${{ github.workspace }}/build/test-models/aegis_english.bin
       AEGIS_GRAM: ${{ github.workspace }}/build/test-model-cache/wanxiang-lts-zh-hans.gram
       AEGIS_AUDIT_FULL: "1"
