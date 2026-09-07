@@ -16,115 +16,143 @@
 package com.aegis.ime.dict
 
 object Fuzzy {
-
-    data class Rule(val key: String, val long: String, val short: String, val initial: Boolean = false)
+    enum class Kind { INITIAL, FINAL, SYLLABLE }
+    data class Rule(val key: String, val long: String, val short: String, val kind: Kind)
 
     val RULES: List<Rule> = listOf(
-        Rule("zh", "zh", "z"),
-        Rule("ch", "ch", "c"),
-        Rule("sh", "sh", "s"),
-        Rule("ang", "ang", "an"),
-        Rule("eng", "eng", "en"),
-        Rule("ing", "ing", "in"),
-        Rule("n_l", "n", "l", initial = true),
-        Rule("f_h", "f", "h", initial = true),
-        Rule("l_r", "l", "r", initial = true),
-        Rule("k_g", "k", "g", initial = true),
+        Rule("zh", "zh", "z", Kind.INITIAL),
+        Rule("ch", "ch", "c", Kind.INITIAL),
+        Rule("sh", "sh", "s", Kind.INITIAL),
+        Rule("n_l", "n", "l", Kind.INITIAL),
+        Rule("f_h", "h", "f", Kind.INITIAL),
+        Rule("l_r", "r", "l", Kind.INITIAL),
+        Rule("k_g", "k", "g", Kind.INITIAL),
+        Rule("ang", "ang", "an", Kind.FINAL),
+        Rule("eng", "eng", "en", Kind.FINAL),
+        Rule("ing", "ing", "in", Kind.FINAL),
+        Rule("iang", "iang", "ian", Kind.FINAL),
+        Rule("uang", "uang", "uan", Kind.FINAL),
+        Rule("un_ong", "un", "ong", Kind.FINAL),
+        Rule("on_ong", "on", "ong", Kind.FINAL),
+        Rule("un_iong", "un", "iong", Kind.FINAL),
+        Rule("eng_ong", "eng", "ong", Kind.FINAL),
+        Rule("an_ai", "an", "ai", Kind.FINAL),
+        Rule("hui_fei", "hui", "fei", Kind.SYLLABLE),
+        Rule("hu_fu", "hu", "fu", Kind.SYLLABLE),
+        Rule("huang_wang", "huang", "wang", Kind.SYLLABLE),
     )
 
-    private val FINAL_KEYS: Set<String> = RULES.filter { !it.initial }.mapTo(LinkedHashSet()) { it.key }
+    val DEFAULT_RULE_KEYS: Set<String> = setOf("zh", "ch", "sh", "ang", "eng", "ing")
+    const val DEFAULT_ON: Boolean = false
+    private const val MAX_VARIANTS = 64
+    private const val MAX_FUZZY_LEN = 40
+    private val initials = listOf("zh", "ch", "sh") + "bpmfdtnlgkhjqxrzcsyw".map { it.toString() }
 
     fun prefKey(ruleKey: String): String = "fuzzy_$ruleKey"
-
-    const val DEFAULT_ON: Boolean = false
-
     fun activeRules(masterOn: Boolean, enabled: (String) -> Boolean): Set<String> =
-        if (!masterOn) emptySet()
-        else RULES.filter { enabled(it.key) }.mapTo(LinkedHashSet()) { it.key }
+        if (!masterOn) emptySet() else RULES.filter { enabled(it.key) }.mapTo(LinkedHashSet()) { it.key }
 
-    private const val MAX_VARIANTS = 64
-    private const val TOGGLE_BITS = 6
-    private const val MAX_FUZZY_LEN = 40
+    private fun initialOf(s: String): String =
+        if (s in setOf("n", "m", "ng")) "" else initials.firstOrNull { s.startsWith(it) }.orEmpty()
 
-    fun normalize(s: String): String = collapse(s, FINAL_KEYS)
-
-    fun collapse(s: String, enabled: Set<String>): String = collapseIn(RULES, s, enabled)
-
-    fun collapseIn(table: List<Rule>, s: String, enabled: Set<String>): String {
-        var r = s
-        for (rule in table) if (rule.key in enabled) r = r.replace(rule.long, rule.short)
-        return r
+    private fun swap(s: String, rule: Rule, reverse: Boolean = true): String? {
+        val initial = initialOf(s)
+        val part = when (rule.kind) {
+            Kind.INITIAL -> initial
+            Kind.FINAL -> s.substring(initial.length)
+            Kind.SYLLABLE -> s
+        }
+        val replacement = when {
+            part == rule.long -> rule.short
+            reverse && part == rule.short -> rule.long
+            else -> return null
+        }
+        return when (rule.kind) {
+            Kind.INITIAL -> replacement + s.substring(initial.length)
+            Kind.FINAL -> initial + replacement
+            Kind.SYLLABLE -> replacement
+        }
     }
 
-    fun variants(s: String, enabled: Set<String>, cap: Int = MAX_VARIANTS): List<String> =
-        variantsIn(RULES, s, enabled, cap)
+    private class Table(val keys: Set<String>, val active: List<Rule>, val inputs: Set<String>)
+    @Volatile private var cache: Table? = null
 
-    fun variantsIn(table: List<Rule>, s: String, enabled: Set<String>, cap: Int = MAX_VARIANTS): List<String> {
-        val active = table.filter { it.key in enabled }
-        if (active.isEmpty() || s.length > MAX_FUZZY_LEN) return listOf(s)
-        val finalRules = active.filter { !it.initial }
-        val initialRules = active.filter { it.initial }
+    private fun table(enabled: Set<String>): Table {
+        cache?.let { if (it.keys == enabled) return it }
+        val active = RULES.filter { it.key in enabled }
+        val inputs = LinkedHashSet(PinyinSyllables.ALL)
+        for (s in PinyinSyllables.ALL) for (rule in active) swap(s, rule)?.let(inputs::add)
+        return Table(enabled.toSet(), active, inputs).also { cache = it }
+    }
 
-        val finalKeys = finalRules.mapTo(HashSet()) { it.key }
-        var finals: LinkedHashSet<String> = linkedSetOf(collapseIn(table, s, finalKeys))
-        for (rule in finalRules) {
-            val next = LinkedHashSet<String>()
-            for (v in finals) {
-                expandSitesInto(v, rule.short, rule.long, cap, next)
+    fun inputSyllables(enabled: Set<String>): Set<String> = table(enabled).inputs
+
+    fun syllableVariants(s: String, enabled: Set<String>, cap: Int = MAX_VARIANTS): List<String> {
+        if (cap <= 0) return emptyList()
+        val t = table(enabled)
+        val seen = linkedSetOf(s)
+        val out = linkedSetOf(s)
+        val queue = ArrayDeque<String>().apply { add(s) }
+        while (queue.isNotEmpty() && out.size < cap) {
+            val current = queue.removeFirst()
+            for (rule in t.active) {
+                val next = swap(current, rule) ?: continue
+                if (next !in t.inputs || !seen.add(next)) continue
+                if (next in PinyinSyllables.ALL) out.add(next)
+                if (out.size >= cap) break
+                queue.add(next)
+            }
+        }
+        return out.toList()
+    }
+
+    private fun segments(s: String, inputs: Set<String>): List<String>? {
+        val best = arrayOfNulls<List<String>>(s.length + 1)
+        best[s.length] = emptyList()
+        for (i in s.lastIndex downTo 0) {
+            if (s[i] == '\'') {
+                best[i + 1]?.let { best[i] = listOf("'") + it }
+                continue
+            }
+            for (end in minOf(s.length, i + 6) downTo i + 1) {
+                val part = s.substring(i, end)
+                if (part !in inputs) continue
+                val tail = best[end] ?: continue
+                val candidate = listOf(part) + tail
+                if (best[i] == null || candidate.size < best[i]!!.size) best[i] = candidate
+            }
+        }
+        return best[0]
+    }
+
+    fun variants(s: String, enabled: Set<String>, cap: Int = MAX_VARIANTS): List<String> {
+        if (cap <= 0) return emptyList()
+        if (enabled.isEmpty() || s.length > MAX_FUZZY_LEN) return listOf(s)
+        val parts = segments(s, table(enabled).inputs) ?: return listOf(s)
+        var out = linkedSetOf("")
+        for (part in parts) {
+            val choices = syllableVariants(part, enabled, cap)
+            val next = linkedSetOf<String>()
+            for (prefix in out) {
+                for (choice in choices) {
+                    next.add(prefix + choice)
+                    if (next.size >= cap) break
+                }
                 if (next.size >= cap) break
             }
-            finals = next
-            if (finals.size >= cap) break
+            out = next
         }
-
-        val base = LinkedHashSet<String>()
-        base.add(s)
-        for (v in finals) { if (base.size >= cap) break; base.add(v) }
-
-        return if (initialRules.isEmpty()) base.toList()
-        else initialClosure(base, initialRules, cap).toList()
+        return out.toList()
     }
 
-    private fun initialClosure(base: Set<String>, rules: List<Rule>, cap: Int): LinkedHashSet<String> {
-        val out = LinkedHashSet(base)
-        if (out.size >= cap) return out
-        val queue = ArrayDeque(base.toList())
-        while (queue.isNotEmpty()) {
-            val cur = queue.removeFirst()
-            if (cur.isEmpty()) continue
-            val c0 = cur[0]
-            for (rule in rules) {
-                val swapped = when (c0) {
-                    rule.long[0] -> rule.short + cur.substring(1)
-                    rule.short[0] -> rule.long + cur.substring(1)
-                    else -> null
-                }
-                if (swapped != null && out.add(swapped)) {
-                    if (out.size >= cap) return out
-                    queue.addLast(swapped)
-                }
-            }
-        }
-        return out
-    }
+    fun normalize(s: String): String = collapse(s, DEFAULT_RULE_KEYS)
 
-    private fun expandSitesInto(s: String, short: String, long: String, cap: Int, out: MutableSet<String>) {
-        val pos = ArrayList<Int>(TOGGLE_BITS)
-        var i = s.indexOf(short)
-        while (i >= 0 && pos.size < TOGGLE_BITS) { pos.add(i); i = s.indexOf(short, i + short.length) }
-        if (pos.isEmpty()) { out.add(s); return }
-        val n = pos.size
-        for (mask in 0 until (1 shl n)) {
-            val sb = StringBuilder(s.length + n)
-            var prev = 0
-            for (k in 0 until n) {
-                sb.append(s, prev, pos[k])
-                sb.append(if ((mask shr k) and 1 == 1) long else short)
-                prev = pos[k] + short.length
-            }
-            sb.append(s, prev, s.length)
-            out.add(sb.toString())
-            if (out.size >= cap) return
+    fun collapse(s: String, enabled: Set<String>): String {
+        val t = table(enabled)
+        return (segments(s, t.inputs) ?: return s).joinToString("") { part ->
+            var result = part
+            for (rule in t.active) result = swap(result, rule, reverse = false) ?: result
+            result
         }
     }
 }

@@ -40,34 +40,7 @@ object T9Pinyin {
         '6' to "mno", '7' to "pqrs", '8' to "tuv", '9' to "wxyz",
     )
 
-    internal val SYLLABLES: Set<String> = """
-        a o e ai ei ao ou an en ang eng er
-        yi ya yo ye yao you yan yin yang ying yong
-        wu wa wo wai wei wan wen wang weng
-        yu yue yuan yun
-        ba bo bai bei bao ban ben bang beng bi bie biao bian bin bing bu
-        pa po pai pei pao pou pan pen pang peng pi pie piao pian pin ping pu
-        ma mo me mai mei mao mou man men mang meng mi mie miao miu mian min ming mu
-        fa fo fei fiao fou fan fen fang feng fu
-        da de dai dei dao dou dan den dang deng dong di dia die diao diu dian ding du duo dui duan dun
-        ta te tai tei tao tou tan tang teng tong ti tie tiao tian ting tu tuo tui tuan tun
-        na ne nai nei nao nou nan nen nang neng nong ni nie niao niu nian nin niang ning nu nuo nuan nun nv nve
-        la lo le lai lei lao lou lan lang leng long li lia lie liao liu lian lin liang ling lu luo luan lun lv lve
-        ga ge gai gei gao gou gan gen gang geng gong gu gua guo guai gui guan gun guang
-        ka ke kai kei kao kou kan ken kang keng kong ku kua kuo kuai kui kuan kun kuang
-        ha he hai hei hao hou han hen hang heng hong hu hua huo huai hui huan hun huang
-        ji jia jie jiao jiu jian jin jiang jing jiong ju jue juan jun
-        qi qia qie qiao qiu qian qin qiang qing qiong qu que quan qun
-        xi xia xie xiao xiu xian xin xiang xing xiong xu xue xuan xun
-        zha zhe zhi zhai zhei zhao zhou zhan zhen zhang zheng zhong zhu zhua zhuo zhuai zhui zhuan zhun zhuang
-        cha che chi chai chao chou chan chen chang cheng chong chu chua chuo chuai chui chuan chun chuang
-        sha she shi shai shei shao shou shan shen shang sheng shu shua shuo shuai shui shuan shun shuang
-        re ri rao rou ran ren rang reng rong ru rua ruo rui ruan run
-        za ze zi zai zei zao zou zan zen zang zeng zong zu zuo zui zuan zun
-        ca ce cei ci cai cao cou can cen cang ceng cong cu cuo cui cuan cun
-        sa se si sai sao sou san sen sang seng song su suo sui suan sun
-        n ng m biang
-    """.trim().split(Regex("\\s+")).toSet()
+    internal val SYLLABLES: Set<String> = com.aegis.ime.dict.PinyinSyllables.ALL
 
     private val NASAL_CODAS: Set<String> = setOf("ng", "n", "m")
 
@@ -103,45 +76,27 @@ object T9Pinyin {
         return rankOf(best) - LEN_BONUS * s.length
     }
 
-    private val END_RULE_KEYS = setOf("ang", "eng", "ing")
-
     private class PartnerTable(val enabled: Set<String>, val byDigit: Map<String, List<String>>)
 
     @Volatile private var partnerCache: PartnerTable? = null
 
     private fun partnersByDigit(enabled: Set<String>): Map<String, List<String>> {
         partnerCache?.let { if (it.enabled == enabled) return it.byDigit }
-        val active = com.aegis.ime.dict.Fuzzy.RULES.filter { it.key in enabled }
-        val out = HashMap<String, MutableList<String>>()
-        for (s in SYLLABLES) {
-            for (rule in active) {
-                val swapped = if (rule.key in END_RULE_KEYS) {
-                    when {
-                        s.endsWith(rule.long) -> s.dropLast(rule.long.length) + rule.short
-                        s.endsWith(rule.short) -> s.dropLast(rule.short.length) + rule.long
-                        else -> null
-                    }
-                } else {
-                    when {
-                        s.startsWith(rule.long) -> rule.short + s.substring(rule.long.length)
-                        s.startsWith(rule.short) -> rule.long + s.substring(rule.short.length)
-                        else -> null
-                    }
-                }
-                if (swapped != null && swapped != s && swapped in SYLLABLES) {
-                    val d = toT9(s)
-                    val v = toT9(swapped)
-                    if (v != d) out.getOrPut(d) { ArrayList() }.add(v)
-                }
+        val out = LinkedHashMap<String, MutableSet<String>>()
+        for (s in com.aegis.ime.dict.Fuzzy.inputSyllables(enabled)) {
+            val d = toT9(s)
+            for (partner in com.aegis.ime.dict.Fuzzy.syllableVariants(s, enabled)) {
+                val v = toT9(partner)
+                if (v != d) out.getOrPut(d) { linkedSetOf() }.add(v)
             }
         }
-        val table = out.mapValues { (_, v) -> v.distinct() }
-        partnerCache = PartnerTable(enabled, table)
+        val table = out.mapValues { (_, v) -> v.toList() }
+        partnerCache = PartnerTable(enabled.toSet(), table)
         return table
     }
 
     fun fuzzyVariants(digits: String, enabled: Set<String>, cap: Int = FUZZY_VARIANT_CAP): List<String> {
-        if (enabled.isEmpty() || digits.isEmpty() || digits.length > MAX_FUZZY_DIGITS) return emptyList()
+        if (cap <= 0 || enabled.isEmpty() || digits.isEmpty() || digits.length > MAX_FUZZY_DIGITS) return emptyList()
         if (digits.any { it < '2' || it > '9' }) return emptyList()
         val pairs = partnersByDigit(enabled)
         if (pairs.isEmpty()) return emptyList()
@@ -166,9 +121,9 @@ object T9Pinyin {
         }
         var matched = false
         val hi = minOf(digits.length, i + maxDigits)
-        for (k in i + 1..hi) {
+        for (k in hi downTo i + 1) {
             val run = digits.substring(i, k)
-            if (!byDigits.containsKey(run)) continue
+            if (!byDigits.containsKey(run) && !pairs.containsKey(run)) continue
             matched = true
             val keep = prefix.length
             prefix.append(run)

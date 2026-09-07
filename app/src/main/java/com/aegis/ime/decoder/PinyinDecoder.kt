@@ -458,7 +458,7 @@ class PinyinDecoder(
     }
 
     fun decodeCovered(input: String, limit: Int, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
-        decodeCoveredLayered(input, limit, cuts, context).first
+        withFuzzyReadings(input, decodeCoveredLayered(input, limit, cuts, context).first)
 
     internal fun decodeCoveredLayered(
         input: String,
@@ -486,11 +486,29 @@ class PinyinDecoder(
         if (clean.isEmpty()) return emptyList()
         val passedClean = if (norm == null) cuts else cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
         val interior = ((norm?.cuts ?: emptySet()) + passedClean).filter { it in 1 until clean.length }.toSet()
-        val decoded = decodeAtomic(clean, interior, ctx, interior.isNotEmpty())
+        val decoded = withFuzzyReadings(clean, decodeAtomic(clean, interior, ctx, interior.isNotEmpty()))
         return if (norm == null) {
             decoded
         } else {
-            decoded.map { Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length }) }
+            decoded.map {
+                Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length }, it.correctedReading)
+            }
+        }
+    }
+
+    private fun withFuzzyReadings(input: String, candidates: List<Cand>): List<Cand> {
+        val rules = fuzzyRules
+        if (rules.isEmpty()) return candidates
+        val variants = HashMap<String, List<String>>()
+        val readings = HashMap<String, List<Pair<String, Int>>>()
+        return candidates.map { candidate ->
+            if (candidate.correctedReading != null) return@map candidate
+            val source = input.take(candidate.coveredLen).replace("'", "")
+            if (dict.containsExactWord(source, candidate.word)) return@map candidate
+            val target = variants.getOrPut(source) { fuzzyVariants(source, rules) }
+                .firstOrNull { dict.containsExactWord(it, candidate.word) } ?: return@map candidate
+            val reading = guessReading(candidate.word, target, false, readings)
+            candidate.copy(correctedReading = reading)
         }
     }
 
@@ -531,8 +549,13 @@ class PinyinDecoder(
         inputAliasWordFreqs(input).forEach { offer(it, ALIAS_PENALTY) }
         dict.prefixByFreq(input, completionCap).forEach { offer(it, 0.0) }
         for (uw in userWordsFor(input)) offer(BinaryDict.WordFreq(uw, userWordFreq(uw, input).toInt().coerceAtLeast(1)), 0.0)
+        val fuzzyExactWords = HashSet<String>()
         if (fuzzyRules.isNotEmpty()) {
             for (variant in fuzzyVariants(input, fuzzyRules)) {
+                for (wf in dict.exact(variant)) {
+                    fuzzyExactWords.add(wf.word)
+                    offer(wf, fuzzyPenalty)
+                }
                 dict.prefixByFreq(variant, completionCap).forEach { offer(it, fuzzyPenalty) }
             }
         }
@@ -562,7 +585,7 @@ class PinyinDecoder(
         var pendingInitials = reservedInitials.count { it !in cover }
         for ((wf, _) in pool) {
             val reserved = wf.word in reservedInitials
-            if (!reserved && cover.size >= completionCap - pendingInitials && wf.word !in exactWords) continue
+            if (!reserved && cover.size >= completionCap - pendingInitials && wf.word !in exactWords && wf.word !in fuzzyExactWords) continue
             if (cover.putIfAbsent(wf.word, input.length) == null && reserved) pendingInitials--
         }
         val guesses = guessCorrections(input, ctx, GUESS_LIMIT)
@@ -1362,7 +1385,7 @@ class PinyinDecoder(
         const val NO_CTX = Int.MIN_VALUE
         const val EDGE_N = 20
         const val DEFAULT_LAMBDA = 0.5
-        const val FUZZY_PENALTY = 3.0
+        const val FUZZY_PENALTY = 6.0
         const val ALIAS_PENALTY = 3.5
         const val INITIALS_PENALTY = 5.0
         const val INITIALS_RESERVE = 1
