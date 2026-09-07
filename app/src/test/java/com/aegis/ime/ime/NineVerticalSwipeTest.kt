@@ -46,12 +46,12 @@ class NineVerticalSwipeTest {
         return v
     }
 
-    private fun nineView(): KeyboardView = laidOut(KeyboardView(context).apply {
-        setLayout(Layouts.nine(Layouts.ninePunctuation(), composing = false), false, false, Lang.CN)
+    private fun nineView(composing: Boolean = false): KeyboardView = laidOut(KeyboardView(context).apply {
+        setLayout(Layouts.nine(Layouts.ninePunctuation(), composing = composing), false, false, Lang.CN)
     })
 
-    private fun alphaView(): KeyboardView = laidOut(KeyboardView(context).apply {
-        setLayout(Layouts.forId(LayoutId.ALPHA, Lang.EN), false, false, Lang.EN)
+    private fun alphaView(lang: Lang = Lang.EN, composing: Boolean = false): KeyboardView = laidOut(KeyboardView(context).apply {
+        setLayout(Layouts.forId(LayoutId.ALPHA, lang, composing), false, false, lang)
     })
 
     private fun KeyboardView.send(action: Int, x: Float, y: Float, t: Long = 0) =
@@ -73,7 +73,7 @@ class NineVerticalSwipeTest {
         "MNO" to "6", "PQRS" to "7", "TUV" to "8", "WXYZ" to "9",
     )
 
-    @Test fun every_main_block_up_swipe_emits_its_literal_digit_and_down_swipe_keeps_the_tap_action() {
+    @Test fun main_block_up_swipes_emit_digits_and_only_one_down_swipe_emits_at() {
         val fails = ArrayList<String>()
         for ((label, digit) in digitOf) {
             val up = nineView().verticalSwipe(label, -0.30f)
@@ -82,7 +82,7 @@ class NineVerticalSwipeTest {
             }
             val down = nineView().verticalSwipe(label, 0.30f)
             if (label == "@#") {
-                if (down?.action != KeyAction.SWITCH_NUMBERS || down?.preeditLiteral == true) {
+                if (down == null || down.output != "@" || down.action != KeyAction.COMMIT || !down.direct || down.preeditLiteral) {
                     fails.add("$label down → got=${down?.action}/${down?.preeditLiteral}")
                 }
             } else if (down?.output != digit || down?.preeditLiteral == true) {
@@ -90,6 +90,69 @@ class NineVerticalSwipeTest {
             }
         }
         assertEquals("9-key main-block swipe contract: $fails", emptyList<String>(), fails)
+    }
+
+    @Test fun one_down_swipe_emits_one_ascii_at_with_or_without_composing_and_previews() {
+        for (composing in listOf(false, true)) {
+            for (previews in listOf(false, true)) {
+                val emitted = ArrayList<Key>()
+                val view = nineView(composing).apply {
+                    previewNineEnabled = previews
+                    onKey = { emitted.add(it) }
+                }
+                val action = if (composing) KeyAction.SEGMENT else KeyAction.SWITCH_NUMBERS
+                val (x, y) = view.centerOfActionForTest(action)!!
+                val endY = y + swipeThreshold + 15f * density
+                view.send(MotionEvent.ACTION_DOWN, x, y, 0)
+                view.send(MotionEvent.ACTION_MOVE, x, endY, 12)
+                assertEquals(if (previews) "@" else null, view.previewLabelForTest())
+                assertEquals(emptyList<Key>(), emitted)
+                view.send(MotionEvent.ACTION_UP, x, endY, 24)
+                assertEquals("@", emitted.single().output)
+                assertEquals(KeyAction.COMMIT, emitted.single().action)
+                assertEquals(true, emitted.single().direct)
+                assertEquals(false, emitted.single().preeditLiteral)
+            }
+        }
+    }
+
+    @Test fun one_position_keeps_its_tap_and_up_swipe_actions_in_both_composing_states() {
+        for (composing in listOf(false, true)) {
+            for (dy in listOf(0f, swipeThreshold / 2f, -swipeThreshold - 15f * density)) {
+                val emitted = ArrayList<Key>()
+                val view = nineView(composing).apply { onKey = { emitted.add(it) } }
+                val action = if (composing) KeyAction.SEGMENT else KeyAction.SWITCH_NUMBERS
+                val (x, y) = view.centerOfActionForTest(action)!!
+                view.send(MotionEvent.ACTION_DOWN, x, y, 0)
+                view.send(MotionEvent.ACTION_MOVE, x, y + dy, 12)
+                view.send(MotionEvent.ACTION_UP, x, y + dy, 24)
+                if (dy < 0f) {
+                    assertEquals("1", emitted.single().output)
+                    assertEquals(KeyAction.COMMIT, emitted.single().action)
+                    assertEquals(true, emitted.single().preeditLiteral)
+                } else {
+                    assertEquals(action, emitted.single().action)
+                    assertEquals(false, emitted.single().preeditLiteral)
+                }
+            }
+        }
+    }
+
+    @Test fun cancelling_one_down_swipe_emits_nothing_and_keeps_the_next_tap_intact() {
+        for (composing in listOf(false, true)) {
+            val emitted = ArrayList<Key>()
+            val view = nineView(composing).apply { onKey = { emitted.add(it) } }
+            val action = if (composing) KeyAction.SEGMENT else KeyAction.SWITCH_NUMBERS
+            val (x, y) = view.centerOfActionForTest(action)!!
+            val endY = y + swipeThreshold + 15f * density
+            view.send(MotionEvent.ACTION_DOWN, x, y, 0)
+            view.send(MotionEvent.ACTION_MOVE, x, endY, 12)
+            view.send(MotionEvent.ACTION_CANCEL, x, endY, 24)
+            assertEquals(emptyList<Key>(), emitted)
+            view.send(MotionEvent.ACTION_DOWN, x, y, 36)
+            view.send(MotionEvent.ACTION_UP, x, y, 48)
+            assertEquals(action, emitted.single().action)
+        }
     }
 
     @Test fun the_reported_up_swipe_5_to_2_now_stays_on_5() {
@@ -135,21 +198,32 @@ class NineVerticalSwipeTest {
     }
 
 
-    @Test fun the_twentysix_key_up_flick_is_marked_as_a_preedit_literal() {
-        val up = ArrayList<Key>()
-        val v1 = alphaView().apply { onKey = { up.add(it) } }
-        val (dx, dy) = v1.centerOfLabelForTest("d")!!
-        v1.send(MotionEvent.ACTION_DOWN, dx, dy, 0)
-        v1.send(MotionEvent.ACTION_MOVE, dx, dy - (swipeThreshold + 15f), 12)
-        v1.send(MotionEvent.ACTION_UP, dx, dy - (swipeThreshold + 15f), 24)
-        assertEquals("@", up.single().output)
-        assertEquals(true, up.single().preeditLiteral)
+    @Test fun chinese_and_english_d_up_flicks_commit_ascii_at_directly() {
+        for (lang in Lang.entries) {
+            for (composing in listOf(false, true)) {
+                val up = ArrayList<Key>()
+                val v1 = alphaView(lang, composing).apply { onKey = { up.add(it) } }
+                val (dx, dy) = v1.centerOfLabelForTest("d")!!
+                v1.send(MotionEvent.ACTION_DOWN, dx, dy, 0)
+                v1.send(MotionEvent.ACTION_MOVE, dx, dy - (swipeThreshold + 15f), 12)
+                v1.send(MotionEvent.ACTION_UP, dx, dy - (swipeThreshold + 15f), 24)
+                assertEquals("@", up.single().output)
+                assertEquals(true, up.single().direct)
+                assertEquals(false, up.single().preeditLiteral)
 
-        val down = ArrayList<String>()
-        val v2 = alphaView().apply { onKey = { down.add(it.output) } }
-        v2.send(MotionEvent.ACTION_DOWN, dx, dy, 0)
-        v2.send(MotionEvent.ACTION_MOVE, dx, dy + (swipeThreshold + 15f), 12)
-        v2.send(MotionEvent.ACTION_UP, dx, dy + (swipeThreshold + 15f), 24)
-        assertEquals("26-key down-flick still commits the letter", listOf("d"), down)
+                val down = ArrayList<String>()
+                val v2 = alphaView(lang, composing).apply { onKey = { down.add(it.output) } }
+                v2.send(MotionEvent.ACTION_DOWN, dx, dy, 0)
+                v2.send(MotionEvent.ACTION_MOVE, dx, dy + (swipeThreshold + 15f), 12)
+                v2.send(MotionEvent.ACTION_UP, dx, dy + (swipeThreshold + 15f), 24)
+                assertEquals("26-key down-flick still commits the letter", listOf("d"), down)
+
+                for ((label, output) in listOf("q" to "1", "s" to if (lang == Lang.CN) "！" else "!")) {
+                    val other = alphaView(lang, composing).verticalSwipe(label, -0.30f)!!
+                    assertEquals(output, other.output)
+                    assertEquals(true, other.preeditLiteral)
+                }
+            }
+        }
     }
 }

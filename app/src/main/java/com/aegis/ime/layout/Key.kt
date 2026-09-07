@@ -53,6 +53,7 @@ data class Key(
     val accent: Boolean = false,
     val rail: Boolean = false,
     val labelRes: Int? = null,
+    val swipeDown: String? = null,
 )
 
 data class KeyboardRow(val keys: List<Key>)

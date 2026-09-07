@@ -65,7 +65,7 @@ object Layouts {
         val q = subRow("qwertyuiop", listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"))
         val a = subRow(
             "asdfghjkl",
-            if (lang == Lang.CN) listOf("～", "！", "＠", "＃", "％", "＇", "＆", "＊", "？")
+            if (lang == Lang.CN) listOf("～", "！", "@", "＃", "％", "＇", "＆", "＊", "？")
             else listOf("~", "!", "@", "#", "%", "'", "&", "*", "?"),
         )
         val z = subRow(
@@ -121,8 +121,8 @@ object Layouts {
         val leftColumn = ScrollColumn(left, xL, 0f, wL, 0.75f, cellHFrac = 0.75f / 4f)
         cells.add(PlacedKey(Key(labelRes = R.string.kbd_symbols, action = SHOW_SYMBOLS, rail = true), xL, 0.75f, wL, 0.25f))
         cells.add(PlacedKey(
-            if (composing) Key(labelRes = R.string.kbd_split, action = SEGMENT, sub = "1")
-            else Key("@#", action = SWITCH_NUMBERS, sub = "1"),
+            if (composing) Key(labelRes = R.string.kbd_split, action = SEGMENT, sub = "1", swipeDown = "@")
+            else Key("@#", action = SWITCH_NUMBERS, sub = "1", swipeDown = "@"),
             x1, 0f, wM, 0.25f,
         ))
         cells.add(PlacedKey(t9key("ABC", "2"), x2, 0f, wM, 0.25f))

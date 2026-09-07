@@ -162,7 +162,7 @@ class KeyboardView(context: Context) : View(context) {
         isAlphaLetter(key) || (layout.id == LayoutId.NINE && isNineLetterBlock(key))
 
     private fun isNineSwipeKey(key: Key) =
-        layout.id == LayoutId.NINE && key.swipeUp != null
+        layout.id == LayoutId.NINE && (key.swipeUp != null || key.swipeDown != null)
 
     private fun isRetypeKey(key: Key) =
         layout.id == LayoutId.NINE && key.action == KeyAction.CLEAR_COMPOSING && key.swipeUp == "0"
@@ -1206,8 +1206,9 @@ class KeyboardView(context: Context) : View(context) {
                         swiped = true
                         vSwipeDir = if (dy < 0) -1 else 1
                         cancelKeyHold()
-                        if (vSwipeDir < 0) {
-                            downPlaced?.let { showPreview(Key(dk.swipeUp!!), it.rect) }
+                        val output = if (vSwipeDir < 0) dk.swipeUp else dk.swipeDown
+                        if (output != null) {
+                            downPlaced?.let { showPreview(Key(output), it.rect) }
                         } else hidePreview()
                     }
                 } else {
@@ -1256,14 +1257,15 @@ class KeyboardView(context: Context) : View(context) {
             dk != null && isAlphaLetter(dk) && swiped -> {
                 performClick()
                 if (vSwipeDir < 0 && dk.swipeUp != null) {
-                    onKey(Key(dk.swipeUp, output = dk.swipeUp, direct = true, preeditLiteral = true))
+                    onKey(Key(dk.swipeUp, output = dk.swipeUp, direct = true, preeditLiteral = dk.swipeUp != "@"))
                 }
                 else onKey(dk)
             }
             dk != null && isNineSwipeKey(dk) -> {
                 performClick()
-                if (swiped && vSwipeDir < 0 && dk.swipeUp != null) {
-                    onKey(Key(dk.swipeUp, output = dk.swipeUp, direct = true, preeditLiteral = true))
+                val output = if (!swiped) null else if (vSwipeDir < 0) dk.swipeUp else dk.swipeDown
+                if (output != null) {
+                    onKey(Key(output, output = output, direct = true, preeditLiteral = output != "@"))
                 } else {
                     emitKey(stickyPressed ?: dk, eventTime)
                 }

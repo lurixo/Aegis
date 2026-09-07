@@ -48,6 +48,8 @@ class LayoutsTest {
         val redo = nine.cells.first { it.key.action == KeyAction.CLEAR_COMPOSING }.key
         assertEquals("0", redo.swipeUp)
         assertEquals("重输 does not gain a visible zero hint", null, redo.sub)
+        assertEquals(listOf("@#"), nine.cells.filter { it.key.swipeDown != null }.map { it.key.label })
+        assertEquals("@", nine.cells.first { it.key.label == "@#" }.key.swipeDown)
     }
 
     @Test fun nine_right_column_order_is_backspace_clear_enter() {
@@ -91,7 +93,7 @@ class LayoutsTest {
         }
     }
 
-    @Test fun chinese_qwerty_uses_fullwidth_sub_symbols_while_english_stays_halfwidth() {
+    @Test fun chinese_qwerty_keeps_at_halfwidth_and_other_sub_symbols_fullwidth() {
         val english = listOf(
             "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
             "~", "!", "@", "#", "%", "'", "&", "*", "?",
@@ -99,7 +101,7 @@ class LayoutsTest {
         )
         val chinese = listOf(
             "1", "2", "3", "4", "5", "6", "7", "8", "9", "0",
-            "～", "！", "＠", "＃", "％", "＇", "＆", "＊", "？",
+            "～", "！", "@", "＃", "％", "＇", "＆", "＊", "？",
             "（", "）", "－", "＿", "：", "；", "／",
         )
         for ((layout, expected) in listOf(qwerty to chinese, qwertyEn to english)) {
@@ -107,6 +109,8 @@ class LayoutsTest {
                 .filter { it.action == KeyAction.COMMIT && it.label.length == 1 && it.label[0] in 'a'..'z' }
             assertEquals(26, letters.size)
             assertEquals(expected, letters.map { it.sub })
+            assertEquals(expected, letters.map { it.swipeUp })
+            assertTrue(letters.all { it.swipeDown == null })
         }
     }
 
@@ -174,6 +178,8 @@ class LayoutsTest {
         val split = composing.cells!!.first { it.key.action == KeyAction.SEGMENT }.key
         assertEquals("1", split.sub)
         assertEquals("1", split.swipeUp)
+        assertEquals("@", split.swipeDown)
+        assertEquals(listOf(split), composing.cells.filter { it.key.swipeDown != null }.map { it.key })
     }
 
     @Test fun nine_left_column_is_a_scroll_column_not_fixed_cells() {
