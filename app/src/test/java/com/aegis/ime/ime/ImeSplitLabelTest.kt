@@ -18,6 +18,7 @@ package com.aegis.ime.ime
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.RectF
+import android.content.res.Configuration
 import android.view.View
 import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
@@ -33,6 +34,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.atan2
 import kotlin.math.ceil
@@ -121,9 +123,9 @@ class ImeSplitLabelTest {
         val narrowKey = RectF(0f, 0f, 39f, 51f)
         val lang = ImeSplitLabel(1f, 20f, 18f)
         for (leadingActive in listOf(true, false)) {
-            val placed = lang.layout(narrowKey, "中", "EN", leadingActive)
-            assertTrue("中/EN fits a narrow key without shrinking below seven tenths: ${placed.scale}", placed.scale >= 0.7f)
-            assertCornerAnchored("中/EN narrow $leadingActive", lang, placed, narrowKey)
+            val placed = lang.layout(narrowKey, "CH", "EN", leadingActive)
+            assertTrue("CH/EN fits a narrow key without shrinking below seven tenths: ${placed.scale}", placed.scale >= 0.7f)
+            assertCornerAnchored("CH/EN narrow $leadingActive", lang, placed, narrowKey)
         }
 
         val shrunk = label.layout(RectF(0f, 0f, 30f, 30f), "All", "Single", leadingActive = true)
@@ -169,12 +171,12 @@ class ImeSplitLabelTest {
     private fun slashXAt(slash: FloatArray, y: Float): Float =
         slash[0] + (slash[1] - y) * (slash[2] - slash[0]) / (slash[1] - slash[3])
 
-    @Test fun the_language_key_keeps_中_leading_and_EN_trailing_in_both_languages() {
+    @Test fun the_language_key_keeps_the_source_language_leading_in_both_input_modes() {
         for (lang in listOf(Lang.CN, Lang.EN)) {
             val view = keyboard(lang)
             val label = view.langLabelForTest()
             assertEquals("$lang: the active word is set at 20sp", 20f * density, label.activePaint.textSize, 0.01f)
-            assertEquals("$lang: the idle word is set one size down at 18sp", 18f * density, label.idlePaint.textSize, 0.01f)
+            assertEquals("$lang: the grey idle word is set at 18sp", 18f * density, label.idlePaint.textSize, 0.01f)
             assertEquals("$lang: the active word takes the secondary label colour", ImePalette.STATIC_LIGHT.keyLabelSecondary, label.activePaint.color)
             assertEquals("$lang: the idle word takes the hint colour", ImePalette.STATIC_LIGHT.keyHint, label.idlePaint.color)
             assertEquals("$lang: 中 leads only while Chinese is active", lang == Lang.CN, view.langLeadingActiveForTest())
@@ -206,7 +208,14 @@ class ImeSplitLabelTest {
     }
 
     @Test fun the_language_words_come_from_the_shared_strings() {
-        assertEquals("中", ctx.getString(R.string.lang_cn))
-        assertEquals("EN", ctx.getString(R.string.lang_en))
+        val enConfig = Configuration(ctx.resources.configuration).apply { setLocale(Locale.ENGLISH) }
+        val en = ctx.createConfigurationContext(enConfig)
+        assertEquals("CH", en.getString(R.string.lang_cn))
+        assertEquals("EN", en.getString(R.string.lang_en))
+
+        val zhConfig = Configuration(ctx.resources.configuration).apply { setLocale(Locale.SIMPLIFIED_CHINESE) }
+        val zh = ctx.createConfigurationContext(zhConfig)
+        assertEquals("中", zh.getString(R.string.lang_cn))
+        assertEquals("英", zh.getString(R.string.lang_en))
     }
 }
