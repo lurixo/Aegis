@@ -213,15 +213,17 @@ internal fun KeyPreviewCard() {
                 )
             },
         )
-        AppSectionDivider()
-        KeyPreviewSubRow(R.string.key_preview_nine_label, checked = nine, enabled = master) {
-            nine = it
-            prefs.edit { putBoolean(PREF_KEY_PREVIEW_NINE, it) }
-        }
-        AppSectionDivider()
-        KeyPreviewSubRow(R.string.key_preview_alpha_label, checked = alpha, enabled = master) {
-            alpha = it
-            prefs.edit { putBoolean(PREF_KEY_PREVIEW_ALPHA, it) }
+        if (master) {
+            AppSectionDivider()
+            KeyPreviewSubRow(R.string.key_preview_nine_label, checked = nine, enabled = true) {
+                nine = it
+                prefs.edit { putBoolean(PREF_KEY_PREVIEW_NINE, it) }
+            }
+            AppSectionDivider()
+            KeyPreviewSubRow(R.string.key_preview_alpha_label, checked = alpha, enabled = true) {
+                alpha = it
+                prefs.edit { putBoolean(PREF_KEY_PREVIEW_ALPHA, it) }
+            }
         }
     }
 }

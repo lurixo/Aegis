@@ -182,6 +182,21 @@ class FeedbackSettingsCardTest {
         assertEquals("purple", prefs.getString(PREF_KEY_SOUND, null))
     }
 
+    @Test fun preview_children_hide_when_off_and_keep_their_individual_choices() {
+        prefs.edit().putBoolean(PREF_KEY_PREVIEW_MASTER, false).putBoolean(PREF_KEY_PREVIEW_ALPHA, false).commit()
+        compose.setContent { AegisTheme { KeyPreviewCard() } }
+        node(R.string.key_preview_nine_label).assertDoesNotExist()
+        node(R.string.key_preview_alpha_label).assertDoesNotExist()
+        node(R.string.key_preview_title).performClick()
+        node(R.string.key_preview_nine_label).performClick()
+        node(R.string.key_preview_title).performClick()
+        node(R.string.key_preview_nine_label).assertDoesNotExist()
+        node(R.string.key_preview_title).performClick()
+        node(R.string.key_preview_alpha_label).assertExists()
+        assertFalse(prefs.getBoolean(PREF_KEY_PREVIEW_NINE, true))
+        assertFalse(prefs.getBoolean(PREF_KEY_PREVIEW_ALPHA, true))
+    }
+
     @Test fun fuzzy_rules_hide_when_off_and_keep_their_choices() {
         prefs.edit().putBoolean("fuzzy", false).commit()
         compose.setContent {
