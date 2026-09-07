@@ -33,6 +33,7 @@ import com.aegis.ime.ui.PREF_ASSOCIATIONS_ON
 import com.aegis.ime.ui.PREF_AUTO_LEARN_ON
 import com.aegis.ime.ui.PREF_DEFAULT_LANG
 import com.aegis.ime.ui.PREF_KEY_HAPTICS
+import com.aegis.ime.ui.PREF_KEY_SOUND_VOLUME
 import com.aegis.ime.ui.PREF_KEY_PREVIEW_ALPHA
 import com.aegis.ime.ui.PREF_KEY_PREVIEW_MASTER
 import com.aegis.ime.ui.PREF_KEY_PREVIEW_NINE
@@ -66,6 +67,7 @@ class SettingsHotApplyTest {
     private val keyPreviewsNine = mutableListOf<Boolean>()
     private val keyPreviewsAlpha = mutableListOf<Boolean>()
     private val letterCases = mutableListOf<LetterCase>()
+    private val keySoundVolumes = mutableListOf<Float>()
 
     private val listener = SettingsHotApply(
         onCnLayout = { cnLayouts += it },
@@ -78,6 +80,7 @@ class SettingsHotApplyTest {
         onKeyPreviewNine = { keyPreviewsNine += it },
         onKeyPreviewAlpha = { keyPreviewsAlpha += it },
         onLetterCase = { letterCases += it },
+        onKeySoundVolume = { keySoundVolumes += it },
     )
 
     @Test fun a_setting_carrying_the_wrong_type_reads_as_its_default_instead_of_throwing() {
@@ -124,7 +127,8 @@ class SettingsHotApplyTest {
 
     private fun totalActions() =
         cnLayouts.size + defaultLangs.size + associations.size + autoLearns.size + fuzzySets.size +
-            engineAssetChanges + keyHaptics.size + keyPreviewsNine.size + keyPreviewsAlpha.size + letterCases.size
+            engineAssetChanges + keyHaptics.size + keyPreviewsNine.size + keyPreviewsAlpha.size + letterCases.size +
+            keySoundVolumes.size
 
     private val allRuleKeys = Fuzzy.RULES.mapTo(LinkedHashSet()) { it.key }
 
@@ -186,6 +190,35 @@ class SettingsHotApplyTest {
         put { putBoolean(PREF_KEY_HAPTICS, false) }
         assertEquals(listOf(true, false), keyHaptics)
         assertEquals("no other channel may fire", 2, totalActions())
+    }
+
+    @Test fun sound_volume_preserves_fractional_values_and_hot_applies_only_its_channel() {
+        assertEquals(100f, SettingsHotApply.keySoundVolume(prefs), 0f)
+        put { putFloat(PREF_KEY_SOUND_VOLUME, 25.375f) }
+        assertEquals(25.375f, prefs.getFloat(PREF_KEY_SOUND_VOLUME, -1f), 0f)
+        assertEquals(25.375f, SettingsHotApply.keySoundVolume(prefs), 0f)
+        put { putFloat(PREF_KEY_SOUND_VOLUME, 75.125f) }
+        put { remove(PREF_KEY_SOUND_VOLUME) }
+        assertEquals(listOf(25.375f, 75.125f, 100f), keySoundVolumes)
+        assertEquals("no other channel may fire", 3, totalActions())
+    }
+
+    @Test fun invalid_sound_volume_values_are_clamped_or_resolve_to_the_default() {
+        for ((stored, expected) in listOf(
+            -1f to 0f, 0f to 0f, 100f to 100f, 999f to 100f,
+            Float.NaN to 100f, Float.POSITIVE_INFINITY to 100f, Float.NEGATIVE_INFINITY to 100f,
+        )) {
+            put { putFloat(PREF_KEY_SOUND_VOLUME, stored) }
+            assertEquals(expected, SettingsHotApply.keySoundVolume(prefs), 0f)
+            assertEquals(expected, keySoundVolumes.last(), 0f)
+        }
+        put { putInt(PREF_KEY_SOUND_VOLUME, 42) }
+        assertEquals(42f, keySoundVolumes.last(), 0f)
+        put { putString(PREF_KEY_SOUND_VOLUME, "invalid") }
+        assertEquals(100f, keySoundVolumes.last(), 0f)
+        put { putBoolean(PREF_KEY_SOUND_VOLUME, false) }
+        assertEquals(100f, keySoundVolumes.last(), 0f)
+        assertEquals(keySoundVolumes.size, totalActions())
     }
 
     @Test fun the_preview_is_off_by_default_the_master_off_hides_the_default_on_subs() {
@@ -328,11 +361,11 @@ class SettingsHotApplyTest {
     @Test fun the_pref_backed_settings_surface_is_fully_enumerated() {
         val enumerated = mutableSetOf(
             "cn_layout", PREF_DEFAULT_LANG, PREF_ASSOCIATIONS_ON, "fuzzy", PREF_KEY_HAPTICS,
-            PREF_KEY_PREVIEW_MASTER, PREF_KEY_PREVIEW_NINE, PREF_KEY_PREVIEW_ALPHA, PREF_LETTER_CASE,
+            PREF_KEY_PREVIEW_MASTER, PREF_KEY_PREVIEW_NINE, PREF_KEY_PREVIEW_ALPHA, PREF_LETTER_CASE, PREF_KEY_SOUND_VOLUME,
         )
         enumerated += Fuzzy.RULES.map { Fuzzy.prefKey(it.key) }
         enumerated += SettingsHotApply.ENGINE_ASSET_PREF_KEYS
-        assertEquals(9 + Fuzzy.RULES.size + 6, enumerated.size)
+        assertEquals(10 + Fuzzy.RULES.size + 6, enumerated.size)
         for (key in enumerated) {
             val before = totalActions()
             put { putString("probe_reset", key) }
@@ -341,6 +374,7 @@ class SettingsHotApplyTest {
                 "cn_layout" -> put { putString(key, "alpha") }
                 PREF_DEFAULT_LANG -> put { putString(key, "en") }
                 PREF_LETTER_CASE -> put { putString(key, "upper") }
+                PREF_KEY_SOUND_VOLUME -> put { putFloat(key, 50f) }
                 else -> put { putBoolean(key, true) }
             }
             val expected = if (key == PREF_KEY_PREVIEW_MASTER) 2 else 1

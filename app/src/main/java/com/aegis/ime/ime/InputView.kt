@@ -679,6 +679,7 @@ class InputView(context: Context) : LinearLayout(context) {
     }
 
     fun setKeySound(sound: KeySound) { keySoundPlayer.select(sound) }
+    internal fun setKeySoundVolume(volume: Float) { keySoundPlayer.volume = volume }
     internal fun playKeySound() { keySoundPlayer.play() }
     internal var keyHapticStyle: KeyHaptic = KeyHaptic.CRISP
         private set

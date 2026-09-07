@@ -343,6 +343,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             Handler(Looper.getMainLooper()).post { maybeReloadEngine() }
         },
         onKeySound = { sound -> mainHandler.post { inputView?.setKeySound(sound) } },
+        onKeySoundVolume = { volume -> mainHandler.post { inputView?.setKeySoundVolume(volume) } },
         onKeyHaptics = { on -> mainHandler.post { inputView?.setKeyHaptics(on) } },
         onKeyHapticStyle = { style -> mainHandler.post { inputView?.setKeyHapticStyle(style) } },
         onKeyHapticStrength = { strength -> mainHandler.post { inputView?.setKeyHapticStrength(strength) } },
@@ -669,6 +670,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         view.setKeyHaptics(SettingsHotApply.keyHaptics(fbPrefs))
         view.setKeyHapticStyle(SettingsHotApply.keyHapticStyle(fbPrefs))
         view.setKeyHapticStrength(SettingsHotApply.keyHapticStrength(fbPrefs))
+        view.setKeySoundVolume(SettingsHotApply.keySoundVolume(fbPrefs))
         view.setKeySound(SettingsHotApply.keySound(fbPrefs))
         view.setKeyPreviewNine(SettingsHotApply.keyPreviewNine(fbPrefs))
         view.setKeyPreviewAlpha(SettingsHotApply.keyPreviewAlpha(fbPrefs))
@@ -791,6 +793,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         inputView?.setKeyHaptics(SettingsHotApply.keyHaptics(prefs))
         inputView?.setKeyHapticStyle(SettingsHotApply.keyHapticStyle(prefs))
         inputView?.setKeyHapticStrength(SettingsHotApply.keyHapticStrength(prefs))
+        inputView?.setKeySoundVolume(SettingsHotApply.keySoundVolume(prefs))
         inputView?.setKeySound(SettingsHotApply.keySound(prefs))
         inputView?.setKeyPreviewNine(SettingsHotApply.keyPreviewNine(prefs))
         inputView?.setKeyPreviewAlpha(SettingsHotApply.keyPreviewAlpha(prefs))

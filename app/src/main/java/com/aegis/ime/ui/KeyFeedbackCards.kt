@@ -64,6 +64,7 @@ import com.aegis.ime.ui.theme.AppSpacing
 
 internal const val PREF_KEY_SOUND = "pref_key_sound"
 internal const val PREF_KEY_SOUND_LAST = "pref_key_sound_last"
+internal const val PREF_KEY_SOUND_VOLUME = "pref_key_sound_volume"
 internal const val PREF_KEY_HAPTICS = "pref_key_haptics"
 internal const val PREF_KEY_HAPTIC_STYLE = "pref_key_haptic_style"
 internal const val PREF_KEY_HAPTIC_STRENGTH = "pref_key_haptic_strength"
@@ -245,6 +246,7 @@ private fun KeyPreviewSubRow(labelRes: Int, checked: Boolean, enabled: Boolean, 
     }
 }
 
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
 @Composable
 internal fun KeySoundCard() {
     val context = LocalContext.current
@@ -258,7 +260,15 @@ internal fun KeySoundCard() {
                 ?: KeySound.BLUE,
         )
     }
-    val player = remember { KeySoundPlayer(context) }
+    var volume by remember { mutableFloatStateOf(SettingsHotApply.keySoundVolume(prefs)) }
+    var lastPreviewAt by remember { mutableLongStateOf(0L) }
+    val latestVolume by rememberUpdatedState(volume)
+    val player = remember { KeySoundPlayer(context).also { it.volume = volume } }
+    val saveVolume = { prefs.edit { putFloat(PREF_KEY_SOUND_VOLUME, volume) } }
+    LaunchedEffect(volume) {
+        delay(150L)
+        if (SettingsHotApply.keySoundVolume(prefs) != volume) saveVolume()
+    }
     val toggle = {
         on = !on
         prefs.edit {
@@ -268,8 +278,13 @@ internal fun KeySoundCard() {
         player.select(if (on) sound else KeySound.OFF)
         if (on) player.play()
     }
-    androidx.compose.runtime.DisposableEffect(player) {
-        onDispose { player.release() }
+    DisposableEffect(player, prefs) {
+        onDispose {
+            if (SettingsHotApply.keySoundVolume(prefs) != latestVolume) {
+                prefs.edit { putFloat(PREF_KEY_SOUND_VOLUME, latestVolume) }
+            }
+            player.release()
+        }
     }
     AppSection {
         AppSettingRow(
@@ -281,6 +296,47 @@ internal fun KeySoundCard() {
             },
         )
         if (on) {
+            AppSectionDivider()
+            Column(Modifier.fillMaxWidth().padding(horizontal = AppSpacing.rowHorizontal, vertical = 12.dp)) {
+                val volumeLabel = stringResource(R.string.key_sound_volume)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(volumeLabel, style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        stringResource(R.string.key_sound_volume_value, volume),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Slider(
+                    value = volume,
+                    onValueChange = { value ->
+                        volume = value
+                        player.volume = value
+                        val now = SystemClock.uptimeMillis()
+                        if (now - lastPreviewAt >= 120L || value == 0f) {
+                            player.select(sound)
+                            player.play()
+                            lastPreviewAt = now
+                        }
+                    },
+                    onValueChangeFinished = {
+                        saveVolume()
+                        player.select(sound)
+                        player.play()
+                    },
+                    valueRange = 0f..100f,
+                    track = { sliderState ->
+                        SliderDefaults.Track(sliderState = sliderState, thumbTrackGapSize = 0.dp)
+                    },
+                    thumb = {
+                        Box(
+                            Modifier.size(28.dp).clip(CircleShape)
+                                .background(SwitchDefaults.colors().checkedThumbColor),
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).semantics { contentDescription = volumeLabel },
+                )
+            }
             AppSectionDivider()
             AppChoiceGroup {
                 KeySound.entries.filter { it != KeySound.OFF }.forEach { choice ->

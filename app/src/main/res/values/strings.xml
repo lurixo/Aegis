@@ -513,6 +513,8 @@
     <string name="clip_phrase_edit_not_saved">This change was not saved to your phrases</string>
     <string name="key_sound_title">Mechanical keyboard sound</string>
     <string name="key_sound_description">Choose a switch sound and tap to listen. Volume follows the system media volume.</string>
+    <string name="key_sound_volume">Sound volume</string>
+    <string name="key_sound_volume_value">%1$.1f%%</string>
     <string name="key_sound_off">Off</string>
     <string name="key_sound_blue">Cherry MX Blue</string>
     <string name="key_sound_brown">Cherry MX Brown</string>

@@ -21,6 +21,10 @@ import android.media.SoundPool
 import android.os.SystemClock
 import com.aegis.ime.R
 
+internal const val KEY_SOUND_VOLUME_DEFAULT = 100f
+internal fun keySoundVolume(value: Float): Float =
+    if (value.isFinite()) value.coerceIn(0f, 100f) else KEY_SOUND_VOLUME_DEFAULT
+
 enum class KeySound(val value: String, val labelRes: Int, val sampleRes: Int, vararg alternatives: Int) {
     OFF("off", R.string.key_sound_off, 0),
     BLUE("blue", R.string.key_sound_blue, R.raw.key_blue, R.raw.key_blue_2, R.raw.key_blue_3, R.raw.key_blue_4),
@@ -49,6 +53,11 @@ internal class KeySoundPlayer(private val context: Context) {
     private var lastSample = 0
     var sound = KeySound.OFF
         private set
+    var volume: Float = KEY_SOUND_VOLUME_DEFAULT
+        set(value) {
+            field = keySoundVolume(value)
+            if (field == 0f) pendingPress = 0L
+        }
 
     fun select(value: KeySound) {
         if (sound == value) { prepare(); return }
@@ -84,7 +93,7 @@ internal class KeySoundPlayer(private val context: Context) {
     }
 
     fun play() {
-        if (sound == KeySound.OFF) return
+        if (sound == KeySound.OFF || volume == 0f) return
         prepare()
         if (sampleOrder.isEmpty()) {
             val ready = sound.sampleResources.toList().mapNotNull { resource ->
@@ -104,7 +113,8 @@ internal class KeySoundPlayer(private val context: Context) {
         }
         pendingPress = 0L
         lastSample = sample
-        pool?.play(sample, 1f, 1f, 1, 0, 1f)
+        val gain = volume / 100f
+        pool?.play(sample, gain, gain, 1, 0, 1f)
     }
 
     fun release() {
