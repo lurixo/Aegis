@@ -205,6 +205,7 @@ class ClipboardViewInteractionTest {
     private fun flushMotion() = shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(1))
 
     private fun assertImmediateKey(owner: ClipboardView, action: View, name: String) {
+        shadowOf(ctx.getSystemService(android.os.Vibrator::class.java)).setHasVibrator(false)
         assertTrue("$name is registered as an immediate key", owner.isImmediateActionForTest(action))
         assertTrue("$name width is at least 48dp", action.width >= dp(48))
         assertTrue("$name height is at least 48dp", action.height >= dp(48))
@@ -1419,6 +1420,7 @@ class ClipboardViewInteractionTest {
     }
 
     @Test fun empty_batch_actions_have_no_press_haptic_or_click_until_a_row_is_selected() {
+        shadowOf(ctx.getSystemService(android.os.Vibrator::class.java)).setHasVibrator(false)
         val primaryPayloads = ArrayList<List<String>>()
         val v = clipView(listOf("a", "b")).apply {
             onAddCategoryThenAdd = { primaryPayloads += it }

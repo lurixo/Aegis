@@ -22,6 +22,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.provider.Settings
 import android.view.HapticFeedbackConstants
+import android.view.MotionEvent
 import android.view.View
 import com.aegis.ime.R
 import kotlin.math.roundToInt
@@ -95,6 +96,26 @@ private fun View.feedbackHost(): InputView? {
 internal fun View.playImeKeyFeedback(hapticsEnabled: Boolean) {
     feedbackHost()?.playKeySound()
     performImeKeyHaptic(hapticsEnabled)
+}
+
+internal fun View.playImeTapFeedback() {
+    if (!isEnabled) return
+    val host = feedbackHost()
+    var node: View? = this
+    var standaloneHaptics = false
+    while (node != null) {
+        if (node is KeyHapticsAware) { standaloneHaptics = node.hapticEnabled; break }
+        node = node.parent as? View
+    }
+    playImeKeyFeedback(host?.keyHapticsEnabled ?: standaloneHaptics)
+}
+
+internal fun View.bindImeTapFeedback(source: View = this) {
+    isSoundEffectsEnabled = false
+    setOnTouchListener { _, event ->
+        if (isEnabled && event.actionMasked == MotionEvent.ACTION_DOWN) source.playImeTapFeedback()
+        false
+    }
 }
 
 internal fun View.performImeKeyHaptic(

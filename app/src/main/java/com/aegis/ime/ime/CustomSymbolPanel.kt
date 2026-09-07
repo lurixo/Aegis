@@ -265,6 +265,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
         isClickable = true
         Motion.applyTapFeedback(this, colors.keyLabel)
         setOnClickListener { onAdd(symbol) }
+        bindImeTapFeedback()
     }
 
     private fun showRemoveConfirmation(symbol: String) {
@@ -298,6 +299,7 @@ class CustomSymbolPanel(context: Context) : LinearLayout(context), ResettablePan
                 LayoutParams(dp(REMOVE_MARK_DP), dp(REMOVE_MARK_DP)).apply { marginStart = dp(GAP_DP) },
             )
             setOnClickListener { showRemoveConfirmation(symbol) }
+            bindImeTapFeedback()
         }
     }
 

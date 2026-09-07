@@ -1392,6 +1392,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         touchTarget.setOnTouchListener { _, e ->
             when (e.actionMasked) {
                 MotionEvent.ACTION_DOWN -> {
+                    touchTarget.playImeTapFeedback()
                     downX = e.rawX; downY = e.rawY; mode = 0
                     revealPx = swipeRevealPx(frame, revealWidthDp)
                     startTx = if (swipeRevealed == text) -revealPx else 0f
@@ -1447,7 +1448,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
                     downX = e.rawX; downY = e.rawY; mode = 0
                     revealPx = swipeRevealPx(frame, revealWidthDp)
                     startTx = if (swipeRevealed == text) -revealPx else 0f
-                    keyFeedback?.begin(hapticEnabled)
+                    if (keyFeedback != null) keyFeedback.begin(hapticEnabled) else target.playImeTapFeedback()
                     false
                 }
                 MotionEvent.ACTION_MOVE -> {
@@ -1495,7 +1496,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         var downX = 0f; var downY = 0f; var mode = 0
         target.setOnTouchListener { _, e ->
             when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { downX = e.rawX; downY = e.rawY; mode = 0; false }
+                MotionEvent.ACTION_DOWN -> { target.playImeTapFeedback(); downX = e.rawX; downY = e.rawY; mode = 0; false }
                 MotionEvent.ACTION_MOVE -> {
                     val dx = e.rawX - downX; val dy = e.rawY - downY
                     if (mode == 0 && (abs(dx) > slop || abs(dy) > slop)) {
@@ -1916,7 +1917,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun attachSortDrag(handle: View, card: View, index: Int) {
         handle.setOnTouchListener { _, e ->
             when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { startDrag(liveRowIndex(card, index), e.rawY); requestDragCapture(); true }
+                MotionEvent.ACTION_DOWN -> { handle.playImeTapFeedback(); startDrag(liveRowIndex(card, index), e.rawY); requestDragCapture(); true }
                 MotionEvent.ACTION_MOVE -> {
                     if (isDragging) { updateActiveDrag(e.rawY); true } else false
                 }
@@ -1975,7 +1976,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun attachCategorySortDrag(handle: View, card: View, index: Int) {
         handle.setOnTouchListener { _, e ->
             when (e.actionMasked) {
-                MotionEvent.ACTION_DOWN -> { startCategoryDrag(liveRowIndex(card, index), e.rawY); requestDragCapture(); true }
+                MotionEvent.ACTION_DOWN -> { handle.playImeTapFeedback(); startCategoryDrag(liveRowIndex(card, index), e.rawY); requestDragCapture(); true }
                 MotionEvent.ACTION_MOVE -> {
                     if (isDragging) { updateActiveDrag(e.rawY); true } else false
                 }
@@ -2105,6 +2106,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         setTypeface(null, if (on) android.graphics.Typeface.BOLD else android.graphics.Typeface.NORMAL)
         Motion.applyTapFeedback(this, if (on) ACCENT else TEXT_DARK, radiusDp = ImeShapes.toolbarPillRadiusDp)
         setOnClickListener { selectPhraseCategory(name) }
+        bindImeTapFeedback()
         setOnLongClickListener { showCategoryMenu(name); true }
         layoutParams = ll(WC, WC).apply { rightMargin = dp(2) }
     }
@@ -2598,6 +2600,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             tabSegment(Color.WHITE, left),
         )
         setOnClickListener { onClick() }
+        bindImeTapFeedback()
     }
 
     private fun tabSegment(color: Int, left: Boolean): GradientDrawable = GradientDrawable().apply {

@@ -132,6 +132,7 @@ open class PreeditView(context: Context) : View(context) {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 if (!tab.contains(event.x, event.y)) return false
+                playImeTapFeedback()
                 downX = event.x
                 downY = event.y
                 return true

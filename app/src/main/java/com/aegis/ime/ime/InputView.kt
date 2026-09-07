@@ -107,6 +107,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private var preeditEditingNow = false
     private var currentPanel: View? = null
     private var keyHaptics = false
+    internal val keyHapticsEnabled: Boolean get() = keyHaptics
     private val keySoundPlayer = KeySoundPlayer(context)
     private var copyBarActive = false
     private var editBarActive = false

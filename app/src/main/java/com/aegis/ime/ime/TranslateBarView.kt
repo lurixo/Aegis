@@ -63,6 +63,7 @@ class TranslateBarView(context: Context) : LinearLayout(context) {
         setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
         setTypeface(null, android.graphics.Typeface.BOLD)
         setOnClickListener { if (dialog != null) dismissDialog() else showDialog() }
+        bindImeTapFeedback()
     }
     private val field = object : EditText(context) {
         override fun onTouchEvent(e: MotionEvent): Boolean {
@@ -114,6 +115,7 @@ class TranslateBarView(context: Context) : LinearLayout(context) {
             setPadding(dp(16), dp(12), dp(16), dp(12))
             compoundDrawablePadding = dp(12)
             setOnClickListener { choose(choice) }
+            bindImeTapFeedback(this@TranslateBarView)
         }
     }
     private val back = PanelBackButton.control(context, context.getString(R.string.panel_back), palette.keyLabel) { onClose() }.apply {

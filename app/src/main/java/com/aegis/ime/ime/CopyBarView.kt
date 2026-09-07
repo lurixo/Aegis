@@ -170,6 +170,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
     }.apply {
         Motion.applyTapFeedback(this, palette.icon)
         setOnClickListener { ctl.tapContent() }
+        bindImeTapFeedback()
     }
 
     private fun content(s: String): TextView = TextView(context).apply {
@@ -181,6 +182,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         gravity = Gravity.CENTER_VERTICAL
         Motion.applyTapFeedback(this, palette.candidateText)
         setOnClickListener { ctl.tapContent() }
+        bindImeTapFeedback()
     }
 
     private fun chip(index: Int, label: String): TextView = TextView(context).apply {
@@ -192,6 +194,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         setOnClickListener {
             ctl.tapBlock(index)?.let { selected -> applyChipState(this, selected) }
         }
+        bindImeTapFeedback()
         layoutParams = LinearLayout.LayoutParams(WC, WC).apply { rightMargin = dp(6) }
     }
 
@@ -214,6 +217,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         setPadding(dp(10), 0, dp(10), 0)
         Motion.applyTapFeedback(this, palette.icon)
         setOnClickListener { onClick() }
+        bindImeTapFeedback()
     }
 
     private fun divider(): View = View(context).apply { setBackgroundColor(palette.separator) }

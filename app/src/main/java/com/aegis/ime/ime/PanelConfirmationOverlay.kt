@@ -236,5 +236,6 @@ internal class PanelConfirmationOverlay(context: Context) : FrameLayout(context)
         setPadding(dp(12), dp(10), dp(12), dp(10))
         Motion.applyTapFeedback(this, palette.keyLabel)
         setOnClickListener { onClick() }
+        bindImeTapFeedback()
     }
 }

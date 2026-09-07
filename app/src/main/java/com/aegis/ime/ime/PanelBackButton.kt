@@ -73,6 +73,7 @@ internal class PanelHeaderBackControl(
         minHeight = (PanelBackButton.HIT_DP * density).toInt()
         isClickable = true
         setOnClickListener { onBack() }
+        bindImeTapFeedback()
         applyTint(tint)
     }
 
