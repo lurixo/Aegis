@@ -110,7 +110,7 @@ object Layouts {
         return KeyboardLayout(LayoutId.ALPHA, cells = cells, rowCount = 4)
     }
 
-    private fun t9key(letters: String, digit: String) = Key(letters, output = digit)
+    private fun t9key(letters: String, digit: String) = Key(letters, output = digit, sub = digit)
 
     fun nine(left: List<Key>, composing: Boolean = false): KeyboardLayout {
         val u = 1f / NINE_TOTAL_U
@@ -121,7 +121,8 @@ object Layouts {
         val leftColumn = ScrollColumn(left, xL, 0f, wL, 0.75f, cellHFrac = 0.75f / 4f)
         cells.add(PlacedKey(Key(labelRes = R.string.kbd_symbols, action = SHOW_SYMBOLS, rail = true), xL, 0.75f, wL, 0.25f))
         cells.add(PlacedKey(
-            if (composing) Key(labelRes = R.string.kbd_split, action = SEGMENT) else Key("@#", action = SWITCH_NUMBERS),
+            if (composing) Key(labelRes = R.string.kbd_split, action = SEGMENT, sub = "1")
+            else Key("@#", action = SWITCH_NUMBERS, sub = "1"),
             x1, 0f, wM, 0.25f,
         ))
         cells.add(PlacedKey(t9key("ABC", "2"), x2, 0f, wM, 0.25f))
@@ -136,7 +137,7 @@ object Layouts {
         cells.add(PlacedKey(Key(labelRes = R.string.kbd_space, output = " ", action = SPACE), x1 + 0.8f * u, 0.75f, 1.4f * u, 0.25f))
         cells.add(PlacedKey(Key(action = TOGGLE_LANG, rail = true), x1 + 2.2f * u, 0.75f, 0.8f * u, 0.25f))
         cells.add(PlacedKey(Key("⌫", action = BACKSPACE, rail = true), xR, 0f, wR, 0.25f))
-        cells.add(PlacedKey(Key(labelRes = R.string.kbd_redo, action = CLEAR_COMPOSING, rail = true), xR, 0.25f, wR, 0.25f))
+        cells.add(PlacedKey(Key(labelRes = R.string.kbd_redo, action = CLEAR_COMPOSING, swipeUp = "0", rail = true), xR, 0.25f, wR, 0.25f))
         cells.add(PlacedKey(Key("↵", action = ENTER, accent = true), xR, 0.5f, wR, 0.5f))
         return KeyboardLayout(LayoutId.NINE, cells = cells, rowCount = 4, scrollColumn = leftColumn)
     }

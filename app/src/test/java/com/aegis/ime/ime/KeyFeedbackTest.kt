@@ -214,7 +214,9 @@ class KeyFeedbackTest {
         assertTrue("preview armed on a letter press", v.previewActiveForTest())
         assertEquals("q", v.previewLabelForTest())
         v.up(x, y)
-        assertFalse("preview retracts on release", v.previewActiveForTest())
+        assertTrue("preview remains briefly after release", v.previewActiveForTest())
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(80))
+        assertFalse("preview retracts after 80 ms", v.previewActiveForTest())
         assertNull(v.previewLabelForTest())
     }
 

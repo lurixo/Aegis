@@ -45,6 +45,7 @@ data class Key(
     val output: String = label,
     val action: KeyAction = KeyAction.COMMIT,
     val sub: String? = null,
+    val swipeUp: String? = sub,
     val weight: Float = 1f,
     val direct: Boolean = false,
     val preeditLiteral: Boolean = false,

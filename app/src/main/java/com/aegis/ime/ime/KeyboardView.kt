@@ -26,8 +26,8 @@ import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
 import android.util.TypedValue
-import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
+import android.view.HapticFeedbackConstants
 import android.view.View
 import android.view.ViewConfiguration
 import android.widget.OverScroller
@@ -53,6 +53,7 @@ class KeyboardView(context: Context) : View(context) {
     var onBackspaceSwipe: (Boolean) -> Unit = {}
 
     private var layout: KeyboardLayout = Layouts.forId(LayoutId.ALPHA, Lang.CN)
+    private var textPreviewLayout = LayoutId.ALPHA
     private var modeSwitches = 0
     private var layoutApplies = 0
     private var shifted = false
@@ -135,15 +136,16 @@ class KeyboardView(context: Context) : View(context) {
     private val longPressRunnable = Runnable {
         val dk = downKey ?: return@Runnable
         val dp = downPlaced ?: return@Runnable
-        if (lang != Lang.EN || !isAlphaLetter(dk)) return@Runnable
+        if (!previewEnabledForCurrentLayout() || (!hasLongPressChoices(dk) && !isRetypeKey(dk))) return@Runnable
         hidePreview()
         caseBoxKey = dk
         previewRect.set(dp.rect)
+        previewFromScroll = false
         caseBoxActive = true
         caseBoxMoved = false
         caseBoxSelected = -1
-        previewFeedback.press()
-        invalidate()
+        if (hapticEnabled) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+        invalidatePreview()
     }
 
     private fun cancelKeyHold() {
@@ -156,8 +158,14 @@ class KeyboardView(context: Context) : View(context) {
         layout.id == LayoutId.ALPHA && key.action == KeyAction.COMMIT &&
             key.label.length == 1 && key.label[0] in 'a'..'z'
 
-    private fun isNineDigit(key: Key) =
-        layout.id == LayoutId.NINE && key.action == KeyAction.COMMIT
+    private fun hasLongPressChoices(key: Key) =
+        isAlphaLetter(key) || (layout.id == LayoutId.NINE && isNineLetterBlock(key))
+
+    private fun isNineSwipeKey(key: Key) =
+        layout.id == LayoutId.NINE && key.swipeUp != null
+
+    private fun isRetypeKey(key: Key) =
+        layout.id == LayoutId.NINE && key.action == KeyAction.CLEAR_COMPOSING && key.swipeUp == "0"
 
     private val density = resources.displayMetrics.density
     private val rowHeight = 52f * density
@@ -170,7 +178,15 @@ class KeyboardView(context: Context) : View(context) {
 
     var hapticEnabled = false
     var previewNineEnabled = false
+        set(value) {
+            field = value
+            if (!previewEnabledForCurrentLayout()) disablePreviews()
+        }
     var previewAlphaEnabled = false
+        set(value) {
+            field = value
+            if (!previewEnabledForCurrentLayout()) disablePreviews()
+        }
     var caseMode: LetterCase = LetterCase.AUTO
         set(value) {
             if (field == value) return
@@ -178,8 +194,27 @@ class KeyboardView(context: Context) : View(context) {
             invalidate()
         }
     private var previewKey: Key? = null
+    private var previewFromScroll = false
     private val previewRect = RectF()
-    private val previewFeedback = Motion.PressFeedback(this)
+    private var previewHost: View? = null
+    private var previewTopLimit: () -> Float = { 0f }
+    private val dismissPreview = Runnable { hidePreview() }
+
+    internal fun bindPreviewHost(host: View, topLimit: () -> Float) {
+        hidePreview()
+        clearCaseBox()
+        previewHost = host
+        previewTopLimit = topLimit
+    }
+
+    private fun invalidatePreview() {
+        (previewHost ?: this).invalidate()
+    }
+
+    internal fun drawPreviewOverlay(canvas: Canvas) {
+        if (visibility == VISIBLE) drawPreview(canvas)
+    }
+
     private var caseBoxKey: Key? = null
     private var caseBoxActive = false
     private var caseBoxSelected = -1
@@ -209,9 +244,13 @@ class KeyboardView(context: Context) : View(context) {
     private val scrollLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.LEFT; textSize = sp(17f); typeface = android.graphics.Typeface.DEFAULT }
     private val inkBounds = android.graphics.Rect()
     private val iconPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = 2f * density; strokeCap = Paint.Cap.ROUND; strokeJoin = Paint.Join.ROUND }
-    private val previewFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
-    private val previewOutlinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.STROKE; strokeWidth = density; color = palette.separator }
-    private val previewLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(30f); typeface = android.graphics.Typeface.DEFAULT }
+    private val previewFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.floatSurface }
+    private val previewBorderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = palette.gridLine
+        style = Paint.Style.STROKE
+        strokeWidth = ImeShapes.gridLinePx(density)
+    }
+    private val previewLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.CENTER; textSize = sp(30f); typeface = android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL) }
 
     fun applyPalette(p: ImePalette) {
         palette = p
@@ -227,9 +266,10 @@ class KeyboardView(context: Context) : View(context) {
         scrollTrackPaint.color = p.railBg
         scrollbarPaint.color = withAlpha(p.icon, SCROLLBAR_ALPHA)
         scrollLabelPaint.color = p.keyLabel
-        previewFillPaint.color = p.keySurface
-        previewOutlinePaint.color = p.separator
+        previewFillPaint.color = p.floatSurface
+        previewBorderPaint.color = p.gridLine
         previewLabelPaint.color = p.keyLabel
+        invalidatePreview()
         invalidate()
     }
 
@@ -238,8 +278,10 @@ class KeyboardView(context: Context) : View(context) {
     private data class Placed(val rect: RectF, val key: Key, val groupId: Int = 0, val hitRect: RectF? = null)
 
     fun setLayout(newLayout: KeyboardLayout, isShifted: Boolean, isLocked: Boolean, language: Lang) {
+        if (newLayout.id == LayoutId.NINE || newLayout.id == LayoutId.ALPHA) textPreviewLayout = newLayout.id
         if (newLayout == layout && isShifted == shifted && isLocked == shiftLocked && language == lang) return
         val faceSwap = newLayout.id != layout.id || language != lang
+        if (faceSwap) cancelPrimary()
         val snap = if (faceSwap && width > 0) Motion.snapshot(this, palette.keyboardBg) else null
         layoutApplies++
         val sameColumn = newLayout.scrollColumn?.items?.map { it.label } == layout.scrollColumn?.items?.map { it.label }
@@ -545,7 +587,7 @@ class KeyboardView(context: Context) : View(context) {
 
         drawContent(canvas)
 
-        drawPreview(canvas)
+        if (previewHost == null) drawPreview(canvas)
     }
 
     private fun drawContent(canvas: Canvas) {
@@ -561,36 +603,48 @@ class KeyboardView(context: Context) : View(context) {
     private fun drawPreview(canvas: Canvas) {
         if (caseBoxActive) { drawCaseBox(canvas); return }
         val key = previewKey ?: return
-        val level = previewFeedback.level
-        if (level <= 0f) return
-        val bw = previewRect.width() * 1.32f
-        val bh = previewRect.height() * 1.12f
-        val cx = previewRect.centerX().coerceIn(bw / 2f, width - bw / 2f)
-        var top = previewRect.top - bh - 4f * density
-        if (top < 0f) top = 0f
-        tmpRect.set(cx - bw / 2f, top, cx + bw / 2f, top + bh)
-        val alpha = (255 * level).toInt().coerceIn(0, 255)
-        val scale = 0.86f + 0.14f * level
-        canvas.save()
-        canvas.scale(scale, scale, tmpRect.centerX(), tmpRect.bottom)
-        previewFillPaint.alpha = alpha
+        tmpRect.set(previewBounds(key))
         canvas.drawRoundRect(tmpRect, keyRadius, keyRadius, previewFillPaint)
-        previewOutlinePaint.alpha = alpha
-        canvas.drawRoundRect(tmpRect, keyRadius, keyRadius, previewOutlinePaint)
-        previewFillPaint.alpha = 255
-        previewOutlinePaint.alpha = 255
-        previewLabelPaint.alpha = alpha
-        drawFittedPreviewLabel(canvas, displayLabel(key), tmpRect)
-        previewLabelPaint.alpha = 255
-        canvas.restore()
+        drawFittedPreviewLabel(canvas, previewLabel(key), tmpRect)
+        drawPreviewBorder(canvas, tmpRect)
     }
 
-    private fun drawFittedPreviewLabel(canvas: Canvas, label: String, box: RectF) {
+    private fun drawPreviewBorder(canvas: Canvas, bounds: RectF) {
+        tmpRect.set(bounds)
+        tmpRect.inset(previewBorderPaint.strokeWidth / 2f, previewBorderPaint.strokeWidth / 2f)
+        canvas.drawRoundRect(tmpRect, keyRadius, keyRadius, previewBorderPaint)
+    }
+
+    private fun previewBounds(key: Key): RectF {
+        val wideRail = !previewFromScroll && layout.id == LayoutId.NINE && (isRetypeKey(key) || key.output == "0")
+        val compact = previewFromScroll || !wideRail && (
+            (layout.id == LayoutId.NUMPAD && key.output.singleOrNull()?.isDigit() == true) ||
+                (layout.id == LayoutId.NINE && previewLabel(key).singleOrNull()?.isDigit() == true)
+            )
+        val reference = if (compact || wideRail) placed.firstOrNull {
+            if (layout.id == LayoutId.NUMPAD) it.key.output == "5" else isNineLetterBlock(it.key)
+        }?.rect ?: previewRect else previewRect
+        val bw = when {
+            compact -> reference.width() * if (previewFromScroll || layout.id == LayoutId.NUMPAD) 0.6f else 0.5f
+            else -> (reference.width() * 1.32f).coerceAtMost(width.toFloat())
+        }
+        val bh = when {
+            compact -> maxOf(reference.height() + 8f * density, reference.width() / 2f + 8f * density)
+            else -> reference.height() * 1.12f + 4f * density
+        }
+        val cx = previewRect.centerX().coerceIn(bw / 2f, width - bw / 2f)
+        val top = (previewRect.top - bh - 2f * density).coerceAtLeast(previewTopLimit())
+        return RectF(cx - bw / 2f, top, cx + bw / 2f, top + bh)
+    }
+
+    private fun drawFittedPreviewLabel(canvas: Canvas, label: String, box: RectF, horizontalPaddingDp: Float = 6f) {
         if (label.isEmpty()) return
         val base = previewLabelPaint.textSize
-        val avail = box.width() - 12f * density
+        val avail = (box.width() - 2f * horizontalPaddingDp * density).coerceAtLeast(density)
         val w = previewLabelPaint.measureText(label)
-        if (w > avail && avail > 0f) previewLabelPaint.textSize = (base * avail / w).coerceAtLeast(14f * density)
+        val textHeight = previewLabelPaint.descent() - previewLabelPaint.ascent()
+        val height = (box.height() - 8f * density).coerceAtLeast(density)
+        previewLabelPaint.textSize = base * minOf(1f, avail / w, height / textHeight)
         canvas.drawText(
             label,
             box.centerX(),
@@ -602,36 +656,30 @@ class KeyboardView(context: Context) : View(context) {
 
     private fun drawCaseBox(canvas: Canvas) {
         val key = caseBoxKey ?: return
-        val level = previewFeedback.level
-        if (level <= 0f) return
-        val cellW = caseBoxCellW()
-        val cellH = previewRect.height() * 1.12f
-        val left = caseBoxLeft()
-        var top = previewRect.top - cellH - 4f * density
-        if (top < 0f) top = 0f
-        val alpha = (255 * level).toInt().coerceIn(0, 255)
-        val scale = 0.86f + 0.14f * level
+        val box = caseBoxBounds()
+        val cellW = box.width() / caseBoxCount()
         val labels = caseBoxLabels(key)
-        canvas.save()
-        canvas.scale(scale, scale, left + cellW * 1.5f, top + cellH)
-        for (i in 0..2) {
-            val cellLeft = left + i * cellW
-            tmpRect.set(cellLeft, top, cellLeft + cellW, top + cellH)
-            previewFillPaint.color = if (i == caseBoxSelected) palette.accentBottom else palette.keySurface
-            previewFillPaint.alpha = alpha
-            canvas.drawRoundRect(tmpRect, keyRadius, keyRadius, previewFillPaint)
-            previewOutlinePaint.alpha = alpha
-            canvas.drawRoundRect(tmpRect, keyRadius, keyRadius, previewOutlinePaint)
+        previewFillPaint.color = palette.floatSurface
+        canvas.drawRoundRect(box, keyRadius, keyRadius, previewFillPaint)
+        val labelSize = previewLabelPaint.textSize
+        previewLabelPaint.textSize = sp(24f)
+        for (i in labels.indices) {
+            val cellLeft = box.left + i * cellW
+            tmpRect.set(cellLeft + 2f * density, box.top + 4f * density,
+                cellLeft + cellW - 2f * density, box.bottom - 4f * density)
+            if (isRetypeKey(key)) tmpRect.set(retypeChoiceBounds(box))
+            if (i == caseBoxSelected) {
+                previewFillPaint.color = palette.accentBottom
+                val radius = minOf(6f * density, tmpRect.width() / 2f)
+                canvas.drawRoundRect(tmpRect, radius, radius, previewFillPaint)
+            }
             previewLabelPaint.color = if (i == caseBoxSelected) palette.accentLabel else palette.keyLabel
-            previewLabelPaint.alpha = alpha
-            drawFittedPreviewLabel(canvas, labels[i], tmpRect)
+            drawFittedPreviewLabel(canvas, labels[i], tmpRect, 1f)
         }
-        previewFillPaint.color = palette.keySurface
-        previewFillPaint.alpha = 255
-        previewOutlinePaint.alpha = 255
+        drawPreviewBorder(canvas, box)
+        previewFillPaint.color = palette.floatSurface
         previewLabelPaint.color = palette.keyLabel
-        previewLabelPaint.alpha = 255
-        canvas.restore()
+        previewLabelPaint.textSize = labelSize
     }
 
     private fun drawKey(canvas: Canvas, rect: RectF, accent: Boolean, rail: Boolean, pressLevel: Float) {
@@ -811,7 +859,7 @@ class KeyboardView(context: Context) : View(context) {
 
     internal fun shiftRenderState(): String = if (shiftLocked) "LOCK" else if (shifted) "ONCE" else "OFF"
 
-    internal fun previewLabelForTest(): String? = previewKey?.let { displayLabel(it) }
+    internal fun previewLabelForTest(): String? = previewKey?.let { previewLabel(it) }
     internal fun previewActiveForTest(): Boolean = previewKey != null
 
     internal fun displayLabelForTest(key: Key): String = displayLabel(key)
@@ -841,7 +889,6 @@ class KeyboardView(context: Context) : View(context) {
         langLabel.activePaint,
         langLabel.idlePaint,
         scrollLabelPaint,
-        previewLabelPaint,
     ).all { it.typeface === android.graphics.Typeface.DEFAULT }
 
     internal fun enterGlyphBoundsForTest(): RectF? {
@@ -852,6 +899,8 @@ class KeyboardView(context: Context) : View(context) {
     internal fun caseBoxActiveForTest(): Boolean = caseBoxActive
     internal fun caseBoxLabelsForTest(): List<String>? = caseBoxKey?.let { caseBoxLabels(it) }
     internal fun caseBoxSelectedForTest(): Int = caseBoxSelected
+    internal fun caseBoxBoundsForTest(): RectF? = if (caseBoxActive) caseBoxBounds() else null
+    internal fun previewBoundsForTest(): RectF? = previewKey?.let { previewBounds(it) }
 
     internal fun centerOfActionForTest(action: KeyAction): Pair<Float, Float>? {
         if (placed.isEmpty()) relayout()
@@ -918,8 +967,20 @@ class KeyboardView(context: Context) : View(context) {
         key.action == KeyAction.COMMIT && key.label.length > 1 && key.label.all { it in 'A'..'Z' } &&
             key.output.length == 1 && key.output[0] in '2'..'9'
 
+    private fun previewLabel(key: Key): String = when {
+        isNineLetterBlock(key) -> "${displayLabel(key)} ${key.output}"
+        layout.id == LayoutId.NINE && key.action == KeyAction.SWITCH_NUMBERS -> key.sub ?: displayLabel(key)
+        else -> displayLabel(key)
+    }
+
     private fun caseBoxLabels(key: Key): List<String> =
-        listOf(key.label.uppercase(), key.sub ?: "", key.label.lowercase())
+        if (isRetypeKey(key)) {
+            listOf("0")
+        } else if (isNineLetterBlock(key)) {
+            key.label.map { it.uppercase() } + key.output + key.label.map { it.lowercase() }
+        } else {
+            listOf(key.label.uppercase(), key.sub ?: "", key.label.lowercase())
+        }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         when (event.actionMasked) {
@@ -1009,7 +1070,9 @@ class KeyboardView(context: Context) : View(context) {
         val dk = downKey
         if (dk != null && dp != null) {
             if (isRepeatable(dk)) backspace.begin(x, y)
-            else if (lang == Lang.EN && isAlphaLetter(dk)) repeatHandler.postDelayed(longPressRunnable, LONG_PRESS_MS)
+            else if (previewEnabledForCurrentLayout() && (hasLongPressChoices(dk) || isRetypeKey(dk))) {
+                repeatHandler.postDelayed(longPressRunnable, LONG_PRESS_MS)
+            }
             if (hapticEnabled) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
             showPreview(dk, dp.rect)
         } else {
@@ -1019,26 +1082,35 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     private fun isPreviewable(key: Key) =
-        key.action == KeyAction.COMMIT || key.action == KeyAction.SEGMENT
+        key.action == KeyAction.COMMIT || key.action == KeyAction.SEGMENT || isRetypeKey(key) ||
+            (layout.id == LayoutId.NINE && key.action == KeyAction.SWITCH_NUMBERS && key.sub == "1")
 
     private fun previewEnabledForCurrentLayout(): Boolean = when (layout.id) {
         LayoutId.NINE, LayoutId.NUMPAD -> previewNineEnabled
-        LayoutId.ALPHA, LayoutId.NUMBER, LayoutId.SYMBOL -> previewAlphaEnabled
+        LayoutId.ALPHA -> previewAlphaEnabled
+        LayoutId.NUMBER, LayoutId.SYMBOL -> if (textPreviewLayout == LayoutId.NINE) previewNineEnabled else previewAlphaEnabled
     }
 
-    private fun showPreview(key: Key, rect: RectF) {
+    private fun showPreview(key: Key, rect: RectF, fromScroll: Boolean = false) {
+        if (layout.id == LayoutId.NUMPAD && key.output == "." && !fromScroll) { hidePreview(); return }
         if (!previewEnabledForCurrentLayout() || !isPreviewable(key)) { hidePreview(); return }
+        repeatHandler.removeCallbacks(dismissPreview)
         previewKey = key
         previewRect.set(rect)
-        previewFeedback.press()
-        invalidate()
+        previewFromScroll = fromScroll
+        invalidatePreview()
+    }
+
+    private fun releasePreview() {
+        repeatHandler.removeCallbacks(dismissPreview)
+        if (previewKey != null) repeatHandler.postDelayed(dismissPreview, 80L)
     }
 
     private fun hidePreview() {
+        repeatHandler.removeCallbacks(dismissPreview)
         if (previewKey == null) return
         previewKey = null
-        previewFeedback.reset()
-        invalidate()
+        invalidatePreview()
     }
 
     private fun clearCaseBox() {
@@ -1047,23 +1119,49 @@ class KeyboardView(context: Context) : View(context) {
         caseBoxKey = null
         caseBoxSelected = -1
         caseBoxMoved = false
-        previewFeedback.reset()
-        invalidate()
+        invalidatePreview()
     }
 
-    private fun caseBoxCellW(): Float = previewRect.width() * 1.15f
-    private fun caseBoxLeft(): Float {
-        val boxW = caseBoxCellW() * 3f
-        return previewRect.centerX().coerceIn(boxW / 2f, width - boxW / 2f) - boxW / 2f
+    private fun disablePreviews() {
+        cancelKeyHold()
+        hidePreview()
+        if (caseBoxActive) {
+            cancelPrimary()
+            activePointerId = MotionEvent.INVALID_POINTER_ID
+        }
     }
 
-    private fun caseBoxSelectionAt(x: Float): Int =
-        ((x - caseBoxLeft()) / caseBoxCellW()).toInt().coerceIn(0, 2)
+    private fun caseBoxCount(): Int = caseBoxKey?.let { caseBoxLabels(it).size } ?: 3
 
-    private fun caseBoxCancelAt(y: Float): Boolean {
-        val cellH = previewRect.height() * 1.12f
-        val top = (previewRect.top - cellH - 4f * density).coerceAtLeast(0f)
-        return y < top - cellH || y > previewRect.bottom + cellH
+    private fun caseBoxBounds(): RectF {
+        if (caseBoxKey?.let(::isRetypeKey) == true) return previewBounds(Key("0"))
+        val first = placed.firstOrNull { it.key.label == if (layout.id == LayoutId.NINE) "GHI" else "q" }?.rect
+        val third = placed.firstOrNull { it.key.label == if (layout.id == LayoutId.NINE) "MNO" else "e" }?.rect
+        val leftEdge = first?.left ?: 0f
+        val boxW = ((third?.right ?: (leftEdge + previewRect.width() * 3f)) - leftEdge).coerceAtMost(width.toFloat())
+        val rightEdge = if (layout.id == LayoutId.NINE) leftEdge + boxW
+            else placed.firstOrNull { it.key.label == "p" }?.rect?.right ?: width.toFloat()
+        val left = if (layout.id == LayoutId.NINE) leftEdge
+            else (previewRect.centerX() - boxW / 2f).coerceIn(leftEdge, (rightEdge - boxW).coerceAtLeast(leftEdge))
+        val boxH = previewRect.height() + 4f * density
+        val top = (previewRect.top - boxH - 2f * density).coerceAtLeast(previewTopLimit())
+        return RectF(left, top, left + boxW, top + boxH)
+    }
+
+    private fun retypeChoiceBounds(box: RectF): RectF {
+        val height = box.height() - 8f * density
+        val width = minOf(40f * density, height * 0.6f)
+        return RectF(box.centerX() - width / 2f, box.top + 4f * density,
+            box.centerX() + width / 2f, box.bottom - 4f * density)
+    }
+
+    private fun caseBoxSelectionAt(x: Float, y: Float): Int {
+        val box = caseBoxBounds()
+        if (caseBoxKey?.let(::isRetypeKey) == true) return if (retypeChoiceBounds(box).contains(x, y)) 0 else -1
+        val margin = 6f * density
+        if (x < box.left - margin || x > box.right + margin ||
+            y < box.top - margin || y > box.bottom + margin) return -1
+        return ((x - box.left) / (box.width() / caseBoxCount())).toInt().coerceIn(0, caseBoxCount() - 1)
     }
 
     private fun handlePrimaryMove(x: Float, y: Float, eventTime: Long) {
@@ -1072,8 +1170,12 @@ class KeyboardView(context: Context) : View(context) {
         when {
             caseBoxActive -> {
                 if (abs(x - downX) > caseBoxSlop || abs(y - downY) > caseBoxSlop) caseBoxMoved = true
-                val newSel = if (caseBoxMoved && !caseBoxCancelAt(y)) caseBoxSelectionAt(x) else -1
-                if (newSel != caseBoxSelected) { caseBoxSelected = newSel; invalidate() }
+                val newSel = if (caseBoxMoved) caseBoxSelectionAt(x, y) else -1
+                if (newSel != caseBoxSelected) {
+                    caseBoxSelected = newSel
+                    if (newSel >= 0) if (hapticEnabled) performHapticFeedback(HapticFeedbackConstants.SEGMENT_FREQUENT_TICK)
+                    invalidatePreview()
+                }
             }
             dk != null && dk.action == KeyAction.BACKSPACE -> {
                 val bounds = downPlaced?.let { it.hitRect ?: it.rect }
@@ -1095,11 +1197,19 @@ class KeyboardView(context: Context) : View(context) {
                     }
                 }
             }
-            dk != null && isNineDigit(dk) -> {
+            dk != null && isNineSwipeKey(dk) -> {
                 val dx = x - downX
                 val dy = y - downY
                 if (abs(dy) > abs(dx)) {
                     if (pressed !== downKey) setPressedKey(downKey)
+                    if (!swiped && abs(dy) > swipeThreshold) {
+                        swiped = true
+                        vSwipeDir = if (dy < 0) -1 else 1
+                        cancelKeyHold()
+                        if (vSwipeDir < 0) {
+                            downPlaced?.let { showPreview(Key(dk.swipeUp!!), it.rect) }
+                        } else hidePreview()
+                    }
                 } else {
                     val k = currentTarget(x, y)
                     if (k !== pressed) {
@@ -1123,16 +1233,18 @@ class KeyboardView(context: Context) : View(context) {
         cancelKeyHold()
         val dk = downKey
         val stickyPressed = pressed
-        hidePreview()
+        if (caseBoxActive) hidePreview() else releasePreview()
         releasePressedKey()
         when {
-            dk != null && caseBoxActive -> if (!caseBoxCancelAt(y)) {
-                performClick()
-                when (caseBoxSelected) {
-                    0 -> onKey(Key(dk.label.uppercase(), output = dk.label.uppercase(), direct = true, verbatim = true))
-                    1 -> dk.sub?.let { s -> onKey(Key(s, output = s, direct = true, verbatim = true)) } ?: emitKey(dk, eventTime)
-                    2 -> onKey(Key(dk.label.lowercase(), output = dk.label.lowercase(), direct = true, verbatim = true))
-                    else -> emitKey(dk, eventTime)
+            dk != null && caseBoxActive -> {
+                val moved = caseBoxMoved || abs(x - downX) > caseBoxSlop || abs(y - downY) > caseBoxSlop
+                val choice = if (moved) caseBoxLabels(dk).getOrNull(caseBoxSelectionAt(x, y)) else null
+                if (!choice.isNullOrEmpty()) {
+                    performClick()
+                    onKey(Key(choice, direct = true, preeditLiteral = isRetypeKey(dk), verbatim = !isRetypeKey(dk)))
+                } else if (!moved && !isRetypeKey(dk) && previewRect.contains(x, y)) {
+                    performClick()
+                    emitKey(dk, eventTime)
                 }
             }
             dk != null && dk.action == KeyAction.BACKSPACE -> {
@@ -1143,11 +1255,18 @@ class KeyboardView(context: Context) : View(context) {
             }
             dk != null && isAlphaLetter(dk) && swiped -> {
                 performClick()
-                if (vSwipeDir < 0 && dk.sub != null) onKey(Key(dk.sub, output = dk.sub, direct = true))
+                if (vSwipeDir < 0 && dk.swipeUp != null) {
+                    onKey(Key(dk.swipeUp, output = dk.swipeUp, direct = true, preeditLiteral = true))
+                }
                 else onKey(dk)
             }
-            dk != null && isNineDigit(dk) -> {
-                performClick(); emitKey(stickyPressed ?: dk, eventTime)
+            dk != null && isNineSwipeKey(dk) -> {
+                performClick()
+                if (swiped && vSwipeDir < 0 && dk.swipeUp != null) {
+                    onKey(Key(dk.swipeUp, output = dk.swipeUp, direct = true, preeditLiteral = true))
+                } else {
+                    emitKey(stickyPressed ?: dk, eventTime)
+                }
             }
             else ->
                 currentTarget(x, y)?.let { performClick(); emitKey(it, eventTime) }
@@ -1192,6 +1311,7 @@ class KeyboardView(context: Context) : View(context) {
         scrollPressedIndex = if (fling.stopArmed) -1 else scrollIndexAt(y)
         scrollVisualPressedIndex = scrollPressedIndex
         if (scrollPressedIndex >= 0) scrollPress.press() else scrollPress.release()
+        if (scrollPressedIndex >= 0) if (hapticEnabled) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
         showScrollPreview()
         invalidate()
     }
@@ -1220,9 +1340,9 @@ class KeyboardView(context: Context) : View(context) {
             val idx = scrollIndexAt(y)
             if (idx >= 0 && idx == scrollPressedIndex) { performClick(); onKey(col.items[idx]) }
         }
+        if (scrolling || fling.stopArmed) hidePreview() else releasePreview()
         scrollPressedIndex = -1; scrolling = false
         scrollPress.release()
-        hidePreview()
         invalidate()
     }
 
@@ -1238,8 +1358,8 @@ class KeyboardView(context: Context) : View(context) {
         val idx = scrollPressedIndex
         if (idx !in sc.items.indices || scrollCellH <= 0f) return
         val top = scrollRegion.top - scrollY + idx * scrollCellH
-        tmpRect.set(scrollRegion.left, top, scrollRegion.right, top + scrollCellH)
-        showPreview(sc.items[idx], tmpRect)
+        tmpRect.set(scrollRegion.left, maxOf(top, scrollRegion.top), scrollRegion.right, minOf(top + scrollCellH, scrollRegion.bottom))
+        showPreview(sc.items[idx], tmpRect, fromScroll = true)
     }
 
     internal fun scrollOffsetForTest(): Float = scrollY
@@ -1300,6 +1420,8 @@ class KeyboardView(context: Context) : View(context) {
     }
 
     override fun onDetachedFromWindow() {
+        hidePreview()
+        clearCaseBox()
         removeCallbacks(scrollbarTick)
         cancelKeyHold()
         backspace.cancel()

@@ -495,13 +495,15 @@ class KeyboardViewInteractionTest {
         }
     }
 
-    @Test fun the_nine_key_face_has_no_long_press_box_to_cancel() {
+    @Test fun the_nine_key_face_opens_its_letter_and_digit_choices() {
         val v = nineView(Layouts.ninePunctuation(), composing = false)
+        v.previewNineEnabled = true
         val (x, y) = requireNotNull(v.centerOfActionForTest(KeyAction.COMMIT))
         v.send(MotionEvent.ACTION_DOWN, x, y, 0)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(400))
 
-        assertFalse("the case box is an EN letter feature of the 26-key face", v.caseBoxActiveForTest())
+        assertTrue(v.caseBoxActiveForTest())
+        assertEquals(listOf("A", "B", "C", "2", "a", "b", "c"), v.caseBoxLabelsForTest())
         v.send(MotionEvent.ACTION_UP, x, y, 400)
     }
 

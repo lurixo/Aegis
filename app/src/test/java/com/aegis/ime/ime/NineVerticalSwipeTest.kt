@@ -17,6 +17,8 @@ package com.aegis.ime.ime
 
 import android.view.MotionEvent
 import android.view.View
+import com.aegis.ime.layout.Key
+import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
@@ -55,9 +57,9 @@ class NineVerticalSwipeTest {
     private fun KeyboardView.send(action: Int, x: Float, y: Float, t: Long = 0) =
         dispatchTouchEvent(MotionEvent.obtain(0, t, action, x, y, 0))
 
-    private fun KeyboardView.verticalSwipe(label: String, dyFrac: Float): String? {
-        var picked: String? = null
-        onKey = { picked = it.output }
+    private fun KeyboardView.verticalSwipe(label: String, dyFrac: Float): Key? {
+        var picked: Key? = null
+        onKey = { picked = it }
         val (x, y) = centerOfLabelForTest(label)!!
         send(MotionEvent.ACTION_DOWN, x, y, 0)
         send(MotionEvent.ACTION_MOVE, x, y + dyFrac * height, 12)
@@ -65,30 +67,38 @@ class NineVerticalSwipeTest {
         return picked
     }
 
-    private val digitOf = mapOf(
+    private val digitOf = linkedMapOf(
+        "@#" to "1",
         "ABC" to "2", "DEF" to "3", "GHI" to "4", "JKL" to "5",
         "MNO" to "6", "PQRS" to "7", "TUV" to "8", "WXYZ" to "9",
     )
 
-    @Test fun every_digit_block_up_and_down_swipe_commits_the_pressed_digit() {
+    @Test fun every_main_block_up_swipe_emits_its_literal_digit_and_down_swipe_keeps_the_tap_action() {
         val fails = ArrayList<String>()
         for ((label, digit) in digitOf) {
-            for (dir in listOf(-0.30f, 0.30f)) {
-                val v = nineView()
-                val got = v.verticalSwipe(label, dir)
-                if (got != digit) fails.add("$label ${if (dir < 0) "up" else "down"} → got=$got want=$digit")
+            val up = nineView().verticalSwipe(label, -0.30f)
+            if (up?.output != digit || up?.preeditLiteral != true) {
+                fails.add("$label up → got=${up?.output}/${up?.preeditLiteral} want=$digit/true")
+            }
+            val down = nineView().verticalSwipe(label, 0.30f)
+            if (label == "@#") {
+                if (down?.action != KeyAction.SWITCH_NUMBERS || down?.preeditLiteral == true) {
+                    fails.add("$label down → got=${down?.action}/${down?.preeditLiteral}")
+                }
+            } else if (down?.output != digit || down?.preeditLiteral == true) {
+                fails.add("$label down → got=${down?.output}/${down?.preeditLiteral} want=$digit/false")
             }
         }
-        assertEquals("every 9-key vertical swipe = a single click on the pressed digit: $fails", emptyList<String>(), fails)
+        assertEquals("9-key main-block swipe contract: $fails", emptyList<String>(), fails)
     }
 
     @Test fun the_reported_up_swipe_5_to_2_now_stays_on_5() {
-        assertEquals("5", nineView().verticalSwipe("JKL", -0.30f))
+        assertEquals("5", nineView().verticalSwipe("JKL", -0.30f)?.output)
     }
 
     @Test fun a_down_swipe_from_the_bottom_digit_row_does_not_fall_into_the_function_row() {
         for (label in listOf("PQRS", "TUV", "WXYZ")) {
-            assertEquals("$label down-swipe stays on itself", digitOf[label], nineView().verticalSwipe(label, 0.30f))
+            assertEquals("$label down-swipe stays on itself", digitOf[label], nineView().verticalSwipe(label, 0.30f)?.output)
         }
     }
 
@@ -112,15 +122,28 @@ class NineVerticalSwipeTest {
         assertEquals("6", picked)
     }
 
+    @Test fun redo_up_swipe_emits_zero_without_running_clear() {
+        var key: Key? = null
+        val view = nineView().apply { onKey = { key = it } }
+        val (x, y) = view.centerOfActionForTest(KeyAction.CLEAR_COMPOSING)!!
+        view.send(MotionEvent.ACTION_DOWN, x, y, 0)
+        view.send(MotionEvent.ACTION_MOVE, x, y - 0.30f * view.height, 12)
+        view.send(MotionEvent.ACTION_UP, x, y - 0.30f * view.height, 24)
+        assertEquals("0", key?.output)
+        assertEquals(KeyAction.COMMIT, key?.action)
+        assertEquals(true, key?.preeditLiteral)
+    }
 
-    @Test fun the_twentysix_key_vertical_flick_is_unaffected() {
-        val up = ArrayList<String>()
-        val v1 = alphaView().apply { onKey = { up.add(it.output) } }
+
+    @Test fun the_twentysix_key_up_flick_is_marked_as_a_preedit_literal() {
+        val up = ArrayList<Key>()
+        val v1 = alphaView().apply { onKey = { up.add(it) } }
         val (dx, dy) = v1.centerOfLabelForTest("d")!!
         v1.send(MotionEvent.ACTION_DOWN, dx, dy, 0)
         v1.send(MotionEvent.ACTION_MOVE, dx, dy - (swipeThreshold + 15f), 12)
         v1.send(MotionEvent.ACTION_UP, dx, dy - (swipeThreshold + 15f), 24)
-        assertEquals("26-key up-flick still commits the symbol", listOf("@"), up)
+        assertEquals("@", up.single().output)
+        assertEquals(true, up.single().preeditLiteral)
 
         val down = ArrayList<String>()
         val v2 = alphaView().apply { onKey = { down.add(it.output) } }

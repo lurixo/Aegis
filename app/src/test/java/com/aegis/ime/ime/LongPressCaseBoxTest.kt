@@ -45,6 +45,7 @@ class LongPressCaseBoxTest {
 
     private fun alphaView(lang: Lang = Lang.EN): KeyboardView = KeyboardView(context).apply {
         setLayout(Layouts.forId(LayoutId.ALPHA, lang), false, false, lang)
+        previewAlphaEnabled = true
         measure(
             View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
@@ -89,68 +90,61 @@ class LongPressCaseBoxTest {
         assertEquals(listOf("g"), out)
     }
 
-    @Test fun sliding_left_commits_the_uppercase_letter() {
-        val out = scenario { v, _, gy ->
-            v.send(MotionEvent.ACTION_MOVE, 1f, gy, 380)
-            assertEquals("upper cell selected", 0, v.caseBoxSelectedForTest())
-            v.send(MotionEvent.ACTION_UP, 1f, gy, 400)
+    @Test fun selecting_each_visible_cell_commits_its_literal() {
+        for ((index, value) in listOf("G", "%", "g").withIndex()) {
+            val out = scenario { v, _, _ ->
+                val box = requireNotNull(v.caseBoxBoundsForTest())
+                val x = box.left + box.width() * (index + .5f) / 3f
+                v.send(MotionEvent.ACTION_MOVE, x, box.centerY(), 380)
+                assertEquals(index, v.caseBoxSelectedForTest())
+                v.send(MotionEvent.ACTION_UP, x, box.centerY(), 400)
+            }
+            assertEquals(listOf(value), out)
         }
-        assertEquals(listOf("G"), out)
     }
 
-    @Test fun sliding_to_the_middle_commits_the_symbol() {
+    @Test fun leaving_any_popup_edge_cancels_and_returning_to_a_cell_restores_selection() {
+        for (edge in 0..3) for (returnToBox in listOf(false, true)) {
+            val out = scenario { v, _, _ ->
+                val box = requireNotNull(v.caseBoxBoundsForTest())
+                v.send(MotionEvent.ACTION_MOVE, box.centerX(), box.centerY(), 370)
+                assertEquals(1, v.caseBoxSelectedForTest())
+                val margin = 8f * density
+                var x = when (edge) { 0 -> box.left - margin; 1 -> box.right + margin; else -> box.centerX() }
+                var y = when (edge) { 2 -> box.top - margin; 3 -> box.bottom + margin; else -> box.centerY() }
+                v.send(MotionEvent.ACTION_MOVE, x, y, 380)
+                assertEquals(-1, v.caseBoxSelectedForTest())
+                if (returnToBox) {
+                    x = box.centerX(); y = box.centerY()
+                    v.send(MotionEvent.ACTION_MOVE, x, y, 390)
+                    assertEquals(1, v.caseBoxSelectedForTest())
+                }
+                v.send(MotionEvent.ACTION_UP, x, y, 400)
+            }
+            assertEquals(if (returnToBox) listOf("%") else emptyList(), out)
+        }
+    }
+
+    @Test fun returning_to_the_original_key_after_selecting_cancels_without_typing_the_base_letter() {
         val out = scenario { v, gx, gy ->
-            v.send(MotionEvent.ACTION_MOVE, gx, gy - 40f * density, 380)
-            assertEquals("symbol cell selected", 1, v.caseBoxSelectedForTest())
-            v.send(MotionEvent.ACTION_UP, gx, gy - 40f * density, 400)
+            val box = requireNotNull(v.caseBoxBoundsForTest())
+            v.send(MotionEvent.ACTION_MOVE, box.centerX(), box.centerY(), 380)
+            assertEquals(1, v.caseBoxSelectedForTest())
+            v.send(MotionEvent.ACTION_MOVE, gx, gy, 390)
+            assertEquals(-1, v.caseBoxSelectedForTest())
+            v.send(MotionEvent.ACTION_UP, gx, gy, 400)
         }
-        assertEquals(listOf("%"), out)
+        assertTrue(out.isEmpty())
     }
 
-    @Test fun sliding_right_commits_the_lowercase_letter() {
-        val out = scenario { v, _, gy ->
-            v.send(MotionEvent.ACTION_MOVE, v.width - 1f, gy, 380)
-            assertEquals("lower cell selected", 2, v.caseBoxSelectedForTest())
-            v.send(MotionEvent.ACTION_UP, v.width - 1f, gy, 400)
+    @Test fun release_position_is_checked_even_without_a_final_move_event() {
+        val out = scenario { v, _, _ ->
+            val box = requireNotNull(v.caseBoxBoundsForTest())
+            v.send(MotionEvent.ACTION_MOVE, box.centerX(), box.centerY(), 380)
+            v.send(MotionEvent.ACTION_UP, box.right + 8f * density, box.centerY(), 400)
         }
-        assertEquals(listOf("g"), out)
+        assertTrue(out.isEmpty())
     }
-
-
-    @Test fun dragging_a_cell_height_below_the_key_cancels_and_commits_nothing() {
-        val out = ArrayList<String>()
-        val v = alphaView().apply { onKey = { out.add(it.output) } }
-        val rect = v.boundsOfLabelForTest("g")!!
-        val (gx, gy) = v.centerOfLabelForTest("g")!!
-        val cancelY = rect.bottom + rect.height() * 1.12f
-        v.send(MotionEvent.ACTION_DOWN, gx, gy, 0)
-        holdOpen()
-        v.send(MotionEvent.ACTION_MOVE, gx, cancelY - 2f, 380)
-        assertEquals("just inside the bound still selects a cell", 1, v.caseBoxSelectedForTest())
-        v.send(MotionEvent.ACTION_MOVE, gx, cancelY + 2f, 390)
-        assertEquals("past the bound the selection clears", -1, v.caseBoxSelectedForTest())
-        v.send(MotionEvent.ACTION_UP, gx, cancelY + 2f, 400)
-        assertEquals(emptyList<String>(), out)
-    }
-
-    @Test fun dragging_a_cell_height_above_the_box_cancels_and_commits_nothing() {
-        val out = ArrayList<String>()
-        val v = alphaView().apply { onKey = { out.add(it.output) } }
-        val rect = v.boundsOfLabelForTest("g")!!
-        val (gx, gy) = v.centerOfLabelForTest("g")!!
-        val cellH = rect.height() * 1.12f
-        val boxTop = (rect.top - cellH - 4f * density).coerceAtLeast(0f)
-        val cancelY = boxTop - cellH
-        v.send(MotionEvent.ACTION_DOWN, gx, gy, 0)
-        holdOpen()
-        v.send(MotionEvent.ACTION_MOVE, gx, cancelY + 2f, 380)
-        assertEquals("just inside the bound still selects a cell", 1, v.caseBoxSelectedForTest())
-        v.send(MotionEvent.ACTION_MOVE, gx, cancelY - 2f, 390)
-        assertEquals("past the bound the selection clears", -1, v.caseBoxSelectedForTest())
-        v.send(MotionEvent.ACTION_UP, gx, cancelY - 2f, 400)
-        assertEquals(emptyList<String>(), out)
-    }
-
 
     private class RecordingHost : ImeHost {
         val commits = mutableListOf<String>()
@@ -170,8 +164,10 @@ class LongPressCaseBoxTest {
         val (gx, gy) = v.centerOfLabelForTest("g")!!
         v.send(MotionEvent.ACTION_DOWN, gx, gy, 0)
         holdOpen()
-        v.send(MotionEvent.ACTION_MOVE, v.width - 1f, gy, 380)
-        v.send(MotionEvent.ACTION_UP, v.width - 1f, gy, 400)
+        val box = requireNotNull(v.caseBoxBoundsForTest())
+        val x = box.left + box.width() * 5f / 6f
+        v.send(MotionEvent.ACTION_MOVE, x, box.centerY(), 380)
+        v.send(MotionEvent.ACTION_UP, x, box.centerY(), 400)
         return host.commits
     }
 
@@ -184,13 +180,17 @@ class LongPressCaseBoxTest {
     }
 
 
-    @Test fun cn_long_press_does_not_open_the_box() {
-        val v = alphaView(Lang.CN)
+    @Test fun cn_long_press_opens_choices_and_lifting_without_sliding_keeps_pinyin() {
+        val out = ArrayList<Key>()
+        val v = alphaView(Lang.CN).apply { onKey = { out.add(it) } }
         val (gx, gy) = v.centerOfLabelForTest("g")!!
         v.send(MotionEvent.ACTION_DOWN, gx, gy, 0)
         holdOpen()
-        assertFalse("CN never opens the case box (letters are pinyin)", v.caseBoxActiveForTest())
+        assertTrue(v.caseBoxActiveForTest())
+        assertEquals(listOf("G", "％", "g"), v.caseBoxLabelsForTest())
         v.send(MotionEvent.ACTION_UP, gx, gy, 400)
+        assertEquals(listOf("g"), out.map { it.output })
+        assertFalse(out.single().direct)
     }
 
 
@@ -226,7 +226,7 @@ class LongPressCaseBoxTest {
         val boxDuringFlick = v.caseBoxActiveForTest()
         v.send(MotionEvent.ACTION_UP, qx, qy - (swipeThreshold + 15f), 20)
         assertEquals("CN up-flick on q commits its digit sub", listOf("1"), out)
-        assertFalse("CN never opens the case box", boxDuringFlick)
+        assertFalse("a quick CN flick never opens the case box", boxDuringFlick)
     }
 
     @Test fun a_short_tap_commits_the_letter_and_never_opens_the_box() {

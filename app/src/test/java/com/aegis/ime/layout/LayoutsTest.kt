@@ -27,15 +27,27 @@ class LayoutsTest {
 
     private fun keysOf(l: KeyboardLayout): List<Key> = l.cells?.map { it.key } ?: l.rows.flatMap { it.keys }
 
-    @Test fun nine_middle_labels_are_letters_not_digits() {
+    @Test fun nine_main_keys_keep_their_labels_and_show_one_through_nine_as_up_swipes() {
         val labels = nine.cells!!.map { it.key.label }.toSet()
-        for (l in listOf("@#", "ABC", "DEF", "GHI", "JKL", "MNO", "PQRS", "TUV", "WXYZ")) {
+        val main = listOf("@#", "ABC", "DEF", "GHI", "JKL", "MNO", "PQRS", "TUV", "WXYZ")
+        for (l in main) {
             assertTrue("9-key missing middle key $l", l in labels)
         }
         assertTrue(
             "9-key must not label keys with digits",
             nine.cells.none { it.key.action == KeyAction.COMMIT && it.key.label.length == 1 && it.key.label[0] in '0'..'9' },
         )
+        assertEquals(
+            (1..9).map(Int::toString),
+            main.map { label -> nine.cells.first { it.key.label == label }.key.sub },
+        )
+        assertEquals(
+            (1..9).map(Int::toString),
+            main.map { label -> nine.cells.first { it.key.label == label }.key.swipeUp },
+        )
+        val redo = nine.cells.first { it.key.action == KeyAction.CLEAR_COMPOSING }.key
+        assertEquals("0", redo.swipeUp)
+        assertEquals("重输 does not gain a visible zero hint", null, redo.sub)
     }
 
     @Test fun nine_right_column_order_is_backspace_clear_enter() {
@@ -75,6 +87,7 @@ class LayoutsTest {
                 listOf("1", "2", "3", "4", "5", "6", "7", "8", "9", "0"),
                 topRow.map { it.key.sub },
             )
+            assertEquals(topRow.map { it.key.sub }, topRow.map { it.key.swipeUp })
         }
     }
 
@@ -158,6 +171,9 @@ class LayoutsTest {
             "composing 9-key top-left must be the 分词 key",
             composing.cells!!.any { it.key.labelRes == com.aegis.ime.R.string.kbd_split && it.key.action == KeyAction.SEGMENT },
         )
+        val split = composing.cells!!.first { it.key.action == KeyAction.SEGMENT }.key
+        assertEquals("1", split.sub)
+        assertEquals("1", split.swipeUp)
     }
 
     @Test fun nine_left_column_is_a_scroll_column_not_fixed_cells() {

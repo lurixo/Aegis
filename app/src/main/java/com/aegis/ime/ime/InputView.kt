@@ -190,6 +190,12 @@ class InputView(context: Context) : LinearLayout(context) {
 
     override fun dispatchDraw(canvas: Canvas) {
         super.dispatchDraw(canvas)
+        if (keyboardView.visibility == VISIBLE) {
+            canvas.save()
+            canvas.translate(keyboardVisualLeftPx().toFloat(), keyboardVisualTopPx().toFloat())
+            keyboardView.drawPreviewOverlay(canvas)
+            canvas.restore()
+        }
         drawBackspaceBubble(canvas)
         drawToast(canvas)
     }
@@ -441,6 +447,7 @@ class InputView(context: Context) : LinearLayout(context) {
         keyboardView.onKey = { key -> onKey(key) }
         keyboardView.onBackspaceSwipe = { up -> onBackspaceSwipe(up) }
         keyboardView.bindBackspaceBubbleObserver(Runnable { invalidate() })
+        keyboardView.bindPreviewHost(this) { -keyboardVisualTopPx().toFloat() }
         copyBarView.onCommit = { t -> onCopyCommit(t) }
         copyBarView.onSelectionChanged = { text -> onCopySelectionChanged(text) }
         copyBarView.onSelectionFinished = { onCopySelectionFinished() }

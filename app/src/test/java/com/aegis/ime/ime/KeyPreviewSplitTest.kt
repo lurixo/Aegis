@@ -15,6 +15,9 @@
 
 package com.aegis.ime.ime
 
+import android.os.Looper
+import java.time.Duration
+import org.robolectric.Shadows.shadowOf
 import android.view.MotionEvent
 import android.view.View
 import com.aegis.ime.layout.Key
@@ -91,7 +94,7 @@ class KeyPreviewSplitTest {
 
     @Test fun the_nine_toggle_governs_only_the_nine_world() {
         val nine = nineView(composing = false).apply { previewNineEnabled = true; previewAlphaEnabled = false }
-        assertEquals("9-key digit previews the whole block", true to "ABC", nine.previewOnLabel("ABC"))
+        assertEquals("9-key digit previews the whole block", true to "ABC 2", nine.previewOnLabel("ABC"))
         val numpad = view(LayoutId.NUMPAD).apply { previewNineEnabled = true; previewAlphaEnabled = false }
         assertEquals("numpad (9-key world) previews", true to "1", numpad.previewOnLabel("1"))
         val alpha = view(LayoutId.ALPHA, Lang.EN).apply { previewNineEnabled = true; previewAlphaEnabled = false }
@@ -116,8 +119,8 @@ class KeyPreviewSplitTest {
 
     @Test fun every_nine_key_digit_block_previews_its_full_letters() {
         val nine = nineView(composing = false).apply { previewNineEnabled = true }
-        for (block in listOf("ABC", "DEF", "GHI", "JKL", "MNO", "PQRS", "TUV", "WXYZ")) {
-            assertEquals("$block previews the block, not its digit", true to block, nine.previewOnLabel(block))
+        for ((i, block) in listOf("ABC", "DEF", "GHI", "JKL", "MNO", "PQRS", "TUV", "WXYZ").withIndex()) {
+            assertEquals("$block previews letters and digit", true to "$block ${i + 2}", nine.previewOnLabel(block))
         }
     }
 
@@ -126,7 +129,7 @@ class KeyPreviewSplitTest {
         val nine = nineView(composing = true).apply { previewNineEnabled = true }
         assertEquals("SEGMENT key previews while composing", true, nine.previewOnAction(KeyAction.SEGMENT))
         val rest = nineView(composing = false).apply { previewNineEnabled = true }
-        assertEquals(false to null, rest.previewOnLabel("@#"))
+        assertEquals(true to "1", rest.previewOnLabel("@#"))
     }
 
 
@@ -136,7 +139,9 @@ class KeyPreviewSplitTest {
         assertTrue("scroll-column press arms a preview", nine.previewActiveForTest())
         assertEquals("，", nine.previewLabelForTest())
         nine.up(nine.scrollCx(), nine.scrollCellY(0))
-        assertFalse("preview retracts on release", nine.previewActiveForTest())
+        assertTrue("preview remains briefly after release", nine.previewActiveForTest())
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(80))
+        assertFalse("preview retracts after 80 ms", nine.previewActiveForTest())
     }
 
     @Test fun the_numpad_operator_column_previews_too_but_only_under_the_nine_toggle() {
@@ -152,7 +157,7 @@ class KeyPreviewSplitTest {
         val nine = nineView(composing = true).apply { previewNineEnabled = true }
         for (action in listOf(
             KeyAction.SHOW_SYMBOLS, KeyAction.SWITCH_NUMPAD, KeyAction.SPACE,
-            KeyAction.TOGGLE_LANG, KeyAction.BACKSPACE, KeyAction.CLEAR_COMPOSING, KeyAction.ENTER,
+            KeyAction.TOGGLE_LANG, KeyAction.BACKSPACE, KeyAction.ENTER,
         )) {
             assertFalse("$action must not preview on the 9-key", nine.previewOnAction(action))
         }
