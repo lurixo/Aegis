@@ -1437,6 +1437,8 @@ class KeyboardController(
 
     internal fun preeditForTest(): String = preeditText()
 
+    internal fun rawComposingForTest(): String = composing.toString()
+
     fun onPickReadingIndex(index: Int) {
         val readings = expandedReadings()
         if (index !in readings.indices) return
