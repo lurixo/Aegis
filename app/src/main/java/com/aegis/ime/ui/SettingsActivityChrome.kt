@@ -56,12 +56,19 @@ internal fun ComponentActivity.bootstrapSettingsEdgeToEdge() {
 
 @Composable
 internal fun SettingsActivityChrome(content: @Composable () -> Unit) {
-    AegisTheme {
+    val darkTheme = androidx.compose.foundation.isSystemInDarkTheme()
+    AegisTheme(darkTheme = darkTheme) {
         val window = LocalContext.current.findActivity()?.window
         val view = LocalView.current
         val backgroundColor = MaterialTheme.colorScheme.background.toArgb()
         SideEffect {
             window?.syncSettingsBackground(backgroundColor)
+            if (window != null) {
+                androidx.core.view.WindowCompat.getInsetsController(window, view).apply {
+                    isAppearanceLightStatusBars = !darkTheme
+                    isAppearanceLightNavigationBars = !darkTheme
+                }
+            }
             view.setBackgroundColor(backgroundColor)
             view.rootView.setBackgroundColor(backgroundColor)
         }
