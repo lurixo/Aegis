@@ -26,26 +26,96 @@ object SymbolCatalog {
     val RECENT_TITLE_RES = R.string.sym_cat_recent
 
     val categories: List<Category> = listOf(
-        Category("zh", R.string.sym_cat_zh, tokens("， 。 、 ； ： ？ ！ “ ” ‘ ’ （ ） 《 》 〈 〉 「 」 『 』 【 】 〔 〕 〖 〗 … — ～ · ※ ° ‖ ￥ 〃 ＿ ﹏ ﹋ ＃ ＆ ＊ ＠ ％ ＋ ＝ ｜ ＜ ＞ ／ ＼ ｀")),
+        Category("zh", R.string.sym_cat_zh, tokens(
+            "， 。 、 ？ ！ ； ： … — ～ · “ ” ‘ ’ （ " +
+            "） ［ ］ ｛ ｝ 《 》 〈 〉 「 」 『 』 【 】 〔 " +
+            "〕 〖 〗 〘 〙 ※ ° ‖ ￥ 〃 ＿ ﹏ ﹋ ＃ ＆ ＊ " +
+            "＠ ％ ＋ ＝ ｜ ＜ ＞ ／ ＼ ｀",
+        )),
         Category("en", R.string.sym_cat_en, listOf(
-            ",", ".", ";", ":", "?", "!", "'", "\"", "`", "(", ")", "[", "]", "{", "}",
-            "<", ">", "/", "\\", "|", "@", "#", "$", "%", "^", "&", "*", "-", "_", "+", "=", "~",
-            "…", "•", "·", "—", "–", "°", "§", "¶", "™", "©", "®",
+            ",", ".", "?", "!", ";", ":", "'", "\"", "…", "‥", "—", "–",
+            "-", "_", "(", ")", "[", "]", "{", "}", "<", ">", "«", "»",
+            "‹", "›", "/", "\\", "|", "@", "#", "$", "%", "^", "&", "*",
+            "+", "=", "~", "`", "´", "¨", "′", "″", "¡", "¿", "•", "·",
+            "°", "§", "¶", "™", "©", "®", "♀", "♂", "┄", "¯",
         )),
-        Category("currency", R.string.sym_cat_currency, tokens("$ ¥ € £ ₩ ₹ ₽ ₺ ฿ ₫ ₴ ₦ ¢ ₱ ₪ ₸ ₮ ₭ ₲ ₡ ₵ ₿ ﷼ ₠ ₣ ₤ ₥ 元 円 圆")),
+        Category("currency", R.string.sym_cat_currency, tokens(
+            "$ ¥ € £ ₩ ₹ ₽ ₺ ฿ ₫ ₴ ₦ ¢ ₱ ₪ ₸ " +
+            "₮ ₭ ₲ ₡ ₵ ₿ ﷼ ₠ ₣ ₤ ₥ 元 円 圆",
+        )),
         Category("net", R.string.sym_cat_net, listOf(
-            ".", "/", "@", "-", "_", "http://", "https://", ":", "#", "?", "&", "=", "%",
+            ".", "/", "@", "-", "_", "http://", "https://", ":", "#", "?", "&", "=",
+            "%",
         )),
-        Category("math", R.string.sym_cat_math, tokens("+ − × ÷ * / = ≠ ≈ ≡ ± ∓ < > ≤ ≥ ∞ √ ∛ ∑ ∏ ∫ ∬ ∭ ∮ ∂ ∇ ∆ ％ ‰ ∝ ∴ ∵ ∠ ⊥ ∥ ° ′ ″ π θ φ λ μ Σ Ω ½ ⅓ ¼ ¾ ⅔ ∈ ∉ ⊂ ⊃ ⊆ ⊇ ∪ ∩ ∅ ∀ ∃ ≅ ∽ ⊕ ⊗ ⊙ ℝ ℕ ℤ ℚ ℂ sin cos tan cot sec csc arcsin arccos arctan sinh cosh tanh ℃ ℉ ㎏ ㎜ ㎝ ㎞ ㎡ ㎥ ㎎ ㎖")),
-        Category("greek", R.string.sym_cat_greek, tokens("α β γ δ ε ζ η θ ι κ λ μ ν ξ ο π ρ σ ς τ υ φ χ ψ ω Α Β Γ Δ Ε Ζ Η Θ Ι Κ Λ Μ Ν Ξ Ο Π Ρ Σ Τ Υ Φ Χ Ψ Ω")),
-        Category("arrow", R.string.sym_cat_arrow, tokens("← → ↑ ↓ ↔ ↕ ↖ ↗ ↘ ↙ ⇐ ⇒ ⇑ ⇓ ⇔ ⇕ ↩ ↪ ↺ ↻ ➜ ➤ ➔ ⟶ ⟵ » « ‹ › ⬅ ➡ ⬆ ⬇ ⤴ ⤵")),
-        Category("supsub", R.string.sym_cat_supsub, tokens("⁰ ¹ ² ³ ⁴ ⁵ ⁶ ⁷ ⁸ ⁹ ⁺ ⁻ ⁼ ⁽ ⁾ ⁿ ⁱ ₀ ₁ ₂ ₃ ₄ ₅ ₆ ₇ ₈ ₉ ₊ ₋ ₌ ₍ ₎ ₐ ₑ ₒ ₓ ℃ ℉ ㎡ ㎥ ㎏ ㎜ ㎝ ㎞ ㎎ ㎖")),
-        Category("ordinal", R.string.sym_cat_ordinal, tokens("① ② ③ ④ ⑤ ⑥ ⑦ ⑧ ⑨ ⑩ ⑪ ⑫ ⑬ ⑭ ⑮ ⑯ ⑰ ⑱ ⑲ ⑳ ⒈ ⒉ ⒊ ⒋ ⒌ ⒍ ⒎ ⒏ ⒐ ⒑ ⑴ ⑵ ⑶ ⑷ ⑸ ⑹ ⑺ ⑻ ⑼ ⑽ Ⅰ Ⅱ Ⅲ Ⅳ Ⅴ Ⅵ Ⅶ Ⅷ Ⅸ Ⅹ ⅰ ⅱ ⅲ ⅳ ⅴ ㈠ ㈡ ㈢ ㈣ ㈤ ㈥ ㈦ ㈧ ㈨ ㈩ Ⓐ Ⓑ Ⓒ ⓐ ⓑ ⓒ")),
-        Category("ipa", R.string.sym_cat_ipa, tokens("i ɪ e ɛ æ ə ɜ ʌ ɑ ɒ ɔ o ʊ u y ø θ ð ʃ ʒ ŋ ʤ ʧ ç x ɣ ʔ ɹ ɫ ɲ ˈ ˌ ː ˑ")),
-        Category("pinyin", R.string.sym_cat_pinyin, tokens("a ā á ǎ à o ō ó ǒ ò e ē é ě è ê i ī í ǐ ì u ū ú ǔ ù ü ǖ ǘ ǚ ǜ n ń ň ǹ ḿ")),
+        Category("math", R.string.sym_cat_math, tokens(
+            "+ − × ÷ * / = ≠ ≈ ≒ ≡ ≅ ∽ ± ∓ < " +
+            "> ≤ ≥ ≮ ≯ ∝ ∞ √ ∛ ^ · ∶ ∷ ％ ‰ ‱ " +
+            "℅ ½ ⅓ ⅔ ¼ ¾ ∈ ∉ ∅ ⊂ ⊃ ⊆ ⊇ ⊄ ⊅ ⊈ " +
+            "⊉ ⊊ ⊋ ∩ ∪ ∀ ∃ ∧ ∨ ∴ ∵ ⊕ ⊗ ⊙ ℝ ℕ " +
+            "ℤ ℚ ℂ ∑ ∏ ∫ ∬ ∭ ∮ ∯ ∰ ∂ ∇ ∆ ∠ ∟ " +
+            "⊿ △ ⊥ ∥ ⌒ ° ′ ″ π θ φ λ μ Σ Ω sin " +
+            "cos tan cot sec csc arcsin arccos arctan sinh cosh tanh log ln lim ℃ ℉ " +
+            "㎎ ㎏ ㎛ ㎜ ㎝ ㎞ ㎡ ㎥ ㏄ ㎖ ㏖ ㏕",
+        )),
+        Category("supsub", R.string.sym_cat_supsub, tokens(
+            "⁰ ¹ ² ³ ⁴ ⁵ ⁶ ⁷ ⁸ ⁹ ⁺ ⁻ ⁼ ⁽ ⁾ ᵃ " +
+            "ᵇ ᶜ ᵈ ᵉ ᶠ ᵍ ʰ ⁱ ʲ ᵏ ˡ ᵐ ⁿ ᵒ ᵖ ʳ " +
+            "ˢ ᵗ ᵘ ᵛ ʷ ˣ ʸ ᶻ ᶞ ᴬ ᴮ ᴰ ᴱ ᴳ ᴴ ᴵ " +
+            "ᴶ ᴷ ᴸ ᴹ ᴺ ᴼ ᴾ ᴿ ᵀ ᵁ ⱽ ᵂ ₀ ₁ ₂ ₃ " +
+            "₄ ₅ ₆ ₇ ₈ ₉ ₊ ₋ ₌ ₍ ₎ ₐ ₑ ₕ ᵢ ⱼ " +
+            "ₖ ₗ ₘ ₙ ₒ ₚ ᵣ ₛ ₜ ᵤ ᵥ ₓ ₔ ᵧ",
+        )),
+        Category("ordinal", R.string.sym_cat_ordinal, tokens(
+            "① ② ③ ④ ⑤ ⑥ ⑦ ⑧ ⑨ ⑩ ⑪ ⑫ ⑬ ⑭ ⑮ ⑯ " +
+            "⑰ ⑱ ⑲ ⑳ ❶ ❷ ❸ ❹ ❺ ❻ ❼ ❽ ❾ ❿ ⒈ ⒉ " +
+            "⒊ ⒋ ⒌ ⒍ ⒎ ⒏ ⒐ ⒑ ⑴ ⑵ ⑶ ⑷ ⑸ ⑹ ⑺ ⑻ " +
+            "⑼ ⑽ ㈠ ㈡ ㈢ ㈣ ㈤ ㈥ ㈦ ㈧ ㈨ ㈩ 壹 贰 叁 肆 " +
+            "伍 陆 柒 捌 玖 拾 佰 仟 万 亿 貳 參 陸 萬 億 Ⅰ " +
+            "Ⅱ Ⅲ Ⅳ Ⅴ Ⅵ Ⅶ Ⅷ Ⅸ Ⅹ Ⅺ Ⅻ ⅰ ⅱ ⅲ ⅳ ⅴ " +
+            "ⅵ ⅶ ⅷ ⅸ ⅹ ⅺ ⅻ Ⓐ Ⓑ Ⓒ ⓐ ⓑ ⓒ",
+        )),
+        Category("arrow", R.string.sym_cat_arrow, tokens(
+            "← → ↑ ↓ ↔ ↕ ↖ ↗ ↙ ↘ ⇐ ⇒ ⇑ ⇓ ⇔ ⇕ " +
+            "⇄ ⇆ ⇅ ⇵ ↞ ↠ ↟ ↡ ⤊ ⤋ ↢ ↣ ↤ ↦ ↥ ↧ " +
+            "↰ ↱ ↲ ↳ ↩ ↪ ⤴ ⤵ ↶ ↷ ↺ ↻ ↜ ↝ ⇜ ⇝ " +
+            "⇎ ⇦ ⇨ ⇧ ⇩ ⇪ ⟵ ⟶ ⬅ ➡ ⬆ ⬇ ➔ ➜ ➝ ➞ " +
+            "➟ ➠ ➢ ➣ ➤ ➥ ➦ ➧ ➨ ➩ ➪ ➫ ➬ ➭ ➮ ➯ " +
+            "➱ ➲ ➳ ➴ ➵ ➶ ➷ ➸ ➹ ➺ ➻ ➼ ➽ ➾ ☜ ☞ " +
+            "☝ ☟",
+        )),
+        Category("greek", R.string.sym_cat_greek, tokens(
+            "α β γ δ ε ζ η θ ι κ λ μ ν ξ ο π " +
+            "ρ σ ς τ υ φ χ ψ ω Α Β Γ Δ Ε Ζ Η " +
+            "Θ Ι Κ Λ Μ Ν Ξ Ο Π Ρ Σ Τ Υ Φ Χ Ψ " +
+            "Ω",
+        )),
+        Category("vertical", R.string.sym_cat_vertical, tokens(
+            "︐ ︒ ︑ ︓ ︔ ︕ ︖ ︙ ︰ ︵ ︶ ︷ ︸ ︹ ︺ ︿ " +
+            "﹀ ︽ ︾ ﹁ ﹂ ﹃ ﹄ ︻ ︼ ︗ ︘ ﹇ ﹈ ︱ ︲ ︳ " +
+            "︴ ﹉ ﹊ ﹋ ﹌ ﹍ ﹎ ﹏ ＿ ￣ ¦ ¡ ¿ ^ ˇ ¨ " +
+            "´",
+        )),
+        Category("ipa", R.string.sym_cat_ipa, tokens(
+            "ɑː ɔː ɜː iː uː ʌ ɒ ə ɪ ʊ e æ eɪ aɪ ɔɪ ɪə " +
+            "eə ʊə əʊ aʊ p b t d k g f v θ ð s z " +
+            "ʃ ʒ h m n ŋ l r j w ts dz tʃ dʒ tr dr " +
+            "ˈ ˌ ː ˑ i ɛ ɜ ɑ ɔ o u y ø ʤ ʧ ç " +
+            "x ɣ ʔ ɹ ɫ ɲ",
+        )),
+        Category("pinyin", R.string.sym_cat_pinyin, tokens(
+            "a ā á ǎ à o ō ó ǒ ò e ē é ě è ê " +
+            "i ī í ǐ ì u ū ú ǔ ù ü ǖ ǘ ǚ ǜ n " +
+            "ń ň ǹ ḿ",
+        )),
     )
 
     fun categoryIdOf(symbol: String): String? = symbolToCategory[symbol]
+
+    fun originFor(symbol: String, recordedOrigin: String?): String? = when {
+        recordedOrigin == "arrow" && symbol in setOf("«", "»", "‹", "›") -> "en"
+        recordedOrigin == "supsub" && symbol in setOf("℃", "℉", "㎡", "㎥", "㎏", "㎜", "㎝", "㎞", "㎎", "㎖") -> "math"
+        else -> recordedOrigin ?: categoryIdOf(symbol)
+    }
 
     fun titleResOf(id: String): Int? =
         if (id == RECENT_ID) RECENT_TITLE_RES else categories.firstOrNull { it.id == id }?.titleRes
@@ -85,6 +155,21 @@ object SymbolCatalog {
     }
 
     private val pairedSymbols: Map<String, String> = linkedMapOf(
+        "［" to "］",
+        "｛" to "｝",
+        "〘" to "〙",
+        "«" to "»",
+        "‹" to "›",
+        "︵" to "︶",
+        "︷" to "︸",
+        "︹" to "︺",
+        "︿" to "﹀",
+        "︽" to "︾",
+        "﹁" to "﹂",
+        "﹃" to "﹄",
+        "︻" to "︼",
+        "︗" to "︘",
+        "﹇" to "﹈",
         "（" to "）",
         "《" to "》",
         "〈" to "〉",

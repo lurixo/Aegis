@@ -23,7 +23,7 @@ class SymbolCatalogTest {
 
     @Test fun category_titles_match_the_expected_order() {
         assertEquals(
-            listOf("zh", "en", "currency", "net", "math", "greek", "arrow", "supsub", "ordinal", "ipa", "pinyin"),
+            listOf("zh", "en", "currency", "net", "math", "supsub", "ordinal", "arrow", "greek", "vertical", "ipa", "pinyin"),
             SymbolCatalog.categories.map { it.id },
         )
     }
@@ -154,10 +154,11 @@ class SymbolCatalogTest {
         assertTrue("保留项必须来自数学分类", cat("math").containsAll(Layouts.numpadOperatorsInCustomPalette))
     }
 
-    @Test fun greekCategorySitsBetweenMathAndArrow() {
+    @Test fun greekCategoryFollowsArrows() {
         val ids = SymbolCatalog.categories.map { it.id }
-        assertEquals("希腊 right after 数学", ids.indexOf("math") + 1, ids.indexOf("greek"))
-        assertEquals("箭头 right after 希腊", ids.indexOf("greek") + 1, ids.indexOf("arrow"))
+        assertEquals("希腊 right after 箭头", ids.indexOf("arrow") + 1, ids.indexOf("greek"))
+        assertEquals("竖标 right after 希腊", ids.indexOf("greek") + 1, ids.indexOf("vertical"))
+        assertEquals("音标 right after 竖标", ids.indexOf("vertical") + 1, ids.indexOf("ipa"))
         val lower = listOf("α", "β", "γ", "δ", "ε", "ζ", "η", "θ", "ι", "κ", "λ", "μ",
             "ν", "ξ", "ο", "π", "ρ", "σ", "ς", "τ", "υ", "φ", "χ", "ψ", "ω")
         val upper = listOf("Α", "Β", "Γ", "Δ", "Ε", "Ζ", "Η", "Θ", "Ι", "Κ", "Λ", "Μ",
@@ -226,7 +227,7 @@ class SymbolCatalogTest {
                 fulls.add(s[0])
             }
         }
-        assertEquals("every distinct full/half-width pair in the catalogue is covered", 23, fulls.size)
+        assertEquals("every distinct full/half-width pair in the catalogue is covered", 28, fulls.size)
     }
 
     @Test fun foldFullWidth_never_collapses_a_symbol_outside_the_fullwidth_block() {
@@ -259,4 +260,36 @@ class SymbolCatalogTest {
         assertEquals(Layouts.nineFixedPunctuation, Layouts.ninePunctuation().dropLast(1).map { it.label })
         assertEquals(com.aegis.ime.R.string.kbd_custom, Layouts.ninePunctuation().last().labelRes)
     }
+    @Test fun new_reference_groups_are_reachable_without_misclassified_units_or_quotes() {
+        assertTrue(cat("math").containsAll(listOf("∯", "∰", "⊄", "⊅", "⊈", "⊉", "⊊", "⊋", "log", "ln", "lim", "㎛", "㏄", "㏕", "㏖")))
+        assertTrue(cat("en").containsAll(listOf("¡", "¿", "´", "¨", "′", "″", "♀", "♂", "«", "»", "‹", "›")))
+        assertTrue(cat("supsub").containsAll(listOf("ᵃ", "ᶻ", "ᴬ", "ᵂ", "ₕ", "ᵢ", "ₜ")))
+        assertTrue(cat("ipa").containsAll(listOf("ɑː", "ɔː", "ɜː", "iː", "uː", "eɪ", "aɪ", "ɔɪ", "ɪə", "eə", "ʊə", "əʊ", "aʊ", "ts", "dz", "tʃ", "dʒ", "tr", "dr")))
+        assertTrue(cat("arrow").containsAll(listOf("⤊", "⤋", "⇄", "⇅", "⇎", "⇪", "➽", "➾", "☜", "☞", "☟")))
+        for (symbol in listOf("℃", "℉", "㎡", "㎥")) assertTrue(symbol !in cat("supsub"))
+        for (symbol in listOf("«", "»", "‹", "›")) assertTrue(symbol !in cat("arrow"))
+        assertEquals("en", SymbolCatalog.originFor("«", "arrow"))
+        assertEquals("math", SymbolCatalog.originFor("℃", "supsub"))
+        assertEquals("custom", SymbolCatalog.originFor("℃", "custom"))
+    }
+
+    @Test fun number_families_stay_contiguous_and_complete() {
+        for (family in listOf("❶❷❸❹❺❻❼❽❾❿", "ⅰⅱⅲⅳⅴⅵⅶⅷⅸⅹⅺⅻ", "ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩⅪⅫ", "壹贰叁肆伍陆柒捌玖拾佰仟")) {
+            val chars = family.map { it.toString() }
+            val start = cat("ordinal").indexOf(chars.first())
+            assertTrue(start >= 0)
+            assertEquals(chars, cat("ordinal").subList(start, start + chars.size))
+        }
+    }
+
+    @Test fun vertical_marks_use_distinct_codepoints_and_insert_balanced_pairs() {
+        val vertical = cat("vertical")
+        assertTrue(vertical.containsAll(listOf("\uFE10", "\uFE11", "\uFE12", "\uFE13", "\uFE14", "\uFE15", "\uFE16", "\uFE19")))
+        for ((left, right) in listOf("︵" to "︶", "︷" to "︸", "︹" to "︺", "︿" to "﹀", "︽" to "︾", "﹁" to "﹂", "﹃" to "﹄", "︻" to "︼", "︗" to "︘", "﹇" to "﹈")) {
+            assertEquals(listOf(left, right), SymbolCatalog.insertionFor(left, false))
+            assertEquals(listOf(left), SymbolCatalog.insertionFor(left, true))
+            assertEquals(vertical.indexOf(left) + 1, vertical.indexOf(right))
+        }
+    }
+
 }

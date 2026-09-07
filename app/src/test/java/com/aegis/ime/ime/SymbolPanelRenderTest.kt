@@ -53,7 +53,7 @@ class SymbolPanelRenderTest {
             openCategoryForTest(0)
         }
         assertEquals("Cu", sv.gridBadgeForTest("$"))
-        assertEquals("Su", sv.gridBadgeForTest("℃"))
+        assertEquals("Ma", sv.gridBadgeForTest("℃"))
         assertEquals("Gr", sv.gridBadgeForTest("π"))
     }
 
@@ -98,7 +98,7 @@ class SymbolPanelRenderTest {
             assertEquals("badge of $sym must show its recorded origin ${cats.last()}", expected, sv.gridBadgeForTest(sym))
             assertTrue("test setup: chosen origin is genuinely non-first for $sym", cats.last() != cats.first())
         }
-        assertEquals("every multi-category symbol covered", 42, overlaps.size)
+        assertEquals("every multi-category symbol covered", 43, overlaps.size)
     }
 
     @Test fun tapping_a_recent_symbol_preserves_its_stored_origin() {

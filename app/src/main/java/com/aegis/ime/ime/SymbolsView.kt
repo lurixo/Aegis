@@ -535,10 +535,10 @@ class SymbolsView(context: Context) :
         if (index == 0) recentProvider() else SymbolCatalog.categories[index - 1].symbols
 
     private fun originForCurrent(symbol: String): String? =
-        if (selected == 0) recentOriginOf(symbol) else SymbolCatalog.categories.getOrNull(selected - 1)?.id
+        if (selected == 0) SymbolCatalog.originFor(symbol, recentOriginOf(symbol)) else SymbolCatalog.categories.getOrNull(selected - 1)?.id
 
     private fun badgeFor(symbol: String): String? =
-        (recentOriginOf(symbol) ?: SymbolCatalog.categoryIdOf(symbol))
+        SymbolCatalog.originFor(symbol, recentOriginOf(symbol))
             ?.let { SymbolCatalog.titleResOf(it) }
             ?.let { context.getString(it) }
             ?.let { title ->
