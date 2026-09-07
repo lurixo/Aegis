@@ -51,6 +51,30 @@ class EmailAssociationServiceTest {
             }
             controller.setEmailAssociationsEnabled(true)
         }
+        fun call(name: String, text: String) {
+            if (name == "commitLargeText") {
+                service.javaClass.getDeclaredMethod(name, CharSequence::class.java, Boolean::class.javaPrimitiveType).apply {
+                    isAccessible = true; invoke(service, text, true)
+                }
+            } else {
+                service.javaClass.getDeclaredMethod(name, CharSequence::class.java).apply {
+                    isAccessible = true; invoke(service, text)
+                }
+            }
+        }
+    }
+
+    @Test fun external_text_symbol_and_clipboard_paste_show_the_same_email_domains() {
+        for (entry in listOf("commitExternalText", "commitExternalSymbol", "commitLargeText")) {
+            val f = Fixture()
+            f.editor.commitText("name", 1)
+            f.call(entry, "@")
+            assertEquals("name@", f.editor.editable.toString())
+            assertTrue("$entry", f.controller.candidateWords().contains("qq.com"))
+            f.controller.onPickCandidate(f.controller.candidateWords().indexOf("gmail.com"))
+            assertEquals("name@gmail.com", f.editor.editable.toString())
+            assertTrue(f.controller.candidateWords().isEmpty())
+        }
     }
 
     @Test fun selection_reports_refresh_email_context_and_dismiss_it_when_the_cursor_moves() {
@@ -61,5 +85,17 @@ class EmailAssociationServiceTest {
         Selection.setSelection(f.editor.editable, 2)
         f.service.onUpdateSelection(5, 5, 2, 2, -1, -1)
         assertTrue(f.controller.candidateWords().isEmpty())
+    }
+
+    @Test fun external_entries_respect_email_hot_off_and_empty_prefix() {
+        for (entry in listOf("commitExternalText", "commitExternalSymbol", "commitLargeText")) {
+            val f = Fixture()
+            f.call(entry, "@")
+            assertTrue(f.controller.candidateWords().isEmpty())
+            f.controller.setEmailAssociationsEnabled(false)
+            f.call(entry, "name@")
+            assertTrue(f.controller.candidateWords().isEmpty())
+            assertEquals("@name@", f.editor.editable.toString())
+        }
     }
 }
