@@ -19,8 +19,8 @@ android {
         applicationId = "com.aegis.ime"
         minSdk = 34
         targetSdk = 37
-        versionName = "0.1.0-beta.44"
-        versionCode = 134
+        versionName = "0.1.0-beta.45"
+        versionCode = 135
     }
 
     buildTypes {
@@ -78,7 +78,7 @@ android {
     }
 }
 
-val debugVersionCode = 9051
+val debugVersionCode = 9084
 
 androidComponents {
     onVariants(selector().withBuildType("debug")) { variant ->
