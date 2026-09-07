@@ -437,7 +437,7 @@ class SettingsWiringTest {
 
     @Test fun data_backup_is_a_home_group_not_an_about_entry() {
         val setup = src("src/main/java/com/aegis/ime/ui/SetupActivity.kt")
-        assertTrue("home route order must place backup between user dictionary and about", setup.contains("listOf(INPUT, DICTS, USER_DICT, BACKUP, ABOUT)"))
+        assertTrue("home route order must place keyboard after input and backup between user dictionary and about", setup.contains("listOf(INPUT, KEYBOARD, DICTS, USER_DICT, BACKUP, ABOUT)"))
         assertTrue("backup route must open BackupActivity directly", setup.contains("SettingsRoutes.BACKUP -> BackupActivity::class.java"))
         val aboutPage = setup.substringAfter("fun AboutPage").substringBefore("fun SetupStepActions")
         assertFalse("About page must not keep a duplicate data-backup entry", aboutPage.contains("settings_backup_title"))
@@ -458,11 +458,11 @@ class SettingsWiringTest {
         assertFalse("default password store must not use the backup settings prefs", store.contains("getSharedPreferences(\"aegis\""))
     }
 
-    @Test fun the_input_page_wires_the_case_card_and_the_merged_preview_card() {
+    @Test fun the_keyboard_page_wires_the_case_card_and_the_merged_preview_card() {
         val setup = src("src/main/java/com/aegis/ime/ui/SetupActivity.kt")
-        val inputPage = setup.substringAfter("fun InputSettingsPage").substringBefore("fun DictSettingsPage")
+        val keyboardPage = setup.substringAfter("fun KeyboardSettingsPage").substringBefore("fun DictSettingsPage")
         for (card in listOf("LetterCaseCard()", "KeyPreviewCard()")) {
-            assertTrue("input page must render $card", inputPage.contains(card))
+            assertTrue("keyboard page must render $card", keyboardPage.contains(card))
         }
         assertFalse("the old split 9-key preview card must be gone", setup.contains("KeyPreviewNineToggleCard("))
         assertFalse("the old split 26-key preview card must be gone", setup.contains("KeyPreviewAlphaToggleCard("))

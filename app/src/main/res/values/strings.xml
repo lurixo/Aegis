@@ -16,7 +16,9 @@
     <string name="setup_try_field_label">Try typing here</string>
 
     <string name="settings_group_input_title">Input settings</string>
-    <string name="settings_group_input_desc">Keyboard mode, fuzzy Pinyin, next-word suggestions</string>
+    <string name="settings_group_input_desc">Default input mode, fuzzy Pinyin, suggestions and learning</string>
+    <string name="settings_group_keyboard_title">Keyboard settings</string>
+    <string name="settings_group_keyboard_desc">Layout, key sounds, vibration and previews</string>
     <string name="settings_group_dicts_title">Dictionaries &amp; downloads</string>
     <string name="settings_group_dicts_desc">Full dictionary pack, enhancement model</string>
     <string name="settings_group_userdict_title">User dictionary</string>

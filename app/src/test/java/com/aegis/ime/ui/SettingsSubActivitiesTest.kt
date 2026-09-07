@@ -26,6 +26,8 @@ import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.AndroidComposeTestRule
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.junit4.v2.createEmptyComposeRule
@@ -175,10 +177,17 @@ private fun <A : ComponentActivity> AndroidComposeTestRule<ActivityScenarioRule<
 class InputSettingsActivityTest {
     @get:Rule val compose = createAndroidComposeRule<InputSettingsActivity>()
 
-    @Test fun holds_keyboard_mode_fuzzy_and_associations_and_back_finishes() {
-        compose.onNodeWithText(ctxString(R.string.layout_card_title)).assertExists()
-        compose.onNodeWithText(ctxString(R.string.fuzzy_master_title)).performScrollTo().assertExists()
-        compose.onNodeWithText(ctxString(R.string.association_title)).performScrollTo().assertExists()
+    @Test fun holds_only_input_settings_and_back_finishes() {
+        for (title in listOf(R.string.default_lang_title, R.string.association_title, R.string.auto_learn_title)) {
+            compose.onNodeWithText(ctxString(title)).performScrollTo().assertExists()
+        }
+        compose.onNode(hasText(ctxString(R.string.fuzzy_master_title)) and hasClickAction()).performScrollTo().assertExists()
+        compose.onAllNodesWithText(ctxString(R.string.fuzzy_master_title), useUnmergedTree = true).assertCountEquals(1)
+        for (title in listOf(R.string.layout_card_title, R.string.letter_case_title,
+            R.string.key_sound_title, R.string.key_vibration_title, R.string.key_preview_title,
+            R.string.settings_language_title)) {
+            compose.onNodeWithText(ctxString(title)).assertDoesNotExist()
+        }
         compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performClick()
         compose.waitForIdle()
         assertTrue("back arrow finishes the Activity", compose.activity.isFinishing)

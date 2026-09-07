@@ -52,7 +52,7 @@ class SettingsPredictiveBackTest {
     }
 
     private val subActivities = listOf(
-        "InputSettingsActivity", "DictSettingsActivity", "UserDictActivity", "AboutActivity", "LicensesActivity",
+        "InputSettingsActivity", "KeyboardSettingsActivity", "DictSettingsActivity", "UserDictActivity", "AboutActivity", "LicensesActivity",
         "BackupActivity",
     )
     private val settingsActivities = listOf("SetupActivity") + subActivities

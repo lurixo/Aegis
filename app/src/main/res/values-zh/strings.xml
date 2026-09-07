@@ -16,7 +16,9 @@
     <string name="setup_try_field_label">在此试打</string>
 
     <string name="settings_group_input_title">输入设置</string>
-    <string name="settings_group_input_desc">键盘模式、模糊拼音、联想</string>
+    <string name="settings_group_input_desc">默认输入模式、模糊音、联想与学习</string>
+    <string name="settings_group_keyboard_title">键盘设置</string>
+    <string name="settings_group_keyboard_desc">布局、按键音效、振动与预览</string>
     <string name="settings_group_dicts_title">词库与下载</string>
     <string name="settings_group_dicts_desc">全量词库包、增强模型</string>
     <string name="settings_group_userdict_title">用户词库</string>

@@ -43,18 +43,20 @@ class SettingsNavigationTest {
 
     private data class Group(val titleRes: Int, val activity: Class<*>, val markerRes: Int)
     private val groups = listOf(
-        Group(R.string.settings_group_input_title, InputSettingsActivity::class.java, R.string.layout_card_title),
+        Group(R.string.settings_group_input_title, InputSettingsActivity::class.java, R.string.default_lang_title),
+        Group(R.string.settings_group_keyboard_title, KeyboardSettingsActivity::class.java, R.string.layout_card_title),
         Group(R.string.settings_group_dicts_title, DictSettingsActivity::class.java, R.string.dict_card_title),
         Group(R.string.settings_group_userdict_title, UserDictActivity::class.java, R.string.user_dict_search_hint),
         Group(R.string.settings_backup_title, BackupActivity::class.java, R.string.backup_export_button),
         Group(R.string.settings_group_about_title, AboutActivity::class.java, R.string.setup_steps_title),
     )
 
-    @Test fun home_shows_all_five_group_entries_and_none_of_the_moved_cards() {
+    @Test fun home_shows_all_six_group_entries_and_none_of_the_moved_cards() {
         for (g in groups) compose.onNodeWithText(s(g.titleRes)).assertExists()
         assertEquals(
             listOf(
                 SettingsRoutes.INPUT,
+                SettingsRoutes.KEYBOARD,
                 SettingsRoutes.DICTS,
                 SettingsRoutes.USER_DICT,
                 SettingsRoutes.BACKUP,
@@ -97,6 +99,7 @@ class SettingsNavigationTest {
 
     @Test fun activityForGroup_maps_every_home_group_to_its_activity() {
         assertEquals(InputSettingsActivity::class.java, activityForGroup(SettingsRoutes.INPUT))
+        assertEquals(KeyboardSettingsActivity::class.java, activityForGroup(SettingsRoutes.KEYBOARD))
         assertEquals(DictSettingsActivity::class.java, activityForGroup(SettingsRoutes.DICTS))
         assertEquals(UserDictActivity::class.java, activityForGroup(SettingsRoutes.USER_DICT))
         assertEquals(BackupActivity::class.java, activityForGroup(SettingsRoutes.BACKUP))

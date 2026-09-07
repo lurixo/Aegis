@@ -117,12 +117,13 @@ class SetupActivity : ComponentActivity() {
 
 internal object SettingsRoutes {
     const val INPUT = "input"
+    const val KEYBOARD = "keyboard"
     const val DICTS = "dicts"
     const val USER_DICT = "userdict"
     const val BACKUP = "backup"
     const val ABOUT = "about"
 
-    val GROUPS = listOf(INPUT, DICTS, USER_DICT, BACKUP, ABOUT)
+    val GROUPS = listOf(INPUT, KEYBOARD, DICTS, USER_DICT, BACKUP, ABOUT)
 }
 
 @Composable
@@ -146,6 +147,7 @@ internal fun rememberNavOnce(): (block: () -> Unit) -> Unit {
 
 internal fun activityForGroup(route: String): Class<out ComponentActivity>? = when (route) {
     SettingsRoutes.INPUT -> InputSettingsActivity::class.java
+    SettingsRoutes.KEYBOARD -> KeyboardSettingsActivity::class.java
     SettingsRoutes.DICTS -> DictSettingsActivity::class.java
     SettingsRoutes.USER_DICT -> UserDictActivity::class.java
     SettingsRoutes.BACKUP -> BackupActivity::class.java
@@ -215,6 +217,12 @@ internal fun SettingsHomePage(onOpenGroup: (String) -> Unit) {
             )
             AppSectionDivider()
             SettingsGroupRow(
+                titleRes = R.string.settings_group_keyboard_title,
+                descRes = R.string.settings_group_keyboard_desc,
+                onClick = { onOpenGroup(SettingsRoutes.KEYBOARD) },
+            )
+            AppSectionDivider()
+            SettingsGroupRow(
                 titleRes = R.string.settings_group_dicts_title,
                 descRes = R.string.settings_group_dicts_desc,
                 onClick = { onOpenGroup(SettingsRoutes.DICTS) },
@@ -263,11 +271,17 @@ internal fun SettingsPageColumn(title: String, onBack: () -> Unit, content: @Com
 internal fun InputSettingsPage(resumeSignal: Int, onBack: () -> Unit) {
     SettingsPageColumn(stringResource(R.string.settings_group_input_title), onBack) {
         DefaultLangCard()
-        LayoutChoiceCard()
-        LetterCaseCard()
         FuzzySettingsCard()
         AssociationToggleCard()
         AutoLearnToggleCard(resumeSignal)
+    }
+}
+
+@Composable
+internal fun KeyboardSettingsPage(onBack: () -> Unit) {
+    SettingsPageColumn(stringResource(R.string.settings_group_keyboard_title), onBack) {
+        LayoutChoiceCard()
+        LetterCaseCard()
         KeySoundCard()
         KeyVibrationToggleCard()
         KeyPreviewCard()
