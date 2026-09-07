@@ -27,7 +27,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.unit.dp
-import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ui.theme.AegisTheme
 import com.aegis.ime.ui.theme.aegisColorScheme
 import org.junit.Assert.assertEquals
@@ -73,12 +72,16 @@ class AppSectionSurfaceTest {
         return fill
     }
 
-    @Test fun app_sections_fill_with_the_ime_keyboard_background() {
+    @Test fun app_sections_use_a_raised_surface_in_dark_mode() {
         for (dark in listOf(false, true)) {
             val scheme = aegisColorScheme(ctx, dark)
             val fill = sectionFill(dark)
-            assertEquals("dark=$dark: the card fills with surfaceDim", scheme.surfaceDim.toArgb(), fill)
-            assertEquals("dark=$dark: that is the colour the keyboard paints behind its keys", ImePalette.from(ctx, dark).keyboardBg, fill)
+            assertEquals("dark=$dark: the card uses its theme surface",
+                (if (dark) scheme.surfaceContainerHigh else scheme.surfaceDim).toArgb(), fill)
+            if (dark) org.junit.Assert.assertTrue(
+                androidx.core.graphics.ColorUtils.calculateLuminance(fill) >
+                    androidx.core.graphics.ColorUtils.calculateLuminance(scheme.background.toArgb()),
+            )
             assertNotEquals("dark=$dark: the card still stands apart from the page background", scheme.background.toArgb(), fill)
         }
     }

@@ -62,6 +62,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -196,7 +197,9 @@ internal fun AppSection(
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = AppShapes.section,
-        color = MaterialTheme.colorScheme.surfaceDim,
+        color = MaterialTheme.colorScheme.run {
+            if (background.luminance() < 0.5f) surfaceContainerHigh else surfaceDim
+        },
         tonalElevation = 0.dp,
     ) {
         Column(content = content)

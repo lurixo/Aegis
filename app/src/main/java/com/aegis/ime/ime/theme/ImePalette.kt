@@ -20,6 +20,7 @@ import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.ui.graphics.toArgb
+import androidx.core.graphics.ColorUtils
 
 data class ImePalette(
     val keyboardBg: Int,
@@ -76,8 +77,8 @@ data class ImePalette(
         )
 
         val STATIC_DARK = ImePalette(
-            keyboardBg = 0xFF111417.toInt(),
-            keySurface = 0xFF363C43.toInt(),
+            keyboardBg = 0xFF24282D.toInt(),
+            keySurface = 0xFF3B424A.toInt(),
             keyLabel = 0xFFE4E6EA.toInt(),
             keyLabelSecondary = 0xFFC3C9D0.toInt(),
             keyHint = 0xFF8F979F.toInt(),
@@ -88,8 +89,8 @@ data class ImePalette(
             candidateText = 0xFFE4E6EA.toInt(),
             preeditText = 0xFF9FC9FF.toInt(),
             separator = 0xFF3E444B.toInt(),
-            gridLine = 0xFF000000.toInt(),
-            railBg = 0xFF262B30.toInt(),
+            gridLine = 0xFF969FAA.toInt(),
+            railBg = 0xFF30363D.toInt(),
             chipBg = 0xFF262B30.toInt(),
             chipText = 0xFFE4E6EA.toInt(),
             icon = 0xFFB3BAC2.toInt(),
@@ -99,13 +100,13 @@ data class ImePalette(
             disabled = 0xFF5D646B.toInt(),
             scrim = 0x99000000.toInt(),
             shadow = 0x40000000,
-            floatSurface = 0xFF24282D.toInt(),
+            floatSurface = 0xFF444C55.toInt(),
         )
 
         fun from(ctx: Context, dark: Boolean): ImePalette = runCatching {
             val cs: ColorScheme = if (dark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
             ImePalette(
-                keyboardBg = cs.surfaceDim.toArgb(),
+                keyboardBg = (if (dark) cs.surfaceContainer else cs.surfaceDim).toArgb(),
                 keySurface = (if (dark) cs.surfaceBright else cs.surfaceContainer).toArgb(),
                 keyLabel = cs.onSurface.toArgb(),
                 keyLabelSecondary = cs.onSurfaceVariant.toArgb(),
@@ -117,7 +118,7 @@ data class ImePalette(
                 candidateText = cs.onSurface.toArgb(),
                 preeditText = cs.primary.toArgb(),
                 separator = cs.outlineVariant.toArgb(),
-                gridLine = 0xFF000000.toInt(),
+                gridLine = if (dark) darkOutline(cs) else 0xFF000000.toInt(),
                 railBg = cs.surfaceContainerHigh.toArgb(),
                 chipBg = cs.secondaryContainer.toArgb(),
                 chipText = cs.onSecondaryContainer.toArgb(),
@@ -128,9 +129,18 @@ data class ImePalette(
                 disabled = cs.outline.toArgb(),
                 scrim = withAlpha(cs.scrim.toArgb(), 0x66),
                 shadow = withAlpha(cs.scrim.toArgb(), if (dark) 0x40 else 0x22),
-                floatSurface = cs.surfaceContainer.toArgb(),
+                floatSurface = (if (dark) cs.surfaceContainerHighest else cs.surfaceContainer).toArgb(),
             )
         }.getOrElse { if (dark) STATIC_DARK else STATIC_LIGHT }
+
+        private fun darkOutline(cs: ColorScheme): Int {
+            val surfaces = listOf(cs.surfaceContainer, cs.surfaceBright, cs.surfaceContainerHigh, cs.surfaceContainerHighest)
+            for (step in 0..10) {
+                val color = ColorUtils.blendARGB(cs.outline.toArgb(), cs.onSurface.toArgb(), step / 10f)
+                if (surfaces.all { ColorUtils.calculateContrast(color, it.toArgb()) >= 3.0 }) return color
+            }
+            return cs.onSurface.toArgb()
+        }
 
         private fun withAlpha(argb: Int, alpha: Int): Int = (argb and 0x00FFFFFF) or (alpha shl 24)
     }
