@@ -61,6 +61,7 @@ class KeyboardController(
     private val host: ImeHost,
     private var engine: CandidateEngine,
     private val decodeLane: DecodeLane? = null,
+    private val emailDomains: EmailDomains = EmailDomains(),
 ) {
     private data class LearnEvent(val prevWord: String?, val word: String, val prefixEnd: Int, val reading: String)
 
@@ -142,6 +143,9 @@ class KeyboardController(
     private var learningBlocked = false
 
     private var associationsEnabled = true
+    private var emailAssociationsEnabled = false
+    private var emailCands: Set<Cand> = emptySet()
+    private var emailContext: String? = null
 
     private var pushedFuzzyRules: Set<String>? = null
 
@@ -234,6 +238,25 @@ class KeyboardController(
         render()
     }
 
+    fun setEmailAssociationsEnabled(on: Boolean) {
+        if (emailAssociationsEnabled == on) return
+        emailAssociationsEnabled = on
+        refreshCandidates()
+        render()
+    }
+
+    fun onEditorContextChanged() {
+        if (!emailAssociationsEnabled || hasComposingToClear()) return
+        val context = currentEmailContext()
+        if (context == emailContext) return
+        refreshCandidates()
+        render()
+    }
+
+    private fun currentEmailContext(): String? =
+        if (!emailAssociationsEnabled || learningBlocked || host.hasSelection()) null
+        else EmailDomains.context(host.textBeforeCursor(EMAIL_SCAN_LEN))
+
     fun setFuzzyRules(rules: Set<String>) {
         pushedFuzzyRules = rules
         engine.setFuzzyRules(rules)
@@ -245,6 +268,8 @@ class KeyboardController(
         composing.setLength(0)
         literalIndices.clear()
         candidates = emptyList()
+        emailCands = emptySet()
+        emailContext = null
         directCommitCands = emptySet()
         compositeCands = emptySet()
         literalCands = emptySet()
@@ -676,6 +701,15 @@ class KeyboardController(
         }
         val cand = candidates[index]
         when {
+            cand in emailCands -> {
+                val live = currentEmailContext()
+                if (live != null && live == emailContext && !hasComposingToClear() && emailDomains.contains(cand.word)) {
+                    expirePreeditChoiceUndo()
+                    host.commitText(cand.word)
+                    if (!learningBlocked && !LiveUserData.restoreInProgress) emailDomains.record(cand.word)
+                }
+                lastWord = null
+            }
             cand === calcCand -> {
                 val live = if (learningBlocked) null else calcMatch(host)
                 if (live != null && live.expr == calcExpr && live.result == calcResult && !host.hasSelection()) {
@@ -1161,6 +1195,8 @@ class KeyboardController(
         val calcDismissed: Boolean,
         val lastWord: String?,
         val englishTyped: String,
+        val emailContext: String?,
+        val emailDomains: List<String>,
     )
 
     private class DecodeResult(
@@ -1173,6 +1209,8 @@ class KeyboardController(
         val calcExpr: String,
         val calcResult: String,
         val englishCands: Set<Cand> = emptySet(),
+        val emailCands: Set<Cand> = emptySet(),
+        val emailContext: String? = null,
     )
 
     private fun emptyDecodeResult(): DecodeResult =
@@ -1193,6 +1231,7 @@ class KeyboardController(
         } else {
             emptySet()
         }
+        val emailContext = if (hasComposingToClear()) null else currentEmailContext()
         return DecodeRequest(
             engine = engine,
             host = host,
@@ -1219,6 +1258,8 @@ class KeyboardController(
             calcDismissed = calcDismissed,
             lastWord = lastWord,
             englishTyped = if (englishPreeditActive()) englishWord.toString() else "",
+            emailContext = emailContext,
+            emailDomains = if (emailContext == null) emptyList() else emailDomains.suggestions(),
         )
     }
 
@@ -1233,6 +1274,8 @@ class KeyboardController(
         calcExpr = r.calcExpr
         calcResult = r.calcResult
         englishCands = r.englishCands
+        emailCands = r.emailCands
+        emailContext = r.emailContext
     }
 
     private fun computeDecode(req: DecodeRequest): DecodeResult = synchronized(decodeLock) {
@@ -1241,9 +1284,15 @@ class KeyboardController(
         var literal: Set<Cand> = emptySet()
         var prediction: Set<Cand> = emptySet()
         var english: Set<Cand> = emptySet()
+        var email: Set<Cand> = emptySet()
         var calcC: Cand? = null; var calcE = ""; var calcR = ""
         val base = computeBase(req)
         val out = when {
+            req.emailContext != null -> {
+                val words = req.emailDomains.map { Cand(it, 0) }
+                email = words.toSet()
+                words
+            }
             req.drillSyllable >= 0 && !req.composingEmpty && req.mode == Mode.PINYIN -> computeDrill(req)
             !req.composingEmpty && req.mode == Mode.PINYIN && req.literalIndices.isNotEmpty() -> {
                 val mixed = computeMixed(req)
@@ -1286,7 +1335,7 @@ class KeyboardController(
             }
             else -> base
         }
-        DecodeResult(out, directCommit, composite, literal, prediction, calcC, calcE, calcR, english)
+        DecodeResult(out, directCommit, composite, literal, prediction, calcC, calcE, calcR, english, email, req.emailContext)
     }
 
     private class MixedCandidates(
@@ -1812,6 +1861,7 @@ class KeyboardController(
         const val NINE_LEFT_MAX = 24
         const val CALC_SCAN_LEN = 32
         const val CTX_SCAN_LEN = 16
+        const val EMAIL_SCAN_LEN = 256
     }
 }
 

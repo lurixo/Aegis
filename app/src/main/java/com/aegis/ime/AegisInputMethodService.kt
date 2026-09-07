@@ -327,7 +327,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         },
         onAssociations = { on ->
             Handler(Looper.getMainLooper()).post {
-                if (::controller.isInitialized) controller.setAssociationsEnabled(on)
+                if (::controller.isInitialized) {
+                    controller.setAssociationsEnabled(on)
+                    controller.setEmailAssociationsEnabled(on)
+                }
             }
         },
         onAutoLearn = { on ->
@@ -393,7 +396,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             }
         }
         LiveUserData.registerClipboardPersistenceHooks(clipboardPendingWriteFlush)
-        controller = KeyboardController(this, DictEngine(null, null, null), decodeLane)
+        controller = KeyboardController(
+            this, DictEngine(null, null, null), decodeLane,
+            emailDomains = com.aegis.ime.ime.EmailDomains(getSharedPreferences("aegis", MODE_PRIVATE)),
+        )
         controller.onShowEmoji = { showEmojiPanel() }
         controller.onShowClipboard = { showClipboardPanel() }
         controller.onShowTranslate = { toggleTranslateBar() }
@@ -651,17 +657,25 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 restorablePanel = classifyPanel(view, panel)
             }
         }
-        view.onEditTextChanged = { txt -> panelTextSnapshot = txt }
+        view.onEditTextChanged = { txt ->
+            panelTextSnapshot = txt
+            refreshPanelEmailContext(view)
+        }
         view.onEditSelectionChanged = { has ->
             if (panelInput.active) editPanelView?.setHasSelection(has)
+            refreshPanelEmailContext(view)
         }
-        view.onTranslateTextChanged = { text -> scheduleTranslation(text) }
+        view.onTranslateTextChanged = { text ->
+            scheduleTranslation(text)
+            refreshPanelEmailContext(view)
+        }
         view.onTranslateModeChanged = { mode ->
             setTranslateMode(mode)
             scheduleTranslation(view.translateText())
         }
         view.onTranslateSelectionChanged = { has ->
             if (panelInput.active) editPanelView?.setHasSelection(has)
+            refreshPanelEmailContext(view)
         }
         controller.attachView(view)
         imePalette = computePalette()
@@ -678,6 +692,14 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
         if (canRestoreCurrentSession()) restoreTransientUi(view) else if (translateOpen) bindTranslateInput(view)
         return view
+    }
+
+    private fun refreshPanelEmailContext(view: InputView) {
+        mainHandler.post {
+            if (inputView === view && panelInput.active && ::controller.isInitialized) {
+                controller.onEditorContextChanged()
+            }
+        }
     }
 
     private fun classifyPanel(view: InputView, panel: View?): RestorablePanel? = when {
@@ -787,6 +809,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.setCnDefaultLayout(SettingsHotApply.cnLayout(prefs))
         controller.setDefaultLang(SettingsHotApply.defaultLang(prefs))
         controller.setAssociationsEnabled(SettingsHotApply.associationsOn(prefs))
+        controller.setEmailAssociationsEnabled(SettingsHotApply.associationsOn(prefs))
         userLearning.enabled = SettingsHotApply.autoLearnOn(prefs)
         userModel.autoLearnEnabled = SettingsHotApply.autoLearnOn(prefs)
         controller.setFuzzyRules(currentFuzzyRules())
@@ -879,6 +902,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         selStart = newSelStart
         selEnd = newSelEnd
+        if (::controller.isInitialized) controller.onEditorContextChanged()
         if (newSelStart >= 0 && newSelEnd >= 0) {
             if (!panelInput.active) editPanelView?.setHasSelection(newSelStart != newSelEnd)
         }
@@ -1841,9 +1865,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
 
     private fun commitExternalText(text: CharSequence) {
-        if (panelInput.commit(text)) return
+        if (panelInput.commit(text)) {
+            controller.onEditorContextChanged()
+            return
+        }
         controller.expireCandidateChoiceUndo()
-        currentInputConnection?.commitText(text, 1)
+        if (currentInputConnection?.commitText(text, 1) == true) controller.onEditorContextChanged()
     }
 
     override fun commitText(text: CharSequence) {
@@ -1852,9 +1879,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun commitExternalSymbol(symbol: CharSequence) {
-        if (panelInput.commit(symbol)) return
+        if (panelInput.commit(symbol)) {
+            controller.onEditorContextChanged()
+            return
+        }
         controller.expireCandidateChoiceUndo()
-        commitSymbolToEditor(symbol)
+        if (commitSymbolToEditor(symbol)) controller.onEditorContextChanged()
     }
 
     override fun commitSymbol(symbol: CharSequence) {
@@ -1862,21 +1892,21 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         commitSymbolToEditor(symbol)
     }
 
-    private fun commitSymbolToEditor(symbol: CharSequence) {
-        val ic = currentInputConnection ?: return
+    private fun commitSymbolToEditor(symbol: CharSequence): Boolean {
+        val ic = currentInputConnection ?: return false
         val s = symbol.toString()
         val insertion = SymbolCatalog.insertionFor(
             s,
             hasTextAfterCursor = !ic.getTextAfterCursor(1, 0).isNullOrEmpty(),
         )
         if (insertion.size == 1) {
-            ic.commitText(insertion[0], 1)
-            return
+            return ic.commitText(insertion[0], 1)
         }
         ic.beginBatchEdit()
-        ic.commitText(insertion[0], 1)
-        ic.commitText(insertion[1], 0)
+        val leftCommitted = ic.commitText(insertion[0], 1)
+        val rightCommitted = ic.commitText(insertion[1], 0)
         ic.endBatchEdit()
+        return leftCommitted && rightCommitted
     }
 
     private var streaming: CharSequence? = null
@@ -1899,6 +1929,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             val then = afterStreaming
             afterStreaming = null
             then?.invoke()
+            controller.onEditorContextChanged()
         }
     }
 
@@ -1911,7 +1942,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun commitLargeText(text: CharSequence, realign: Boolean = true): Boolean {
-        if (panelInput.commit(text)) return true
+        if (panelInput.commit(text)) {
+            controller.onEditorContextChanged()
+            return true
+        }
         controller.expireCandidateChoiceUndo()
         val ic = currentInputConnection ?: return false
         val breaks = if (realign) CaretRealign.breaksIn(text) else 0
@@ -1923,6 +1957,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         ic.endBatchEdit()
         catchCaretUp(ic, breaks, following)
+        controller.onEditorContextChanged()
         return committed
     }
 
