@@ -24,7 +24,9 @@ transmitted anywhere by Aegis:
   yourself (`filesDir/userdb.txt`).
 - **Clipboard history and saved phrases (常用语)** — kept locally for the clipboard panel
   (`filesDir/clipboard.txt` and `filesDir/phrases.txt`). You can delete individual entries, and you
-  can switch the clipboard history off altogether.
+  can switch the clipboard history off altogether. Copy and cut in the editing panel also try to
+  place the selected text on Android's system clipboard for use in other apps. If Android refuses
+  the write, Aegis keeps its local copy and editing continues without a system-write error notice.
 - **Which symbols and emoji you reach for** — used to fill the *Common* tab of those two panels
   (`filesDir/symbol_usage.txt` and `filesDir/emoji/symbol_usage.txt`). Nothing at all is counted in
   a field whose app asks for no personalized learning; elsewhere it records the symbol you picked
@@ -33,8 +35,8 @@ transmitted anywhere by Aegis:
   save one, the default backup password — that one encrypted with a key held by the Android
   keystore, as described under [Permissions](#permissions).
 
-None of it leaves that storage on its own. Apart from the translate bar, the one way any of it does
-leave is a file **you** export — a backup, your user dictionary, or your phrases. Android asks you
+None of it leaves that storage on its own. Alongside the translate bar and the editing panel's
+explicit copy and cut actions, you can export a file — a backup, your user dictionary, or your phrases. Android asks you
 where each file should go, and Aegis writes it to the place you picked and nowhere else. A backup is
 encrypted with the password you type for it; a dictionary or phrase export is plain text, which is
 what makes it usable elsewhere.

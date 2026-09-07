@@ -15,6 +15,7 @@
 
 package com.aegis.ime
 
+import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Handler
@@ -32,6 +33,8 @@ import com.aegis.ime.ime.ChunkedRead
 import com.aegis.ime.ime.EditAction
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.ime.PanelEditable
+import com.aegis.ime.ime.PanelTextInput
 import com.aegis.ime.user.ClipboardStore
 import java.time.Duration
 import org.junit.Assert.assertEquals
@@ -45,6 +48,10 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
+import org.robolectric.shadow.api.Shadow
+import org.robolectric.shadows.ShadowClipboardManager
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -157,14 +164,14 @@ class SelectionCopyTest {
 
     private fun body(chars: Int): String = String(CharArray(chars) { '一' + (it % 2048) })
 
-    @Test fun a_copy_lands_in_the_aegis_clipboard_and_never_in_the_system_one() {
+    @Test fun a_copy_lands_in_both_the_aegis_and_system_clipboards() {
         val f = fixture()
         select(f, "把这一段带走，剩下的留着", 1, 6)
 
         edit(f.service, EditAction.COPY)
 
         assertEquals("这一段带走", stored(f.service))
-        assertNull("the system clipboard must stay untouched", systemClip())
+        assertEquals(stored(f.service), systemClip())
         assertEquals("a copy leaves the field alone", "把这一段带走，剩下的留着", f.editor.held())
         assertEquals(app.getString(R.string.edit_copy_done), f.service.toastTextForTest())
     }
@@ -176,7 +183,7 @@ class SelectionCopyTest {
         edit(f.service, EditAction.CUT)
 
         assertEquals("这一段带走", stored(f.service))
-        assertNull("the system clipboard must stay untouched", systemClip())
+        assertEquals(stored(f.service), systemClip())
         assertEquals("把，剩下的留着", f.editor.held())
         assertEquals(app.getString(R.string.edit_cut_done), f.service.toastTextForTest())
     }
@@ -190,7 +197,7 @@ class SelectionCopyTest {
         edit(f.service, EditAction.COPY)
 
         assertEquals(written, stored(f.service))
-        assertNull("the system clipboard must stay untouched", systemClip())
+        assertEquals(stored(f.service), systemClip())
         assertEquals(app.getString(R.string.edit_copy_done), f.service.toastTextForTest())
     }
 
@@ -276,7 +283,7 @@ class SelectionCopyTest {
         edit(f.service, EditAction.COPY)
 
         assertEquals("a password field is an ordinary field", "hunter2", stored(f.service))
-        assertNull("and it still never reaches the system clipboard", systemClip())
+        assertEquals("hunter2", systemClip())
         assertEquals(app.getString(R.string.edit_copy_done), f.service.toastTextForTest())
     }
 
@@ -351,4 +358,103 @@ class SelectionCopyTest {
         assertEquals("and the cut it refused must not take anything out", written, f.editor.held())
         assertNull("nor store anything of its own", stored(f.service))
     }
+    @Implements(ClipboardManager::class)
+    class RefusingClipboard : ShadowClipboardManager() {
+        var writes = 0
+        @Implementation override fun setPrimaryClip(clip: ClipData) {
+            writes++
+            throw SecurityException("clipboard write denied")
+        }
+    }
+
+    private fun refusedWrites(): Int = Shadow.extract<RefusingClipboard>(
+        app.getSystemService(Context.CLIPBOARD_SERVICE),
+    ).writes
+
+    @Test
+    @Config(shadows = [RefusingClipboard::class])
+    fun a_refused_system_write_keeps_copy_cut_paste_and_selection_working_without_a_failure_notice() {
+        val f = fixture()
+        select(f, "abcdef", 1, 4)
+        edit(f.service, EditAction.COPY)
+        assertEquals("bcd", stored(f.service))
+        assertEquals("abcdef", f.editor.held())
+        assertEquals(app.getString(R.string.edit_copy_done), f.service.toastTextForTest())
+        edit(f.service, EditAction.CUT)
+        assertEquals("aef", f.editor.held())
+        assertEquals("bcd", stored(f.service))
+        assertEquals(app.getString(R.string.edit_cut_done), f.service.toastTextForTest())
+        edit(f.service, EditAction.PASTE)
+        assertEquals("abcdef", f.editor.held())
+        assertEquals(app.getString(R.string.edit_paste_done), f.service.toastTextForTest())
+        select(f, f.editor.held(), 0, 1)
+        edit(f.service, EditAction.COPY)
+        assertEquals("a", stored(f.service))
+        assertEquals(app.getString(R.string.edit_copy_done), f.service.toastTextForTest())
+        assertEquals(3, refusedWrites())
+        assertNull(systemClip())
+    }
+
+    private class PanelEditor : PanelEditable {
+        var value = "abcdef"
+        var from = 1
+        var to = 4
+        override fun snapshot() = value
+        override fun selectionStart() = from
+        override fun selectionEnd() = to
+        override fun setSelection(start: Int, end: Int) { from = start; to = end }
+        override fun replace(start: Int, end: Int, text: CharSequence) {
+            value = value.replaceRange(start, end, text)
+            from = start + text.length; to = from
+        }
+    }
+
+    private fun panelFixture(): Pair<Fixture, PanelEditor> {
+        val f = fixture()
+        val target = PanelEditor()
+        val panel = f.service.javaClass.getDeclaredField("panelInput").run {
+            isAccessible = true
+            get(f.service) as PanelTextInput
+        }
+        panel.begin(target)
+        return f to target
+    }
+
+    @Test fun copying_and_cutting_in_the_panel_also_sync_the_system_clipboard() {
+        val (f, target) = panelFixture()
+        edit(f.service, EditAction.COPY)
+        assertEquals("bcd", systemClip())
+        assertEquals("abcdef", target.value)
+        target.setSelection(0, 1)
+        edit(f.service, EditAction.CUT)
+        assertEquals("a", systemClip())
+        assertEquals("a", stored(f.service))
+        assertEquals("bcdef", target.value)
+    }
+
+    @Test
+    @Config(shadows = [RefusingClipboard::class])
+    fun a_refused_system_write_does_not_interrupt_any_panel_edit_flow() {
+        val (f, target) = panelFixture()
+        edit(f.service, EditAction.COPY)
+        assertEquals("bcd", stored(f.service))
+        assertEquals(app.getString(R.string.edit_copy_done), f.service.toastTextForTest())
+        edit(f.service, EditAction.CUT)
+        assertEquals("aef", target.value)
+        assertEquals(app.getString(R.string.edit_cut_done), f.service.toastTextForTest())
+        edit(f.service, EditAction.PASTE)
+        assertEquals("abcdef", target.value)
+        assertEquals(app.getString(R.string.edit_paste_done), f.service.toastTextForTest())
+        edit(f.service, EditAction.LEFT)
+        edit(f.service, EditAction.START_SELECT)
+        edit(f.service, EditAction.RIGHT)
+        assertEquals(3, target.from)
+        assertEquals(4, target.to)
+        edit(f.service, EditAction.SELECT_ALL)
+        edit(f.service, EditAction.DELETE)
+        assertEquals("", target.value)
+        assertEquals(2, refusedWrites())
+        assertNull(systemClip())
+    }
+
 }

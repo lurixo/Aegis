@@ -1018,8 +1018,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (!keepsCopies()) { toast(uiString(R.string.edit_copy_needs_history)); return false }
         clipboardStore.record(text)
         refreshOpenClipboardPanel()
+        syncSystemClipboard(text)
         toast(uiString(notice))
         return true
+    }
+
+    private fun syncSystemClipboard(text: String) {
+        runCatching { clipboardManager.setPrimaryClip(android.content.ClipData.newPlainText("Aegis", text)) }
     }
 
     internal fun takesRawKeys(info: EditorInfo?): Boolean =
@@ -1120,6 +1125,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             clipboardStore.record(body)
             refreshOpenClipboardPanel()
         }
+        syncSystemClipboard(body)
         toast(
             if (whole) uiString(if (cut) R.string.edit_cut_done else R.string.edit_copy_done)
             else imeUiContext().resources.getQuantityString(

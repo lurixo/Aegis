@@ -133,8 +133,9 @@ unless you ask it to.
 - **Symbol & edit panels:** a symbol board with a *Common* tab plus Chinese, English, currency, web,
   math, Greek, arrows, super/subscript, numbers, IPA and pinyin categories and a lock toggle; and a
   text-editing panel with cursor movement, line start/end, start/end selection, select-all, copy,
-  cut, paste and delete. Copy and cut there go into the Aegis clipboard, not the system one, so they
-  need clipboard history to be on and are refused with a notice otherwise; a very large selection
+  cut, paste and delete. Copy and cut there save to the Aegis clipboard and also try to copy to Android's
+  system clipboard. A refused system write is silent and does not interrupt editing or Aegis paste.
+  Clipboard history must be on; otherwise copy and cut are refused with a notice. A very large selection
   is read in bounded chunks, and if not all of it can be taken a notice says how many characters
   were copied. Paste inserts the newest Aegis clip.
 - **Custom symbols:** choose which punctuation sits in the 9-key side column and which operators sit
@@ -180,6 +181,8 @@ not depend on our word alone:
   device**: they live in the app's private storage (`filesDir`). The only ways any of it leaves are
   a file *you* export — a backup, your user dictionary, or your phrases — to a location you pick,
   and the text you type into the translate bar, which goes to Google Translate and nowhere else.
+  Copy and cut in the editing panel also make the selected text available through Android's system
+  clipboard when the system accepts the write.
 - Aegis is excluded from Android's **cloud backup and device-to-device transfer**, so its data is
   not carried off the device that way either.
 - There is **no analytics, no telemetry, and no account.**
