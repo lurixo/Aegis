@@ -16,6 +16,7 @@
 package com.aegis.ime.ui
 
 import android.content.Context
+import android.media.AudioManager
 import android.os.VibrationEffect
 import android.os.Vibrator
 import androidx.compose.foundation.layout.Column
@@ -35,6 +36,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import com.aegis.ime.R
+import com.aegis.ime.ime.KeySound
 import com.aegis.ime.ime.KeyHaptic
 import com.aegis.ime.ui.theme.AegisTheme
 import org.junit.Assert.assertEquals
@@ -140,5 +142,80 @@ class FeedbackSettingsCardTest {
         node(R.string.key_vibration_title).performScrollTo().performClick()
         compose.onNodeWithText("25.4%").assertExists()
         node(R.string.key_haptic_double).performScrollTo().assertIsSelected()
+    }
+
+    @Test fun sound_switch_collapses_options_and_restores_the_last_choice_after_recreation() {
+        val generation = mutableIntStateOf(0)
+        prefs.edit().putString(PREF_KEY_SOUND, "off").commit()
+        compose.setContent {
+            AegisTheme {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    key(generation.intValue) { KeySoundCard() }
+                }
+            }
+        }
+        node(R.string.key_sound_off).assertDoesNotExist()
+        node(R.string.key_sound_blue).assertDoesNotExist()
+        node(R.string.key_sound_title).performClick()
+        for (choice in KeySound.entries.filter { it != KeySound.OFF }) {
+            node(choice.labelRes).performScrollTo().performClick()
+            assertEquals(choice.value, prefs.getString(PREF_KEY_SOUND, null))
+        }
+        node(R.string.key_sound_title).performScrollTo().performClick()
+        node(R.string.key_sound_cream).assertDoesNotExist()
+        assertEquals("off", prefs.getString(PREF_KEY_SOUND, null))
+        compose.runOnIdle { generation.intValue++ }
+        node(R.string.key_sound_title).performClick()
+        node(R.string.key_sound_cream).performScrollTo().assertIsSelected()
+        assertEquals("cream", prefs.getString(PREF_KEY_SOUND, null))
+    }
+
+    @Test fun sound_volume_slider_saves_fractional_values_and_restores_without_changing_media_volume() {
+        val audio = context.getSystemService(AudioManager::class.java)
+        audio.setStreamVolume(AudioManager.STREAM_MUSIC, 5, 0)
+        val generation = mutableIntStateOf(0)
+        prefs.edit().putString(PREF_KEY_SOUND, "blue").remove(PREF_KEY_SOUND_VOLUME).commit()
+        compose.setContent {
+            AegisTheme {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    key(generation.intValue) { KeySoundCard() }
+                }
+            }
+        }
+        val slider = compose.onNodeWithContentDescription(context.getString(R.string.key_sound_volume))
+        compose.onNodeWithText("100.0%").assertExists()
+        slider.performSemanticsAction(SemanticsActions.SetProgress) { it(25.375f) }
+        compose.mainClock.advanceTimeBy(200)
+        compose.waitForIdle()
+        assertEquals(25.375f, prefs.getFloat(PREF_KEY_SOUND_VOLUME, -1f), 0f)
+        val range = slider.fetchSemanticsNode().config[SemanticsProperties.ProgressBarRangeInfo]
+        assertEquals(0, range.steps)
+        assertEquals(25.375f, range.current, 0f)
+        assertEquals(5, audio.getStreamVolume(AudioManager.STREAM_MUSIC))
+        compose.onNodeWithText("25.4%").assertExists()
+        compose.runOnIdle { generation.intValue++ }
+        compose.onNodeWithText("25.4%").assertExists()
+        node(R.string.key_sound_title).performScrollTo().performClick()
+        slider.assertDoesNotExist()
+        compose.runOnIdle { generation.intValue++ }
+        node(R.string.key_sound_title).performScrollTo().performClick()
+        compose.onNodeWithText("25.4%").assertExists()
+        slider.performSemanticsAction(SemanticsActions.SetProgress) { it(0f) }
+        compose.mainClock.advanceTimeBy(200)
+        compose.waitForIdle()
+        assertEquals(0f, prefs.getFloat(PREF_KEY_SOUND_VOLUME, -1f), 0f)
+        assertEquals("blue", prefs.getString(PREF_KEY_SOUND, null))
+        assertEquals(5, audio.getStreamVolume(AudioManager.STREAM_MUSIC))
+    }
+
+    @Test fun an_existing_sound_selection_survives_the_new_master_switch() {
+        prefs.edit().putString(PREF_KEY_SOUND, "purple").commit()
+        compose.setContent { AegisTheme { KeySoundCard() } }
+        node(R.string.key_sound_purple).assertIsSelected()
+        node(R.string.key_sound_title).performClick()
+        node(R.string.key_sound_purple).assertDoesNotExist()
+        node(R.string.key_sound_title).performClick()
+        node(R.string.key_sound_purple).assertIsSelected()
+        assertEquals("purple", prefs.getString(PREF_KEY_SOUND, null))
     }
 }

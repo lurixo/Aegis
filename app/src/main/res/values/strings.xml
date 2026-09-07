@@ -152,6 +152,10 @@
     <string name="clip_cancel">Cancel</string>
     <string name="clip_clear">Clear</string>
     <string name="clip_copy_all">Copy all</string>
+    <string name="key_sound_title">Mechanical keyboard sound</string>
+    <string name="key_sound_description">Choose a switch sound and tap to listen</string>
+    <string name="key_sound_volume">Sound volume</string>
+    <string name="key_sound_volume_value">%1$.1f%%</string>
     <string name="key_sound_off">Off</string>
     <string name="key_sound_blue">Cherry MX Blue</string>
     <string name="key_sound_brown">Cherry MX Brown</string>

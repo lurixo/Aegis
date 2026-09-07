@@ -55,10 +55,13 @@ import com.aegis.ime.SettingsHotApply
 import kotlinx.coroutines.delay
 import com.aegis.ime.R
 import com.aegis.ime.ime.KeyHaptic
+import com.aegis.ime.ime.KeySound
+import com.aegis.ime.ime.KeySoundPlayer
 import com.aegis.ime.ime.previewImeKeyHaptic
 import com.aegis.ime.ui.theme.AppSpacing
 
 internal const val PREF_KEY_SOUND = "pref_key_sound"
+internal const val PREF_KEY_SOUND_LAST = "pref_key_sound_last"
 internal const val PREF_KEY_SOUND_VOLUME = "pref_key_sound_volume"
 internal const val PREF_KEY_HAPTICS = "pref_key_haptics"
 internal const val PREF_KEY_HAPTIC_STYLE = "pref_key_haptic_style"
@@ -177,6 +180,119 @@ internal fun KeyVibrationToggleCard() {
                             style = choice
                             prefs.edit { putString(PREF_KEY_HAPTIC_STYLE, choice.value) }
                             view.previewImeKeyHaptic(choice, strength)
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+internal fun KeySoundCard() {
+    val context = LocalContext.current
+    val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+    val initialSound = remember { KeySound.of(prefs.textOr(PREF_KEY_SOUND, "off")) }
+    var on by remember { mutableStateOf(initialSound != KeySound.OFF) }
+    var sound by remember {
+        mutableStateOf(
+            initialSound.takeUnless { it == KeySound.OFF }
+                ?: KeySound.of(prefs.textOr(PREF_KEY_SOUND_LAST, "blue")).takeUnless { it == KeySound.OFF }
+                ?: KeySound.BLUE,
+        )
+    }
+    var volume by remember { mutableFloatStateOf(SettingsHotApply.keySoundVolume(prefs)) }
+    var lastPreviewAt by remember { mutableLongStateOf(0L) }
+    val latestVolume by rememberUpdatedState(volume)
+    val player = remember { KeySoundPlayer(context).also { it.volume = volume } }
+    val saveVolume = { prefs.edit { putFloat(PREF_KEY_SOUND_VOLUME, volume) } }
+    LaunchedEffect(volume) {
+        delay(150L)
+        if (SettingsHotApply.keySoundVolume(prefs) != volume) saveVolume()
+    }
+    val toggle = {
+        on = !on
+        prefs.edit {
+            putString(PREF_KEY_SOUND, if (on) sound.value else KeySound.OFF.value)
+            putString(PREF_KEY_SOUND_LAST, sound.value)
+        }
+        player.select(if (on) sound else KeySound.OFF)
+        if (on) player.play()
+    }
+    DisposableEffect(player, prefs) {
+        onDispose {
+            if (SettingsHotApply.keySoundVolume(prefs) != latestVolume) {
+                prefs.edit { putFloat(PREF_KEY_SOUND_VOLUME, latestVolume) }
+            }
+            player.release()
+        }
+    }
+    AppSection {
+        AppSettingRow(
+            title = stringResource(R.string.key_sound_title),
+            description = stringResource(R.string.key_sound_description),
+            onClick = toggle,
+            trailing = {
+                AegisSwitch(checked = on, onCheckedChange = { toggle() })
+            },
+        )
+        if (on) {
+            AppSectionDivider()
+            Column(Modifier.fillMaxWidth().padding(horizontal = AppSpacing.rowHorizontal, vertical = 12.dp)) {
+                val volumeLabel = stringResource(R.string.key_sound_volume)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    Text(volumeLabel, style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        stringResource(R.string.key_sound_volume_value, volume),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Slider(
+                    value = volume,
+                    onValueChange = { value ->
+                        volume = value
+                        player.volume = value
+                        val now = SystemClock.uptimeMillis()
+                        if (now - lastPreviewAt >= 120L || value == 0f) {
+                            player.select(sound)
+                            player.play()
+                            lastPreviewAt = now
+                        }
+                    },
+                    onValueChangeFinished = {
+                        saveVolume()
+                        player.select(sound)
+                        player.play()
+                    },
+                    valueRange = 0f..100f,
+                    track = { sliderState ->
+                        SliderDefaults.Track(sliderState = sliderState, thumbTrackGapSize = 0.dp)
+                    },
+                    thumb = {
+                        Box(
+                            Modifier.size(28.dp).clip(CircleShape)
+                                .background(SwitchDefaults.colors().checkedThumbColor),
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).semantics { contentDescription = volumeLabel },
+                )
+            }
+            AppSectionDivider()
+            AppChoiceGroup {
+                KeySound.entries.filter { it != KeySound.OFF }.forEach { choice ->
+                    AppChoiceRow(
+                        label = stringResource(choice.labelRes),
+                        selected = sound == choice,
+                        onSelect = {
+                            sound = choice
+                            prefs.edit {
+                                putString(PREF_KEY_SOUND, choice.value)
+                                putString(PREF_KEY_SOUND_LAST, choice.value)
+                            }
+                            player.select(choice)
+                            player.play()
                         },
                     )
                 }

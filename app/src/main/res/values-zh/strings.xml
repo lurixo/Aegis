@@ -150,6 +150,10 @@
     <string name="clip_cancel">取消</string>
     <string name="clip_clear">清空</string>
     <string name="clip_copy_all">全部复制</string>
+    <string name="key_sound_title">机械键盘音效</string>
+    <string name="key_sound_description">选择轴体音效，点击试听</string>
+    <string name="key_sound_volume">音效音量</string>
+    <string name="key_sound_volume_value">%1$.1f%%</string>
     <string name="key_sound_off">关闭</string>
     <string name="key_sound_blue">Cherry MX 青轴</string>
     <string name="key_sound_brown">Cherry MX 茶轴</string>
