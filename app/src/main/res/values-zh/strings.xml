@@ -502,6 +502,22 @@
     </plurals>
     <string name="clip_category_not_saved">这个分类没能写进常用语，稍后会恢复原样</string>
     <string name="clip_phrase_edit_not_saved">这次改动没有存进常用语</string>
+    <string name="key_sound_title">机械键盘音效</string>
+    <string name="key_sound_description">选择轴体音效，点击试听。跟随系统音量和静音模式。</string>
+    <string name="key_sound_off">关闭</string>
+    <string name="key_sound_blue">Cherry MX 青轴</string>
+    <string name="key_sound_brown">Cherry MX 茶轴</string>
+    <string name="key_sound_red">Cherry MX 红轴</string>
+    <string name="license_mechvibes_name">Mechvibes 键盘录音</string>
+    <string name="license_mechvibes_note">Cherry MX 青轴、茶轴、红轴、黑轴搭配 PBT 键帽，以及 NK Cream（上游署名 Ryan）。每种轴体截取四个按键录音，裁剪静音、调整音量并转换为单声道 PCM。紫轴、静音红轴和静音黑轴为分别基于茶轴、红轴和黑轴录音调音制作的音色。</string>
+    <string name="key_sound_black">Cherry MX 黑轴</string>
+    <string name="key_sound_cream">NK Cream 奶油轴</string>
+    <string name="key_sound_silver">Cherry MX 银轴</string>
+    <string name="license_silver_name">Cherry MX 银轴录音</string>
+    <string name="license_silver_note">Akira 的四段按键录音，音效包附带 GPL v3 许可证。转换为单声道 PCM，裁剪静音并均衡音量。</string>
+    <string name="key_sound_purple">Cherry MX 紫轴</string>
+    <string name="key_sound_silent_red">Cherry MX 静音红轴</string>
+    <string name="key_sound_silent_black">Cherry MX 静音黑轴</string>
     <string name="fuzzy_rule_iang_title">iang = ian</string>
     <string name="fuzzy_rule_uang_title">uang = uan</string>
     <string name="fuzzy_rule_un_ong_title">un = ong</string>

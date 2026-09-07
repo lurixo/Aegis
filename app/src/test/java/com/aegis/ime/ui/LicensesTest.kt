@@ -52,6 +52,8 @@ class LicensesTest {
         R.string.license_emoji_name,
         R.string.license_tgh_name,
         R.string.license_androidx_name,
+        R.string.license_mechvibes_name,
+        R.string.license_silver_name,
     )
 
     private val dictionaryBins =
@@ -76,6 +78,7 @@ class LicensesTest {
             "Unicode", "unicode.org/license",
             "通用规范汉字表", "State Council", "gov.cn/zwgk/2013-08/19/content_2469793", "aegis_tgh.bin",
             "AndroidX", "Compose", "Material 3", "Kotlin",
+            "Mechvibes", "2021 Hai Nguyen", "MIT License", "key_blue.wav", "key_brown.wav", "key_red.wav",
             "Apache License", "Version 2.0",
             "TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION",
             "Limitation of Liability",

@@ -32,6 +32,7 @@ internal class SettingsHotApply(
     private val onKeyPreviewNine: (Boolean) -> Unit,
     private val onKeyPreviewAlpha: (Boolean) -> Unit,
     private val onLetterCase: (com.aegis.ime.ui.LetterCase) -> Unit,
+    private val onKeySound: (com.aegis.ime.ime.KeySound) -> Unit = {},
     private val onKeyHapticStyle: (com.aegis.ime.ime.KeyHaptic) -> Unit = {},
     private val onKeyHapticStrength: (Float) -> Unit = {},
 ) : SharedPreferences.OnSharedPreferenceChangeListener {
@@ -44,6 +45,7 @@ internal class SettingsHotApply(
             key == com.aegis.ime.ui.PREF_ASSOCIATIONS_ON -> onAssociations(associationsOn(prefs))
             key == com.aegis.ime.ui.PREF_AUTO_LEARN_ON -> onAutoLearn(autoLearnOn(prefs))
             key == FUZZY_MASTER_PREF || key in FUZZY_RULE_PREF_KEYS -> onFuzzyRules(fuzzyRules(prefs))
+            key == com.aegis.ime.ui.PREF_KEY_SOUND -> onKeySound(keySound(prefs))
             key == com.aegis.ime.ui.PREF_KEY_HAPTICS -> onKeyHaptics(keyHaptics(prefs))
             key == com.aegis.ime.ui.PREF_KEY_HAPTIC_STYLE -> onKeyHapticStyle(keyHapticStyle(prefs))
             key == com.aegis.ime.ui.PREF_KEY_HAPTIC_STRENGTH -> onKeyHapticStrength(keyHapticStrength(prefs))
@@ -101,6 +103,9 @@ internal class SettingsHotApply(
 
         fun autoLearnOn(prefs: SharedPreferences): Boolean =
             prefs.flag(com.aegis.ime.ui.PREF_AUTO_LEARN_ON, com.aegis.ime.ui.AUTO_LEARN_DEFAULT_ON)
+
+        fun keySound(prefs: SharedPreferences): com.aegis.ime.ime.KeySound =
+            com.aegis.ime.ime.KeySound.of(prefs.text(com.aegis.ime.ui.PREF_KEY_SOUND, "off"))
 
         fun keyHaptics(prefs: SharedPreferences): Boolean =
             prefs.flag(com.aegis.ime.ui.PREF_KEY_HAPTICS, com.aegis.ime.ui.KEY_HAPTICS_DEFAULT)

@@ -57,9 +57,13 @@ import com.aegis.ime.SettingsHotApply
 import kotlinx.coroutines.delay
 import com.aegis.ime.R
 import com.aegis.ime.ime.KeyHaptic
+import com.aegis.ime.ime.KeySound
+import com.aegis.ime.ime.KeySoundPlayer
 import com.aegis.ime.ime.previewImeKeyHaptic
 import com.aegis.ime.ui.theme.AppSpacing
 
+internal const val PREF_KEY_SOUND = "pref_key_sound"
+internal const val PREF_KEY_SOUND_LAST = "pref_key_sound_last"
 internal const val PREF_KEY_HAPTICS = "pref_key_haptics"
 internal const val PREF_KEY_HAPTIC_STYLE = "pref_key_haptic_style"
 internal const val PREF_KEY_HAPTIC_STRENGTH = "pref_key_haptic_strength"
@@ -236,5 +240,63 @@ private fun KeyPreviewSubRow(labelRes: Int, checked: Boolean, enabled: Boolean, 
     ) {
         Text(stringResource(labelRes), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
         AegisSwitch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
+    }
+}
+
+@Composable
+internal fun KeySoundCard() {
+    val context = LocalContext.current
+    val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+    val initialSound = remember { KeySound.of(prefs.textOr(PREF_KEY_SOUND, "off")) }
+    var on by remember { mutableStateOf(initialSound != KeySound.OFF) }
+    var sound by remember {
+        mutableStateOf(
+            initialSound.takeUnless { it == KeySound.OFF }
+                ?: KeySound.of(prefs.textOr(PREF_KEY_SOUND_LAST, "blue")).takeUnless { it == KeySound.OFF }
+                ?: KeySound.BLUE,
+        )
+    }
+    val player = remember { KeySoundPlayer(context) }
+    val toggle = {
+        on = !on
+        prefs.edit {
+            putString(PREF_KEY_SOUND, if (on) sound.value else KeySound.OFF.value)
+            putString(PREF_KEY_SOUND_LAST, sound.value)
+        }
+        player.select(if (on) sound else KeySound.OFF)
+        if (on) player.play()
+    }
+    androidx.compose.runtime.DisposableEffect(player) {
+        onDispose { player.release() }
+    }
+    AppSection {
+        AppSettingRow(
+            title = stringResource(R.string.key_sound_title),
+            description = stringResource(R.string.key_sound_description),
+            onClick = toggle,
+            trailing = {
+                AegisSwitch(checked = on, onCheckedChange = { toggle() })
+            },
+        )
+        if (on) {
+            AppSectionDivider()
+            AppChoiceGroup {
+                KeySound.entries.filter { it != KeySound.OFF }.forEach { choice ->
+                    AppChoiceRow(
+                        label = stringResource(choice.labelRes),
+                        selected = sound == choice,
+                        onSelect = {
+                            sound = choice
+                            prefs.edit {
+                                putString(PREF_KEY_SOUND, choice.value)
+                                putString(PREF_KEY_SOUND_LAST, choice.value)
+                            }
+                            player.select(choice)
+                            player.play()
+                        },
+                    )
+                }
+            }
+        }
     }
 }

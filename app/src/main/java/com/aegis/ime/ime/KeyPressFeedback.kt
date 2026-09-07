@@ -83,7 +83,17 @@ internal enum class KeyHaptic(
     }
 }
 
+private fun View.feedbackHost(): InputView? {
+    var node: android.view.ViewParent? = this as? InputView ?: parent
+    while (node != null) {
+        if (node is InputView) return node
+        node = node.parent
+    }
+    return null
+}
+
 internal fun View.playImeKeyFeedback(hapticsEnabled: Boolean) {
+    feedbackHost()?.playKeySound()
     performImeKeyHaptic(hapticsEnabled)
 }
 

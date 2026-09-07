@@ -37,6 +37,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import com.aegis.ime.R
 import com.aegis.ime.dict.Fuzzy
+import com.aegis.ime.ime.KeySound
 import com.aegis.ime.ime.KeyHaptic
 import com.aegis.ime.ui.theme.AegisTheme
 import org.junit.Assert.assertEquals
@@ -142,6 +143,43 @@ class FeedbackSettingsCardTest {
         node(R.string.key_vibration_title).performScrollTo().performClick()
         compose.onNodeWithText("25.4%").assertExists()
         node(R.string.key_haptic_double).performScrollTo().assertIsSelected()
+    }
+
+    @Test fun sound_switch_collapses_options_and_restores_the_last_choice_after_recreation() {
+        val generation = mutableIntStateOf(0)
+        prefs.edit().putString(PREF_KEY_SOUND, "off").commit()
+        compose.setContent {
+            AegisTheme {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    key(generation.intValue) { KeySoundCard() }
+                }
+            }
+        }
+        node(R.string.key_sound_off).assertDoesNotExist()
+        node(R.string.key_sound_blue).assertDoesNotExist()
+        node(R.string.key_sound_title).performClick()
+        for (choice in KeySound.entries.filter { it != KeySound.OFF }) {
+            node(choice.labelRes).performScrollTo().performClick()
+            assertEquals(choice.value, prefs.getString(PREF_KEY_SOUND, null))
+        }
+        node(R.string.key_sound_title).performScrollTo().performClick()
+        node(R.string.key_sound_cream).assertDoesNotExist()
+        assertEquals("off", prefs.getString(PREF_KEY_SOUND, null))
+        compose.runOnIdle { generation.intValue++ }
+        node(R.string.key_sound_title).performClick()
+        node(R.string.key_sound_cream).performScrollTo().assertIsSelected()
+        assertEquals("cream", prefs.getString(PREF_KEY_SOUND, null))
+    }
+
+    @Test fun an_existing_sound_selection_survives_the_new_master_switch() {
+        prefs.edit().putString(PREF_KEY_SOUND, "purple").commit()
+        compose.setContent { AegisTheme { KeySoundCard() } }
+        node(R.string.key_sound_purple).assertIsSelected()
+        node(R.string.key_sound_title).performClick()
+        node(R.string.key_sound_purple).assertDoesNotExist()
+        node(R.string.key_sound_title).performClick()
+        node(R.string.key_sound_purple).assertIsSelected()
+        assertEquals("purple", prefs.getString(PREF_KEY_SOUND, null))
     }
 
     @Test fun fuzzy_rules_hide_when_off_and_keep_their_choices() {

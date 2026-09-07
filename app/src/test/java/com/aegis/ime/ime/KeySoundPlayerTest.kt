@@ -29,6 +29,7 @@ import com.aegis.ime.SettingsHotApply
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
+import com.aegis.ime.ui.PREF_KEY_SOUND
 import com.aegis.ime.ui.PREF_KEY_HAPTICS
 import com.aegis.ime.ui.PREF_KEY_HAPTIC_STYLE
 import org.junit.Assert.*
@@ -44,6 +45,72 @@ import java.time.Duration
 @Config(sdk = [34])
 class KeySoundPlayerTest {
     private val context = RuntimeEnvironment.getApplication()
+    private fun pool(player: KeySoundPlayer): SoundPool = KeySoundPlayer::class.java.getDeclaredField("pool").let {
+        it.isAccessible = true
+        it.get(player) as SoundPool
+    }
+
+    @Test fun each_switch_plays_its_own_loaded_sample_and_respects_silent_mode() {
+        val audio = context.getSystemService(AudioManager::class.java)
+        for (sound in KeySound.entries.filter { it != KeySound.OFF }) {
+            val player = KeySoundPlayer(context)
+            player.select(sound)
+            val shadow = shadowOf(pool(player))
+            shadow.notifyResourceLoaded(sound.sampleRes, true)
+            audio.ringerMode = AudioManager.RINGER_MODE_NORMAL
+            player.play()
+            assertEquals(1, shadow.getResourcePlaybacks(sound.sampleRes).size)
+            assertEquals(0, shadow.getResourcePlaybacks(sound.sampleRes).single().loop)
+            for (other in KeySound.entries.filter { it != sound && it != KeySound.OFF }) assertFalse(shadow.wasResourcePlayed(other.sampleRes))
+            for (mode in listOf(AudioManager.RINGER_MODE_SILENT, AudioManager.RINGER_MODE_VIBRATE)) {
+                audio.ringerMode = mode
+                player.play()
+                assertEquals(1, shadow.getResourcePlaybacks(sound.sampleRes).size)
+            }
+            player.select(KeySound.OFF)
+            player.play()
+            assertEquals(1, shadow.getResourcePlaybacks(sound.sampleRes).size)
+        }
+    }
+
+    @Test fun loading_does_not_replay_an_old_press_or_a_disabled_sound() {
+        context.getSystemService(AudioManager::class.java).ringerMode = AudioManager.RINGER_MODE_NORMAL
+        val player = KeySoundPlayer(context)
+        player.select(KeySound.BLUE)
+        val original = shadowOf(pool(player))
+        player.play()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(200))
+        original.notifyResourceLoaded(KeySound.BLUE.sampleRes, true)
+        assertFalse(original.wasResourcePlayed(KeySound.BLUE.sampleRes))
+        player.select(KeySound.BROWN)
+        player.play()
+        player.select(KeySound.OFF)
+        original.notifyResourceLoaded(KeySound.BROWN.sampleRes, true)
+        assertFalse(original.wasResourcePlayed(KeySound.BROWN.sampleRes))
+    }
+
+    @Test fun continuous_typing_rotates_recorded_keys_without_replaying_on_switch_change() {
+        context.getSystemService(AudioManager::class.java).ringerMode = AudioManager.RINGER_MODE_NORMAL
+        val player = KeySoundPlayer(context)
+        for (sound in KeySound.entries.filter { it != KeySound.OFF }) {
+            player.select(sound)
+            val shadow = shadowOf(pool(player))
+            assertEquals(4, sound.sampleResources.size)
+            for (res in sound.sampleResources) shadow.notifyResourceLoaded(res, true)
+            val played = ArrayList<Int>()
+            repeat(12) {
+                val before = sound.sampleResources.associateWith { res -> shadow.getResourcePlaybacks(res).size }
+                player.select(sound)
+                player.play()
+                played.add(sound.sampleResources.single { res -> shadow.getResourcePlaybacks(res).size > before.getValue(res) })
+            }
+            assertEquals(listOf(3, 3, 3, 3), sound.sampleResources.map { shadow.getResourcePlaybacks(it).size })
+            assertTrue(played.zipWithNext().all { (a, b) -> a != b })
+            assertTrue(played.chunked(4).all { it.toSet().size == 4 })
+            player.select(KeySound.OFF)
+        }
+    }
+
     @Test fun platform_haptics_are_not_blocked_by_redundant_legacy_settings() {
         val requested = mutableListOf<Int>()
         val view = object : View(context) {
@@ -69,6 +136,17 @@ class KeySoundPlayerTest {
         requested.clear()
         view.playImeKeyFeedback(false)
         assertTrue(requested.isEmpty())
+    }
+
+    @Test fun sound_choice_hot_applies_and_invalid_values_default_to_off() {
+        val prefs = context.getSharedPreferences("aegis", 0)
+        val applied = mutableListOf<KeySound>()
+        val listener = SettingsHotApply({}, {}, {}, {}, {}, {}, {}, {}, {}, {}, { applied.add(it) })
+        prefs.edit().putString(PREF_KEY_SOUND, "brown").commit()
+        listener.onSharedPreferenceChanged(prefs, PREF_KEY_SOUND)
+        assertEquals(listOf(KeySound.BROWN), applied)
+        prefs.edit().putInt(PREF_KEY_SOUND, 1).commit()
+        assertEquals(KeySound.OFF, SettingsHotApply.keySound(prefs))
     }
 
     @Test fun system_style_fallback_matches_a_keyboard_click_and_obeys_legacy_system_settings() {
@@ -396,5 +474,66 @@ class KeySoundPlayerTest {
         assertFalse(shadow.isVibrating)
     }
 
+    @Test fun opening_and_sliding_a_long_press_adds_haptics_without_extra_key_sounds() {
+        val input = InputView(context)
+        input.setKeyPreviewNine(true)
+        input.setKeyHapticStyle(KeyHaptic.SYSTEM)
+        input.setKeySound(KeySound.BLUE)
+        val player = InputView::class.java.getDeclaredField("keySoundPlayer").let { it.isAccessible = true; it.get(input) as KeySoundPlayer }
+        val sounds = shadowOf(pool(player))
+        sounds.notifyResourceLoaded(KeySound.BLUE.sampleRes, true)
+        input.showKeyboard(Layouts.forId(LayoutId.NINE, Lang.CN), false, false, Lang.CN)
+        input.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+        input.layout(0, 0, input.measuredWidth, input.measuredHeight)
+        val keyboard = InputView::class.java.getDeclaredField("keyboardView").let { it.isAccessible = true; it.get(input) as KeyboardView }
+        keyboard.hapticEnabled = true
+        Settings.System.putInt(context.contentResolver, Settings.System.HAPTIC_FEEDBACK_ENABLED, 1)
+        Settings.System.putInt(context.contentResolver, "keyboard_vibration_enabled", 1)
+        context.getSystemService(AudioManager::class.java).ringerMode = AudioManager.RINGER_MODE_NORMAL
+        val key = requireNotNull(keyboard.boundsOfLabelForTest("ABC"))
+        fun send(action: Int, x: Float, y: Float) {
+            MotionEvent.obtain(0, 0, action, x, y, 0).let { keyboard.dispatchTouchEvent(it); it.recycle() }
+        }
+        send(MotionEvent.ACTION_DOWN, key.centerX(), key.centerY())
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(350))
+        assertEquals(HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(keyboard).lastHapticFeedbackPerformed())
+        val box = requireNotNull(keyboard.caseBoxBoundsForTest())
+        send(MotionEvent.ACTION_MOVE, box.left + box.width() / 14f, box.centerY())
+        assertEquals(HapticFeedbackConstants.SEGMENT_FREQUENT_TICK, shadowOf(keyboard).lastHapticFeedbackPerformed())
+        assertEquals(1, sounds.getResourcePlaybacks(KeySound.BLUE.sampleRes).size)
+        send(MotionEvent.ACTION_CANCEL, key.centerX(), key.centerY())
+        player.release()
+    }
 
+    @Test fun both_layouts_and_the_nine_symbol_column_play_once_on_press() {
+        context.getSystemService(AudioManager::class.java).ringerMode = AudioManager.RINGER_MODE_NORMAL
+        for (id in listOf(LayoutId.ALPHA, LayoutId.NINE)) {
+            val input = InputView(context)
+            input.setKeySound(KeySound.RED)
+            input.setKeyHapticStyle(KeyHaptic.SYSTEM)
+            val player = InputView::class.java.getDeclaredField("keySoundPlayer").let { it.isAccessible = true; it.get(input) as KeySoundPlayer }
+            val shadow = shadowOf(pool(player))
+            shadow.notifyResourceLoaded(KeySound.RED.sampleRes, true)
+            input.showKeyboard(Layouts.forId(id, Lang.CN), false, false, Lang.CN)
+            input.measure(View.MeasureSpec.makeMeasureSpec(360, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED))
+            input.layout(0, 0, input.measuredWidth, input.measuredHeight)
+            assertTrue(input.tapKeyboardLabelForTest(if (id == LayoutId.ALPHA) "q" else "ABC"))
+            assertEquals(1, shadow.getResourcePlaybacks(KeySound.RED.sampleRes).size)
+            if (id == LayoutId.NINE) {
+                val keyboard = InputView::class.java.getDeclaredField("keyboardView").let { it.isAccessible = true; it.get(input) as KeyboardView }
+                keyboard.hapticEnabled = true
+                val region = keyboard.scrollRegionForTest()
+                val x = region.centerX()
+                val y = region.top + keyboard.scrollCellHeightForTest() / 2f
+                for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
+                    val event = MotionEvent.obtain(0, 10, action, x, y, 0)
+                    keyboard.dispatchTouchEvent(event)
+                    event.recycle()
+                }
+                assertEquals(2, shadow.getResourcePlaybacks(KeySound.RED.sampleRes).size)
+                assertEquals(android.view.HapticFeedbackConstants.KEYBOARD_TAP, shadowOf(keyboard).lastHapticFeedbackPerformed())
+            }
+            player.release()
+        }
+    }
 }

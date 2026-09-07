@@ -268,6 +268,7 @@ internal fun InputSettingsPage(resumeSignal: Int, onBack: () -> Unit) {
         FuzzySettingsCard()
         AssociationToggleCard()
         AutoLearnToggleCard(resumeSignal)
+        KeySoundCard()
         KeyVibrationToggleCard()
         KeyPreviewCard()
         UiLanguageCard()

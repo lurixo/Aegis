@@ -93,6 +93,44 @@ an independent project not affiliated with the RIME project.
   lifecycle) and the Kotlin standard library. Linked as unmodified binary dependencies.
 - **Modifications:** none (used as published).
 
+## 7. Mechvibes keyboard recordings — MIT
+
+- **Copyright:** © 2021 Hai Nguyen; the upstream NK Cream pack credits Ryan for its recordings.
+- **License:** MIT (full text in Appendix D and `assets/licenses/mechvibes.txt` in the APK)
+- **Source:** <https://github.com/hainguyents13/mechvibes> (commit
+  `326252a13e7bef4f1c35d08ef0189b5af6f8ba02`),
+  `src/audio/cherrymx-{blue,brown,red,black}-pbt/` and `src/audio/nk-cream/`.
+- **Used in:** `res/raw/key_blue.wav`, `key_brown.wav`, `key_red.wav`, `key_black.wav`,
+  `key_cream.wav` and their `_2`, `_3`, `_4` variants for key feedback.
+- **Modifications:** four Q/W/E/R recordings per switch extracted using upstream `config.json`
+  scan codes 16–19 for Cherry MX or `q.wav`, `w.wav`, `e.wav`, `r.wav` for NK Cream;
+  converted to mono 44.1 kHz PCM. DC offset and leading/trailing silence trimmed at a 2% peak
+  threshold with 0.6 ms pre-roll and 10 ms tail room; short edge fades applied. Per-key RMS levels
+  balanced within 0.8–1.25 gain and each pack amplified by at most 2x with a 65% peak ceiling.
+  Pitch and the audible press/release timing are unchanged.
+- **Adapted sound profiles:** `key_purple{,_2,_3,_4}.wav`, `key_silent_red{,_2,_3,_4}.wav`
+  and `key_silent_black{,_2,_3,_4}.wav` are adaptations of the Brown, Red and Black
+  clips respectively, not recordings of those switch models. Two cascaded one-pole
+  low-pass filters at 6500/1800/2100 Hz are mixed with 30%/6%/6% dry signal, followed
+  by peak-relative soft compression `x / (1 + 0.35 * abs(x) / peak)`. RMS targets
+  are 85%/30%/32% of the respective source clips with a 2x gain limit. Short edge
+  fades are applied; original pitch and sample duration are preserved. These
+  adaptations retain the source MIT attribution. Black, Silent Black and NK Cream clips
+  are additionally attenuated to match the quietest clip RMS within each profile.
+
+## 8. Cherry MX Speed Silver recordings — GPL v3
+
+- **Author:** Akira.
+- **Source:** <https://mechvibes.com/sound-packs/custom-sound-pack-1203000000058/>;
+  files mirrored in <https://github.com/sahaj-b/wayvibes> at commit
+  `ff2042eef16c94bda6b14d6f87dc9287ab75bcf3`, `soundpacks/mx-speed-silver/`.
+- **License:** the pack includes the GNU GPL v3 text, reproduced verbatim in
+  `assets/licenses/cherry-mx-speed-silver.txt` in the APK.
+- **Used in:** `res/raw/key_silver.wav` and its `_2`, `_3`, `_4` variants.
+- **Modifications:** recordings 4, 5, 6 and 1 (upstream scan codes 16–19) converted
+  to mono 44.1 kHz PCM, trimmed and leveled using the same process as the Cherry MX
+  recordings above. Original pitch and audible press/release timing preserved.
+
 ## Other references (not vendored, no source copied)
 
 - Algorithm references only: AOSP PinyinIME (Apache-2.0), darts-clone (BSD-2-Clause).
@@ -753,3 +791,27 @@ not be used in advertising or otherwise to promote the sale, use or other
 dealings in these Data Files or Software without prior written
 authorization of the copyright holder.
 ```
+
+## Appendix D — MIT License (Mechvibes)
+
+MIT License
+
+Copyright (c) 2021 Hai Nguyen
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
