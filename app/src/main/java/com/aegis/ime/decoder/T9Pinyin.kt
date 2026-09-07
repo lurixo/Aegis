@@ -199,11 +199,24 @@ object T9Pinyin {
 
     fun segmentLetters(letters: String): List<String>? = segmentLetterRun(letters)?.parts
 
+    internal fun segmentCost(input: String): Double? =
+        if (input.isNotEmpty() && input[0] in '2'..'9') segmentDigits(input)?.cost
+        else segmentLetterRun(input)?.cost
+
     private val syllablePrefixes: Set<String> = buildSet {
         for (s in SYLLABLES) for (k in 1 until s.length) add(s.substring(0, k))
     }
 
+    private val syllableDigitPrefixes: Set<String> = buildSet {
+        for (s in SYLLABLES) {
+            val d = toT9(s)
+            for (k in 1 until d.length) add(d.substring(0, k))
+        }
+    }
+
     internal fun isSyllablePrefix(letters: String): Boolean = letters in syllablePrefixes
+
+    internal fun isSyllableDigitPrefix(digits: String): Boolean = digits in syllableDigitPrefixes
 
     fun syllableReading(digitGroup: String): String = byDigits[digitGroup]?.firstOrNull() ?: ""
 
