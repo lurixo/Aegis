@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import android.media.AudioAttributes
 import android.media.AudioManager
 import android.media.SoundPool
 import android.os.Looper
@@ -50,26 +51,32 @@ class KeySoundPlayerTest {
         it.get(player) as SoundPool
     }
 
-    @Test fun each_switch_plays_its_own_loaded_sample_and_respects_silent_mode() {
+    @Test fun each_switch_plays_its_own_sample_on_media_in_every_ringer_mode() {
         val audio = context.getSystemService(AudioManager::class.java)
+        audio.setStreamVolume(AudioManager.STREAM_MUSIC, 1, 0)
         for (sound in KeySound.entries.filter { it != KeySound.OFF }) {
-            val player = KeySoundPlayer(context)
-            player.select(sound)
-            val shadow = shadowOf(pool(player))
-            shadow.notifyResourceLoaded(sound.sampleRes, true)
-            audio.ringerMode = AudioManager.RINGER_MODE_NORMAL
-            player.play()
-            assertEquals(1, shadow.getResourcePlaybacks(sound.sampleRes).size)
-            assertEquals(0, shadow.getResourcePlaybacks(sound.sampleRes).single().loop)
-            for (other in KeySound.entries.filter { it != sound && it != KeySound.OFF }) assertFalse(shadow.wasResourcePlayed(other.sampleRes))
-            for (mode in listOf(AudioManager.RINGER_MODE_SILENT, AudioManager.RINGER_MODE_VIBRATE)) {
+            for (mode in listOf(AudioManager.RINGER_MODE_NORMAL, AudioManager.RINGER_MODE_SILENT, AudioManager.RINGER_MODE_VIBRATE)) {
                 audio.ringerMode = mode
+                val player = KeySoundPlayer(context)
+                player.select(sound)
+                val soundPool = pool(player)
+                val attributes = org.robolectric.util.ReflectionHelpers.getField<AudioAttributes>(soundPool, "mAttributes")
+                assertEquals(AudioAttributes.USAGE_MEDIA, attributes.usage)
+                assertEquals(AudioAttributes.CONTENT_TYPE_SONIFICATION, attributes.contentType)
+                assertEquals(AudioManager.STREAM_MUSIC, attributes.volumeControlStream)
+                val shadow = shadowOf(soundPool)
+                shadow.notifyResourceLoaded(sound.sampleRes, true)
                 player.play()
                 assertEquals(1, shadow.getResourcePlaybacks(sound.sampleRes).size)
+                assertEquals(0, shadow.getResourcePlaybacks(sound.sampleRes).single().loop)
+                assertEquals(1f, shadow.getResourcePlaybacks(sound.sampleRes).single().leftVolume, 0f)
+                assertEquals(1f, shadow.getResourcePlaybacks(sound.sampleRes).single().rightVolume, 0f)
+                for (other in KeySound.entries.filter { it != sound && it != KeySound.OFF }) assertFalse(shadow.wasResourcePlayed(other.sampleRes))
+                player.select(KeySound.OFF)
+                player.play()
+                assertEquals(1, shadow.getResourcePlaybacks(sound.sampleRes).size)
+                assertNull(org.robolectric.util.ReflectionHelpers.getField<SoundPool?>(player, "pool"))
             }
-            player.select(KeySound.OFF)
-            player.play()
-            assertEquals(1, shadow.getResourcePlaybacks(sound.sampleRes).size)
         }
     }
 

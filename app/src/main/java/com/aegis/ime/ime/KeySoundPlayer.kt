@@ -17,7 +17,6 @@ package com.aegis.ime.ime
 
 import android.content.Context
 import android.media.AudioAttributes
-import android.media.AudioManager
 import android.media.SoundPool
 import android.os.SystemClock
 import com.aegis.ime.R
@@ -42,7 +41,6 @@ enum class KeySound(val value: String, val labelRes: Int, val sampleRes: Int, va
 }
 
 internal class KeySoundPlayer(private val context: Context) {
-    private val audio = context.getSystemService(AudioManager::class.java)
     private var pool: SoundPool? = null
     private val samples = mutableMapOf<Int, Int>()
     private val loaded = mutableSetOf<Int>()
@@ -66,7 +64,7 @@ internal class KeySoundPlayer(private val context: Context) {
         val next = SoundPool.Builder()
             .setMaxStreams(6)
             .setAudioAttributes(AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_ASSISTANCE_SONIFICATION)
+                .setUsage(AudioAttributes.USAGE_MEDIA)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
                 .build())
             .build()
@@ -87,7 +85,6 @@ internal class KeySoundPlayer(private val context: Context) {
 
     fun play() {
         if (sound == KeySound.OFF) return
-        if (audio?.ringerMode != AudioManager.RINGER_MODE_NORMAL) return
         prepare()
         if (sampleOrder.isEmpty()) {
             val ready = sound.sampleResources.toList().mapNotNull { resource ->
@@ -107,7 +104,7 @@ internal class KeySoundPlayer(private val context: Context) {
         }
         pendingPress = 0L
         lastSample = sample
-        pool?.play(sample, 0.7f, 0.7f, 1, 0, 1f)
+        pool?.play(sample, 1f, 1f, 1, 0, 1f)
     }
 
     fun release() {
