@@ -91,8 +91,8 @@ class PunctuationInkCenterTest {
                     fails.add("${widthDp}dp ${key.label}/$sub ink X off by ${a.ink.centerX() - rect.centerX()}")
                 }
                 val scale = kotlin.math.min(1f, rect.height() / (52f * density))
-                if (kotlin.math.abs(a.ink.centerY() - (rect.top + 11f * density * scale)) > 1f) {
-                    fails.add("${widthDp}dp ${key.label}/$sub ink Y off the band")
+                if (kotlin.math.abs(a.y + a.metricCenter - (rect.top + 11f * density * scale)) > 1f) {
+                    fails.add("${widthDp}dp ${key.label}/$sub font-metric Y off the band")
                 }
             }
         }
@@ -146,7 +146,7 @@ class PunctuationInkCenterTest {
 
     private fun sp(v: Float) = android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP, v, ctx.resources.displayMetrics)
 
-    @Test fun sub_hints_hang_on_one_line_per_row_and_at_the_same_height_in_both_languages() {
+    @Test fun sub_hints_share_a_font_metric_line_in_both_languages() {
         val perLang = LinkedHashMap<Lang, Map<Float, List<Float>>>()
         for (lang in listOf(Lang.CN, Lang.EN)) {
             val v = layOut(qwerty(lang))
@@ -159,7 +159,7 @@ class PunctuationInkCenterTest {
                 val sub = requireNotNull(key.sub)
                 val drawn = canvas.texts.filter { it.first == sub }.map { it.second }
                 assertTrue("$lang ${key.label}/$sub drawn ${drawn.size} times", drawn.size == 1)
-                rows.getOrPut(rect.top) { ArrayList() }.add(drawn[0].ink.centerY() - rect.top)
+                rows.getOrPut(rect.top) { ArrayList() }.add(drawn[0].y + drawn[0].metricCenter - rect.top)
             }
             perLang[lang] = rows
         }
@@ -263,8 +263,8 @@ class PunctuationInkCenterTest {
                 if (kotlin.math.abs(h.ink.centerX() - rect.centerX()) > 1f) {
                     fails.add("$lang $label hint ink X off centre by ${h.ink.centerX() - rect.centerX()}")
                 }
-                if (kotlin.math.abs(h.ink.centerY() - (rect.top + 11f * density * scale)) > 1f) {
-                    fails.add("$lang $label hint ink Y off the band by ${h.ink.centerY() - (rect.top + 11f * density * scale)}")
+                if (kotlin.math.abs(h.y + h.metricCenter - (rect.top + 11f * density * scale)) > 1f) {
+                    fails.add("$lang $label hint font-metric Y off the band by ${h.y + h.metricCenter - (rect.top + 11f * density * scale)}")
                 }
                 if (h.y >= rect.centerY()) fails.add("$lang $label hint sits below centre")
                 if (h.y >= l.y) fails.add("$lang $label hint not above the letter")

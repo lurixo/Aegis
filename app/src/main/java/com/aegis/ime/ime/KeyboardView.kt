@@ -725,10 +725,16 @@ class KeyboardView(context: Context) : View(context) {
                 val baseAlign = subPaint.textAlign
                 subPaint.textAlign = Paint.Align.LEFT
                 subPaint.getTextBounds(sub, 0, sub.length, inkBounds)
+                val subX = if (layout.id == LayoutId.NINE) {
+                    p.rect.left + 8f * density * scale - inkBounds.left
+                } else {
+                    cx - inkBounds.exactCenterX()
+                }
                 canvas.drawText(
                     sub,
-                    cx - inkBounds.exactCenterX(),
-                    p.rect.top + 11f * density * scale - inkBounds.exactCenterY(),
+                    subX,
+                    p.rect.top + 11f * density * scale -
+                        if (onAlpha) (subPaint.descent() + subPaint.ascent()) / 2f else inkBounds.exactCenterY(),
                     subPaint,
                 )
                 subPaint.textAlign = baseAlign

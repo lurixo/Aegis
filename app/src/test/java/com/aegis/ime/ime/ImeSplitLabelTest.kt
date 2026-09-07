@@ -17,6 +17,7 @@ package com.aegis.ime.ime
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.RectF
 import android.content.res.Configuration
 import android.view.View
@@ -159,6 +160,52 @@ class ImeSplitLabelTest {
     }
 
     private fun rendered(view: View): Bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888).also { view.draw(Canvas(it)) }
+
+    @Test
+    @Config(qualifiers = "xxhdpi")
+    fun alpha_hints_keep_their_natural_height_so_hyphens_and_underscores_differ() {
+        for (palette in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
+            for (lang in Lang.entries) for (width in listOf(280, 360, 600)) {
+                val view = keyboard(lang).apply {
+                    applyPalette(palette)
+                    measure(View.MeasureSpec.makeMeasureSpec((width * density).toInt(), View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec((250 * density).toInt(), View.MeasureSpec.EXACTLY))
+                    layout(0, 0, measuredWidth, measuredHeight)
+                }
+                val bmp = rendered(view)
+                fun colorDistance(a: Int, b: Int): Int = abs(Color.red(a) - Color.red(b)) +
+                    abs(Color.green(a) - Color.green(b)) + abs(Color.blue(a) - Color.blue(b))
+                fun hint(label: String): RectF {
+                    val key = requireNotNull(view.boundsOfLabelForTest(label))
+                    val ink = RectF(Float.POSITIVE_INFINITY, Float.POSITIVE_INFINITY, Float.NEGATIVE_INFINITY, Float.NEGATIVE_INFINITY)
+                    for (y in ceil(key.top).toInt() until floor(minOf(key.centerY(), key.top + 22f * density)).toInt()) {
+                        for (x in ceil(key.left).toInt() until floor(key.right).toInt()) {
+                            val pixel = bmp.getPixel(x, y)
+                            if (colorDistance(pixel, palette.keySub) < colorDistance(pixel, palette.keySurface)) {
+                                ink.left = minOf(ink.left, x.toFloat())
+                                ink.top = minOf(ink.top, y.toFloat())
+                                ink.right = maxOf(ink.right, x + 1f)
+                                ink.bottom = maxOf(ink.bottom, y + 1f)
+                            }
+                        }
+                    }
+                    assertFalse("$lang $width $label hint is visible", ink.isEmpty)
+                    assertTrue("$lang $width $label stays inside its key", key.contains(ink))
+                    ink.offset(-key.left, -key.top)
+                    return ink
+                }
+                val hints = ('a'..'z').associateWith { hint(it.toString()) }
+                val hyphen = hints.getValue('c')
+                val underscore = hints.getValue('v')
+                val apostrophe = hints.getValue('h')
+                assertTrue("$lang $width underscore sits below the hyphen: $hyphen / $underscore",
+                    underscore.top >= hyphen.bottom + density)
+                assertTrue("$lang $width apostrophe sits above the hyphen: $apostrophe / $hyphen",
+                    apostrophe.bottom <= hyphen.top)
+                bmp.recycle()
+            }
+        }
+    }
 
     private fun inkIn(bmp: Bitmap, face: Int, left: Float, top: Float, right: Float, bottom: Float): Int {
         var ink = 0
