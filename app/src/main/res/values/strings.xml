@@ -87,26 +87,16 @@
     <string name="fuzzy_card_title">Fuzzy Pinyin</string>
     <string name="fuzzy_master_title">Fuzzy Pinyin (master switch)</string>
     <string name="fuzzy_master_description">Tolerate common Pinyin confusions; each rule can also be toggled separately. Changes take effect immediately.</string>
-    <string name="fuzzy_rule_zh_title">zh → z</string>
-    <string name="fuzzy_rule_zh_desc">Retroflex/plain initial: zhi=zi, chang=cang</string>
-    <string name="fuzzy_rule_ch_title">ch → c</string>
-    <string name="fuzzy_rule_ch_desc">Retroflex/plain initial: chi=ci</string>
-    <string name="fuzzy_rule_sh_title">sh → s</string>
-    <string name="fuzzy_rule_sh_desc">Retroflex/plain initial: shi=si</string>
-    <string name="fuzzy_rule_ang_title">ang → an</string>
-    <string name="fuzzy_rule_ang_desc">Front/back nasal final: gang=gan, chang=can</string>
-    <string name="fuzzy_rule_eng_title">eng → en</string>
-    <string name="fuzzy_rule_eng_desc">Front/back nasal final: leng=len</string>
-    <string name="fuzzy_rule_ing_title">ing → in</string>
-    <string name="fuzzy_rule_ing_desc">Front/back nasal final: xin=xing, lin=ling</string>
-    <string name="fuzzy_rule_n_l_title">n ↔ l</string>
-    <string name="fuzzy_rule_n_l_desc">Initial confusion: nan=lan, ni=li</string>
-    <string name="fuzzy_rule_f_h_title">f ↔ h</string>
-    <string name="fuzzy_rule_f_h_desc">Initial confusion: fan=huan, fu=hu</string>
-    <string name="fuzzy_rule_l_r_title">l ↔ r</string>
-    <string name="fuzzy_rule_l_r_desc">Initial confusion: lan=ran, lu=ru</string>
-    <string name="fuzzy_rule_k_g_title">k ↔ g</string>
-    <string name="fuzzy_rule_k_g_desc">Initial confusion: kan=gan, kai=gai</string>
+    <string name="fuzzy_rule_zh_title">zh = z</string>
+    <string name="fuzzy_rule_ch_title">ch = c</string>
+    <string name="fuzzy_rule_sh_title">sh = s</string>
+    <string name="fuzzy_rule_ang_title">ang = an</string>
+    <string name="fuzzy_rule_eng_title">eng = en</string>
+    <string name="fuzzy_rule_ing_title">ing = in</string>
+    <string name="fuzzy_rule_n_l_title">n = l</string>
+    <string name="fuzzy_rule_f_h_title">h = f</string>
+    <string name="fuzzy_rule_l_r_title">r = l</string>
+    <string name="fuzzy_rule_k_g_title">k = g</string>
 
     <string name="association_title">Next-word suggestions</string>
     <string name="association_description">Show next-word predictions in the candidate bar while typing. Off by default; you can enable it.</string>
@@ -504,5 +494,18 @@
     </plurals>
     <string name="clip_category_not_saved">This category could not be written to your saved phrases, so it will come back</string>
     <string name="clip_phrase_edit_not_saved">This change was not saved to your phrases</string>
+    <string name="fuzzy_rule_iang_title">iang = ian</string>
+    <string name="fuzzy_rule_uang_title">uang = uan</string>
+    <string name="fuzzy_rule_un_ong_title">un = ong</string>
+    <string name="fuzzy_rule_on_ong_title">on = ong</string>
+    <string name="fuzzy_rule_un_iong_title">un = iong</string>
+    <string name="fuzzy_rule_eng_ong_title">eng = ong</string>
+    <string name="fuzzy_rule_an_ai_title">an = ai</string>
+    <string name="fuzzy_rule_hui_fei_title">hui = fei</string>
+    <string name="fuzzy_rule_hu_fu_title">hu = fu</string>
+    <string name="fuzzy_rule_huang_wang_title">huang = wang</string>
+    <string name="fuzzy_group_initial">Initials</string>
+    <string name="fuzzy_group_final">Finals</string>
+    <string name="fuzzy_group_syllable">Whole syllables</string>
     <string name="sym_cat_vertical">Vertical</string>
 </resources>

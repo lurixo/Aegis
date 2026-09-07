@@ -73,6 +73,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -244,6 +245,7 @@ internal fun AppSettingRow(
     description: String? = null,
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    titleStyle: TextStyle = MaterialTheme.typography.titleMedium,
     trailing: @Composable () -> Unit = {},
 ) {
     val rowModifier = if (onClick == null) modifier else modifier.clip(MaterialTheme.shapes.extraSmall).clickable(onClick = onClick)
@@ -259,7 +261,7 @@ internal fun AppSettingRow(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.textGap),
         ) {
-            Text(title, style = MaterialTheme.typography.titleMedium)
+            Text(title, style = titleStyle)
             if (description != null) {
                 Text(
                     description,

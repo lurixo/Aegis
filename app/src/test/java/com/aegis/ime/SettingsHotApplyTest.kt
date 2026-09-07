@@ -252,9 +252,9 @@ class SettingsHotApplyTest {
     }
 
 
-    @Test fun fuzzy_master_hot_pushes_full_set_on_and_empty_set_off() {
+    @Test fun fuzzy_master_hot_pushes_default_set_on_and_empty_set_off() {
         put { putBoolean("fuzzy", true) }
-        assertEquals(allRuleKeys, fuzzySets.last())
+        assertEquals(setOf("zh", "ch", "sh", "ang", "eng", "ing"), fuzzySets.last())
         put { putBoolean("fuzzy", false) }
         assertEquals(emptySet<String>(), fuzzySets.last())
         assertEquals(2, fuzzySets.size)
@@ -262,6 +262,10 @@ class SettingsHotApplyTest {
     }
 
     @Test fun every_fuzzy_rule_toggle_hot_pushes_the_recomputed_set() {
+        prefs.unregisterOnSharedPreferenceChangeListener(listener)
+        prefs.edit().apply { for (rule in Fuzzy.RULES) putBoolean(Fuzzy.prefKey(rule.key), true) }.commit()
+        drain()
+        prefs.registerOnSharedPreferenceChangeListener(listener)
         put { putBoolean("fuzzy", true) }
         for (rule in Fuzzy.RULES) {
             val before = fuzzySets.size

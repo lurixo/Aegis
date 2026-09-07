@@ -117,7 +117,7 @@ internal class SettingsHotApply(
 
         fun fuzzyRules(prefs: SharedPreferences): Set<String> =
             Fuzzy.activeRules(prefs.flag(FUZZY_MASTER_PREF, Fuzzy.DEFAULT_ON)) {
-                prefs.flag(Fuzzy.prefKey(it), true)
+                FuzzyPreferences.ruleEnabled(prefs, it)
             }
     }
 }
