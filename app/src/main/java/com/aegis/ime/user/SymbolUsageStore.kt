@@ -262,7 +262,7 @@ class SymbolUsageStore(private val dir: File) {
     }
 
     companion object {
-        private const val MAX = 30
+        private const val MAX = 32
 
         private val TMP_TAGS = AtomicLong(0)
 

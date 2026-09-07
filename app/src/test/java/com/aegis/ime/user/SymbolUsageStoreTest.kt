@@ -315,7 +315,7 @@ class SymbolUsageStoreTest {
     @Test fun caps_history_size() {
         val s = SymbolUsageStore(newDir()).apply { load() }
         for (i in 0 until 50) s.record("s$i")
-        assertTrue("recent must be capped", s.recent(100).size <= 30)
+        assertEquals("recent must be capped", 32, s.recent(100).size)
         assertEquals("most recent stays at the front", "s49", s.recent().first())
     }
 
@@ -427,7 +427,7 @@ class SymbolUsageStoreTest {
                 assertEquals("英文", b.originOf(half))
             }
         }
-        assertEquals("all 22 distinct catalogue pairs exercised", 22, seen.size)
+        assertEquals("all 26 distinct catalogue pairs exercised", 26, seen.size)
     }
 
     @Test fun recording_a_symbol_does_not_write_on_the_thread_that_typed_it() {
