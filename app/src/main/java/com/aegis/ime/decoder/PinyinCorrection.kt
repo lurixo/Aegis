@@ -71,6 +71,8 @@ internal object PinyinCorrection {
         else -> null
     }
 
+    fun classifies(input: String): Boolean = modeOf(input) != null
+
     fun isNeighbour(a: Char, b: Char): Boolean =
         letterNeighbours[a]?.contains(b) == true || digitNeighbours[a]?.contains(b) == true
 
@@ -78,6 +80,12 @@ internal object PinyinCorrection {
         Mode.LETTERS -> T9Pinyin.segmentLetters(input) != null
         Mode.DIGITS -> T9Pinyin.segment(input) != null
         null -> false
+    }
+
+    fun syllableCount(input: String): Int? = when (modeOf(input)) {
+        Mode.LETTERS -> T9Pinyin.segmentLetters(input)?.size
+        Mode.DIGITS -> T9Pinyin.segment(input)?.size
+        null -> null
     }
 
     fun partialSplit(input: String): Split? {
