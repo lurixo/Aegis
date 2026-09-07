@@ -23,6 +23,7 @@ internal data class ImeWindowInsetsSpec(
     val visibleTop: Int,
     val touchableInsets: Int,
     val touchableRegion: Rect?,
+    val touchableExtra: Rect? = null,
 )
 
 internal object LandscapeImeWindowPolicy {
@@ -31,22 +32,33 @@ internal object LandscapeImeWindowPolicy {
         normalTop: Int,
         windowBottom: Int,
         surfaceBounds: Rect,
+        windowBounds: Rect? = null,
+        preeditTab: Rect? = null,
     ): ImeWindowInsetsSpec {
         val validFloatingSurface = compactLandscape && !surfaceBounds.isEmpty
-        return if (validFloatingSurface) {
-            ImeWindowInsetsSpec(
+        if (validFloatingSurface) {
+            return ImeWindowInsetsSpec(
                 contentTop = windowBottom,
                 visibleTop = windowBottom,
                 touchableInsets = InputMethodService.Insets.TOUCHABLE_INSETS_REGION,
                 touchableRegion = Rect(surfaceBounds),
             )
-        } else {
-            ImeWindowInsetsSpec(
+        }
+        val tab = preeditTab?.takeIf { !it.isEmpty && windowBounds != null && !windowBounds.isEmpty }
+        if (tab != null) {
+            return ImeWindowInsetsSpec(
                 contentTop = normalTop,
                 visibleTop = normalTop,
-                touchableInsets = InputMethodService.Insets.TOUCHABLE_INSETS_VISIBLE,
-                touchableRegion = null,
+                touchableInsets = InputMethodService.Insets.TOUCHABLE_INSETS_REGION,
+                touchableRegion = Rect(windowBounds!!.left, normalTop, windowBounds.right, windowBottom),
+                touchableExtra = Rect(tab),
             )
         }
+        return ImeWindowInsetsSpec(
+            contentTop = normalTop,
+            visibleTop = normalTop,
+            touchableInsets = InputMethodService.Insets.TOUCHABLE_INSETS_VISIBLE,
+            touchableRegion = null,
+        )
     }
 }

@@ -75,11 +75,12 @@ internal object LandscapeDockSizing {
         fractionalRows: Boolean,
         editBarVisible: Boolean,
         navBottom: Int,
+        preeditEditing: Boolean = false,
     ): HeightSpec {
         val cap = availableHeight.coerceAtLeast(0)
         val rows = rowCount.coerceAtLeast(1)
         val nav = navBottom.coerceIn(0, cap)
-        val preferredPreedit = dp(PREEDIT_DP, density)
+        val preferredPreedit = dp(if (preeditEditing) PREEDIT_EDIT_DP else PREEDIT_DP, density)
         val preferredBar = dp(BAR_DP, density)
         val barCount = if (editBarVisible) 2 else 1
         val preferredExtra = dp(BOTTOM_EXTRA_DP, density)
@@ -188,6 +189,7 @@ internal object LandscapeDockSizing {
     private const val MIN_HOST_GUTTER_DP = 48
 
     private const val PREEDIT_DP = 26
+    private const val PREEDIT_EDIT_DP = 44
     private const val BAR_DP = 44
     private const val BOTTOM_EXTRA_DP = 28
     private const val PREFERRED_FACE_DP = 52

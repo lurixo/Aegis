@@ -18,6 +18,7 @@ package com.aegis.ime
 import android.content.Context
 import android.os.LocaleList
 import android.content.res.Configuration
+import android.graphics.Rect
 import android.inputmethodservice.InputMethodService
 import android.inputmethodservice.InputMethodService.Insets
 import android.os.Handler
@@ -636,6 +637,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             onTranslateFieldTap = { resumeTranslateRouting() }
             onOverlayChanged = { syncBackCallback() }
             onRestoreNotice = { openBackup() }
+            onPreeditTap = { controller.onPreeditTap() }
+            onPreeditCaret = { index -> controller.onPreeditCaret(index) }
+            onPreeditEditDone = { controller.onPreeditEditDone() }
         }
         inputView = view
         view.onPanelChanged = { panel ->
@@ -836,12 +840,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             normalTop = normalTop,
             windowBottom = loc[1] + v.height,
             surfaceBounds = v.dockTouchableBoundsInWindow(),
+            windowBounds = Rect(loc[0], loc[1], loc[0] + v.width, loc[1] + v.height),
+            preeditTab = v.preeditTabBoundsInWindow(),
         )
         outInsets.contentTopInsets = spec.contentTop
         outInsets.visibleTopInsets = spec.visibleTop
         outInsets.touchableInsets = spec.touchableInsets
         outInsets.touchableRegion.setEmpty()
         spec.touchableRegion?.let(outInsets.touchableRegion::set)
+        spec.touchableExtra?.let { outInsets.touchableRegion.union(it) }
     }
 
     override fun onUpdateSelection(

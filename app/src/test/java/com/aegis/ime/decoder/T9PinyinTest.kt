@@ -214,4 +214,69 @@ class T9PinyinTest {
         assertEquals(listOf("mang"), T9Pinyin.segment("6264"))
         assertEquals(listOf("ying"), T9Pinyin.segmentLetters("ying"))
     }
+
+    @Test fun guessed_letters_stay_one_to_one_with_the_digits() {
+        for (digits in listOf("64426", "94664486", "96636", "9", "77", "1", "6426")) {
+            assertEquals(digits, digits.length, T9Pinyin.guessLetters(digits).length)
+        }
+        assertEquals("nihao", T9Pinyin.guessLetters("64426"))
+        assertEquals("", T9Pinyin.guessLetters(""))
+    }
+
+    @Test fun letter_runs_follow_the_displayed_apostrophes() {
+        assertEquals(listOf(0..1, 2..4), T9Pinyin.letterRuns("nihao"))
+        assertEquals(listOf(0..0, 1..3), T9Pinyin.letterRuns("nhao"))
+        assertTrue(T9Pinyin.letterRuns("").isEmpty())
+    }
+
+    @Test fun deleting_a_digit_removes_only_its_letter() {
+        assertEquals("nhao", T9Pinyin.reviseLetters("nihao", "6426", 1, 1, 0))
+        assertEquals("ihao", T9Pinyin.reviseLetters("nihao", "4426", 0, 1, 0))
+        assertEquals("niha", T9Pinyin.reviseLetters("nihao", "6442", 4, 1, 0))
+        assertEquals("n'hao", T9Pinyin.preeditLetters("nhao"))
+    }
+
+    @Test fun typing_at_the_tail_reguesses_only_the_last_syllable() {
+        var letters = ""
+        for (i in "64426".indices) letters = T9Pinyin.reviseLetters(letters, "64426".substring(0, i + 1), i, 0, 1)
+        println("sequential 64426 -> $letters")
+        assertEquals("nihao", letters)
+        assertEquals("nihao", T9Pinyin.reviseLetters("niha", "64426", 4, 0, 1))
+        assertEquals("ni" + T9Pinyin.guessLetters("426"), T9Pinyin.reviseLetters("niha", "64426", 4, 0, 1))
+        val extended = T9Pinyin.reviseLetters("hao", "4266", 3, 0, 1)
+        assertEquals(T9Pinyin.guessLetters("4266"), extended)
+        assertTrue(extended, T9Pinyin.preeditLetters(extended).startsWith("hao'"))
+        val retyped = T9Pinyin.reviseLetters("mi", "644", 2, 0, 1)
+        assertEquals(T9Pinyin.guessLetters("644"), retyped)
+        assertTrue(retyped, retyped.startsWith("ni"))
+    }
+
+    @Test fun chained_typing_before_a_syllable_reguesses_the_syllable_being_typed() {
+        val first = T9Pinyin.reviseLetters("hao", "6426", 0, 0, 1)
+        assertEquals("mhao", first)
+        assertEquals("nihao", T9Pinyin.reviseLetters(first, "64426", 1, 0, 1, chained = true))
+        assertEquals("mihao", T9Pinyin.reviseLetters("mhao", "64426", 1, 0, 1))
+        assertEquals("nihao", T9Pinyin.reviseLetters("nhao", "64426", 1, 0, 1, chained = true))
+    }
+
+    @Test fun inserting_a_digit_mid_buffer_never_rewrites_the_neighbouring_letters() {
+        assertEquals("nihao", T9Pinyin.reviseLetters("nhao", "64426", 1, 0, 1))
+        assertEquals("zhong", T9Pinyin.reviseLetters("zong", "94664", 1, 0, 1))
+        assertEquals("zhongguo", T9Pinyin.reviseLetters("hongguo", "94664486", 0, 0, 1))
+        assertEquals("nizhao", T9Pinyin.reviseLetters("nihao", "649426", 2, 0, 1))
+        for (digit in "23456789") {
+            val prior = "zhongguo"
+            val digits = "94" + digit + "664486"
+            val revised = T9Pinyin.reviseLetters(prior, digits, 2, 0, 1)
+            assertEquals(digits, prior, revised.removeRange(2, 3))
+            val restored = T9Pinyin.reviseLetters(revised, "94664486", 2, 1, 0)
+            assertEquals(prior, restored)
+        }
+    }
+
+    @Test fun inconsistent_revisions_fall_back_to_a_fresh_guess() {
+        assertEquals(T9Pinyin.guessLetters("64426"), T9Pinyin.reviseLetters("ni", "64426", 2, 0, 1))
+        assertEquals(T9Pinyin.guessLetters("64426"), T9Pinyin.reviseLetters("nihaoo", "64426", 9, 1, 0))
+        assertEquals(T9Pinyin.guessLetters("64426"), T9Pinyin.reviseLetters("nih", "64426", 3, 0, 2))
+    }
 }

@@ -93,6 +93,10 @@ class KeyboardController(
 
     private var drillSyllable = -1
 
+    private var preeditCaret = -1
+    private var nineEditLetters: String? = null
+    private var nineChainAt = -1
+
     private var candidatesSuperseded = false
 
     private val drillChoices = HashMap<Int, String>()
@@ -225,6 +229,7 @@ class KeyboardController(
         deferredLearnEvents.clear()
         drillSyllable = -1
         drillChoices.clear()
+        leavePreeditEditing()
         committedPrefix.setLength(0)
         shiftState = ShiftState.OFF
         forgetEnglishWord()
@@ -361,7 +366,175 @@ class KeyboardController(
 
     private fun handleSegment() {
         if (composing.isEmpty()) return
+        if (preeditEditing()) { segmentAtCaret(); return }
         if (forcedCuts.add(composing.length)) history.addLast(StepKind.CUT)
+    }
+
+    fun preeditEditing(): Boolean = preeditCaret >= 0 && composing.isNotEmpty() && mode() == Mode.PINYIN
+
+    internal fun preeditCaretForTest(): Int = if (preeditEditing()) preeditCaret else -1
+
+    fun onPreeditTap() {
+        if (mode() != Mode.PINYIN || composing.isEmpty()) return
+        onPreeditCaret(composing.length)
+    }
+
+    fun onPreeditCaret(rawIndex: Int) {
+        if (mode() != Mode.PINYIN || composing.isEmpty()) return
+        expirePreeditChoiceUndo()
+        val hadDrill = drillSyllable >= 0 || drillChoices.isNotEmpty()
+        drillSyllable = -1
+        drillChoices.clear()
+        preeditCaret = rawIndex.coerceIn(0, composing.length)
+        nineChainAt = -1
+        if (layoutId == LayoutId.NINE && nineEditLetters == null) nineEditLetters = nineDisplayLetters()
+        if (hadDrill) refreshCandidates()
+        render()
+    }
+
+    fun onPreeditEditDone() {
+        if (preeditCaret < 0) return
+        leavePreeditEditing()
+        render()
+    }
+
+    private fun leavePreeditEditing() {
+        preeditCaret = -1
+        nineEditLetters = null
+        nineChainAt = -1
+    }
+
+    private fun nineDisplayLetters(): String? {
+        val sb = StringBuilder()
+        for (i in lockedReadings.indices) {
+            if (lockedReadings[i].length != lockedInputLengths[i]) return null
+            sb.append(lockedReadings[i])
+        }
+        sb.append(T9Pinyin.guessLetters(activeInput()))
+        return sb.toString().takeIf { it.length == composing.length }
+    }
+
+    private fun reviseNineLetters(at: Int, removed: Int, inserted: Int) {
+        val chained = inserted > 0 && at == nineChainAt
+        nineChainAt = if (inserted > 0 || at == nineChainAt - 1) at + inserted else -1
+        val prior = nineEditLetters ?: return
+        if (layoutId != LayoutId.NINE || prior.length != composing.length - inserted + removed) {
+            nineEditLetters = null
+            return
+        }
+        val bounds = (forcedCuts.filter { it in activeStart..composing.length } + activeStart + composing.length).toSortedSet()
+        val start = bounds.filter { it <= at }.maxOrNull() ?: activeStart
+        val end = bounds.filter { it > at }.minOrNull() ?: composing.length
+        val priorEnd = end - inserted + removed
+        val revised = T9Pinyin.reviseLetters(
+            prior.substring(start, priorEnd),
+            composing.substring(start, end),
+            at - start,
+            removed,
+            inserted,
+            chained,
+        )
+        nineEditLetters = prior.substring(0, start) + revised + prior.substring(priorEnd)
+    }
+
+    private fun syncNineLockLetters() {
+        val prior = nineEditLetters ?: return
+        if (prior.length != composing.length) {
+            nineEditLetters = null
+            return
+        }
+        val sb = StringBuilder(prior)
+        var start = 0
+        for (i in lockedReadings.indices) {
+            val len = lockedInputLengths[i]
+            if (lockedReadings[i].length == len && start + len <= sb.length) sb.replace(start, start + len, lockedReadings[i])
+            start += len
+        }
+        nineEditLetters = sb.toString()
+    }
+
+    private fun lockRawStart(index: Int): Int {
+        var start = 0
+        for (i in 0 until index.coerceAtMost(lockedInputLengths.size)) start += lockedInputLengths[i]
+        return start
+    }
+
+    private fun lockIndexContaining(rawIndex: Int): Int {
+        var start = 0
+        for (i in lockedInputLengths.indices) {
+            val end = start + lockedInputLengths[i]
+            if (rawIndex in start until end) return i
+            start = end
+        }
+        return -1
+    }
+
+    private fun unlockFrom(index: Int) {
+        if (index !in lockedReadings.indices) return
+        while (lockedReadings.size > index) {
+            lockedReadings.removeAt(lockedReadings.lastIndex)
+            lockedInputLengths.removeAt(lockedInputLengths.lastIndex)
+        }
+        activeStart = lockedInputLengths.sum().coerceAtMost(composing.length)
+    }
+
+    private fun finishCaretEdit() {
+        forcedCuts.removeIf { it <= 0 || it > composing.length }
+        if (activeStart > composing.length) activeStart = composing.length
+        rebuildHistory()
+        repeat(lockedReadings.size) { history.addLast(StepKind.LOCK) }
+        if (composing.isEmpty()) {
+            leavePreeditEditing()
+            if (committedPrefix.isNotEmpty()) flushComposing()
+        } else {
+            preeditCaret = preeditCaret.coerceIn(0, composing.length)
+        }
+    }
+
+    private fun insertAtCaret(s: String) {
+        val caret = preeditCaret.coerceIn(0, composing.length)
+        var unlock = -1
+        if (caret > 0) {
+            val inside = lockIndexContaining(caret - 1)
+            if (inside >= 0 && caret < lockRawStart(inside) + lockedInputLengths[inside]) unlock = inside
+        }
+        val following = lockedInputLengths.indices.firstOrNull { lockRawStart(it) >= caret } ?: -1
+        if (following >= 0 && (unlock < 0 || following < unlock)) unlock = following
+        if (unlock >= 0) unlockFrom(unlock)
+        composing.insert(caret, s)
+        val shifted = forcedCuts.map { if (it > caret) it + s.length else it }
+        forcedCuts.clear(); forcedCuts.addAll(shifted)
+        reviseNineLetters(caret, 0, s.length)
+        preeditCaret = caret + s.length
+        finishCaretEdit()
+    }
+
+    private fun backspaceAtCaret() {
+        val caret = preeditCaret.coerceIn(0, composing.length)
+        if (caret == 0) return
+        if (caret <= activeStart) {
+            val inside = lockIndexContaining(caret - 1)
+            if (inside >= 0) { unlockFrom(inside); finishCaretEdit(); return }
+        }
+        if (caret in forcedCuts) { forcedCuts.remove(caret); finishCaretEdit(); return }
+        composing.deleteCharAt(caret - 1)
+        val shifted = forcedCuts.map { if (it >= caret) it - 1 else it }
+        forcedCuts.clear(); forcedCuts.addAll(shifted)
+        reviseNineLetters(caret - 1, 1, 0)
+        preeditCaret = caret - 1
+        finishCaretEdit()
+    }
+
+    private fun segmentAtCaret() {
+        val caret = preeditCaret.coerceIn(0, composing.length)
+        if (caret == 0) return
+        if (caret <= activeStart) {
+            val inside = lockIndexContaining(caret - 1)
+            if (inside < 0 || caret == lockRawStart(inside) + lockedInputLengths[inside]) return
+            unlockFrom(inside)
+        }
+        forcedCuts.add(caret)
+        finishCaretEdit()
     }
 
     fun hasComposingToClear(): Boolean =
@@ -453,7 +626,11 @@ class KeyboardController(
             return
         }
         when (mode()) {
-            Mode.PINYIN -> { composing.append(key.output); history.addLast(StepKind.DIGIT) }
+            Mode.PINYIN -> if (preeditEditing()) {
+                insertAtCaret(key.output)
+            } else {
+                composing.append(key.output); history.addLast(StepKind.DIGIT)
+            }
             Mode.DIRECT -> {
                 val text = applyCase(key.output)
                 if (englishPreeditActive() && text.isNotEmpty() && text.all { it in 'a'..'z' || it in 'A'..'Z' }) {
@@ -473,6 +650,7 @@ class KeyboardController(
         if (restorePreeditChoiceUndo()) return
         drillSyllable = -1
         drillChoices.clear()
+        if (preeditEditing()) { backspaceAtCaret(); return }
         if (composing.isEmpty()) {
             if (committedPrefix.isNotEmpty()) {
                 val removeCount = Character.charCount(committedPrefix.codePointBefore(committedPrefix.length))
@@ -731,6 +909,7 @@ class KeyboardController(
         committedPrefix.setLength(0)
         drillSyllable = -1
         drillChoices.clear()
+        leavePreeditEditing()
     }
 
     private fun applyDeferredLearning(finalWord: String? = null, finalReading: String = "") {
@@ -1007,6 +1186,7 @@ class KeyboardController(
         drillChoices.clear(); drillChoices.putAll(snap.drillChoices)
         deferredLearnEvents.clear(); deferredLearnEvents.addAll(snap.deferredLearnEvents)
         lastWord = snap.lastWord
+        leavePreeditEditing()
         if (decodeLane != null) candidatesSuperseded = true
         return true
     }
@@ -1063,10 +1243,11 @@ class KeyboardController(
         if (composing.isEmpty()) return prefix
         val tail = if (mode() == Mode.PINYIN) {
             val locked = lockedReadings.joinToString("'")
-            val rest = if (layoutId == LayoutId.NINE) {
-                T9Pinyin.preedit(activeInput(), activeCuts().toSet())
-            } else {
-                T9Pinyin.preeditLetters(activeInput(), activeCuts().toSet())
+            val sticky = nineEditLetters?.takeIf { preeditEditing() && it.length == composing.length }
+            val rest = when {
+                layoutId != LayoutId.NINE -> T9Pinyin.preeditLetters(activeInput(), activeCuts().toSet())
+                sticky != null -> T9Pinyin.preeditLetters(sticky.substring(activeStart), activeCuts().toSet())
+                else -> T9Pinyin.preedit(activeInput(), activeCuts().toSet())
             }
             when {
                 locked.isEmpty() -> rest
@@ -1116,9 +1297,10 @@ class KeyboardController(
         }
         v.showKeyboard(layout, shifted, shiftState == ShiftState.LOCK, lang)
         val readings = expandedReadings()
+        val preedit = preeditText()
         v.showCandidates(
             candidates.map { it.word },
-            preeditText(),
+            preedit,
             readings,
             selectedExpandedReadingIndex(readings, highlight),
             chineseGateActive(),
@@ -1126,8 +1308,23 @@ class KeyboardController(
             candidateProjection = CandidateProjectionPolicy.PINYIN.takeIf {
                 mode() == Mode.PINYIN && composing.isNotEmpty()
             },
+            preeditModel = preeditModel(preedit),
         )
     }
+
+    private fun preeditModel(text: String): PreeditModel? {
+        if (!preeditEditing()) return null
+        return PreeditModel.align(
+            text,
+            committedPrefix.length,
+            composing.toString(),
+            lockedReadings.map { it.length },
+            lockedInputLengths.toList(),
+            preeditCaret,
+        )
+    }
+
+    internal fun preeditModelForTest(): PreeditModel? = preeditModel(preeditText())
 
     internal fun shiftStateName(): String = shiftState.name
 
@@ -1204,6 +1401,8 @@ class KeyboardController(
 
     internal fun preeditForTest(): String = preeditText()
 
+    internal fun rawComposingForTest(): String = composing.toString()
+
     fun onPickReadingIndex(index: Int) {
         val readings = expandedReadings()
         if (index !in readings.indices) return
@@ -1229,6 +1428,7 @@ class KeyboardController(
                 handlePickReading(Key(reading, output = reading, action = KeyAction.PICK_READING))
             }
         }
+        syncNineLockLetters()
         refreshCandidates()
         render()
     }

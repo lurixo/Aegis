@@ -115,5 +115,27 @@ class TypoGuessCandidatesTest {
         }
     }
 
-
+    @Test fun caret_edit_that_breaks_the_reading_shows_guesses_and_repair_restores_the_exact_list() {
+        val engine = engine()
+        for (nine in listOf(false, true)) {
+            val input = if (nine) "64426" else "nihao"
+            val (_, c) = controller(engine, nine, input)
+            val exact = c.candidateWords()
+            assertTrue("你好" in exact)
+            c.onPreeditCaret(input.length)
+            c.onKey(act(KeyAction.BACKSPACE))
+            c.onKey(act(KeyAction.BACKSPACE))
+            c.onKey(out(if (nine) "6" else "o"))
+            c.onKey(out(if (nine) "2" else "a"))
+            assertEquals(if (nine) "64462" else "nihoa", c.rawComposingForTest())
+            assertTrue(c.preeditEditing())
+            val guessed = c.candidateWords()
+            assertTrue("nine=$nine typo keeps 你好 in $guessed", "你好" in guessed.take(6))
+            repeat(2) { c.onKey(act(KeyAction.BACKSPACE)) }
+            c.onKey(out(if (nine) "2" else "a"))
+            c.onKey(out(if (nine) "6" else "o"))
+            assertEquals(input, c.rawComposingForTest())
+            assertEquals(exact, c.candidateWords())
+        }
+    }
 }

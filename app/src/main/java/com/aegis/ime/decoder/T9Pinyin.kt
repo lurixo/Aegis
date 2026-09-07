@@ -318,6 +318,78 @@ object T9Pinyin {
         return sb.toString()
     }
 
+    fun guessLetters(digits: String): String = preedit(digits).filter { it != '\'' }
+
+    fun letterRuns(letters: String): List<IntRange> {
+        val out = ArrayList<IntRange>()
+        var start = 0
+        var i = 0
+        for (c in preeditLetters(letters)) {
+            if (c == '\'') {
+                if (i > start) out.add(start until i)
+                start = i
+            } else {
+                i++
+            }
+        }
+        if (i > start) out.add(start until i)
+        return out
+    }
+
+    fun reviseLetters(prior: String, digits: String, at: Int, removed: Int, inserted: Int, chained: Boolean = false): String {
+        val whole = guessLetters(digits)
+        if (whole.length != digits.length) return whole
+        if (prior.length != digits.length - inserted + removed || at < 0 || at + removed > prior.length) return whole
+        val kept = prior.substring(0, at) + prior.substring(at + removed)
+        if (inserted == 0) return kept
+        if (inserted != 1 || removed != 0) return whole
+        val runs = letterRuns(prior)
+        val before = runs.firstOrNull { at - 1 in it }
+        if (at == prior.length || chained) {
+            val start = before?.first ?: at
+            val guessed = guessLetters(digits.substring(start, at + 1))
+            return if (guessed.length == at + 1 - start) kept.substring(0, start) + guessed + kept.substring(at) else whole
+        }
+        fun place(c: Char) = kept.substring(0, at) + c + kept.substring(at)
+        fun agreeing(start: Int, end: Int): Char? {
+            val g = guessLetters(digits.substring(start, end))
+            val local = at - start
+            if (g.length != end - start || g.removeRange(local, local + 1) != kept.substring(start, end - 1)) return null
+            return g[local]
+        }
+        val after = runs.firstOrNull { at in it }
+        val options = KEY_LETTERS[digits[at]].orEmpty()
+        val lone = DIGIT_INITIAL[digits[at]] ?: digits[at]
+        agreeing(0, digits.length)?.let { return place(it) }
+        if (before != null && before == after) {
+            agreeing(before.first, before.last + 2)?.let { return place(it) }
+            options.firstOrNull { wellFormedLetters(place(it).substring(before.first, before.last + 2)) }?.let { return place(it) }
+            return place(lone)
+        }
+        fun extendBefore(): String? = before?.let { run ->
+            val text = prior.substring(run.first, run.last + 1)
+            (agreeing(run.first, at + 1) ?: options.firstOrNull { syllabic(text + it) })?.let(::place)
+        }
+        fun joinAfter(): String? = after?.let { run ->
+            val text = prior.substring(run.first, run.last + 1)
+            (agreeing(at, run.last + 2) ?: options.firstOrNull { syllabic(it + text) })?.let(::place)
+        }
+        val incomplete = before != null && (before.first == before.last || prior.substring(before.first, before.last + 1) !in SYLLABLES)
+        val joined = if (incomplete) extendBefore() ?: joinAfter() else joinAfter() ?: extendBefore()
+        return joined ?: place(lone)
+    }
+
+    private fun syllabic(letters: String): Boolean = letters in SYLLABLES || isSyllablePrefix(letters)
+
+    private fun wellFormedLetters(letters: String): Boolean {
+        for (k in letters.length downTo 0) {
+            if (k > 0 && segmentLetters(letters.substring(0, k)) == null) continue
+            val tail = letters.substring(k)
+            if (tail.isEmpty() || syllabic(tail)) return true
+        }
+        return false
+    }
+
     private fun preeditLetterChunk(letters: String): String {
         if (letters.isEmpty()) return ""
         if (letters in SYLLABLES) return letters
