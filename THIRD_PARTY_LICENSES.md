@@ -100,16 +100,19 @@ an independent project not affiliated with the RIME project.
 - **Source:** <https://github.com/hainguyents13/mechvibes> (commit
   `326252a13e7bef4f1c35d08ef0189b5af6f8ba02`),
   `src/audio/cherrymx-{blue,brown,red,black}-pbt/` and `src/audio/nk-cream/`.
-- **Used in:** `res/raw/key_blue.wav`, `key_brown.wav`, `key_red.wav`, `key_black.wav`,
-  `key_cream.wav` and their `_2`, `_3`, `_4` variants for key feedback.
+- **Used in:** `res/raw/key_blue.flac`, `key_brown.flac`, `key_red.flac`, `key_black.flac`,
+  `key_cream.flac` and their `_2`, `_3`, `_4` variants for key feedback.
 - **Modifications:** four Q/W/E/R recordings per switch extracted using upstream `config.json`
   scan codes 16–19 for Cherry MX or `q.wav`, `w.wav`, `e.wav`, `r.wav` for NK Cream;
   converted to mono 44.1 kHz PCM. DC offset and leading/trailing silence trimmed at a 2% peak
   threshold with 0.6 ms pre-roll and 10 ms tail room; short edge fades applied. Per-key RMS levels
   balanced within 0.8–1.25 gain and each pack amplified by at most 2x with a 65% peak ceiling.
-  Pitch and the audible press/release timing are unchanged.
-- **Adapted sound profiles:** `key_purple{,_2,_3,_4}.wav`, `key_silent_red{,_2,_3,_4}.wav`
-  and `key_silent_black{,_2,_3,_4}.wav` are adaptations of the Brown, Red and Black
+  Pitch and the audible press/release timing are unchanged. The processed 16-bit PCM
+  samples receive a uniform 1.375x gain and are stored with lossless FLAC encoding
+  at the original 44.1 kHz sample rate. This gain preserves relative profile levels
+  and leaves all sample peaks below 90% of full scale.
+- **Adapted sound profiles:** `key_purple{,_2,_3,_4}.flac`, `key_silent_red{,_2,_3,_4}.flac`
+  and `key_silent_black{,_2,_3,_4}.flac` are adaptations of the Brown, Red and Black
   clips respectively, not recordings of those switch models. Two cascaded one-pole
   low-pass filters at 6500/1800/2100 Hz are mixed with 30%/6%/6% dry signal, followed
   by peak-relative soft compression `x / (1 + 0.35 * abs(x) / peak)`. RMS targets
@@ -126,10 +129,12 @@ an independent project not affiliated with the RIME project.
   `ff2042eef16c94bda6b14d6f87dc9287ab75bcf3`, `soundpacks/mx-speed-silver/`.
 - **License:** the pack includes the GNU GPL v3 text, reproduced verbatim in
   `assets/licenses/cherry-mx-speed-silver.txt` in the APK.
-- **Used in:** `res/raw/key_silver.wav` and its `_2`, `_3`, `_4` variants.
+- **Used in:** `res/raw/key_silver.flac` and its `_2`, `_3`, `_4` variants.
 - **Modifications:** recordings 4, 5, 6 and 1 (upstream scan codes 16–19) converted
   to mono 44.1 kHz PCM, trimmed and leveled using the same process as the Cherry MX
-  recordings above. Original pitch and audible press/release timing preserved.
+  recordings above. Original pitch and audible press/release timing preserved. The
+  processed 16-bit PCM samples receive the same uniform 1.375x gain and are stored
+  with lossless FLAC encoding at 44.1 kHz.
 
 ## Other references (not vendored, no source copied)
 

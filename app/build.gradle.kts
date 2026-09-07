@@ -60,6 +60,7 @@ android {
 
     androidResources {
         localeFilters += setOf("en", "zh")
+        noCompress += "flac"
         ignoreAssetsPatterns += listOf(
             "aegis_dict.bin",
             "aegis_t9.bin",

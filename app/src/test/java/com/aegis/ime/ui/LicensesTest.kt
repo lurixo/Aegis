@@ -78,7 +78,7 @@ class LicensesTest {
             "Unicode", "unicode.org/license",
             "通用规范汉字表", "State Council", "gov.cn/zwgk/2013-08/19/content_2469793", "aegis_tgh.bin",
             "AndroidX", "Compose", "Material 3", "Kotlin",
-            "Mechvibes", "2021 Hai Nguyen", "MIT License", "key_blue.wav", "key_brown.wav", "key_red.wav",
+            "Mechvibes", "2021 Hai Nguyen", "MIT License", "key_blue.flac", "key_brown.flac", "key_red.flac",
             "Apache License", "Version 2.0",
             "TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION",
             "Limitation of Liability",
