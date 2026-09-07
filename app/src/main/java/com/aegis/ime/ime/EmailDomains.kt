@@ -41,5 +41,12 @@ class EmailDomains(private val prefs: SharedPreferences? = null) {
         return runCatching { stored.getLong(UserLexicon.EMAIL_COUNT_PREFIX + domain, 0L) }.getOrDefault(0L).coerceAtLeast(0L)
     }
 
-    companion object
+    companion object {
+        internal fun context(before: CharSequence): String? {
+            if (before.length < 2 || before.last() != '@') return null
+            val previous = before[before.length - 2]
+            if (previous.isWhitespace() || previous == '@') return null
+            return before.toString()
+        }
+    }
 }
