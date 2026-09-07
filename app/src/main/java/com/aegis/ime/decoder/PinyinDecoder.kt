@@ -499,14 +499,20 @@ class PinyinDecoder(
     private fun withFuzzyReadings(input: String, candidates: List<Cand>): List<Cand> {
         val rules = fuzzyRules
         if (rules.isEmpty()) return candidates
-        val variants = HashMap<String, List<String>>()
-        val readings = HashMap<String, List<Pair<String, Int>>>()
+        val exact = HashMap<String, Set<String>>()
+        val targets = HashMap<String, Map<String, String>>()
+        val readings = ReadingLookup(aliasDict ?: dict)
         return candidates.map { candidate ->
             if (candidate.correctedReading != null) return@map candidate
             val source = input.take(candidate.coveredLen).replace("'", "")
-            if (dict.containsExactWord(source, candidate.word)) return@map candidate
-            val target = variants.getOrPut(source) { fuzzyVariants(source, rules) }
-                .firstOrNull { dict.containsExactWord(it, candidate.word) } ?: return@map candidate
+            if (candidate.word in exact.getOrPut(source) { dict.exact(source).mapTo(HashSet()) { it.word } }) return@map candidate
+            val target = targets.getOrPut(source) {
+                buildMap {
+                    for (variant in fuzzyVariants(source, rules)) {
+                        for (wf in dict.exact(variant)) putIfAbsent(wf.word, variant)
+                    }
+                }
+            }[candidate.word] ?: return@map candidate
             val reading = guessReading(candidate.word, target, false, readings)
             candidate.copy(correctedReading = reading)
         }
@@ -1286,7 +1292,31 @@ class PinyinDecoder(
         return if (scored.size <= GUESS_VARIANTS) scored else scored.subList(0, GUESS_VARIANTS)
     }
 
-    private fun guessReading(word: String, input: String, prefix: Boolean, cache: MutableMap<String, List<Pair<String, Int>>>): String {
+    private class ReadingLookup(private val source: BinaryDict) {
+        private data class Query(val remaining: String, val t9: Boolean, val prefix: Boolean)
+
+        private val matches = HashMap<Query, List<Pair<String, String>>>()
+        private val frequencies = HashMap<String, Map<String, Int>>()
+
+        fun matching(remaining: String, t9: Boolean, prefix: Boolean): List<Pair<String, String>> =
+            matches.getOrPut(Query(remaining, t9, prefix)) {
+                READING_KEYS.mapNotNull { (reading, digits) ->
+                    val key = if (t9) digits else reading
+                    if (remaining.startsWith(key) || (prefix && key.startsWith(remaining))) reading to key else null
+                }
+            }
+
+        fun frequency(reading: String, word: String): Int? =
+            frequencies.getOrPut(reading) {
+                buildMap {
+                    for (wf in source.exact(reading)) {
+                        if (wf.word.codePointCount(0, wf.word.length) == 1) putIfAbsent(wf.word, wf.freq)
+                    }
+                }
+            }[word]
+    }
+
+    private fun guessReading(word: String, input: String, prefix: Boolean, cache: ReadingLookup): String {
         val ref = aliasDict ?: dict
         val t9 = input.all { it in '2'..'9' }
         if (!t9 && ref.containsExactWord(input, word)) return input
@@ -1294,19 +1324,14 @@ class PinyinDecoder(
         data class Path(val reading: String, val covered: Int, val score: Double)
         var paths = listOf(Path("", 0, 0.0))
         for (char in chars) {
-            val readings = cache.getOrPut(char) {
-                T9Pinyin.SYLLABLES.mapNotNull { syllable ->
-                    ref.exactWordFreq(syllable, char)?.let { syllable to it }
-                }
-            }
             val next = ArrayList<Path>()
-            for (path in paths) for ((reading, frequency) in readings) {
-                val key = if (t9) T9Pinyin.toT9(reading) else reading
+            for (path in paths) {
                 val remaining = input.substring(path.covered)
-                val matches = remaining.startsWith(key) || (prefix && key.startsWith(remaining))
-                if (!matches) continue
-                next.add(Path(path.reading + reading, (path.covered + key.length).coerceAtMost(input.length),
-                    path.score + ln(frequency.toDouble().coerceAtLeast(1.0))))
+                for ((reading, key) in cache.matching(remaining, t9, prefix)) {
+                    val frequency = cache.frequency(reading, char) ?: continue
+                    next.add(Path(path.reading + reading, (path.covered + key.length).coerceAtMost(input.length),
+                        path.score + ln(frequency.toDouble().coerceAtLeast(1.0))))
+                }
             }
             paths = next.groupBy { it.covered }.values.flatMap { group -> group.sortedByDescending { it.score }.take(8) }
             if (paths.isEmpty()) return ""
@@ -1320,7 +1345,7 @@ class PinyinDecoder(
         if (limit <= 0 || input.length !in PinyinCorrection.MIN_LEN..PinyinCorrection.MAX_LEN) return emptyList()
         if (!PinyinCorrection.classifies(input) || PinyinCorrection.acceptable(input)) return emptyList()
         val out = LinkedHashMap<String, GuessCandidate>()
-        val readingCache = HashMap<String, List<Pair<String, Int>>>()
+        val readingCache = ReadingLookup(aliasDict ?: dict)
         fun add(word: String, variant: GuessVariant, source: GuessSource): Boolean {
             if (word.isNotEmpty() && word !in out) {
                 val reading = guessReading(word, variant.input, source == GuessSource.PREFIX, readingCache)
@@ -1380,6 +1405,7 @@ class PinyinDecoder(
     }
 
     internal companion object {
+        private val READING_KEYS = T9Pinyin.SYLLABLES.map { it to T9Pinyin.toT9(it) }
         const val SEP = '\''
         const val BOS = -1
         const val NO_CTX = Int.MIN_VALUE

@@ -98,4 +98,25 @@ class DictEngineFuzzyMatrixTest {
         }
     }
 
+    @Test fun dense_fuzzy_homophones_keep_every_supplementary_character_and_its_reading() {
+        val characters = (0 until 256).map(EngineFixture::supplementary)
+        val rows = listOf(EngineFixture.Row("xian", "先", 9000)) +
+            characters.mapIndexed { i, word -> EngineFixture.Row("xiang", word, 1000 - i) }
+        val e = DictEngine(EngineFixture.build(rows),
+            EngineFixture.build(rows.map { it.copy(key = T9Pinyin.toT9(it.key)) }), null, fuzzyRules = setOf("iang"))
+        for (nine in listOf(false, true)) {
+            val input = if (nine) T9Pinyin.toT9("xian") else "xian"
+            val candidates = e.candidatesCovered(input, nine)
+            val fuzzy = candidates.filter { it.word in characters }
+            assertEquals(characters.toSet(), fuzzy.map { it.word }.toSet())
+            assertEquals(characters.size, fuzzy.size)
+            assertTrue(fuzzy.all { it.correctedReading == "xiang" && it.coveredLen == input.length })
+            val exact = e.candidatesCovered(if (nine) T9Pinyin.toT9("xiang") else "xiang", nine)
+                .filter { it.word in characters }
+            assertEquals(characters.toSet(), exact.map { it.word }.toSet())
+            assertTrue(exact.all { it.correctedReading == null })
+            assertEquals(candidates, e.candidatesCovered(input, nine))
+        }
+    }
+
 }
