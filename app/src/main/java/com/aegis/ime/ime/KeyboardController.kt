@@ -60,7 +60,34 @@ class KeyboardController(
     private var engine: CandidateEngine,
     private val decodeLane: DecodeLane? = null,
 ) {
-    private val host: ImeHost = editor
+    private var beforeCursor: String? = null
+
+    private val host: ImeHost = object : ImeHost by editor {
+        override fun commitText(text: CharSequence) {
+            beforeCursor = null
+            editor.commitText(text)
+        }
+
+        override fun commitSymbol(symbol: CharSequence) {
+            beforeCursor = null
+            editor.commitSymbol(symbol)
+        }
+
+        override fun deleteBackward() {
+            beforeCursor = null
+            editor.deleteBackward()
+        }
+
+        override fun deleteSelection() {
+            beforeCursor = null
+            editor.deleteSelection()
+        }
+
+        override fun performEnter() {
+            beforeCursor = null
+            editor.performEnter()
+        }
+    }
 
     private var lang = Lang.CN
     private var shiftState = ShiftState.OFF
@@ -204,6 +231,14 @@ class KeyboardController(
         render()
     }
 
+    fun onEditorContextChanged() {
+        beforeCursor = null
+    }
+
+    fun onInputTargetChanged() {
+        beforeCursor = null
+    }
+
     fun setFuzzyRules(rules: Set<String>) {
         pushedFuzzyRules = rules
         engine.setFuzzyRules(rules)
@@ -211,6 +246,7 @@ class KeyboardController(
 
     fun reset(preserveLayout: Boolean = false) {
         decodeLane?.markSatisfiedSynchronously()
+        beforeCursor = null
         composing.setLength(0)
         literalIndices.clear()
         candidates = emptyList()
@@ -891,7 +927,7 @@ class KeyboardController(
         }
         return DecodeRequest(
             engine = engine,
-            beforeCursor = if (readsContext) host.textBeforeCursor(CALC_SCAN_LEN + 1).toString() else "",
+            beforeCursor = if (readsContext) cursorContext() else "",
             composingEmpty = composing.isEmpty(),
             committedPrefixEmpty = committedPrefix.isEmpty(),
             mode = mode(),
@@ -916,6 +952,9 @@ class KeyboardController(
             englishTyped = englishTyped,
         )
     }
+
+    private fun cursorContext(): String =
+        beforeCursor ?: host.textBeforeCursor(CALC_SCAN_LEN + 1).toString().also { beforeCursor = it }
 
     private fun applyDecodeResult(r: DecodeResult) {
         candidatesSuperseded = false

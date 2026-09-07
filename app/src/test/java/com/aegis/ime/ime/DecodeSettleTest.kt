@@ -336,4 +336,55 @@ class DecodeSettleTest {
     @Test fun space_without_a_running_worker_commits_like_sync_on_26key() = spaceFallbackWithoutAnyWorker(nine = false)
 
     @Test fun space_without_a_running_worker_commits_like_sync_on_9key() = spaceFallbackWithoutAnyWorker(nine = true)
+
+    private fun cursorContextIsReadOnMainAndRefreshed(nine: Boolean) {
+        val lane = ThreadLane(settleMillis = 60_000L)
+        try {
+            val host = Editor().apply { text.append("今天天气") }
+            val engine = Tracking(fixtureEngine())
+            val c = controller(host, engine, lane.lane, nine)
+            lane.drain()
+            c.onInputTargetChanged()
+            host.reads.set(0)
+            engine.contexts.clear()
+            type(c, keys(nine, "nihao")); lane.drain()
+            assertEquals("one read serves every keystroke of the word", 1, host.reads.get())
+            assertEquals(setOf("今天天气"), engine.contexts.toSet())
+            c.onKey(space); lane.drain()
+            assertEquals("今天天气你好", host.text.toString())
+            val afterCommit = host.reads.get()
+            assertEquals("the commit forced a fresh read", 2, afterCommit)
+            engine.contexts.clear()
+            type(c, keys(nine, "ni")); lane.drain()
+            assertEquals(afterCommit, host.reads.get())
+            assertEquals(setOf("今天天气你好"), engine.contexts.toSet())
+
+            host.text.setLength(0); host.text.append("别处")
+            c.onEditorContextChanged()
+            engine.contexts.clear()
+            type(c, keys(nine, "hao")); lane.drain()
+            assertEquals("a cursor move is read once more", afterCommit + 1, host.reads.get())
+            assertEquals(setOf("别处"), engine.contexts.toSet())
+
+            host.text.setLength(0); host.text.append("新框")
+            c.onInputTargetChanged()
+            engine.contexts.clear()
+            type(c, keys(nine, "a")); lane.drain()
+            assertEquals(setOf("新框"), engine.contexts.toSet())
+
+            host.text.setLength(0); host.text.append("另一个输入框里已经写了很多很多字的一段话")
+            c.reset()
+            c.switchTextLayoutForTest(nine)
+            engine.contexts.clear()
+            type(c, keys(nine, "ni")); lane.drain()
+            assertEquals(setOf("另一个输入框里已经写了很多很多字的一段话".takeLast(16)), engine.contexts.toSet())
+            assertTrue("the worker never read the input connection: ${host.offMain}", host.offMain.isEmpty())
+        } finally {
+            lane.close()
+        }
+    }
+
+    @Test fun the_cursor_context_is_cached_on_main_and_refreshed_on_26key() = cursorContextIsReadOnMainAndRefreshed(nine = false)
+
+    @Test fun the_cursor_context_is_cached_on_main_and_refreshed_on_9key() = cursorContextIsReadOnMainAndRefreshed(nine = true)
 }
