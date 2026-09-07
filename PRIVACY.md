@@ -43,7 +43,7 @@ what makes it usable elsewhere.
 
 ## Permissions
 
-Aegis's own manifest declares **two** Android permissions:
+Aegis's own manifest declares **three** Android permissions:
 
 - **`INTERNET`** — used for the downloads, update checks and translation requests described under
   [Network use](#network-use), and for nothing else.
@@ -51,7 +51,9 @@ Aegis's own manifest declares **two** Android permissions:
   filling it into a backup dialog, requires a biometric or screen-lock confirmation first. The
   password is stored encrypted on this device and is never transmitted.
 
-The APK that Android installs lists a third, `com.aegis.ime.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`.
+- **`VIBRATE`** — used for brief key feedback when enabled, if the standard view feedback is unavailable.
+
+The APK that Android installs lists a fourth, `com.aegis.ime.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`.
 It is not an Android platform permission and asks for nothing on your device: the AndroidX libraries
 add it when the manifests are merged, and it is declared by Aegis's own package at `signature`
 protection level, so only code signed with the same key could ever hold it. It is named here so that

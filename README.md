@@ -164,8 +164,8 @@ unless you ask it to.
 A keyboard sees everything you type, so trust is the whole point. Aegis is built so that trust does
 not depend on our word alone:
 
-- The app's own manifest declares **two** Android permissions: **`INTERNET`** and
-  **`USE_BIOMETRIC`**. The installed APK lists a third,
+- The app's own manifest declares **three** Android permissions: **`INTERNET`**,
+  **`USE_BIOMETRIC`** and **`VIBRATE`**. The installed APK lists a fourth,
   `com.aegis.ime.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`, which the AndroidX libraries add when the
   manifests are merged; it is not a platform permission, is declared at `signature` level in Aegis's
   own namespace, and asks for nothing on your device.
@@ -177,6 +177,7 @@ not depend on our word alone:
   ever made while you type, and nothing you type is ever sent.**
 - **`USE_BIOMETRIC`** is used only for the default backup password: saving it, or filling it into a
   backup dialog, needs a biometric or screen-lock confirmation first.
+- **`VIBRATE`** provides brief key feedback when enabled.
 - Your **keystrokes, candidates, learned words, user dictionary, and clipboard never leave the
   device**: they live in the app's private storage (`filesDir`). The only ways any of it leaves are
   a file *you* export — a backup, your user dictionary, or your phrases — to a location you pick,

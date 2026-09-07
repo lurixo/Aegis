@@ -102,7 +102,25 @@
     <string name="association_description">Show next-word predictions in the candidate bar while typing. Off by default; you can enable it.</string>
 
     <string name="key_vibration_title">Key vibration</string>
-    <string name="key_vibration_description">Vibrate briefly on each key press. Off by default; respects the system haptic setting.</string>
+    <string name="key_vibration_description">Choose a feel and tap to experience it. Off by default; follows system haptic settings. Feel varies by device.</string>
+    <string name="key_haptic_system">System</string>
+    <string name="key_haptic_soft">Smooth wave</string>
+    <string name="key_haptic_crisp">Crisp</string>
+    <string name="key_haptic_firm">Hammer</string>
+    <string name="key_haptic_tick">Grain</string>
+    <string name="key_haptic_thud">Bounce</string>
+    <string name="key_haptic_double">Double tap</string>
+    <string name="key_haptic_strength_system_value">Follow system</string>
+    <string name="key_haptic_strength">Vibration strength</string>
+    <string name="key_haptic_double_description">Two distinct taps with a clear pause</string>
+    <string name="key_haptic_thud_description">A strong hit followed by fading rebounds</string>
+    <string name="key_haptic_tick_description">Three rapid taps with a grainy texture</string>
+    <string name="key_haptic_firm_description">A deep, sustained impact</string>
+    <string name="key_haptic_crisp_description">One sharp tap with a clean finish</string>
+    <string name="key_haptic_soft_description">A smooth rise and a gentle fade</string>
+    <string name="key_haptic_system_description">The device’s standard keyboard feedback</string>
+    <string name="key_haptic_strength_value">%1$.1f%%</string>
+    <string name="key_haptic_system_strength_hint">System uses the device strength. Choose another style to adjust it.</string>
     <string name="key_preview_title">Key press preview</string>
     <string name="key_preview_description">Show an enlarged bubble of the key you press. Off by default; turn it on, then choose which keyboards below.</string>
     <string name="key_preview_nine_label">9-key</string>

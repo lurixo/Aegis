@@ -144,7 +144,7 @@ class KeyboardView(context: Context) : View(context) {
         caseBoxActive = true
         caseBoxMoved = false
         caseBoxSelected = -1
-        if (hapticEnabled) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+        performImeKeyHaptic(hapticEnabled, HapticFeedbackConstants.LONG_PRESS)
         invalidatePreview()
     }
 
@@ -1073,7 +1073,7 @@ class KeyboardView(context: Context) : View(context) {
             else if (previewEnabledForCurrentLayout() && (hasLongPressChoices(dk) || isRetypeKey(dk))) {
                 repeatHandler.postDelayed(longPressRunnable, LONG_PRESS_MS)
             }
-            if (hapticEnabled) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+            playImeKeyFeedback(hapticEnabled)
             showPreview(dk, dp.rect)
         } else {
             hidePreview()
@@ -1173,7 +1173,7 @@ class KeyboardView(context: Context) : View(context) {
                 val newSel = if (caseBoxMoved) caseBoxSelectionAt(x, y) else -1
                 if (newSel != caseBoxSelected) {
                     caseBoxSelected = newSel
-                    if (newSel >= 0) if (hapticEnabled) performHapticFeedback(HapticFeedbackConstants.SEGMENT_FREQUENT_TICK)
+                    if (newSel >= 0) performImeKeyHaptic(hapticEnabled, HapticFeedbackConstants.SEGMENT_FREQUENT_TICK)
                     invalidatePreview()
                 }
             }
@@ -1311,7 +1311,7 @@ class KeyboardView(context: Context) : View(context) {
         scrollPressedIndex = if (fling.stopArmed) -1 else scrollIndexAt(y)
         scrollVisualPressedIndex = scrollPressedIndex
         if (scrollPressedIndex >= 0) scrollPress.press() else scrollPress.release()
-        if (scrollPressedIndex >= 0) if (hapticEnabled) performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+        if (scrollPressedIndex >= 0) playImeKeyFeedback(hapticEnabled)
         showScrollPreview()
         invalidate()
     }

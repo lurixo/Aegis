@@ -50,6 +50,12 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34])
 class PanelActionKeyParityTest {
 
+    @org.junit.Before fun usePlatformHapticFallback() {
+        val context = RuntimeEnvironment.getApplication()
+        org.robolectric.Shadows.shadowOf(context.getSystemService(android.os.Vibrator::class.java))
+            .setHasVibrator(false)
+    }
+
     private val context = RuntimeEnvironment.getApplication()
     private val density = context.resources.displayMetrics.density
     private val activities = ArrayList<org.robolectric.android.controller.ActivityController<Activity>>()

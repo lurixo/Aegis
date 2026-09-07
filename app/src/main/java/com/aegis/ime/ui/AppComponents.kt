@@ -285,6 +285,7 @@ internal fun AppChoiceRow(
     selected: Boolean,
     onSelect: () -> Unit,
     modifier: Modifier = Modifier,
+    description: String? = null,
 ) {
     Row(
         modifier = modifier
@@ -297,7 +298,14 @@ internal fun AppChoiceRow(
         horizontalArrangement = Arrangement.spacedBy(AppSpacing.compactGap),
     ) {
         RadioButton(selected = selected, onClick = null)
-        Text(label, style = MaterialTheme.typography.bodyLarge)
+        if (description == null) {
+            Text(label, style = MaterialTheme.typography.bodyLarge)
+        } else {
+            Column(Modifier.weight(1f).padding(vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(label, style = MaterialTheme.typography.bodyLarge)
+                Text(description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 

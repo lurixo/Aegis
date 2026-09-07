@@ -252,6 +252,7 @@ class KeyFeedbackTest {
 
     @Test fun a_key_press_vibrates_when_haptics_are_enabled() {
         val v = alphaView().apply { hapticEnabled = true }
+        InputView(context).apply { setKeyHapticStyle(KeyHaptic.SYSTEM); addView(v) }
         val (x, y) = v.centerOfLabelForTest("q")!!
         v.down(x, y)
         assertEquals(

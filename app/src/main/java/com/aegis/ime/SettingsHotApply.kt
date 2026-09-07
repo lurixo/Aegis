@@ -32,6 +32,8 @@ internal class SettingsHotApply(
     private val onKeyPreviewNine: (Boolean) -> Unit,
     private val onKeyPreviewAlpha: (Boolean) -> Unit,
     private val onLetterCase: (com.aegis.ime.ui.LetterCase) -> Unit,
+    private val onKeyHapticStyle: (com.aegis.ime.ime.KeyHaptic) -> Unit = {},
+    private val onKeyHapticStrength: (Float) -> Unit = {},
 ) : SharedPreferences.OnSharedPreferenceChangeListener {
 
     override fun onSharedPreferenceChanged(prefs: SharedPreferences, key: String?) {
@@ -43,6 +45,8 @@ internal class SettingsHotApply(
             key == com.aegis.ime.ui.PREF_AUTO_LEARN_ON -> onAutoLearn(autoLearnOn(prefs))
             key == FUZZY_MASTER_PREF || key in FUZZY_RULE_PREF_KEYS -> onFuzzyRules(fuzzyRules(prefs))
             key == com.aegis.ime.ui.PREF_KEY_HAPTICS -> onKeyHaptics(keyHaptics(prefs))
+            key == com.aegis.ime.ui.PREF_KEY_HAPTIC_STYLE -> onKeyHapticStyle(keyHapticStyle(prefs))
+            key == com.aegis.ime.ui.PREF_KEY_HAPTIC_STRENGTH -> onKeyHapticStrength(keyHapticStrength(prefs))
             key == com.aegis.ime.ui.PREF_KEY_PREVIEW_MASTER -> {
                 onKeyPreviewNine(keyPreviewNine(prefs))
                 onKeyPreviewAlpha(keyPreviewAlpha(prefs))
@@ -100,6 +104,14 @@ internal class SettingsHotApply(
 
         fun keyHaptics(prefs: SharedPreferences): Boolean =
             prefs.flag(com.aegis.ime.ui.PREF_KEY_HAPTICS, com.aegis.ime.ui.KEY_HAPTICS_DEFAULT)
+
+        fun keyHapticStyle(prefs: SharedPreferences): com.aegis.ime.ime.KeyHaptic =
+            com.aegis.ime.ime.KeyHaptic.of(prefs.text(com.aegis.ime.ui.PREF_KEY_HAPTIC_STYLE, "crisp"))
+
+        fun keyHapticStrength(prefs: SharedPreferences): Float = com.aegis.ime.ime.keyHapticStrength(
+            (prefs.all[com.aegis.ime.ui.PREF_KEY_HAPTIC_STRENGTH] as? Number)?.toFloat()
+                ?: com.aegis.ime.ime.KEY_HAPTIC_STRENGTH_DEFAULT,
+        )
 
         fun keyPreviewMaster(prefs: SharedPreferences): Boolean =
             prefs.flag(com.aegis.ime.ui.PREF_KEY_PREVIEW_MASTER, com.aegis.ime.ui.KEY_PREVIEW_MASTER_DEFAULT)

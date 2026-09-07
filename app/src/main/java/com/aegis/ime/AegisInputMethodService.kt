@@ -343,6 +343,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             Handler(Looper.getMainLooper()).post { maybeReloadEngine() }
         },
         onKeyHaptics = { on -> mainHandler.post { inputView?.setKeyHaptics(on) } },
+        onKeyHapticStyle = { style -> mainHandler.post { inputView?.setKeyHapticStyle(style) } },
+        onKeyHapticStrength = { strength -> mainHandler.post { inputView?.setKeyHapticStrength(strength) } },
         onKeyPreviewNine = { on -> mainHandler.post { inputView?.setKeyPreviewNine(on) } },
         onKeyPreviewAlpha = { on -> mainHandler.post { inputView?.setKeyPreviewAlpha(on) } },
         onLetterCase = { mode -> mainHandler.post { inputView?.setLetterCase(mode) } },
@@ -664,6 +666,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         view.applyPalette(imePalette)
         val fbPrefs = getSharedPreferences("aegis", MODE_PRIVATE)
         view.setKeyHaptics(SettingsHotApply.keyHaptics(fbPrefs))
+        view.setKeyHapticStyle(SettingsHotApply.keyHapticStyle(fbPrefs))
+        view.setKeyHapticStrength(SettingsHotApply.keyHapticStrength(fbPrefs))
         view.setKeyPreviewNine(SettingsHotApply.keyPreviewNine(fbPrefs))
         view.setKeyPreviewAlpha(SettingsHotApply.keyPreviewAlpha(fbPrefs))
         view.setLetterCase(SettingsHotApply.letterCase(fbPrefs))
@@ -783,6 +787,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         userModel.autoLearnEnabled = SettingsHotApply.autoLearnOn(prefs)
         controller.setFuzzyRules(currentFuzzyRules())
         inputView?.setKeyHaptics(SettingsHotApply.keyHaptics(prefs))
+        inputView?.setKeyHapticStyle(SettingsHotApply.keyHapticStyle(prefs))
+        inputView?.setKeyHapticStrength(SettingsHotApply.keyHapticStrength(prefs))
         inputView?.setKeyPreviewNine(SettingsHotApply.keyPreviewNine(prefs))
         inputView?.setKeyPreviewAlpha(SettingsHotApply.keyPreviewAlpha(prefs))
         inputView?.setLetterCase(SettingsHotApply.letterCase(prefs))

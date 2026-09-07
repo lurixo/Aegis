@@ -102,7 +102,25 @@
     <string name="association_description">打字时在候选栏显示下一词预测/联想。默认关，可开。</string>
 
     <string name="key_vibration_title">按键振动</string>
-    <string name="key_vibration_description">每次按键轻微振动。默认关，遵循系统触感设置。</string>
+    <string name="key_vibration_description">选择手感，点击体验。默认关闭，遵循系统触感设置；实际手感因设备而异。</string>
+    <string name="key_haptic_system">系统</string>
+    <string name="key_haptic_soft">柔波</string>
+    <string name="key_haptic_crisp">清脆</string>
+    <string name="key_haptic_firm">重锤</string>
+    <string name="key_haptic_tick">颗粒</string>
+    <string name="key_haptic_thud">回弹</string>
+    <string name="key_haptic_double">双击</string>
+    <string name="key_haptic_strength_system_value">跟随系统</string>
+    <string name="key_haptic_strength">振动强度</string>
+    <string name="key_haptic_double_description">两次敲击，间隔清晰</string>
+    <string name="key_haptic_thud_description">重击后逐渐回弹，先强后轻</string>
+    <string name="key_haptic_tick_description">三连短点，颗粒分明</string>
+    <string name="key_haptic_firm_description">饱满重击，触感厚实</string>
+    <string name="key_haptic_crisp_description">短促单击，收尾利落</string>
+    <string name="key_haptic_soft_description">缓起缓落，柔和绵长</string>
+    <string name="key_haptic_system_description">使用设备默认的按键触感</string>
+    <string name="key_haptic_strength_value">%1$.1f%%</string>
+    <string name="key_haptic_system_strength_hint">系统方案跟随设备强度，选择其他方案可调节。</string>
     <string name="key_preview_title">按键预览</string>
     <string name="key_preview_description">按下时显示放大的按键气泡。默认关；开启后可在下方选择生效的键盘。</string>
     <string name="key_preview_nine_label">9键</string>

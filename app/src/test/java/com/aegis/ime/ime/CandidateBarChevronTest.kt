@@ -47,6 +47,12 @@ import org.robolectric.annotation.LooperMode
 @Config(sdk = [34])
 class CandidateBarChevronTest {
 
+    @org.junit.Before fun usePlatformHapticFallback() {
+        val context = RuntimeEnvironment.getApplication()
+        org.robolectric.Shadows.shadowOf(context.getSystemService(android.os.Vibrator::class.java))
+            .setHasVibrator(false)
+    }
+
     private val ctx = RuntimeEnvironment.getApplication()
     private val density = ctx.resources.displayMetrics.density
 

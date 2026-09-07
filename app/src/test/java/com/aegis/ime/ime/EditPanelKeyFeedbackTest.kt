@@ -54,7 +54,7 @@ class EditPanelKeyFeedbackTest {
                 applyPalette(ImePalette.STATIC_LIGHT)
                 setHasSelection(true)
             }
-            root.addView(panel)
+            root.addView(InputView(activity).apply { setKeyHapticStyle(KeyHaptic.SYSTEM); addView(panel) })
             panel.measure(
                 View.MeasureSpec.makeMeasureSpec(dp(panel, 411), View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(dp(panel, 290), View.MeasureSpec.EXACTLY),

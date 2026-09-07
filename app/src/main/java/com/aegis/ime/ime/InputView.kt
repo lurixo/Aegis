@@ -674,6 +674,13 @@ class InputView(context: Context) : LinearLayout(context) {
         keyboardView.setLayout(layout, shifted, locked, lang)
     }
 
+    internal var keyHapticStyle: KeyHaptic = KeyHaptic.CRISP
+        private set
+    internal fun setKeyHapticStyle(style: KeyHaptic) { keyHapticStyle = style }
+    internal var keyHapticStrength: Float = KEY_HAPTIC_STRENGTH_DEFAULT
+        private set
+    internal fun setKeyHapticStrength(strength: Float) { keyHapticStrength = keyHapticStrength(strength) }
+
     fun setKeyHaptics(on: Boolean) {
         keyHaptics = on
         keyboardView.hapticEnabled = on

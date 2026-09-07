@@ -23,7 +23,6 @@ import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
-import android.view.HapticFeedbackConstants
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -350,10 +349,11 @@ class ImeKeyFeedback(
     }
 
     fun begin(hapticsEnabled: Boolean) {
+        if (!view.isEnabled) return
         tracking = true
         view.isPressed = true
         press.press()
-        if (hapticsEnabled) view.performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+        view.playImeKeyFeedback(hapticsEnabled)
     }
 
     fun move(inside: Boolean) {

@@ -323,6 +323,7 @@ class EditPanelBackspaceGestureTest {
     }
 
     @Test fun pressing_delete_vibrates_when_key_haptics_are_enabled() = withPanel { p ->
+        shadowOf(p.view.context.getSystemService(android.os.Vibrator::class.java)).setHasVibrator(false)
         p.view.hapticEnabled = true
         val (x, y) = p.centerOf(EditAction.DELETE)
         p.send(MotionEvent.ACTION_DOWN, x, y, 0)

@@ -23,7 +23,6 @@ import android.graphics.RectF
 import android.text.TextPaint
 import android.text.TextUtils
 import android.util.TypedValue
-import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
@@ -458,8 +457,8 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
                 barActionGesture = (isGateMode() || isRestoreNoticeMode()) && insideView(event.x, event.y)
                 barActionArmed = barActionGesture
                 setPressedTarget(gestureTarget)
-                if ((gestureTarget != null || barActionArmed) && hapticEnabled) {
-                    performHapticFeedback(HapticFeedbackConstants.KEYBOARD_TAP)
+                if (gestureTarget != null || barActionArmed) {
+                    playImeKeyFeedback(hapticEnabled)
                 }
             }
             MotionEvent.ACTION_MOVE -> {
