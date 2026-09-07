@@ -615,6 +615,9 @@ class KeyboardController(
         val composingLen: Int,
         val lockedNonEmpty: Boolean,
         val full: String,
+        val lockedLetters: String,
+        val active: String,
+        val lockCuts: Set<Int>,
         val readingCuts: Set<Int>,
         val bounds: Map<Int, Int>,
         val isNine: Boolean,
@@ -662,6 +665,9 @@ class KeyboardController(
             composingLen = composing.length,
             lockedNonEmpty = locked,
             full = full,
+            lockedLetters = if (locked) lockedReadings.joinToString("") else "",
+            active = if (locked) activeInput() else "",
+            lockCuts = if (locked) lockedReadings.runningFold(0) { acc, r -> acc + r.length }.drop(1).toSet() else emptySet(),
             readingCuts = readingCuts,
             bounds = bounds,
             isNine = layoutId == LayoutId.NINE,
@@ -791,7 +797,11 @@ class KeyboardController(
                         it.correctedReading,
                     )
                 }
-            c
+            if (c.any { it.coveredLen >= req.composingLen }) return c
+            val guesses = req.engine.guessLockedWords(req.lockedLetters, req.active, req.isNine, req.lockCuts, context)
+                .map { Cand(it.word, req.composingLen, it.correctedReading) }
+            val guessed = guesses.mapTo(HashSet()) { it.word }
+            guesses + c.filterNot { it.word in guessed }
         } else {
             var c = req.engine.candidatesCovered(req.raw, req.isNine, req.forcedCuts, context)
             if (c.isEmpty() && req.isNine) {

@@ -52,6 +52,12 @@ class TypoGuessCandidatesTest {
         Case("北京", "beijign", "2354464"),
     )
 
+    private data class LockedCase(val word: String, val lockReading: String, val lockLetters: String, val lockDigits: String, val restLetters: String, val restDigits: String)
+
+    private val lockedCorpus = listOf(
+        LockedCase("你好", "ni", "ni", "64", "hoa", "462"),
+    )
+
     private fun out(s: String) = Key(s, output = s)
 
     private fun engine(): DictEngine {
@@ -84,6 +90,24 @@ class TypoGuessCandidatesTest {
             val at = words.indexOf(case.word)
             assertEquals("$input nine=$nine should put ${case.word} first, was ${words.take(8)}", 0, at)
             c.onPickCandidate(at)
+            assertEquals(listOf(case.word), host.commits)
+            assertEquals("", c.preeditForTest())
+        }
+    }
+
+    @Test fun broken_active_segment_after_a_lock_still_guesses_the_whole_word() {
+        val engine = engine()
+        for (nine in listOf(false, true)) for (case in lockedCorpus) {
+            val (host, c) = controller(engine, nine, if (nine) case.lockDigits else case.lockLetters)
+            c.onPickReadingIndex(c.expandedReadings().indexOf(case.lockReading))
+            assertEquals(case.lockReading, c.preeditForTest())
+            val rest = if (nine) case.restDigits else case.restLetters
+            assertFalse(PinyinCorrection.fullySegmentable(rest))
+            rest.forEach { c.onKey(out(it.toString())) }
+            val words = c.candidateWords()
+            assertTrue("${case.lockReading}+$rest nine=$nine should guess ${case.word}, was ${words.take(8)}", words.indexOf(case.word) in 0 until 6)
+            assertEquals("lock survives", case.lockReading + "'", c.preeditForTest().take(case.lockReading.length + 1))
+            c.onPickCandidate(words.indexOf(case.word))
             assertEquals(listOf(case.word), host.commits)
             assertEquals("", c.preeditForTest())
         }
