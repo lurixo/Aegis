@@ -208,6 +208,7 @@ class PinyinDecoder(
                 readsAs(word, reading, singles)
             },
             spell = { word, reading ->
+                if (lookup.size() >= READING_LOOKUP_LIMIT) lookup = ReadingLookup(aliasSource)
                 guessReading(word, T9Pinyin.toT9(reading), false, lookup)
             },
         ).repairs(rows)
@@ -1525,23 +1526,38 @@ class PinyinDecoder(
         return if (scored.size <= GUESS_VARIANTS) scored else scored.subList(0, GUESS_VARIANTS)
     }
 
+    @Volatile private var fuzzyReadings: ReadingLookup? = null
+
     private fun fuzzyReadingLookup(): ReadingLookup {
-        return ReadingLookup(aliasDict ?: dict)
+        val current = fuzzyReadings
+        if (current != null && current.size() < READING_LOOKUP_LIMIT) return current
+        return ReadingLookup(aliasDict ?: dict).also { fuzzyReadings = it }
     }
 
     private class ReadingLookup(private val source: BinaryDict) {
+        private data class Query(val remaining: String, val t9: Boolean, val prefix: Boolean)
+
+        private val matches = ConcurrentHashMap<Query, List<Pair<String, String>>>()
+        private val frequencies = ConcurrentHashMap<String, Map<String, Int>>()
+
+        fun size(): Int = matches.size
+
         fun matching(remaining: String, t9: Boolean, prefix: Boolean): List<Pair<String, String>> =
+            matches.getOrPut(Query(remaining, t9, prefix)) {
                 READING_KEYS.mapNotNull { (reading, digits) ->
                     val key = if (t9) digits else reading
                     if (remaining.startsWith(key) || (prefix && key.startsWith(remaining))) reading to key else null
                 }
+            }
 
         fun frequency(reading: String, word: String): Int? =
+            frequencies.getOrPut(reading) {
                 buildMap {
                     for (wf in source.exact(reading)) {
                         if (wf.word.codePointCount(0, wf.word.length) == 1) putIfAbsent(wf.word, wf.freq)
                     }
-                }[word]
+                }
+            }[word]
     }
 
     private fun guessReading(word: String, input: String, prefix: Boolean, cache: ReadingLookup): String {
