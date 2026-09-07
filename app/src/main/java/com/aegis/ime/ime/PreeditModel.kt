@@ -22,6 +22,8 @@ class PreeditModel(
     val caret: Int,
     val editableFrom: Int,
 ) {
+    val rawLength: Int get() = rawIndexAt.last()
+
     fun displayCaret(): Int {
         var best = editableFrom
         for (p in editableFrom..text.length) if (rawIndexAt[p] <= caret) best = p

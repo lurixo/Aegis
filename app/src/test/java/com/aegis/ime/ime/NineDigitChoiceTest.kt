@@ -120,6 +120,20 @@ class NineDigitChoiceTest {
         assertTrue(host.commits.isEmpty())
     }
 
+    @Test fun caret_editing_and_stale_digit_keys_do_not_append_digits_or_submit_text() {
+        val host = Host()
+        val c = controller(host)
+        val stale = c.digit()!!
+        c.pick("wo")
+        c.onKey(stale)
+        assertEquals("wo'men", c.preeditForTest())
+        c.onPreeditCaret(3)
+        c.onKey(c.digit()!!)
+        assertEquals("wo'6'en", c.preeditForTest())
+        assertEquals(5, c.preeditModelForTest()!!.rawLength)
+        assertTrue(host.commits.isEmpty())
+    }
+
     @Test fun no_digit_choice_is_exposed_after_all_readings_are_locked_or_in_alpha_layout() {
         val c = controller(Host())
         c.pick("wo")
