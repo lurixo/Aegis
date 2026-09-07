@@ -17,6 +17,7 @@ package com.aegis.ime.ime
 
 import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.Syllable
+import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
@@ -88,6 +89,7 @@ class KeyboardControllerTest {
 
     private fun act(a: KeyAction) = Key("", action = a)
     private fun out(s: String) = Key(s, output = s)
+    private fun swipe(s: String) = Key(s, output = s, direct = true, preeditLiteral = true)
     private fun clearCandidateUndo(c: KeyboardController) {
         c.onKey(out("2"))
         c.onKey(act(KeyAction.BACKSPACE))
@@ -1232,20 +1234,85 @@ class KeyboardControllerTest {
     }
 
 
-    @Test fun b2_up_swipe_symbol_commits_directly_even_mid_pinyin() {
+    @Test fun alpha_up_swipe_symbol_joins_the_active_preedit_instead_of_committing() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
         c.onKey(Key("n", output = "n"))
-        c.onKey(Key("@", output = "@", direct = true))
-        assertEquals(listOf("n", "@"), h.commits)
+        c.onKey(swipe("@"))
+        assertEquals("n'@", c.preeditForTest())
+        assertEquals(listOf("n@"), c.candidateWords())
+        assertTrue(h.commits.isEmpty())
     }
 
-    @Test fun b2b_up_swipe_digit_commits_directly_even_mid_pinyin() {
+    @Test fun alpha_up_swipe_digit_still_commits_directly_when_preedit_is_idle() {
         val h = FakeHost()
         val c = KeyboardController(h, engine)
-        c.onKey(Key("q", output = "q"))
-        c.onKey(Key("1", output = "1", direct = true))
-        assertEquals(listOf("q", "1"), h.commits)
+        c.onKey(swipe("1"))
+        assertEquals(listOf("1"), h.commits)
+        assertEquals("", c.preeditForTest())
+    }
+
+    @Test fun mixed_preedit_keeps_literals_in_place_and_commits_the_composite_first_candidate() {
+        val h = FakeHost()
+        val words = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(
+                composing: String,
+                t9: Boolean,
+                cuts: Set<Int>,
+                context: CharSequence,
+            ): List<Cand> = when (composing) {
+                "ni", T9Pinyin.toT9("ni") -> listOf(Cand("你", composing.length), Cand("泥", composing.length))
+                "hao", T9Pinyin.toT9("hao") -> listOf(Cand("好", composing.length), Cand("号", composing.length))
+                else -> emptyList()
+            }
+        }
+        for (nine in listOf(false, true)) {
+            val c = KeyboardController(h, words)
+            c.switchTextLayoutForTest(nine)
+            val ni = if (nine) T9Pinyin.toT9("ni") else "ni"
+            val hao = if (nine) T9Pinyin.toT9("hao") else "hao"
+            ni.forEach { c.onKey(out(it.toString())) }
+            c.onKey(swipe("1"))
+            hao.forEach { c.onKey(out(it.toString())) }
+
+            assertEquals("layout=$nine", "ni'1'hao", c.preeditForTest())
+            assertEquals("layout=$nine", "你1好", c.candidateWords().first())
+            assertTrue("layout=$nine must keep the editor untouched", h.commits.isEmpty())
+            c.onPickCandidate(0)
+            assertEquals("layout=$nine", "你1好", h.commits.removeLast())
+        }
+    }
+
+    @Test fun secondary_candidate_leaves_the_literal_pending_until_it_is_picked() {
+        val h = FakeHost()
+        val words = object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean) = candidatesCovered(composing, t9).map { it.word }
+            override fun candidatesCovered(
+                composing: String,
+                t9: Boolean,
+                cuts: Set<Int>,
+                context: CharSequence,
+            ): List<Cand> = when (composing) {
+                "women" -> listOf(Cand("我们", 5), Cand("窝门", 5))
+                else -> emptyList()
+            }
+        }
+        val c = KeyboardController(h, words)
+        c.switchTextLayoutForTest(nine = false)
+        "women".forEach { c.onKey(out(it.toString())) }
+        c.onKey(swipe("3"))
+
+        assertEquals("wo'men'3", c.preeditForTest())
+        assertEquals(listOf("我们3", "我们", "窝门"), c.candidateWords())
+        c.onPickCandidate(1)
+        assertTrue("picking 我们 must not touch the editor", h.commits.isEmpty())
+        assertEquals("我们3", c.preeditForTest())
+        assertEquals(listOf("3"), c.candidateWords())
+
+        c.onPickCandidate(0)
+        assertEquals(listOf("我们3"), h.commits)
+        assertEquals("", c.preeditForTest())
     }
 
     @Test fun backspace_up_swipe_clears_pending_pinyin_in_any_layout() {

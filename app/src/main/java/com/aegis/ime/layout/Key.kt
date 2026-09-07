@@ -46,6 +46,7 @@ data class Key(
     val sub: String? = null,
     val weight: Float = 1f,
     val direct: Boolean = false,
+    val preeditLiteral: Boolean = false,
     val verbatim: Boolean = false,
     val accent: Boolean = false,
     val rail: Boolean = false,
