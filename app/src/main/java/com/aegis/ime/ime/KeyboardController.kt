@@ -35,7 +35,7 @@ private enum class ShiftState { OFF, ONCE, LOCK }
 
 private enum class Mode { PINYIN, DIRECT }
 
-private enum class StepKind { DIGIT, LITERAL, LOCK, CUT }
+private enum class StepKind { DIGIT, LITERAL, LOCK, DIGIT_CHOICE, CUT }
 
 private data class ReadingLock(val reading: String, val start: Int, val end: Int)
 
@@ -309,6 +309,7 @@ class KeyboardController(
             KeyAction.SWITCH_TEXT -> switchLayout(if (lang == Lang.CN) cnLayout else LayoutId.ALPHA)
             KeyAction.SWITCH_NUMPAD -> switchLayout(LayoutId.NUMPAD)
             KeyAction.PICK_READING -> handlePickReading(key)
+            KeyAction.PICK_DIGIT -> handlePickDigit(key)
             KeyAction.SEGMENT -> handleSegment()
             KeyAction.CUSTOM_SYMBOL -> onShowCustomSymbols()
             KeyAction.CUSTOM_OPERATOR -> onShowCustomOperators()
@@ -414,6 +415,22 @@ class KeyboardController(
             lockedInputLengths.add(1)
             activeStart++
         }
+    }
+
+    private fun handlePickDigit(key: Key) {
+        if (layoutId != LayoutId.NINE || mode() != Mode.PINYIN) return
+        val at = ninePendingIndex()
+        if (at < 0 || composing[at] !in '2'..'9' || key.output != composing[at].toString()) return
+        savePreeditChoiceUndo()
+        lockLeadingLiterals()
+        literalIndices.add(at)
+        lockedReadings.add(key.output)
+        lockedInputLengths.add(1)
+        activeStart = at + 1
+        history.addLast(StepKind.DIGIT_CHOICE)
+        nineEditLetters = null
+        if (preeditEditing()) preeditCaret = activeStart
+        lastWord = null
     }
 
     private fun readingLocks(): List<ReadingLock> {
@@ -783,10 +800,11 @@ class KeyboardController(
         }
         val step = history.removeLastOrNull()
         when (step) {
-            StepKind.LOCK -> if (lockedReadings.isNotEmpty()) {
+            StepKind.LOCK, StepKind.DIGIT_CHOICE -> if (lockedReadings.isNotEmpty()) {
                 lockedReadings.removeAt(lockedReadings.lastIndex)
                 val inputLength = lockedInputLengths.removeAt(lockedInputLengths.lastIndex)
                 activeStart = (activeStart - inputLength).coerceAtLeast(0)
+                if (step == StepKind.DIGIT_CHOICE) literalIndices.remove(activeStart)
             }
             StepKind.CUT -> forcedCuts.remove(composing.length)
             StepKind.DIGIT, StepKind.LITERAL, null -> {
@@ -1576,7 +1594,10 @@ class KeyboardController(
         val readings = T9Pinyin.leftColumnReadings(chunk, NINE_LEFT_MAX)
         val last = lockedReadings.lastOrNull()?.takeIf { it.all { c -> c in 'a'..'z' } }
         val visible = if (last == null) readings else listOf(last) + readings
-        return readingKeys(visible, highlight)
+        val digit = composing[start].takeIf { layoutId == LayoutId.NINE && it in '2'..'9' }
+        return readingKeys(visible, highlight) + listOfNotNull(
+            digit?.let { Key(it.toString(), action = KeyAction.PICK_DIGIT, weight = 0.85f) },
+        )
     }
 
     private fun readingAlternatives(reading: String): List<String> =

@@ -33,6 +33,7 @@ enum class KeyAction {
     SWITCH_NUMPAD,
     TOGGLE_LANG,
     PICK_READING,
+    PICK_DIGIT,
     SHOW_SYMBOLS,
     SEGMENT,
     CUSTOM_SYMBOL,

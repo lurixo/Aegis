@@ -73,7 +73,7 @@ class Debug12InputCoreTest {
     private fun isSingleChar(word: String): Boolean = word.codePointCount(0, word.length) == 1
 
     private fun leftColumnHasNoPunctuation(c: KeyboardController): Boolean =
-        c.nineLeftColumn().all { it.action == KeyAction.PICK_READING }
+        c.nineLeftColumn().all { it.action == KeyAction.PICK_READING || it.action == KeyAction.PICK_DIGIT }
 
     @Test fun locking_every_syllable_keeps_the_strip_rich_and_never_commits_nor_shows_punctuation() {
         val eng = engine(); assumeTrue("dict assets present", eng != null)
@@ -86,7 +86,7 @@ class Debug12InputCoreTest {
 
         val unlocked = iv.shownCandidateCount()
         assertTrue("strip rich before any lock, was $unlocked", unlocked >= 10)
-        assertTrue("left column shows readings, not punctuation", leftColumnHasNoPunctuation(c))
+        assertTrue("left column shows readings and the pending digit", leftColumnHasNoPunctuation(c))
 
         for (r in listOf("jiu", "jian", "zuo", "ce")) {
             val idx = c.expandedReadings().indexOf(r)

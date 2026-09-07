@@ -481,7 +481,7 @@ class KeyboardControllerTest {
     }
 
     @Test fun nine_left_column_shows_only_real_readings_no_blanks_no_punct() {
-        val col = nineColumnFor("23744")
+        val col = nineColumnFor("23744").filter { it.action == KeyAction.PICK_READING }
         assertEquals(listOf("ce", "a", "b", "c"), col.map { it.label })
         assertTrue("no blank keys", col.none { it.label.isEmpty() })
         assertTrue("no punctuation", col.all { k -> k.label.all { it in 'a'..'z' } })
@@ -538,7 +538,7 @@ class KeyboardControllerTest {
     }
 
     @Test fun nine_left_column_ni_full_scroll_list_matches_reference() {
-        val col = nineColumnFor("64744336488").map { it.label }
+        val col = nineColumnFor("64744336488").filter { it.action == KeyAction.PICK_READING }.map { it.label }
         assertTrue("ni present, was $col", "ni" in col)
         assertTrue("mi present, was $col", "mi" in col)
         assertTrue("first-key letters m/n/o present, was $col", listOf("m", "n", "o").all { it in col })
