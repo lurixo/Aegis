@@ -29,6 +29,14 @@ interface CandidateEngine {
     fun candidatesForLockedReadingCovered(letters: String, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
         emptyList()
 
+    fun guessLockedWords(
+        lockedLetters: String,
+        active: String,
+        t9Active: Boolean,
+        cuts: Set<Int> = emptySet(),
+        context: CharSequence = "",
+    ): List<Cand> = emptyList()
+
     fun syllables(composing: String, t9: Boolean): List<Syllable> = emptyList()
 
     fun syllables(composing: String, t9: Boolean, cuts: Set<Int>): List<Syllable> = syllables(composing, t9)

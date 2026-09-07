@@ -184,7 +184,9 @@ object T9Pinyin {
         if (!matched) out.add(prefix.toString() + digits.substring(i))
     }
 
-    fun segment(digits: String): List<String>? {
+    private class Segmentation(val cost: Double, val parts: List<String>)
+
+    private fun segmentDigits(digits: String): Segmentation? {
         val n = digits.length
         if (n == 0 || digits.any { it < '2' || it > '9' }) return null
         val cost = DoubleArray(n + 1) { Double.POSITIVE_INFINITY }
@@ -205,10 +207,10 @@ object T9Pinyin {
         var i = n
         while (i > 0) { out.add(pick[i]!!); i = back[i] }
         out.reverse()
-        return out
+        return Segmentation(cost[n], out)
     }
 
-    fun segmentLetters(letters: String): List<String>? {
+    private fun segmentLetterRun(letters: String): Segmentation? {
         val n = letters.length
         if (n == 0 || letters.any { it < 'a' || it > 'z' }) return null
         val cost = DoubleArray(n + 1) { Double.POSITIVE_INFINITY }
@@ -233,8 +235,31 @@ object T9Pinyin {
         var i = n
         while (i > 0) { out.add(pick[i]!!); i = back[i] }
         out.reverse()
-        return out
+        return Segmentation(cost[n], out)
     }
+
+    fun segment(digits: String): List<String>? = segmentDigits(digits)?.parts
+
+    fun segmentLetters(letters: String): List<String>? = segmentLetterRun(letters)?.parts
+
+    internal fun segmentCost(input: String): Double? =
+        if (input.isNotEmpty() && input[0] in '2'..'9') segmentDigits(input)?.cost
+        else segmentLetterRun(input)?.cost
+
+    private val syllablePrefixes: Set<String> = buildSet {
+        for (s in SYLLABLES) for (k in 1 until s.length) add(s.substring(0, k))
+    }
+
+    private val syllableDigitPrefixes: Set<String> = buildSet {
+        for (s in SYLLABLES) {
+            val d = toT9(s)
+            for (k in 1 until d.length) add(d.substring(0, k))
+        }
+    }
+
+    internal fun isSyllablePrefix(letters: String): Boolean = letters in syllablePrefixes
+
+    internal fun isSyllableDigitPrefix(digits: String): Boolean = digits in syllableDigitPrefixes
 
     fun firstSyllableLetters(letters: String): String {
         val hi = minOf(letters.length, maxLetters)

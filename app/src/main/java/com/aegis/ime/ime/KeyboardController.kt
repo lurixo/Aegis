@@ -570,7 +570,7 @@ class KeyboardController(
     private fun commitCandidate(cand: Cand) {
         if (candidateStaysInPreedit(cand)) {
             val prefixEnd = committedPrefix.length + cand.word.length
-            val chunkReading = consumedReading(cand.coveredLen)
+            val chunkReading = cand.correctedReading ?: consumedReading(cand.coveredLen)
             if (!learningBlocked) deferredLearnEvents.addLast(LearnEvent(lastWord, cand.word, prefixEnd, chunkReading))
             lastWord = cand.word
             committedPrefix.append(cand.word)
@@ -596,7 +596,7 @@ class KeyboardController(
         } else {
             expirePreeditChoiceUndo()
             val assembled = committedPrefix.isNotEmpty()
-            val finalReading = consumedReading(cand.coveredLen)
+            val finalReading = cand.correctedReading ?: consumedReading(cand.coveredLen)
             val wholeWord = committedPrefix.toString() + cand.word
             val wholeReading = deferredLearnEvents.joinToString("") { it.reading } + finalReading
             host.commitText(wholeWord)
@@ -791,6 +791,9 @@ class KeyboardController(
         val composingLen: Int,
         val lockedNonEmpty: Boolean,
         val full: String,
+        val lockedLetters: String,
+        val active: String,
+        val lockCuts: Set<Int>,
         val readingCuts: Set<Int>,
         val bounds: Map<Int, Int>,
         val isNine: Boolean,
@@ -841,6 +844,9 @@ class KeyboardController(
             composingLen = composing.length,
             lockedNonEmpty = locked,
             full = full,
+            lockedLetters = if (locked) lockedReadings.joinToString("") else "",
+            active = if (locked) activeInput() else "",
+            lockCuts = if (locked) lockedReadings.runningFold(0) { acc, r -> acc + r.length }.drop(1).toSet() else emptySet(),
             readingCuts = readingCuts,
             bounds = bounds,
             isNine = layoutId == LayoutId.NINE,
@@ -914,8 +920,19 @@ class KeyboardController(
         if (req.composingEmpty || req.mode != Mode.PINYIN) return emptyList()
         val context = req.host.textBeforeCursor(CTX_SCAN_LEN)
         return if (req.lockedNonEmpty) {
-            req.engine.candidatesForLockedReadingCovered(req.full, req.readingCuts, context)
-                .map { Cand(it.word, req.bounds[it.coveredLen] ?: it.coveredLen.coerceAtMost(req.composingLen)) }
+            val c = req.engine.candidatesForLockedReadingCovered(req.full, req.readingCuts, context)
+                .map {
+                    Cand(
+                        it.word,
+                        req.bounds[it.coveredLen] ?: it.coveredLen.coerceAtMost(req.composingLen),
+                        it.correctedReading,
+                    )
+                }
+            if (c.any { it.coveredLen >= req.composingLen }) return c
+            val guesses = req.engine.guessLockedWords(req.lockedLetters, req.active, req.isNine, req.lockCuts, context)
+                .map { Cand(it.word, req.composingLen, it.correctedReading) }
+            val guessed = guesses.mapTo(HashSet()) { it.word }
+            guesses + c.filterNot { it.word in guessed }
         } else {
             var c = req.engine.candidatesCovered(req.raw, req.isNine, req.forcedCuts, context)
             if (c.isEmpty() && req.isNine) {

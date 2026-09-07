@@ -24,7 +24,11 @@ import com.aegis.ime.user.UserModel
 import kotlin.math.exp
 import kotlin.math.ln
 
-data class Cand(val word: String, val coveredLen: Int)
+data class Cand(
+    val word: String,
+    val coveredLen: Int,
+    val correctedReading: String? = null,
+)
 
 data class Syllable(val reading: String, val start: Int, val end: Int)
 
@@ -461,14 +465,17 @@ class PinyinDecoder(
         limit: Int,
         cuts: Set<Int> = emptySet(),
         context: CharSequence = "",
+        guessSink: MutableList<String>? = null,
     ): Pair<List<Cand>, Int> {
         if (input.isEmpty() || limit <= 0) return emptyList<Cand>() to 0
-        val norm = normalizeSeparators(input) ?: return decodeCoveredClean(input, limit, cuts, context, false)
+        val norm = normalizeSeparators(input) ?: return decodeCoveredClean(input, limit, cuts, context, false, guessSink)
         if (norm.clean.isEmpty()) return emptyList<Cand>() to 0
         val passedClean = cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
         val (cands, remainderStart) =
-            decodeCoveredClean(norm.clean, limit, norm.cuts + passedClean, context, norm.cuts.isNotEmpty())
-        return cands.map { Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length }) } to remainderStart
+            decodeCoveredClean(norm.clean, limit, norm.cuts + passedClean, context, norm.cuts.isNotEmpty(), guessSink)
+        return cands.map {
+            Cand(it.word, norm.origLen.getOrElse(it.coveredLen) { input.length }, it.correctedReading)
+        } to remainderStart
     }
 
     fun decodeCoveredAtomic(input: String, limit: Int, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> {
@@ -493,6 +500,7 @@ class PinyinDecoder(
         cuts: Set<Int>,
         context: CharSequence,
         staged: Boolean,
+        guessSink: MutableList<String>? = null,
     ): Pair<List<Cand>, Int> {
         val ctx = parseContext(context)
         val interior = cuts.filter { it in 1 until input.length }.toSortedSet()
@@ -502,7 +510,7 @@ class PinyinDecoder(
         val condMemo = HashMap<Long, Double>()
         val cover = LinkedHashMap<String, Int>()
         val completionCap = completionCap(limit)
-        bestSentence(input, ctx)?.let { cover[it] = input.length }
+        val sentence = bestSentence(input, ctx)?.also { cover[it] = input.length }
         val pool = ArrayList<RankedWord>()
         val offered = HashSet<String>()
         fun offer(wf: BinaryDict.WordFreq, penalty: Double): Boolean {
@@ -529,14 +537,18 @@ class PinyinDecoder(
             }
         }
         val reservedInitials = HashSet<String>()
+        val initialsOnly = HashSet<String>()
         initialsDict?.let { id ->
             if (input.length >= INITIALS_RESERVE_MIN_LEN) {
                 for (wf in preferredExact(id, input, INITIALS_RESERVE)) {
                     if (wf.freq <= ORDERING_RARE_FREQ) continue
-                    if (offer(wf, INITIALS_PENALTY)) reservedInitials.add(wf.word)
+                    if (offer(wf, INITIALS_PENALTY)) {
+                        reservedInitials.add(wf.word)
+                        initialsOnly.add(wf.word)
+                    }
                 }
             }
-            id.prefixByFreq(input, completionCap).forEach { offer(it, INITIALS_PENALTY) }
+            id.prefixByFreq(input, completionCap).forEach { if (offer(it, INITIALS_PENALTY)) initialsOnly.add(it.word) }
         }
         pool.sortWith(
             compareByDescending<RankedWord> { it.score }
@@ -553,10 +565,29 @@ class PinyinDecoder(
             if (!reserved && cover.size >= completionCap - pendingInitials && wf.word !in exactWords) continue
             if (cover.putIfAbsent(wf.word, input.length) == null && reserved) pendingInitials--
         }
-        val out = ArrayList<Cand>(cover.size + 20)
+        val guesses = guessCorrections(input, ctx, GUESS_LIMIT)
+        guessSink?.addAll(guesses.map { it.word })
+        val out = ArrayList<Cand>(cover.size + guesses.size + 20)
         val assembled = assembledWordsFor(input, cover.keys.firstOrNull())
-        for (w in demoteBelowExact(cover.keys.toList(), assembled, exactWords, manualWordsFor(input))) {
-            out.add(Cand(w, cover.getValue(w)))
+        val primaryGuess = guesses.firstOrNull { it.source == GuessSource.EXACT }
+        val primaryWord = primaryGuess?.word
+        val correctionByWord = guesses.associateBy { it.word }
+        val ordered = demoteBelowExact(cover.keys.toList(), assembled, exactWords, manualWordsFor(input))
+            .filterNot { it == primaryWord }
+        val remainingGuesses = guesses.filter { it.word != primaryWord && it.word !in cover }
+        val guessAt = when {
+            remainingGuesses.isEmpty() -> -1
+            else -> ordered.indexOfFirst { it in initialsOnly && it != sentence }.let { if (it < 0) ordered.size else it }
+        }
+        primaryGuess?.let { out.add(Cand(it.word, input.length, it.correctedReading)) }
+        for ((i, w) in ordered.withIndex()) {
+            if (i == guessAt) for (g in remainingGuesses) {
+                out.add(Cand(g.word, input.length, g.correctedReading))
+            }
+            out.add(Cand(w, cover.getValue(w), correctionByWord[w]?.correctedReading))
+        }
+        if (guessAt == ordered.size) for (g in remainingGuesses) {
+            out.add(Cand(g.word, input.length, g.correctedReading))
         }
         if (userModel != null) {
             val present = out.mapTo(HashSet()) { it.word }
@@ -1109,10 +1140,17 @@ class PinyinDecoder(
 
     private class Cell(val score: Double, val prevPos: Int, val prevState: SentenceState?, val word: String)
 
-    private fun bestSentence(input: String, ctx: Ctx): String? {
+    private fun bestSentence(input: String, ctx: Ctx): String? = bestSentencePath(input, ctx)?.text
+
+    private fun bestSentencePath(
+        input: String,
+        ctx: Ctx,
+        edgeMemo: MutableMap<String, List<Edge>>? = null,
+        condMemo: HashMap<Long, Double> = HashMap(),
+        pruned: Boolean = false,
+    ): SentencePath? {
         val model = lm
         val learn = activeLearning
-        val condMemo = HashMap<Long, Double>()
         val lam = activeLambda(ctx)
         val n = input.length
         val dp = Array<MutableMap<SentenceState, Cell>>(n + 1) {
@@ -1125,7 +1163,8 @@ class PinyinDecoder(
             for (p in 0 until q) {
                 val from = dp[p]
                 if (from.isEmpty()) continue
-                val edges = edgesFor(input.substring(p, q))
+                val sub = input.substring(p, q)
+                val edges = if (edgeMemo == null) edgesFor(sub) else edgeMemo.getOrPut(sub) { edgesFor(sub) }
                 if (edges.isEmpty()) continue
                 for (e in edges) {
                     val w = e.word
@@ -1151,7 +1190,7 @@ class PinyinDecoder(
                     }
                 }
             }
-            if ((octagram != null || userLearning != null) && dp[q].size > BEAM_W) {
+            if ((pruned || octagram != null || userLearning != null) && dp[q].size > BEAM_W) {
                 val keep = dp[q].entries
                     .sortedByDescending { it.value.score }
                     .take(BEAM_W)
@@ -1180,7 +1219,141 @@ class PinyinDecoder(
             q = cell.prevPos
         }
         parts.reverse()
-        return parts.joinToString("")
+        return SentencePath(parts.joinToString(""), bestScore)
+    }
+
+    private class GuessVariant(val input: String, val letters: String, val prefix: String?, val sentence: String?, val score: Double)
+
+    private enum class GuessSource { EXACT, SENTENCE, PREFIX }
+
+    private data class GuessCandidate(
+        val word: String,
+        val correctedReading: String,
+        val source: GuessSource,
+        val score: Double,
+    )
+
+    private fun scoreGuessVariants(
+        variants: List<PinyinCorrection.Variant>,
+        ctx: Ctx,
+        includePartial: Boolean,
+        toLetters: (String) -> String,
+    ): List<GuessVariant> {
+        val scored = ArrayList<GuessVariant>()
+        val edgeMemo = HashMap<String, List<Edge>>()
+        val condMemo = HashMap<Long, Double>()
+        for (v in variants) {
+            val split = v.partial
+            if (split == null) {
+                val letters = toLetters(v.input)
+                val path = bestSentencePath(letters, ctx, edgeMemo, condMemo, pruned = true) ?: continue
+                val syllables = path.text.codePointCount(0, path.text.length)
+                val score = path.score + GUESS_SYLLABLE_BONUS * syllables - v.edit.penalty
+                scored.add(GuessVariant(v.input, letters, null, path.text, score))
+                continue
+            }
+            if (!includePartial) continue
+            val letters = toLetters(v.input)
+            val completion = dict.prefixByFreq(letters, 1).firstOrNull() ?: continue
+            val syllables = PinyinCorrection.syllableCount(split.prefix) ?: 0
+            val score = ln(completion.freq.toDouble()) - lnTotal + GUESS_SYLLABLE_BONUS * syllables - v.edit.penalty
+            scored.add(GuessVariant(v.input, letters, split.prefix, null, score))
+        }
+        scored.sortByDescending { it.score }
+        return if (scored.size <= GUESS_VARIANTS) scored else scored.subList(0, GUESS_VARIANTS)
+    }
+
+    private fun guessReading(word: String, input: String, prefix: Boolean, cache: MutableMap<String, List<Pair<String, Int>>>): String {
+        val ref = aliasDict ?: dict
+        val t9 = input.all { it in '2'..'9' }
+        if (!t9 && ref.containsExactWord(input, word)) return input
+        val chars = word.codePoints().toArray().map { String(Character.toChars(it)) }
+        data class Path(val reading: String, val covered: Int, val score: Double)
+        var paths = listOf(Path("", 0, 0.0))
+        for (char in chars) {
+            val readings = cache.getOrPut(char) {
+                T9Pinyin.SYLLABLES.mapNotNull { syllable ->
+                    ref.exactWordFreq(syllable, char)?.let { syllable to it }
+                }
+            }
+            val next = ArrayList<Path>()
+            for (path in paths) for ((reading, frequency) in readings) {
+                val key = if (t9) T9Pinyin.toT9(reading) else reading
+                val remaining = input.substring(path.covered)
+                val matches = remaining.startsWith(key) || (prefix && key.startsWith(remaining))
+                if (!matches) continue
+                next.add(Path(path.reading + reading, (path.covered + key.length).coerceAtMost(input.length),
+                    path.score + ln(frequency.toDouble().coerceAtLeast(1.0))))
+            }
+            paths = next.groupBy { it.covered }.values.flatMap { group -> group.sortedByDescending { it.score }.take(8) }
+            if (paths.isEmpty()) return ""
+        }
+        return paths.filter { it.covered == input.length }
+            .sortedWith(compareByDescending<Path> { ref.containsExactWord(it.reading, word) }.thenByDescending { it.score })
+            .firstOrNull()?.reading.orEmpty()
+    }
+
+    private fun guessCorrections(input: String, ctx: Ctx, limit: Int): List<GuessCandidate> {
+        if (limit <= 0 || input.length !in PinyinCorrection.MIN_LEN..PinyinCorrection.MAX_LEN) return emptyList()
+        if (!PinyinCorrection.classifies(input) || PinyinCorrection.acceptable(input)) return emptyList()
+        val out = LinkedHashMap<String, GuessCandidate>()
+        val readingCache = HashMap<String, List<Pair<String, Int>>>()
+        fun add(word: String, variant: GuessVariant, source: GuessSource): Boolean {
+            if (word.isNotEmpty() && word !in out) {
+                val reading = guessReading(word, variant.input, source == GuessSource.PREFIX, readingCache)
+                out[word] = GuessCandidate(word, reading, source, variant.score)
+            }
+            return out.size >= limit
+        }
+        val variants = scoreGuessVariants(PinyinCorrection.variants(input), ctx, includePartial = true) { it }
+        for (gv in variants) {
+            if (gv.prefix != null) continue
+            for (wf in preferredExact(dict, gv.input, GUESS_EXACT_WORDS)) {
+                if (add(wf.word, gv, GuessSource.EXACT)) return out.values.toList()
+            }
+        }
+        for (gv in variants) {
+            gv.sentence?.let { if (add(it, gv, GuessSource.SENTENCE)) return out.values.toList() }
+            val count = if (gv.prefix == null) GUESS_PREFIX_WORDS else GUESS_PARTIAL_WORDS
+            for (wf in dict.prefixByFreq(gv.input, count)) {
+                if (add(wf.word, gv, GuessSource.PREFIX)) return out.values.toList()
+            }
+        }
+        return out.values.toList()
+    }
+
+    internal fun guessWords(input: String, limit: Int, context: CharSequence = ""): List<String> =
+        ArrayList<String>().also { decodeCoveredLayered(input, limit, emptySet(), context, it) }
+
+    internal fun guessLockedWords(
+        lockedLetters: String,
+        active: String,
+        t9Active: Boolean,
+        cuts: Set<Int>,
+        context: CharSequence,
+        limit: Int,
+    ): List<Cand> {
+        if (limit <= 0 || active.isEmpty()) return emptyList()
+        if (!PinyinCorrection.classifies(active) || PinyinCorrection.acceptable(active)) return emptyList()
+        val ctx = parseContext(context)
+        val norm = normalizeSeparators(lockedLetters)
+        val locked = norm?.clean ?: lockedLetters
+        val passedClean = if (norm == null) cuts else cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
+        val lockedCuts = (norm?.cuts ?: emptySet()) + passedClean
+        val toLetters: (String) -> String =
+            if (t9Active) { v -> T9Pinyin.preedit(v).replace(SEP.toString(), "") } else { v -> v }
+        val out = LinkedHashMap<String, String>()
+        for (gv in scoreGuessVariants(PinyinCorrection.variants(active), ctx, includePartial = false, toLetters)) {
+            val full = locked + gv.letters
+            if (full.isEmpty() || gv.letters.any { it !in 'a'..'z' }) continue
+            val interior = lockedCuts.filter { it in 1 until full.length }.toSet()
+            for (c in decodeAtomic(full, interior, ctx, interior.isNotEmpty())) {
+                if (c.coveredLen != full.length) continue
+                out.putIfAbsent(c.word, full)
+                if (out.size >= limit) return out.map { (word, reading) -> Cand(word, active.length, reading) }
+            }
+        }
+        return out.map { (word, reading) -> Cand(word, active.length, reading) }
     }
 
     internal companion object {
@@ -1194,6 +1367,12 @@ class PinyinDecoder(
         const val INITIALS_PENALTY = 5.0
         const val INITIALS_RESERVE = 1
         const val INITIALS_RESERVE_MIN_LEN = 2
+        const val GUESS_LIMIT = 3
+        const val GUESS_VARIANTS = 3
+        const val GUESS_EXACT_WORDS = 3
+        const val GUESS_PREFIX_WORDS = 2
+        const val GUESS_PARTIAL_WORDS = 3
+        const val GUESS_SYLLABLE_BONUS = 5.0
         const val DEFAULT_OCTAGRAM_WEIGHT = 0.1
         const val BEAM_W = 12
         const val SENTENCE_EDGE_N = 6

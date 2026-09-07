@@ -99,6 +99,36 @@ class KeyboardControllerTest {
         override fun setFuzzyRules(rules: Set<String>) { this.rules = rules }
     }
 
+    private class CorrectionLearningEngine : CandidateEngine {
+        val learnedWords = mutableListOf<Triple<String, String, Boolean>>()
+
+        override fun candidates(composing: String, t9: Boolean): List<String> =
+            candidatesCovered(composing, t9).map { it.word }
+
+        override fun candidatesCovered(
+            composing: String,
+            t9: Boolean,
+            cuts: Set<Int>,
+            context: CharSequence,
+        ): List<Cand> = listOf(Cand("中国", composing.length, "zhongguo"))
+
+        override fun learnWord(reading: String, word: String, assembled: Boolean) {
+            learnedWords.add(Triple(reading, word, assembled))
+        }
+    }
+
+    @Test fun corrected_candidate_learns_the_repaired_reading_instead_of_the_typo() {
+        val host = FakeHost()
+        val correction = CorrectionLearningEngine()
+        val controller = KeyboardController(host, correction)
+        "zhonguo".forEach { controller.onKey(out(it.toString())) }
+
+        controller.onPickCandidate(0)
+
+        assertEquals(listOf("中国"), host.commits)
+        assertEquals(listOf(Triple("zhongguo", "中国", false)), correction.learnedWords)
+    }
+
     @Test fun setEngine_reapplies_last_pushed_fuzzy_rules_across_a_hot_reload_swap() {
         val c = KeyboardController(FakeHost(), FuzzyRecordingEngine())
         c.setFuzzyRules(setOf("zh"))
