@@ -63,7 +63,7 @@ class SettingsNavigationTest {
             SettingsRoutes.GROUPS,
         )
         for (g in groups) compose.onNodeWithText(s(g.markerRes)).assertDoesNotExist()
-        compose.onNodeWithText(s(R.string.fuzzy_card_title)).assertDoesNotExist()
+        compose.onNodeWithText(s(R.string.fuzzy_master_title)).assertDoesNotExist()
         compose.onNodeWithText(s(R.string.gram_card_title)).assertDoesNotExist()
         compose.onNodeWithText(s(R.string.association_title)).assertDoesNotExist()
         compose.onNodeWithText(s(R.string.app_version_card_title)).assertDoesNotExist()

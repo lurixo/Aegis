@@ -177,7 +177,7 @@ class InputSettingsActivityTest {
 
     @Test fun holds_keyboard_mode_fuzzy_and_associations_and_back_finishes() {
         compose.onNodeWithText(ctxString(R.string.layout_card_title)).assertExists()
-        compose.onNodeWithText(ctxString(R.string.fuzzy_card_title)).performScrollTo().assertExists()
+        compose.onNodeWithText(ctxString(R.string.fuzzy_master_title)).performScrollTo().assertExists()
         compose.onNodeWithText(ctxString(R.string.association_title)).performScrollTo().assertExists()
         compose.onNodeWithContentDescription(ctxString(R.string.settings_back)).performClick()
         compose.waitForIdle()

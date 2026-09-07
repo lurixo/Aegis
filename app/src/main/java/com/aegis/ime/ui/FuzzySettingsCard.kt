@@ -73,15 +73,6 @@ internal fun FuzzySettingsCard() {
     }
 
     AppSection {
-        Text(
-            stringResource(R.string.fuzzy_card_title),
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(
-                start = AppSpacing.rowHorizontal,
-                end = AppSpacing.rowHorizontal,
-                top = AppSpacing.sectionPadding,
-            ),
-        )
         val toggleMaster = {
             master = !master
             prefs.edit { putBoolean("fuzzy", master) }

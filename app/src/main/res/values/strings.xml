@@ -84,8 +84,7 @@
     <string name="dict_gate_verifying">Verifying…</string>
     <string name="dict_gate_failed">Download failed — tap to retry</string>
 
-    <string name="fuzzy_card_title">Fuzzy Pinyin</string>
-    <string name="fuzzy_master_title">Fuzzy Pinyin (master switch)</string>
+    <string name="fuzzy_master_title">Fuzzy Pinyin</string>
     <string name="fuzzy_master_description">Tolerate common Pinyin confusions; each rule can also be toggled separately. Changes take effect immediately.</string>
     <string name="fuzzy_rule_zh_title">zh = z</string>
     <string name="fuzzy_rule_ch_title">ch = c</string>
