@@ -187,6 +187,91 @@ class BackupRoundTripTest {
         return db
     }
 
+    @Test fun custom_english_words_and_email_suffixes_round_trip_and_merge_as_user_data() {
+        val lexicon = com.aegis.ime.user.UserLexicon(prefs)
+        val english = com.aegis.ime.user.UserLexicon.Kind.ENGLISH
+        val email = com.aegis.ime.user.UserLexicon.Kind.EMAIL
+        lexicon.add(english, "OpenAegis")
+        lexicon.add(email, "example.org")
+        com.aegis.ime.ime.EmailDomains(prefs).record("example.org")
+        val bytes = export()
+        prefs.edit().clear().commit()
+        restore(bytes, BackupManager.Mode.OVERWRITE)
+        assertEquals(listOf("OpenAegis"), lexicon.entries(english))
+        assertEquals(com.aegis.ime.user.UserLexicon.COMMON_EMAIL_DOMAINS + "example.org", lexicon.entries(email))
+        assertEquals("example.org", com.aegis.ime.ime.EmailDomains(prefs).suggestions().first())
+        lexicon.remove(english, "OpenAegis")
+        lexicon.remove(email, "example.org")
+        lexicon.add(english, "LocalWord")
+        lexicon.add(email, "local.example")
+        restore(bytes, BackupManager.Mode.MERGE)
+        assertEquals(listOf("LocalWord", "OpenAegis"), lexicon.entries(english))
+        assertEquals(com.aegis.ime.user.UserLexicon.COMMON_EMAIL_DOMAINS + listOf("example.org", "local.example"), lexicon.entries(email))
+        restore(bytes, BackupManager.Mode.OVERWRITE)
+        assertEquals(listOf("OpenAegis"), lexicon.entries(english))
+        assertEquals(com.aegis.ime.user.UserLexicon.COMMON_EMAIL_DOMAINS + "example.org", lexicon.entries(email))
+    }
+
+    @Test fun deleted_default_email_domains_round_trip_merge_as_a_union_and_overwrite_from_the_archive() {
+        val lexicon = com.aegis.ime.user.UserLexicon(prefs)
+        val email = com.aegis.ime.user.UserLexicon.Kind.EMAIL
+        val disabledKey = com.aegis.ime.user.UserLexicon.PREF_DISABLED_EMAIL_DOMAINS
+        val countPrefix = com.aegis.ime.user.UserLexicon.EMAIL_COUNT_PREFIX
+        val defaults = com.aegis.ime.user.UserLexicon.COMMON_EMAIL_DOMAINS
+        lexicon.remove(email, "qq.com")
+        lexicon.add(email, "example.org")
+        com.aegis.ime.ime.EmailDomains(prefs).record("gmail.com")
+        val bytes = export()
+
+        prefs.edit().clear().commit()
+        restore(bytes, BackupManager.Mode.OVERWRITE)
+        assertEquals(setOf("qq.com"), prefs.getStringSet(disabledKey, emptySet()))
+        assertEquals(defaults - "qq.com" + "example.org", lexicon.entries(email))
+        assertEquals(1L, prefs.getLong(countPrefix + "gmail.com", 0))
+
+        lexicon.resetEmailDefaults()
+        lexicon.remove(email, "gmail.com")
+        lexicon.add(email, "local.example")
+        restore(bytes, BackupManager.Mode.MERGE)
+        assertEquals(setOf("qq.com", "gmail.com"), prefs.getStringSet(disabledKey, emptySet()))
+        assertEquals(defaults - setOf("qq.com", "gmail.com") + listOf("example.org", "local.example"), lexicon.entries(email))
+        assertFalse("merging a deleted domain must not restore its old frequency", prefs.contains(countPrefix + "gmail.com"))
+
+        restore(bytes, BackupManager.Mode.OVERWRITE)
+        assertEquals(setOf("qq.com"), prefs.getStringSet(disabledKey, emptySet()))
+        assertEquals(defaults - "qq.com" + "example.org", lexicon.entries(email))
+        assertEquals(1L, prefs.getLong(countPrefix + "gmail.com", 0))
+    }
+
+    @Test fun overwriting_from_a_reset_email_backup_removes_later_custom_deleted_and_frequency_values() {
+        val lexicon = com.aegis.ime.user.UserLexicon(prefs)
+        val email = com.aegis.ime.user.UserLexicon.Kind.EMAIL
+        val english = com.aegis.ime.user.UserLexicon.Kind.ENGLISH
+        val domains = com.aegis.ime.ime.EmailDomains(prefs)
+        lexicon.add(english, "OpenAegis")
+        lexicon.add(email, "old.example")
+        lexicon.remove(email, "qq.com")
+        domains.record("gmail.com")
+        assertTrue(lexicon.resetEmailDefaults())
+        val bytes = export()
+
+        lexicon.add(email, "new.example")
+        lexicon.remove(email, "163.com")
+        domains.record("new.example")
+        repeat(3) { domains.record("gmail.com") }
+        prefs.edit().putBoolean("unrelated_after_backup", true).commit()
+        assertEquals("gmail.com", domains.suggestions().first())
+        restore(bytes, BackupManager.Mode.OVERWRITE)
+
+        assertEquals(com.aegis.ime.user.UserLexicon.COMMON_EMAIL_DOMAINS, lexicon.entries(email))
+        assertEquals(com.aegis.ime.user.UserLexicon.COMMON_EMAIL_DOMAINS, domains.suggestions())
+        assertEquals(emptySet<String>(), prefs.getStringSet(com.aegis.ime.user.UserLexicon.PREF_EMAIL_DOMAINS, null))
+        assertEquals(emptySet<String>(), prefs.getStringSet(com.aegis.ime.user.UserLexicon.PREF_DISABLED_EMAIL_DOMAINS, null))
+        assertFalse(prefs.all.keys.any { it.startsWith(com.aegis.ime.user.UserLexicon.EMAIL_COUNT_PREFIX) })
+        assertEquals(listOf("OpenAegis"), lexicon.entries(english))
+        assertTrue("unrelated omitted preferences keep the existing overwrite behavior", prefs.getBoolean("unrelated_after_backup", false))
+    }
+
     @Test fun an_archive_carries_a_word_list_without_the_deletions_the_device_owes() {
         aWordListThatOwesADeletion()
 

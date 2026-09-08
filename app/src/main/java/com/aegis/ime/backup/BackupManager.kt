@@ -24,6 +24,8 @@ import com.aegis.ime.user.UserDictEdit
 import com.aegis.ime.user.UserDictExport
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserDictImport
+import com.aegis.ime.user.UserLexicon
+import com.aegis.ime.user.UserModel
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -80,7 +82,12 @@ object BackupManager {
         LiveUserData.flushBeforeExport()
         SymbolUsageStore.flushPendingWrites()
         val omitted = StoreHealth.unreadableIn(filesDir, liveStores = true)
-        val prefsBlob = PrefsCodec.encode(prefs.all.filterKeys { it !in DOWNLOAD_STATE_KEYS })
+        val exportedPrefs = prefs.all.filterKeys { it !in DOWNLOAD_STATE_KEYS }.toMutableMap()
+        for (key in listOf(UserLexicon.PREF_ENGLISH_WORDS, UserLexicon.PREF_EMAIL_DOMAINS,
+            UserLexicon.PREF_DISABLED_EMAIL_DOMAINS)) {
+            if (!exportedPrefs.containsKey(key)) exportedPrefs[key] = emptySet<String>()
+        }
+        val prefsBlob = PrefsCodec.encode(exportedPrefs)
         val legacyPrefs = BackupArchive.fitsLegacyPrefsEntry(prefsBlob)
         val version =
             if (legacyPrefs) BackupFormat.HEADER_VERSION else BackupFormat.HEADER_VERSION_CHUNKED_PREFS
@@ -90,8 +97,12 @@ object BackupManager {
             if (legacyPrefs) BackupArchive.writePrefs(out, prefsBlob) else BackupArchive.writePrefsChunked(out, prefsBlob)
             for (rel in backupRelPaths(filesDir, omitted)) {
                 val file = File(filesDir, rel)
-                if (!file.isFile) continue
-                if (rel == USERDB) {
+                if ((rel == USERDB || rel == USERLEARN) && (!file.exists() || file.length() == 0L)) {
+                    val empty = if (rel == USERDB) "aegis-userdb 3\n" else "aegis-userlearn 1\n"
+                    BackupArchive.writeBytes(out, rel, empty.toByteArray())
+                } else if (!file.isFile) {
+                    continue
+                } else if (rel == USERDB) {
                     val shared = ByteArrayOutputStream()
                     file.inputStream().use { UserDictExport.copyWithoutTombstones(it, shared) }
                     BackupArchive.writeBytes(out, rel, shared.toByteArray())
@@ -110,7 +121,8 @@ object BackupManager {
         val paths = ArrayList<String>()
         for (item in BackupItem.entries) {
             if (item in omitted) continue
-            if (File(filesDir, item.relativePath).isFile) paths.add(item.relativePath)
+            if (item == BackupItem.DICTIONARY || item == BackupItem.LEARNING ||
+                File(filesDir, item.relativePath).isFile) paths.add(item.relativePath)
         }
         if (BackupItem.CLIPBOARD in omitted) return paths
         val referencedClips = referencedClipSidecarNames(File(filesDir, CLIPBOARD))
@@ -272,9 +284,43 @@ object BackupManager {
         if (blob == null) return
         val decoded = PrefsCodec.decode(blob).filterKeys { it !in DOWNLOAD_STATE_KEYS }
         val editor = prefs.edit()
+        if (!merge && (decoded.containsKey(UserLexicon.PREF_EMAIL_DOMAINS) ||
+                decoded.containsKey(UserLexicon.PREF_DISABLED_EMAIL_DOMAINS))) {
+            for (key in prefs.all.keys) {
+                if (key.startsWith(UserLexicon.EMAIL_COUNT_PREFIX)) editor.remove(key)
+            }
+        }
         for ((key, value) in decoded) {
+            if (merge && value is PrefsCodec.Value.StrSet &&
+                (key == UserLexicon.PREF_ENGLISH_WORDS ||
+                    key == UserLexicon.PREF_EMAIL_DOMAINS ||
+                    key == UserLexicon.PREF_DISABLED_EMAIL_DOMAINS)) {
+                val existing = runCatching { prefs.getStringSet(key, emptySet()).orEmpty() }.getOrDefault(emptySet())
+                editor.putStringSet(key, existing + value.v)
+                continue
+            }
             if (merge && prefs.contains(key)) continue
             PrefsCodec.put(editor, key, value)
+        }
+        val emailTouched = decoded.keys.any {
+            it == UserLexicon.PREF_EMAIL_DOMAINS || it == UserLexicon.PREF_DISABLED_EMAIL_DOMAINS ||
+                it.startsWith(UserLexicon.EMAIL_COUNT_PREFIX)
+        }
+        if (emailTouched) {
+            val disabledKey = UserLexicon.PREF_DISABLED_EMAIL_DOMAINS
+            val existingDisabled = runCatching { prefs.getStringSet(disabledKey, emptySet()).orEmpty() }.getOrDefault(emptySet())
+            val importedDisabled = (decoded[disabledKey] as? PrefsCodec.Value.StrSet)?.v.orEmpty()
+            val disabled = when {
+                merge -> existingDisabled + importedDisabled
+                decoded.containsKey(disabledKey) -> importedDisabled
+                else -> existingDisabled
+            }
+            for (raw in disabled) {
+                val domain = UserLexicon.normalize(UserLexicon.Kind.EMAIL, raw)
+                if (domain != null && domain in UserLexicon.COMMON_EMAIL_DOMAINS) {
+                    editor.remove(UserLexicon.EMAIL_COUNT_PREFIX + domain)
+                }
+            }
         }
         if (!editor.commit()) throw IOException("preferences restore failed")
     }
@@ -282,6 +328,18 @@ object BackupManager {
     private fun applyUserDb(filesDir: File, staging: File, merge: Boolean) {
         val staged = File(staging, USERDB)
         if (!staged.isFile) return
+        if (UserModel().apply { load(staged, sweepStale = false) }.isEmpty()) {
+            if (merge) return
+            val target = File(filesDir, USERDB)
+            val incoming = UserModel().apply { replaceWordsFrom(staged) }
+            val owed = runCatching {
+                UserModel().apply { load(target, sweepStale = false) }.tombstones()
+            }.getOrDefault(emptyList())
+            for ((word, reading) in owed) incoming.addTombstone(word, reading)
+            incoming.save(target)
+            if (UserDictHot.host?.reloadDictionary() == false) throw IOException("user dictionary reload failed")
+            return
+        }
         val now = System.currentTimeMillis()
         val host = UserDictHot.host
         val applied = if (host != null) {
