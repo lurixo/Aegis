@@ -36,7 +36,7 @@ class AppVersionCardTest {
             .getPackageInfo(ctx.packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
             .versionName!!
 
-        assertEquals("0.1.0-beta.45", version)
+        assertEquals("0.1.0-beta.46", version)
         assertEquals("Aegis v$version", appReleaseLabel(ctx))
         assertFalse("release label must not show the stale debug.38 value", appReleaseLabel(ctx).contains("debug.38"))
     }
@@ -45,13 +45,13 @@ class AppVersionCardTest {
         val info = ctx.packageManager
             .getPackageInfo(ctx.packageName, android.content.pm.PackageManager.PackageInfoFlags.of(0))
 
-        assertEquals(9084L, info.longVersionCode)
+        assertEquals(9103L, info.longVersionCode)
     }
 
     @Test fun release_version_code_matches_the_beta_candidate() {
         val gradle = File("build.gradle.kts").readText()
 
-        assertTrue("release version code should be the beta candidate", gradle.contains("versionCode = 135"))
+        assertTrue("release version code should be the beta candidate", gradle.contains("versionCode = 136"))
     }
 
     @Test fun app_release_label_resource_is_not_a_stale_hard_coded_version() {
