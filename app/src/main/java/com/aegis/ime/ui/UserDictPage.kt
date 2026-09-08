@@ -61,6 +61,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
@@ -102,9 +103,13 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
     LaunchedEffect(pager, focus) {
         snapshotFlow { pager.currentPage }.collect { focus.clearFocus() }
     }
+    var confirmEmailReset by rememberSaveable { mutableStateOf(false) }
     val initialChineseHelp = stringResource(R.string.user_dict_forgotten_format, 0)
     var chineseHelp by remember(initialChineseHelp) { mutableStateOf(initialChineseHelp) }
-    UserLexiconTransferUi { onTools, importSignal ->
+    UserLexiconTransferUi(
+        onResetEmailDefaults = { confirmEmailReset = true },
+        canResetEmailDefaults = { pager.settledPage == UserLexiconTab.EMAIL.ordinal },
+    ) { onTools, importSignal ->
         AppPageScaffold(
             title = stringResource(R.string.settings_group_userdict_title),
             onBack = { backDispatcher?.onBackPressed() ?: onBack() },
@@ -143,6 +148,8 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
                             } else {
                                 UserLexiconPage(
                                     requireNotNull(tab.kind), resumeSignal + importSignal, current, overviewHeight, onTools,
+                                    confirmReset = tab == UserLexiconTab.EMAIL && confirmEmailReset,
+                                    onResetDismiss = { confirmEmailReset = false },
                                 )
                             }
                         }

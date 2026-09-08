@@ -404,6 +404,62 @@ class UserLexiconPageTest {
         assertEquals(UserLexicon.COMMON_EMAIL_DOMAINS, EmailDomains(prefs).suggestions())
     }
 
+    @Test fun email_reset_tools_and_confirmation_survive_recreation() {
+        lexicon.add(UserLexicon.Kind.EMAIL, "private.example")
+        open("email")
+        val before = prefs.all.toMap()
+        compose.onNodeWithTag("user_lexicon_open_more").performClick()
+        scenario!!.recreate()
+        settleEdits()
+        compose.onNodeWithTag("user_lexicon_reset_defaults").performClick()
+        scenario!!.recreate()
+        settleEdits()
+        compose.onNodeWithText(context.getString(R.string.user_lexicon_reset_body)).assertExists()
+        compose.onNodeWithTag("user_lexicon_reset_cancel").performClick()
+        assertEquals(before, prefs.all)
+        showEntry("private.example")
+    }
+
+    @Test fun restoring_defaults_requires_confirmation_and_clears_only_email_data() {
+        lexicon.add(UserLexicon.Kind.ENGLISH, "AegisWord")
+        lexicon.add(UserLexicon.Kind.EMAIL, "private.example")
+        lexicon.remove(UserLexicon.Kind.EMAIL, "qq.com")
+        val domains = EmailDomains(prefs)
+        domains.record("private.example")
+        repeat(3) { domains.record("gmail.com") }
+        open("email")
+        compose.onNodeWithTag("user_lexicon_search").performTextInput("private")
+        val before = prefs.all.toMap()
+        compose.onNodeWithTag("user_lexicon_open_more").performClick()
+        compose.onNodeWithTag("user_lexicon_reset_defaults").performClick()
+        compose.onNodeWithText(context.getString(R.string.user_lexicon_reset_body)).assertExists()
+        assertEquals("opening confirmation must not reset data", before, prefs.all)
+        compose.onNodeWithTag("user_lexicon_reset_cancel").performClick()
+        compose.onNodeWithTag("user_lexicon_reset_confirm").assertDoesNotExist()
+        assertEquals("cancelling must preserve entries and counts", before, prefs.all)
+        compose.onNodeWithText("private.example").assertIsDisplayed()
+
+        compose.onNodeWithTag("user_lexicon_open_more").performClick()
+        compose.onNodeWithTag("user_lexicon_reset_defaults").performClick()
+        compose.onNodeWithTag("user_lexicon_reset_confirm").performClick()
+        settleEdits()
+        compose.onNodeWithTag("user_lexicon_reset_confirm").assertDoesNotExist()
+        assertEquals(UserLexicon.COMMON_EMAIL_DOMAINS, lexicon.entries(UserLexicon.Kind.EMAIL))
+        assertEquals(UserLexicon.COMMON_EMAIL_DOMAINS, domains.suggestions())
+        assertEquals(emptySet<String>(), prefs.getStringSet(UserLexicon.PREF_EMAIL_DOMAINS, null))
+        assertEquals(emptySet<String>(), prefs.getStringSet(UserLexicon.PREF_DISABLED_EMAIL_DOMAINS, null))
+        assertFalse(prefs.all.keys.any { it.startsWith(UserLexicon.EMAIL_COUNT_PREFIX) })
+        showEntry("qq.com")
+        compose.onNodeWithText("private.example").assertDoesNotExist()
+        scenario!!.recreate()
+        settleEdits()
+        showEntry("qq.com")
+        compose.onNodeWithTag("user_lexicon_tab_english").performClick()
+        compose.onNodeWithText("AegisWord").assertExists()
+        compose.onNodeWithTag("user_lexicon_reset_defaults").assertDoesNotExist()
+        assertEquals(listOf("AegisWord"), lexicon.entries(UserLexicon.Kind.ENGLISH))
+    }
+
     @Test fun preferences_replacement_refreshes_visible_entries_and_survives_resume_and_recreation() {
         lexicon.add(UserLexicon.Kind.ENGLISH, "BeforeRestore")
         open("english")

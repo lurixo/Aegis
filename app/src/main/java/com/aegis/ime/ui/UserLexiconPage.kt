@@ -134,6 +134,8 @@ internal fun UserLexiconPage(
     current: Boolean,
     overviewHeight: Dp,
     onTools: () -> Unit,
+    confirmReset: Boolean,
+    onResetDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
     val focus = LocalFocusManager.current
@@ -155,6 +157,7 @@ internal fun UserLexiconPage(
     val addedToast = stringResource(R.string.user_lexicon_added)
     val deletedToast = stringResource(R.string.user_lexicon_deleted)
     val batchDeletedToast = stringResource(R.string.user_lexicon_batch_deleted)
+    val resetToast = stringResource(R.string.user_lexicon_reset_done)
     val failedToast = stringResource(R.string.user_dict_toast_write_failed)
     val english = kind == UserLexicon.Kind.ENGLISH
     val filtered = remember(entries, query, kind) {
@@ -225,6 +228,24 @@ internal fun UserLexiconPage(
                     entries = next
                     busy = false
                     AegisToast.show(if (landed) deletedToast else failedToast)
+                }
+            }
+        }
+    }
+
+    fun resetEmailDefaults() {
+        if (busy) return
+        busy = true
+        onResetDismiss()
+        UserStoreEdits.submit {
+            val landed = runCatching { lexicon.resetEmailDefaults() }.getOrDefault(false)
+            val next = lexicon.entries(kind)
+            mainHandler.post {
+                if (active.get()) {
+                    entries = next
+                    busy = false
+                    if (landed) query = ""
+                    AegisToast.show(if (landed) resetToast else failedToast)
                 }
             }
         }
@@ -424,6 +445,24 @@ internal fun UserLexiconPage(
             onChange = { newValue = it; addError = null },
             onAdd = { add() },
             onDismiss = { adding = false },
+        )
+    }
+
+    if (confirmReset) {
+        AegisAlertDialog(
+            onDismissRequest = { onResetDismiss() },
+            title = { Text(stringResource(R.string.user_lexicon_reset_defaults)) },
+            text = { Text(stringResource(R.string.user_lexicon_reset_body)) },
+            confirmButton = {
+                TextButton(onClick = { resetEmailDefaults() }, modifier = Modifier.testTag("user_lexicon_reset_confirm")) {
+                    Text(stringResource(R.string.user_lexicon_reset_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { onResetDismiss() }, modifier = Modifier.testTag("user_lexicon_reset_cancel")) {
+                    Text(stringResource(R.string.user_dict_delete_cancel))
+                }
+            },
         )
     }
 

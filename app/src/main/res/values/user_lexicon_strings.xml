@@ -24,4 +24,8 @@
     <string name="user_lexicon_delete_title">Delete entry</string>
     <string name="user_lexicon_delete_body">Delete %1$s? This cannot be undone</string>
     <string name="user_lexicon_email_help">Shown after @, ordered by how often you select them</string>
+    <string name="user_lexicon_reset_defaults">Restore default email suffixes</string>
+    <string name="user_lexicon_reset_body">Restore the 10 default suffixes and remove custom suffixes and selection history?</string>
+    <string name="user_lexicon_reset_confirm">Restore</string>
+    <string name="user_lexicon_reset_done">Default email suffixes restored</string>
 </resources>

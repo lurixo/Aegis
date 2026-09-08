@@ -24,4 +24,8 @@
     <string name="user_lexicon_delete_title">删除条目</string>
     <string name="user_lexicon_delete_body">确定删除 %1$s？无法撤销</string>
     <string name="user_lexicon_email_help">输入 @ 后显示，按选择频率排序</string>
+    <string name="user_lexicon_reset_defaults">恢复默认邮箱配置</string>
+    <string name="user_lexicon_reset_body">将恢复 10 个默认后缀，并清除自定义后缀和选择频率，是否恢复？</string>
+    <string name="user_lexicon_reset_confirm">恢复默认</string>
+    <string name="user_lexicon_reset_done">已恢复默认邮箱配置</string>
 </resources>
