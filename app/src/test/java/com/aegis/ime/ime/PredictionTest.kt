@@ -130,7 +130,7 @@ class PredictionTest {
         assertFalse("联想 must ship OFF by default (debug.17)", ASSOCIATIONS_DEFAULT_ON)
         val h = EditorHost()
         val c = KeyboardController(h, niHaoEngine())
-        c.setAssociationsEnabled(ASSOCIATIONS_DEFAULT_ON)
+        c.setCnAssociationsEnabled(ASSOCIATIONS_DEFAULT_ON)
         commitNiHao(c)
         assertEquals("你好 still committed", "你好", h.text)
         assertTrue("default-off → no 联想 predictions on the empty buffer", c.candidateWords().isEmpty())
@@ -139,7 +139,7 @@ class PredictionTest {
     @Test fun association_toggle_off_hides_predictions() {
         val h = EditorHost()
         val c = KeyboardController(h, niHaoEngine())
-        c.setAssociationsEnabled(false)
+        c.setCnAssociationsEnabled(false)
         commitNiHao(c)
         assertEquals("你好 still committed", "你好", h.text)
         assertTrue("联想 off → no predictions", c.candidateWords().isEmpty())
@@ -151,7 +151,7 @@ class PredictionTest {
         commitNiHao(c)
         assertEquals(listOf("世界", "啊"), c.candidateWords())
 
-        c.setAssociationsEnabled(false)
+        c.setCnAssociationsEnabled(false)
 
         assertTrue("turning associations off must clear already visible predictions", c.candidateWords().isEmpty())
         c.onKey(Key("", action = KeyAction.SPACE))
@@ -162,7 +162,7 @@ class PredictionTest {
     @Test fun association_toggle_off_stays_empty_after_candidate_commit_space_punctuation_and_reset() {
         val h = EditorHost()
         val c = KeyboardController(h, niHaoEngine())
-        c.setAssociationsEnabled(false)
+        c.setCnAssociationsEnabled(false)
         commitNiHao(c)
         assertEquals("你好 still committed", "你好", h.text)
         assertTrue("off after commit -> no prediction", c.candidateWords().isEmpty())

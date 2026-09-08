@@ -67,7 +67,10 @@ class SettingsNavigationTest {
         for (g in groups) compose.onNodeWithText(s(g.markerRes)).assertDoesNotExist()
         compose.onNodeWithText(s(R.string.fuzzy_master_title)).assertDoesNotExist()
         compose.onNodeWithText(s(R.string.gram_card_title)).assertDoesNotExist()
-        compose.onNodeWithText(s(R.string.association_title)).assertDoesNotExist()
+        for (title in listOf(R.string.association_master_title, R.string.association_cn_title,
+            R.string.association_en_title, R.string.association_email_title)) {
+            compose.onNodeWithText(s(title)).assertDoesNotExist()
+        }
         compose.onNodeWithText(s(R.string.app_version_card_title)).assertDoesNotExist()
     }
 

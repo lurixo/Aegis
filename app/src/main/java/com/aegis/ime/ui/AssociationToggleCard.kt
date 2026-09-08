@@ -16,17 +16,27 @@
 package com.aegis.ime.ui
 
 import android.content.Context
+import android.content.SharedPreferences
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.core.content.edit
 import com.aegis.ime.R
+import com.aegis.ime.SettingsHotApply
 
 internal const val PREF_ASSOCIATIONS_ON = "pref_associations_on"
+internal const val PREF_ASSOCIATIONS_MASTER_ON = "pref_associations_master_on"
+internal const val PREF_CN_ASSOCIATIONS_ON = "pref_cn_associations_on"
+internal const val PREF_EN_ASSOCIATIONS_ON = "pref_en_associations_on"
+internal const val PREF_EMAIL_ASSOCIATIONS_ON = "pref_email_associations_on"
 
 internal const val ASSOCIATIONS_DEFAULT_ON = false
 
@@ -34,23 +44,74 @@ internal const val ASSOCIATIONS_DEFAULT_ON = false
 internal fun AssociationToggleCard() {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
-    var on by remember { mutableStateOf(prefs.flagOr(PREF_ASSOCIATIONS_ON, ASSOCIATIONS_DEFAULT_ON)) }
-    val toggle = {
-        on = !on
-        prefs.edit { putBoolean(PREF_ASSOCIATIONS_ON, on) }
+    var master by remember(prefs) { mutableStateOf(SettingsHotApply.associationsMasterOn(prefs)) }
+    val toggleMaster = {
+        master = !master
+        prefs.edit { putBoolean(PREF_ASSOCIATIONS_MASTER_ON, master) }
     }
-
     AppSection {
         AppSettingRow(
-            title = stringResource(R.string.association_title),
-            description = stringResource(R.string.association_description),
-            onClick = toggle,
+            title = stringResource(R.string.association_master_title),
+            description = stringResource(R.string.association_master_description),
+            onClick = toggleMaster,
             trailing = {
                 AegisSwitch(
-                    checked = on,
-                    onCheckedChange = { toggle() },
+                    checked = master,
+                    onCheckedChange = { toggleMaster() },
+                    modifier = Modifier.testTag(PREF_ASSOCIATIONS_MASTER_ON),
                 )
             },
         )
+        if (master) {
+            val childChanged = { master = SettingsHotApply.associationsMasterOn(prefs) }
+            HorizontalDivider()
+            AssociationToggleRow(
+                prefs, PREF_CN_ASSOCIATIONS_ON, SettingsHotApply.rawCnAssociationsOn(prefs),
+                R.string.association_cn_title, R.string.association_cn_description, childChanged,
+            )
+            AppSectionDivider()
+            AssociationToggleRow(
+                prefs, PREF_EN_ASSOCIATIONS_ON, SettingsHotApply.rawEnAssociationsOn(prefs),
+                R.string.association_en_title, R.string.association_en_description, childChanged,
+            )
+            AppSectionDivider()
+            AssociationToggleRow(
+                prefs, PREF_EMAIL_ASSOCIATIONS_ON, SettingsHotApply.rawEmailAssociationsOn(prefs),
+                R.string.association_email_title, R.string.association_email_description, childChanged,
+            )
+        }
     }
+}
+
+@Composable
+private fun AssociationToggleRow(
+    prefs: SharedPreferences,
+    preferenceKey: String,
+    initialOn: Boolean,
+    titleRes: Int,
+    descriptionRes: Int,
+    onChanged: () -> Unit,
+) {
+    var on by remember(prefs, preferenceKey) { mutableStateOf(initialOn) }
+    val toggle = {
+        on = !on
+        prefs.edit { putBoolean(preferenceKey, on) }
+        onChanged()
+    }
+    AppSettingRow(
+        title = stringResource(titleRes),
+        titleStyle = MaterialTheme.typography.titleMedium.copy(
+            fontWeight = MaterialTheme.typography.bodyMedium.fontWeight,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        ),
+        description = stringResource(descriptionRes),
+        onClick = toggle,
+        trailing = {
+            AegisSwitch(
+                checked = on,
+                onCheckedChange = { toggle() },
+                modifier = Modifier.testTag(preferenceKey),
+            )
+        },
+    )
 }

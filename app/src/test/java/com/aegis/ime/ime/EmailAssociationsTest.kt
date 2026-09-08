@@ -73,6 +73,24 @@ class EmailAssociationsTest {
         }
     }
 
+    @Test fun email_switch_is_independent_from_chinese_and_english_associations() {
+        for (layout in listOf("alpha", "nine", "english")) {
+            val h = Host("name")
+            val c = controller(h, layout)
+            c.setCnAssociationsEnabled(false)
+            c.setEnAssociationsEnabled(false)
+            c.onKey(key("@"))
+            assertTrue(c.candidateWords().contains("qq.com"))
+            c.setEmailAssociationsEnabled(false)
+            assertTrue(c.candidateWords().isEmpty())
+            c.setCnAssociationsEnabled(true)
+            c.setEnAssociationsEnabled(true)
+            assertTrue(c.candidateWords().isEmpty())
+            c.setEmailAssociationsEnabled(true)
+            assertTrue(c.candidateWords().contains("qq.com"))
+        }
+    }
+
     @Test fun external_text_changes_trigger_and_remove_email_candidates() {
         for (layout in listOf("alpha", "nine", "english")) {
             val h = Host()
@@ -141,6 +159,24 @@ class EmailAssociationsTest {
             assertFalse(c.hasComposingToClear())
             assertTrue(c.candidateWords().contains("qq.com"))
         }
+    }
+
+    @Test fun chinese_predictions_and_english_completions_keep_separate_switches() {
+        val h = Host()
+        val c = controller(h, "alpha")
+        c.setEmailAssociationsEnabled(false)
+        c.setEnAssociationsEnabled(false)
+        "ni".forEach { c.onKey(Key(it.toString())) }
+        c.onPickCandidate(0)
+        assertEquals(listOf("好"), c.candidateWords())
+        c.setCnAssociationsEnabled(false)
+        assertTrue(c.candidateWords().isEmpty())
+        c.onKey(action(KeyAction.TOGGLE_LANG))
+        c.setEnAssociationsEnabled(true)
+        "he".forEach { c.onKey(Key(it.toString())) }
+        assertEquals(listOf("he", "hello"), c.candidateWords())
+        c.setCnAssociationsEnabled(true)
+        assertEquals("he", c.englishWordForTest())
     }
 
     @Test fun stale_email_candidate_is_not_committed_while_a_new_word_is_decoding() {

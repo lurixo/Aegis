@@ -40,7 +40,8 @@ class KeyboardSettingsActivityTest {
             compose.onNodeWithText(compose.activity.getString(title)).performScrollTo().assertExists()
         }
         for (title in listOf(R.string.default_lang_title, R.string.fuzzy_master_title,
-            R.string.association_title, R.string.auto_learn_title)) {
+            R.string.association_master_title, R.string.association_cn_title, R.string.association_en_title,
+            R.string.association_email_title, R.string.auto_learn_title)) {
             compose.onNodeWithText(compose.activity.getString(title)).assertDoesNotExist()
         }
         compose.onNodeWithContentDescription(compose.activity.getString(R.string.settings_back)).performClick()

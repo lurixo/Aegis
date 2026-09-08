@@ -325,12 +325,19 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 if (::controller.isInitialized) controller.setDefaultLang(l)
             }
         },
-        onAssociations = { on ->
+        onCnAssociations = { on ->
             Handler(Looper.getMainLooper()).post {
-                if (::controller.isInitialized) {
-                    controller.setAssociationsEnabled(on)
-                    controller.setEmailAssociationsEnabled(on)
-                }
+                if (::controller.isInitialized) controller.setCnAssociationsEnabled(on)
+            }
+        },
+        onEnAssociations = { on ->
+            Handler(Looper.getMainLooper()).post {
+                if (::controller.isInitialized) controller.setEnAssociationsEnabled(on)
+            }
+        },
+        onEmailAssociations = { on ->
+            Handler(Looper.getMainLooper()).post {
+                if (::controller.isInitialized) controller.setEmailAssociationsEnabled(on)
             }
         },
         onAutoLearn = { on ->
@@ -808,8 +815,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val prefs = getSharedPreferences("aegis", MODE_PRIVATE)
         controller.setCnDefaultLayout(SettingsHotApply.cnLayout(prefs))
         controller.setDefaultLang(SettingsHotApply.defaultLang(prefs))
-        controller.setAssociationsEnabled(SettingsHotApply.associationsOn(prefs))
-        controller.setEmailAssociationsEnabled(SettingsHotApply.associationsOn(prefs))
+        controller.setCnAssociationsEnabled(SettingsHotApply.cnAssociationsOn(prefs))
+        controller.setEnAssociationsEnabled(SettingsHotApply.enAssociationsOn(prefs))
+        controller.setEmailAssociationsEnabled(SettingsHotApply.emailAssociationsOn(prefs))
         userLearning.enabled = SettingsHotApply.autoLearnOn(prefs)
         userModel.autoLearnEnabled = SettingsHotApply.autoLearnOn(prefs)
         controller.setFuzzyRules(currentFuzzyRules())

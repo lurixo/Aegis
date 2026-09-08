@@ -259,14 +259,21 @@ class SettingsSlice1Test {
     }
 
 
-    @Test fun associations_pref_defaults_off_and_round_trips() {
+    @Test fun independent_association_preferences_keep_legacy_defaults_until_explicitly_changed() {
         val prefs = ctx.getSharedPreferences("aegis", android.content.Context.MODE_PRIVATE)
-        assertFalse("联想 default constant is OFF", ASSOCIATIONS_DEFAULT_ON)
-        prefs.edit { remove(PREF_ASSOCIATIONS_ON) }
-        assertFalse("default OFF when unset", prefs.getBoolean(PREF_ASSOCIATIONS_ON, ASSOCIATIONS_DEFAULT_ON))
+        prefs.edit { clear() }
+        val readers = listOf(
+            PREF_CN_ASSOCIATIONS_ON to com.aegis.ime.SettingsHotApply.Companion::cnAssociationsOn,
+            PREF_EN_ASSOCIATIONS_ON to com.aegis.ime.SettingsHotApply.Companion::enAssociationsOn,
+            PREF_EMAIL_ASSOCIATIONS_ON to com.aegis.ime.SettingsHotApply.Companion::emailAssociationsOn,
+        )
+        for ((_, read) in readers) assertFalse("fresh installations start off", read(prefs))
         prefs.edit { putBoolean(PREF_ASSOCIATIONS_ON, true) }
-        assertTrue("explicit ON persists over the OFF default", prefs.getBoolean(PREF_ASSOCIATIONS_ON, ASSOCIATIONS_DEFAULT_ON))
-        prefs.edit { putBoolean(PREF_ASSOCIATIONS_ON, false) }
-        assertFalse("explicit OFF persists (wins even over a true default)", prefs.getBoolean(PREF_ASSOCIATIONS_ON, true))
+        for ((_, read) in readers) assertTrue("old ON remains effective when unset", read(prefs))
+        for ((key, read) in readers) {
+            prefs.edit { putBoolean(key, false) }
+            assertFalse("explicit OFF wins over legacy ON", read(prefs))
+        }
+        assertTrue("per-channel choices preserve the legacy preference", prefs.getBoolean(PREF_ASSOCIATIONS_ON, false))
     }
 }

@@ -30,6 +30,10 @@ import com.aegis.ime.ui.KEY_PREVIEW_SUB_DEFAULT
 import com.aegis.ime.ui.LETTER_CASE_DEFAULT
 import com.aegis.ime.ui.LetterCase
 import com.aegis.ime.ui.PREF_ASSOCIATIONS_ON
+import com.aegis.ime.ui.PREF_ASSOCIATIONS_MASTER_ON
+import com.aegis.ime.ui.PREF_CN_ASSOCIATIONS_ON
+import com.aegis.ime.ui.PREF_EN_ASSOCIATIONS_ON
+import com.aegis.ime.ui.PREF_EMAIL_ASSOCIATIONS_ON
 import com.aegis.ime.ui.PREF_AUTO_LEARN_ON
 import com.aegis.ime.ui.PREF_DEFAULT_LANG
 import com.aegis.ime.ui.PREF_KEY_HAPTICS
@@ -59,7 +63,9 @@ class SettingsHotApplyTest {
 
     private val cnLayouts = mutableListOf<LayoutId>()
     private val defaultLangs = mutableListOf<Lang>()
-    private val associations = mutableListOf<Boolean>()
+    private val cnAssociations = mutableListOf<Boolean>()
+    private val enAssociations = mutableListOf<Boolean>()
+    private val emailAssociations = mutableListOf<Boolean>()
     private val autoLearns = mutableListOf<Boolean>()
     private val fuzzySets = mutableListOf<Set<String>>()
     private var engineAssetChanges = 0
@@ -72,7 +78,9 @@ class SettingsHotApplyTest {
     private val listener = SettingsHotApply(
         onCnLayout = { cnLayouts += it },
         onDefaultLang = { defaultLangs += it },
-        onAssociations = { associations += it },
+        onCnAssociations = { cnAssociations += it },
+        onEnAssociations = { enAssociations += it },
+        onEmailAssociations = { emailAssociations += it },
         onAutoLearn = { autoLearns += it },
         onFuzzyRules = { fuzzySets += it },
         onEngineAssetsChanged = { engineAssetChanges++ },
@@ -100,7 +108,9 @@ class SettingsHotApplyTest {
         assertEquals(LayoutId.NINE, SettingsHotApply.cnLayout(prefs))
         assertEquals(com.aegis.ime.ui.defaultLangOf(com.aegis.ime.ui.DEFAULT_LANG_DEFAULT), SettingsHotApply.defaultLang(prefs))
         assertEquals(AUTO_LEARN_DEFAULT_ON, SettingsHotApply.autoLearnOn(prefs))
-        assertEquals(ASSOCIATIONS_DEFAULT_ON, SettingsHotApply.associationsOn(prefs))
+        assertEquals(ASSOCIATIONS_DEFAULT_ON, SettingsHotApply.cnAssociationsOn(prefs))
+        assertEquals(ASSOCIATIONS_DEFAULT_ON, SettingsHotApply.enAssociationsOn(prefs))
+        assertEquals(ASSOCIATIONS_DEFAULT_ON, SettingsHotApply.emailAssociationsOn(prefs))
         assertEquals(KEY_HAPTICS_DEFAULT, SettingsHotApply.keyHaptics(prefs))
         assertEquals(KEY_PREVIEW_MASTER_DEFAULT, SettingsHotApply.keyPreviewMaster(prefs))
         assertEquals(com.aegis.ime.ui.letterCaseOf(LETTER_CASE_DEFAULT), SettingsHotApply.letterCase(prefs))
@@ -126,7 +136,8 @@ class SettingsHotApplyTest {
     }
 
     private fun totalActions() =
-        cnLayouts.size + defaultLangs.size + associations.size + autoLearns.size + fuzzySets.size +
+        cnLayouts.size + defaultLangs.size + cnAssociations.size + enAssociations.size + emailAssociations.size +
+            autoLearns.size + fuzzySets.size +
             engineAssetChanges + keyHaptics.size + keyPreviewsNine.size + keyPreviewsAlpha.size + letterCases.size +
             keySoundVolumes.size
 
@@ -157,17 +168,196 @@ class SettingsHotApplyTest {
     }
 
 
-    @Test fun association_toggle_hot_applies_both_directions_immediately() {
-        put { putBoolean(PREF_ASSOCIATIONS_ON, true) }
-        put { putBoolean(PREF_ASSOCIATIONS_ON, false) }
-        assertEquals(listOf(true, false), associations)
-        assertEquals(2, totalActions())
+    @Test fun all_three_association_settings_default_off_without_writing_preferences() {
+        assertFalse(SettingsHotApply.associationsMasterOn(prefs))
+        assertFalse(SettingsHotApply.rawCnAssociationsOn(prefs))
+        assertFalse(SettingsHotApply.rawEnAssociationsOn(prefs))
+        assertFalse(SettingsHotApply.rawEmailAssociationsOn(prefs))
+        assertFalse(SettingsHotApply.cnAssociationsOn(prefs))
+        assertFalse(SettingsHotApply.enAssociationsOn(prefs))
+        assertFalse(SettingsHotApply.emailAssociationsOn(prefs))
+        assertTrue("reading defaults must not create migration keys", prefs.all.isEmpty())
     }
 
-    @Test fun association_pref_removal_resolves_to_the_production_default() {
+    @Test fun each_association_toggle_hot_applies_only_its_own_channel() {
+        for ((key, updates) in listOf(
+            PREF_CN_ASSOCIATIONS_ON to cnAssociations,
+            PREF_EN_ASSOCIATIONS_ON to enAssociations,
+            PREF_EMAIL_ASSOCIATIONS_ON to emailAssociations,
+        )) {
+            val before = totalActions()
+            put { putBoolean(key, true) }
+            assertTrue("the implicit master follows the first enabled child", SettingsHotApply.associationsMasterOn(prefs))
+            put { putBoolean(key, false) }
+            assertFalse("the implicit master follows the last disabled child", SettingsHotApply.associationsMasterOn(prefs))
+            assertEquals(listOf(true, false), updates)
+            assertEquals("$key must not change another channel", before + 2, totalActions())
+        }
+        assertFalse("independent writes must leave the legacy setting untouched", prefs.contains(PREF_ASSOCIATIONS_ON))
+    }
+
+    @Test fun missing_independent_settings_follow_both_values_of_the_legacy_toggle() {
+        put { putBoolean(PREF_ASSOCIATIONS_ON, true) }
+        assertTrue(SettingsHotApply.associationsMasterOn(prefs))
+        assertTrue(SettingsHotApply.cnAssociationsOn(prefs))
+        assertTrue(SettingsHotApply.enAssociationsOn(prefs))
+        assertTrue(SettingsHotApply.emailAssociationsOn(prefs))
+        put { putBoolean(PREF_ASSOCIATIONS_ON, false) }
+        assertFalse(SettingsHotApply.associationsMasterOn(prefs))
+        assertFalse(SettingsHotApply.cnAssociationsOn(prefs))
+        assertFalse(SettingsHotApply.enAssociationsOn(prefs))
+        assertFalse(SettingsHotApply.emailAssociationsOn(prefs))
+        for (updates in listOf(cnAssociations, enAssociations, emailAssociations)) {
+            assertEquals(listOf(true, false), updates)
+        }
+        assertEquals(6, totalActions())
+        assertEquals("reading legacy fallback must not eagerly persist new values", setOf(PREF_ASSOCIATIONS_ON), prefs.all.keys)
+    }
+
+    @Test fun removing_the_legacy_setting_restores_defaults_for_unset_channels() {
         put { putBoolean(PREF_ASSOCIATIONS_ON, true) }
         put { remove(PREF_ASSOCIATIONS_ON) }
-        assertEquals(listOf(true, ASSOCIATIONS_DEFAULT_ON), associations)
+        for (updates in listOf(cnAssociations, enAssociations, emailAssociations)) {
+            assertEquals(listOf(true, ASSOCIATIONS_DEFAULT_ON), updates)
+        }
+    }
+
+    @Test fun explicit_independent_values_override_legacy_changes_and_removal() {
+        put {
+            putBoolean(PREF_CN_ASSOCIATIONS_ON, false)
+            putBoolean(PREF_EN_ASSOCIATIONS_ON, true)
+        }
+        put { putBoolean(PREF_ASSOCIATIONS_ON, true) }
+        assertFalse(SettingsHotApply.cnAssociationsOn(prefs))
+        assertTrue(SettingsHotApply.enAssociationsOn(prefs))
+        assertTrue(SettingsHotApply.emailAssociationsOn(prefs))
+        put { remove(PREF_ASSOCIATIONS_ON) }
+        assertEquals(listOf(false), cnAssociations)
+        assertEquals(listOf(true), enAssociations)
+        assertEquals(listOf(true, false), emailAssociations)
+        assertEquals(4, totalActions())
+    }
+
+    @Test fun removing_an_independent_setting_hot_applies_its_legacy_fallback_only() {
+        put { putBoolean(PREF_ASSOCIATIONS_ON, true) }
+        for ((key, updates) in listOf(
+            PREF_CN_ASSOCIATIONS_ON to cnAssociations,
+            PREF_EN_ASSOCIATIONS_ON to enAssociations,
+            PREF_EMAIL_ASSOCIATIONS_ON to emailAssociations,
+        )) {
+            val before = totalActions()
+            put { putBoolean(key, false) }
+            put { remove(key) }
+            assertEquals(listOf(true, false, true), updates)
+            assertEquals("removing $key must refresh only its own channel", before + 2, totalActions())
+        }
+    }
+
+    @Test fun malformed_independent_settings_use_the_default_without_throwing() {
+        put {
+            putBoolean(PREF_ASSOCIATIONS_ON, true)
+            putString(PREF_CN_ASSOCIATIONS_ON, "yes")
+            putInt(PREF_EN_ASSOCIATIONS_ON, 1)
+            putString(PREF_EMAIL_ASSOCIATIONS_ON, "on")
+        }
+        assertFalse(SettingsHotApply.cnAssociationsOn(prefs))
+        assertFalse(SettingsHotApply.enAssociationsOn(prefs))
+        assertFalse(SettingsHotApply.emailAssociationsOn(prefs))
+        assertEquals(listOf(false), cnAssociations)
+        assertEquals(listOf(false), enAssociations)
+        assertEquals(listOf(false), emailAssociations)
+    }
+
+    @Test fun the_implicit_master_preserves_every_existing_combination_of_child_choices() {
+        for (bits in 0..7) {
+            put {
+                putBoolean(PREF_CN_ASSOCIATIONS_ON, bits and 1 != 0)
+                putBoolean(PREF_EN_ASSOCIATIONS_ON, bits and 2 != 0)
+                putBoolean(PREF_EMAIL_ASSOCIATIONS_ON, bits and 4 != 0)
+            }
+            assertEquals(bits != 0, SettingsHotApply.associationsMasterOn(prefs))
+            assertEquals(bits and 1 != 0, SettingsHotApply.cnAssociationsOn(prefs))
+            assertEquals(bits and 2 != 0, SettingsHotApply.enAssociationsOn(prefs))
+            assertEquals(bits and 4 != 0, SettingsHotApply.emailAssociationsOn(prefs))
+            assertFalse("migration reads must not persist a master choice", prefs.contains(PREF_ASSOCIATIONS_MASTER_ON))
+        }
+    }
+
+    @Test fun the_master_hot_applies_all_channels_without_overwriting_their_choices() {
+        put {
+            putBoolean(PREF_CN_ASSOCIATIONS_ON, true)
+            putBoolean(PREF_EN_ASSOCIATIONS_ON, false)
+            putBoolean(PREF_EMAIL_ASSOCIATIONS_ON, true)
+        }
+        cnAssociations.clear()
+        enAssociations.clear()
+        emailAssociations.clear()
+
+        put { putBoolean(PREF_ASSOCIATIONS_MASTER_ON, false) }
+        assertFalse(SettingsHotApply.associationsMasterOn(prefs))
+        assertFalse(SettingsHotApply.cnAssociationsOn(prefs))
+        assertFalse(SettingsHotApply.enAssociationsOn(prefs))
+        assertFalse(SettingsHotApply.emailAssociationsOn(prefs))
+        assertTrue(SettingsHotApply.rawCnAssociationsOn(prefs))
+        assertFalse(SettingsHotApply.rawEnAssociationsOn(prefs))
+        assertTrue(SettingsHotApply.rawEmailAssociationsOn(prefs))
+
+        put { putBoolean(PREF_ASSOCIATIONS_MASTER_ON, true) }
+        assertEquals(listOf(false, true), cnAssociations)
+        assertEquals(listOf(false, false), enAssociations)
+        assertEquals(listOf(false, true), emailAssociations)
+        assertEquals("each master change applies exactly three channels", 6, totalActions())
+        assertTrue(prefs.getBoolean(PREF_CN_ASSOCIATIONS_ON, false))
+        assertFalse(prefs.getBoolean(PREF_EN_ASSOCIATIONS_ON, true))
+        assertTrue(prefs.getBoolean(PREF_EMAIL_ASSOCIATIONS_ON, false))
+        assertFalse(prefs.contains(PREF_ASSOCIATIONS_ON))
+    }
+
+    @Test fun removing_the_master_hot_applies_the_migrated_child_state() {
+        put {
+            putBoolean(PREF_ASSOCIATIONS_MASTER_ON, false)
+            putBoolean(PREF_EMAIL_ASSOCIATIONS_ON, true)
+        }
+        cnAssociations.clear()
+        enAssociations.clear()
+        emailAssociations.clear()
+        put { remove(PREF_ASSOCIATIONS_MASTER_ON) }
+        assertTrue(SettingsHotApply.associationsMasterOn(prefs))
+        assertEquals(listOf(false), cnAssociations)
+        assertEquals(listOf(false), enAssociations)
+        assertEquals(listOf(true), emailAssociations)
+        assertEquals(3, totalActions())
+    }
+
+    @Test fun child_and_legacy_changes_stay_ineffective_while_the_explicit_master_is_off() {
+        put { putBoolean(PREF_ASSOCIATIONS_MASTER_ON, false) }
+        cnAssociations.clear()
+        enAssociations.clear()
+        emailAssociations.clear()
+        put { putBoolean(PREF_CN_ASSOCIATIONS_ON, true) }
+        put { putBoolean(PREF_ASSOCIATIONS_ON, true) }
+        assertFalse(SettingsHotApply.associationsMasterOn(prefs))
+        assertEquals(listOf(false), cnAssociations)
+        assertEquals(listOf(false), enAssociations)
+        assertEquals(listOf(false), emailAssociations)
+        assertTrue(SettingsHotApply.rawCnAssociationsOn(prefs))
+        assertTrue(SettingsHotApply.rawEnAssociationsOn(prefs))
+        assertTrue(SettingsHotApply.rawEmailAssociationsOn(prefs))
+    }
+
+    @Test fun an_explicit_master_stays_on_with_all_children_off_and_rejects_invalid_types() {
+        put { putBoolean(PREF_ASSOCIATIONS_MASTER_ON, true) }
+        assertTrue(SettingsHotApply.associationsMasterOn(prefs))
+        assertFalse(SettingsHotApply.cnAssociationsOn(prefs))
+        assertFalse(SettingsHotApply.enAssociationsOn(prefs))
+        assertFalse(SettingsHotApply.emailAssociationsOn(prefs))
+        put {
+            putBoolean(PREF_EMAIL_ASSOCIATIONS_ON, true)
+            putString(PREF_ASSOCIATIONS_MASTER_ON, "on")
+        }
+        assertFalse(SettingsHotApply.associationsMasterOn(prefs))
+        assertFalse(SettingsHotApply.emailAssociationsOn(prefs))
+        assertTrue(SettingsHotApply.rawEmailAssociationsOn(prefs))
     }
 
 
@@ -362,10 +552,12 @@ class SettingsHotApplyTest {
         val enumerated = mutableSetOf(
             "cn_layout", PREF_DEFAULT_LANG, PREF_ASSOCIATIONS_ON, "fuzzy", PREF_KEY_HAPTICS,
             PREF_KEY_PREVIEW_MASTER, PREF_KEY_PREVIEW_NINE, PREF_KEY_PREVIEW_ALPHA, PREF_LETTER_CASE, PREF_KEY_SOUND_VOLUME,
+            PREF_CN_ASSOCIATIONS_ON, PREF_EN_ASSOCIATIONS_ON, PREF_EMAIL_ASSOCIATIONS_ON,
+            PREF_ASSOCIATIONS_MASTER_ON,
         )
         enumerated += Fuzzy.RULES.map { Fuzzy.prefKey(it.key) }
         enumerated += SettingsHotApply.ENGINE_ASSET_PREF_KEYS
-        assertEquals(10 + Fuzzy.RULES.size + 6, enumerated.size)
+        assertEquals(14 + Fuzzy.RULES.size + 6, enumerated.size)
         for (key in enumerated) {
             val before = totalActions()
             put { putString("probe_reset", key) }
@@ -377,7 +569,11 @@ class SettingsHotApplyTest {
                 PREF_KEY_SOUND_VOLUME -> put { putFloat(key, 50f) }
                 else -> put { putBoolean(key, true) }
             }
-            val expected = if (key == PREF_KEY_PREVIEW_MASTER) 2 else 1
+            val expected = when (key) {
+                PREF_ASSOCIATIONS_ON, PREF_ASSOCIATIONS_MASTER_ON -> 3
+                PREF_KEY_PREVIEW_MASTER -> 2
+                else -> 1
+            }
             assertEquals("$key must hot-apply $expected action(s)", before + expected, totalActions())
         }
     }

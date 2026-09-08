@@ -24,7 +24,7 @@ import com.aegis.ime.layout.LayoutId
 internal class SettingsHotApply(
     private val onCnLayout: (LayoutId) -> Unit,
     private val onDefaultLang: (Lang) -> Unit,
-    private val onAssociations: (Boolean) -> Unit,
+    private val onCnAssociations: (Boolean) -> Unit,
     private val onAutoLearn: (Boolean) -> Unit,
     private val onFuzzyRules: (Set<String>) -> Unit,
     private val onEngineAssetsChanged: () -> Unit,
@@ -36,6 +36,8 @@ internal class SettingsHotApply(
     private val onKeyHapticStyle: (com.aegis.ime.ime.KeyHaptic) -> Unit = {},
     private val onKeyHapticStrength: (Float) -> Unit = {},
     private val onKeySoundVolume: (Float) -> Unit = {},
+    private val onEnAssociations: (Boolean) -> Unit = {},
+    private val onEmailAssociations: (Boolean) -> Unit = {},
 ) : SharedPreferences.OnSharedPreferenceChangeListener {
 
     override fun onSharedPreferenceChanged(prefs: SharedPreferences, key: String?) {
@@ -43,7 +45,19 @@ internal class SettingsHotApply(
             key == null -> {}
             key == CN_LAYOUT_PREF -> onCnLayout(cnLayout(prefs))
             key == com.aegis.ime.ui.PREF_DEFAULT_LANG -> onDefaultLang(defaultLang(prefs))
-            key == com.aegis.ime.ui.PREF_ASSOCIATIONS_ON -> onAssociations(associationsOn(prefs))
+            key == com.aegis.ime.ui.PREF_ASSOCIATIONS_MASTER_ON -> {
+                onCnAssociations(cnAssociationsOn(prefs))
+                onEnAssociations(enAssociationsOn(prefs))
+                onEmailAssociations(emailAssociationsOn(prefs))
+            }
+            key == com.aegis.ime.ui.PREF_CN_ASSOCIATIONS_ON -> onCnAssociations(cnAssociationsOn(prefs))
+            key == com.aegis.ime.ui.PREF_EN_ASSOCIATIONS_ON -> onEnAssociations(enAssociationsOn(prefs))
+            key == com.aegis.ime.ui.PREF_EMAIL_ASSOCIATIONS_ON -> onEmailAssociations(emailAssociationsOn(prefs))
+            key == com.aegis.ime.ui.PREF_ASSOCIATIONS_ON -> {
+                if (!prefs.contains(com.aegis.ime.ui.PREF_CN_ASSOCIATIONS_ON)) onCnAssociations(cnAssociationsOn(prefs))
+                if (!prefs.contains(com.aegis.ime.ui.PREF_EN_ASSOCIATIONS_ON)) onEnAssociations(enAssociationsOn(prefs))
+                if (!prefs.contains(com.aegis.ime.ui.PREF_EMAIL_ASSOCIATIONS_ON)) onEmailAssociations(emailAssociationsOn(prefs))
+            }
             key == com.aegis.ime.ui.PREF_AUTO_LEARN_ON -> onAutoLearn(autoLearnOn(prefs))
             key == FUZZY_MASTER_PREF || key in FUZZY_RULE_PREF_KEYS -> onFuzzyRules(fuzzyRules(prefs))
             key == com.aegis.ime.ui.PREF_KEY_SOUND -> onKeySound(keySound(prefs))
@@ -100,8 +114,36 @@ internal class SettingsHotApply(
                 prefs.text(com.aegis.ime.ui.PREF_DEFAULT_LANG, com.aegis.ime.ui.DEFAULT_LANG_DEFAULT),
             )
 
-        fun associationsOn(prefs: SharedPreferences): Boolean =
-            prefs.flag(com.aegis.ime.ui.PREF_ASSOCIATIONS_ON, com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON)
+        private fun associationOn(prefs: SharedPreferences, key: String): Boolean =
+            prefs.flag(
+                if (prefs.contains(key)) key else com.aegis.ime.ui.PREF_ASSOCIATIONS_ON,
+                com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON,
+            )
+
+        fun rawCnAssociationsOn(prefs: SharedPreferences): Boolean =
+            associationOn(prefs, com.aegis.ime.ui.PREF_CN_ASSOCIATIONS_ON)
+
+        fun rawEnAssociationsOn(prefs: SharedPreferences): Boolean =
+            associationOn(prefs, com.aegis.ime.ui.PREF_EN_ASSOCIATIONS_ON)
+
+        fun rawEmailAssociationsOn(prefs: SharedPreferences): Boolean =
+            associationOn(prefs, com.aegis.ime.ui.PREF_EMAIL_ASSOCIATIONS_ON)
+
+        fun associationsMasterOn(prefs: SharedPreferences): Boolean =
+            if (prefs.contains(com.aegis.ime.ui.PREF_ASSOCIATIONS_MASTER_ON)) {
+                prefs.flag(com.aegis.ime.ui.PREF_ASSOCIATIONS_MASTER_ON, com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON)
+            } else {
+                rawCnAssociationsOn(prefs) || rawEnAssociationsOn(prefs) || rawEmailAssociationsOn(prefs)
+            }
+
+        fun cnAssociationsOn(prefs: SharedPreferences): Boolean =
+            associationsMasterOn(prefs) && rawCnAssociationsOn(prefs)
+
+        fun enAssociationsOn(prefs: SharedPreferences): Boolean =
+            associationsMasterOn(prefs) && rawEnAssociationsOn(prefs)
+
+        fun emailAssociationsOn(prefs: SharedPreferences): Boolean =
+            associationsMasterOn(prefs) && rawEmailAssociationsOn(prefs)
 
         fun autoLearnOn(prefs: SharedPreferences): Boolean =
             prefs.flag(com.aegis.ime.ui.PREF_AUTO_LEARN_ON, com.aegis.ime.ui.AUTO_LEARN_DEFAULT_ON)

@@ -64,7 +64,7 @@ class EnglishCompletionTest {
         associations: Boolean = true,
     ): KeyboardController {
         val c = KeyboardController(host, engine)
-        c.setAssociationsEnabled(associations)
+        c.setEnAssociationsEnabled(associations)
         c.onKey(act(KeyAction.TOGGLE_LANG))
         return c
     }
@@ -117,7 +117,7 @@ class EnglishCompletionTest {
         val h = FakeHost()
         val c = english(h)
         type(c, "or")
-        c.setAssociationsEnabled(false)
+        c.setEnAssociationsEnabled(false)
         assertEquals(listOf("or"), h.commits)
         assertEquals("", c.englishWordForTest())
         type(c, "d")
@@ -129,7 +129,7 @@ class EnglishCompletionTest {
         val h = FakeHost()
         val c = english(h, associations = false)
         type(c, "or")
-        c.setAssociationsEnabled(true)
+        c.setEnAssociationsEnabled(true)
         type(c, "d")
         assertEquals(listOf("o", "r"), h.commits)
         assertEquals("d", c.englishWordForTest())
@@ -409,7 +409,7 @@ class EnglishCompletionTest {
     fun chinese_typing_is_untouched_by_the_english_preedit() {
         val h = FakeHost()
         val c = KeyboardController(h, dictionary)
-        c.setAssociationsEnabled(true)
+        c.setEnAssociationsEnabled(true)
         c.switchTextLayoutForTest(nine = false)
         type(c, "or")
         assertEquals(emptyList<String>(), h.commits)

@@ -178,7 +178,7 @@ class InputSettingsActivityTest {
     @get:Rule val compose = createAndroidComposeRule<InputSettingsActivity>()
 
     @Test fun holds_only_input_settings_and_back_finishes() {
-        for (title in listOf(R.string.default_lang_title, R.string.association_title, R.string.auto_learn_title)) {
+        for (title in listOf(R.string.default_lang_title, R.string.association_master_title, R.string.auto_learn_title)) {
             compose.onNodeWithText(ctxString(title)).performScrollTo().assertExists()
         }
         compose.onNode(hasText(ctxString(R.string.fuzzy_master_title)) and hasClickAction()).performScrollTo().assertExists()
@@ -229,17 +229,93 @@ class InputSettingsActivityTest {
         assertTrue("turning it back on is written down", prefs.getBoolean(PREF_AUTO_LEARN_ON, false))
     }
 
-    @Test fun tapping_a_toggle_row_body_flips_its_preference() {
+    @Test fun association_rows_start_off_and_toggle_only_their_independent_preferences() {
         val prefs = compose.activity.getSharedPreferences("aegis", Context.MODE_PRIVATE)
-        compose.onNodeWithText(ctxString(R.string.association_title)).performScrollTo().performClick()
-        compose.waitForIdle()
-        assertTrue(
-            "tapping the row body turns the toggle on",
-            prefs.getBoolean(PREF_ASSOCIATIONS_ON, ASSOCIATIONS_DEFAULT_ON),
+        val rows = listOf(
+            R.string.association_cn_title to PREF_CN_ASSOCIATIONS_ON,
+            R.string.association_en_title to PREF_EN_ASSOCIATIONS_ON,
+            R.string.association_email_title to PREF_EMAIL_ASSOCIATIONS_ON,
         )
-        compose.onNodeWithText(ctxString(R.string.association_title)).performClick()
+        compose.onNodeWithTag(PREF_ASSOCIATIONS_MASTER_ON).performScrollTo().assertIsOff()
+        for ((_, key) in rows) compose.onNodeWithTag(key).assertDoesNotExist()
+        compose.onNodeWithText(ctxString(R.string.association_master_title)).performScrollTo().performClick()
+        compose.onNodeWithTag(PREF_ASSOCIATIONS_MASTER_ON).assertIsOn()
+        for ((title, key) in rows) {
+            compose.onNodeWithTag(key).performScrollTo().assertIsOff()
+            compose.onNodeWithText(ctxString(title)).performScrollTo().performClick()
+            compose.waitForIdle()
+            assertTrue("tapping the row body turns its own toggle on", prefs.getBoolean(key, false))
+            compose.onNodeWithTag(key).assertIsOn()
+            for ((_, otherKey) in rows.filter { it.second != key }) {
+                assertFalse("$key must not enable $otherKey", prefs.getBoolean(otherKey, false))
+            }
+            compose.onNodeWithTag(key).performClick()
+            compose.waitForIdle()
+            assertFalse("tapping the switch turns its own toggle off", prefs.getBoolean(key, true))
+            compose.onNodeWithTag(key).assertIsOff()
+        }
+        assertFalse("independent switches must not create the legacy setting", prefs.contains(PREF_ASSOCIATIONS_ON))
+        assertTrue("an explicitly opened master stays on when every child is off", prefs.getBoolean(PREF_ASSOCIATIONS_MASTER_ON, false))
+    }
+
+    @Test fun the_association_master_collapses_children_and_restores_their_choices_after_recreation() {
+        val prefs = compose.activity.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+        compose.onNodeWithTag(PREF_ASSOCIATIONS_MASTER_ON).performScrollTo().performClick()
+        compose.onNodeWithTag(PREF_CN_ASSOCIATIONS_ON).performScrollTo().performClick()
+        compose.onNodeWithTag(PREF_EMAIL_ASSOCIATIONS_ON).performScrollTo().performClick()
+        compose.onNodeWithTag(PREF_ASSOCIATIONS_MASTER_ON).performScrollTo().performClick()
+        for (key in listOf(PREF_CN_ASSOCIATIONS_ON, PREF_EN_ASSOCIATIONS_ON, PREF_EMAIL_ASSOCIATIONS_ON)) {
+            compose.onNodeWithTag(key).assertDoesNotExist()
+        }
+        assertTrue(prefs.getBoolean(PREF_CN_ASSOCIATIONS_ON, false))
+        assertFalse(prefs.getBoolean(PREF_EN_ASSOCIATIONS_ON, false))
+        assertTrue(prefs.getBoolean(PREF_EMAIL_ASSOCIATIONS_ON, false))
+        assertFalse(com.aegis.ime.SettingsHotApply.cnAssociationsOn(prefs))
+        assertFalse(com.aegis.ime.SettingsHotApply.emailAssociationsOn(prefs))
+        compose.activityRule.scenario.recreate()
+        compose.onNodeWithTag(PREF_ASSOCIATIONS_MASTER_ON).performScrollTo().assertIsOff()
+        compose.onNodeWithTag(PREF_CN_ASSOCIATIONS_ON).assertDoesNotExist()
+        compose.onNodeWithTag(PREF_ASSOCIATIONS_MASTER_ON).performClick()
+        compose.onNodeWithTag(PREF_CN_ASSOCIATIONS_ON).performScrollTo().assertIsOn()
+        compose.onNodeWithTag(PREF_EN_ASSOCIATIONS_ON).performScrollTo().assertIsOff()
+        compose.onNodeWithTag(PREF_EMAIL_ASSOCIATIONS_ON).performScrollTo().assertIsOn()
+        assertTrue(com.aegis.ime.SettingsHotApply.cnAssociationsOn(prefs))
+        assertTrue(com.aegis.ime.SettingsHotApply.emailAssociationsOn(prefs))
+    }
+
+    @Test fun disabling_the_last_migrated_child_updates_the_implicit_master_and_collapses_the_rows() {
+        val prefs = compose.activity.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(PREF_EMAIL_ASSOCIATIONS_ON, true).commit()
+        compose.activityRule.scenario.recreate()
+        compose.onNodeWithTag(PREF_ASSOCIATIONS_MASTER_ON).performScrollTo().assertIsOn()
+        assertFalse("opening a migrated card does not persist a master choice", prefs.contains(PREF_ASSOCIATIONS_MASTER_ON))
+        compose.onNodeWithTag(PREF_EMAIL_ASSOCIATIONS_ON).performScrollTo().assertIsOn().performClick()
+        compose.onNodeWithTag(PREF_ASSOCIATIONS_MASTER_ON).performScrollTo().assertIsOff()
+        compose.onNodeWithTag(PREF_EMAIL_ASSOCIATIONS_ON).assertDoesNotExist()
+        assertFalse(prefs.getBoolean(PREF_EMAIL_ASSOCIATIONS_ON, true))
+        assertFalse(prefs.contains(PREF_ASSOCIATIONS_MASTER_ON))
+    }
+
+    @Test fun legacy_associations_are_shown_until_each_channel_has_its_own_choice() {
+        val prefs = compose.activity.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(PREF_ASSOCIATIONS_ON, true).commit()
+        compose.activityRule.scenario.recreate()
+        compose.onNodeWithTag(PREF_ASSOCIATIONS_MASTER_ON).performScrollTo().assertIsOn()
+        assertFalse(prefs.contains(PREF_ASSOCIATIONS_MASTER_ON))
+        for (key in listOf(PREF_CN_ASSOCIATIONS_ON, PREF_EN_ASSOCIATIONS_ON, PREF_EMAIL_ASSOCIATIONS_ON)) {
+            compose.onNodeWithTag(key).performScrollTo().assertIsOn()
+            assertFalse("showing a legacy fallback must not write $key", prefs.contains(key))
+        }
+        compose.onNodeWithTag(PREF_CN_ASSOCIATIONS_ON).performScrollTo().performClick()
         compose.waitForIdle()
-        assertFalse("tapping again turns it back off", prefs.getBoolean(PREF_ASSOCIATIONS_ON, true))
+        compose.activityRule.scenario.recreate()
+        compose.onNodeWithTag(PREF_CN_ASSOCIATIONS_ON).performScrollTo().assertIsOff()
+        compose.onNodeWithTag(PREF_EN_ASSOCIATIONS_ON).performScrollTo().assertIsOn()
+        compose.onNodeWithTag(PREF_EMAIL_ASSOCIATIONS_ON).performScrollTo().assertIsOn()
+        assertFalse(prefs.getBoolean(PREF_CN_ASSOCIATIONS_ON, true))
+        assertFalse(prefs.contains(PREF_EN_ASSOCIATIONS_ON))
+        assertFalse(prefs.contains(PREF_EMAIL_ASSOCIATIONS_ON))
+        assertTrue("a per-channel choice must leave the old setting intact", prefs.getBoolean(PREF_ASSOCIATIONS_ON, false))
     }
 
     @Test fun the_clear_button_is_dead_while_there_is_nothing_learned() {

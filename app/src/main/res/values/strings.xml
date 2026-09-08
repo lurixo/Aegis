@@ -99,8 +99,14 @@
     <string name="fuzzy_rule_l_r_title">r = l</string>
     <string name="fuzzy_rule_k_g_title">k = g</string>
 
-    <string name="association_title">Next-word suggestions</string>
-    <string name="association_description">Show next-word predictions in the candidate bar while typing. Off by default; you can enable it.</string>
+    <string name="association_master_title">Suggestions</string>
+    <string name="association_master_description">Choose Chinese, English, and email suggestions separately. Turning suggestions off keeps each choice.</string>
+    <string name="association_cn_title">Chinese suggestions</string>
+    <string name="association_cn_description">Show next-word predictions after selecting a Chinese candidate.</string>
+    <string name="association_en_title">English suggestions</string>
+    <string name="association_en_description">Complete English words as you type.</string>
+    <string name="association_email_title">Email suggestions</string>
+    <string name="association_email_description">Suggest email domain suffixes after @ in Chinese and English input.</string>
 
     <string name="key_vibration_title">Key vibration</string>
     <string name="key_vibration_description">Choose a feel and tap to experience it. Off by default; follows system haptic settings. Feel varies by device.</string>

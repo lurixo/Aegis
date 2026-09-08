@@ -65,7 +65,7 @@ class EnglishCompletionServiceTest {
         service.onStartInput(info, false)
         service.onCreateInputView() as InputView
         service.onStartInputView(info, false)
-        controller.setAssociationsEnabled(true)
+        controller.setEnAssociationsEnabled(true)
         controller.onKey(Key("", action = KeyAction.TOGGLE_LANG))
         "or".forEach { controller.onKey(Key(it.toString(), output = it.toString())) }
         assertEquals("or", controller.englishWordForTest())

@@ -99,8 +99,14 @@
     <string name="fuzzy_rule_l_r_title">r = l</string>
     <string name="fuzzy_rule_k_g_title">k = g</string>
 
-    <string name="association_title">联想</string>
-    <string name="association_description">打字时在候选栏显示下一词预测/联想。默认关，可开。</string>
+    <string name="association_master_title">联想</string>
+    <string name="association_master_description">中文、英文和邮箱联想可分别设置。关闭后保留各项选择。</string>
+    <string name="association_cn_title">中文联想</string>
+    <string name="association_cn_description">选中中文候选后，在候选栏预测下一个词。</string>
+    <string name="association_en_title">英文联想</string>
+    <string name="association_en_description">输入英文字母时，在候选栏补全单词。</string>
+    <string name="association_email_title">邮箱联想</string>
+    <string name="association_email_description">中文和英文输入中，输入 @ 后显示邮箱域名后缀候选。</string>
 
     <string name="key_vibration_title">按键振动</string>
     <string name="key_vibration_description">选择手感，点击体验。默认关闭，遵循系统触感设置；实际手感因设备而异。</string>

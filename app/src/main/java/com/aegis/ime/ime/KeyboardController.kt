@@ -142,7 +142,8 @@ class KeyboardController(
 
     private var learningBlocked = false
 
-    private var associationsEnabled = true
+    private var cnAssociationsEnabled = true
+    private var enAssociationsEnabled = true
     private var emailAssociationsEnabled = false
     private var emailCands: Set<Cand> = emptySet()
     private var emailContext: String? = null
@@ -195,7 +196,7 @@ class KeyboardController(
     fun setLearningBlocked(blocked: Boolean) { learningBlocked = blocked }
 
     private fun englishPreeditActive(): Boolean =
-        lang == Lang.EN && layoutId == LayoutId.ALPHA && associationsEnabled
+        lang == Lang.EN && layoutId == LayoutId.ALPHA && enAssociationsEnabled
 
     private fun forgetEnglishWord() { englishWord.setLength(0) }
 
@@ -229,11 +230,18 @@ class KeyboardController(
         }
     }
 
-    fun setAssociationsEnabled(on: Boolean) {
-        if (associationsEnabled == on) return
-        if (!on && englishWord.isNotEmpty()) flushComposing()
-        associationsEnabled = on
+    fun setCnAssociationsEnabled(on: Boolean) {
+        if (cnAssociationsEnabled == on) return
+        cnAssociationsEnabled = on
         predictionCands = emptySet()
+        refreshCandidates()
+        render()
+    }
+
+    fun setEnAssociationsEnabled(on: Boolean) {
+        if (enAssociationsEnabled == on) return
+        if (!on && englishWord.isNotEmpty()) flushComposing()
+        enAssociationsEnabled = on
         refreshCandidates()
         render()
     }
@@ -1253,7 +1261,7 @@ class KeyboardController(
             bounds = bounds,
             isNine = layoutId == LayoutId.NINE,
             forcedCuts = forcedCuts.toSet(),
-            associationsEnabled = associationsEnabled,
+            associationsEnabled = lang == Lang.CN && cnAssociationsEnabled,
             learningBlocked = learningBlocked,
             calcDismissed = calcDismissed,
             lastWord = lastWord,
