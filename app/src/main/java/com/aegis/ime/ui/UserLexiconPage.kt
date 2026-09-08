@@ -19,6 +19,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import android.os.Handler
 import android.os.Looper
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.WindowInsets
@@ -37,9 +38,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
@@ -62,6 +65,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.rememberTextMeasurer
@@ -143,9 +148,13 @@ internal fun UserLexiconPage(
     var newValue by remember { mutableStateOf("") }
     var addError by remember { mutableStateOf<UserLexicon.AddResult?>(null) }
     var pendingDelete by remember { mutableStateOf<String?>(null) }
+    var selecting by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf(emptySet<String>()) }
+    var pendingBulkDelete by remember { mutableStateOf<Set<String>?>(null) }
     var busy by remember { mutableStateOf(false) }
     val addedToast = stringResource(R.string.user_lexicon_added)
     val deletedToast = stringResource(R.string.user_lexicon_deleted)
+    val batchDeletedToast = stringResource(R.string.user_lexicon_batch_deleted)
     val resetToast = stringResource(R.string.user_lexicon_reset_done)
     val failedToast = stringResource(R.string.user_dict_toast_write_failed)
     val english = kind == UserLexicon.Kind.ENGLISH
@@ -160,6 +169,7 @@ internal fun UserLexiconPage(
             mainHandler.post {
                 if (active.get()) {
                     entries = next
+                    selected = selected.intersect(next.toSet())
                 }
             }
         }
@@ -239,6 +249,32 @@ internal fun UserLexiconPage(
         }
     }
 
+    fun leaveSelection() {
+        selecting = false
+        selected = emptySet()
+    }
+
+    fun removeSelected(values: Set<String>) {
+        if (busy) return
+        busy = true
+        pendingBulkDelete = null
+        leaveSelection()
+        UserStoreEdits.submit {
+            val landed = runCatching { lexicon.removeAll(kind, values) }.getOrDefault(false)
+            val next = lexicon.entries(kind)
+            mainHandler.post {
+                if (active.get()) {
+                    entries = next
+                    busy = false
+                    AegisToast.show(if (landed) batchDeletedToast else failedToast)
+                }
+            }
+        }
+    }
+
+    LaunchedEffect(current) { if (!current) leaveSelection() }
+    BackHandler(enabled = current && selecting) { leaveSelection() }
+
     Box(
         modifier = Modifier.fillMaxSize().windowInsetsPadding(
             if (searchFocused) WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom) else WindowInsets(0),
@@ -250,7 +286,7 @@ internal fun UserLexiconPage(
         ) {
             OutlinedTextField(
                 value = query,
-                onValueChange = { query = it },
+                onValueChange = { query = it; selected = emptySet() },
                 label = { Text(stringResource(if (english) R.string.user_lexicon_search_english else R.string.user_lexicon_search_email)) },
                 singleLine = true,
                 shape = AppShapes.section,
@@ -264,11 +300,12 @@ internal fun UserLexiconPage(
                     Column(verticalArrangement = Arrangement.spacedBy(AppSpacing.textGap)) {
                         Text(
                             stringResource(
-                                if (english) R.string.user_dict_count_format else R.string.user_lexicon_email_count_format,
-                                entries.size,
+                                if (selecting) R.string.user_dict_selected_count_format
+                                else if (english) R.string.user_dict_count_format else R.string.user_lexicon_email_count_format,
+                                if (selecting) selected.size else entries.size,
                             ),
                             style = MaterialTheme.typography.bodyMedium,
-                            modifier = Modifier.testTag("user_lexicon_count"),
+                            modifier = Modifier.testTag(if (selecting) "user_lexicon_selected_count" else "user_lexicon_count"),
                         )
                         Text(
                             stringResource(if (english) R.string.user_lexicon_english_help else R.string.user_lexicon_email_help),
@@ -280,22 +317,58 @@ internal fun UserLexiconPage(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(AppSpacing.compactGap),
                     ) {
-                        AppPrimaryButton(
-                            text = stringResource(R.string.user_dict_add_sheet_button),
-                            onClick = { focus.clearFocus(); newValue = ""; addError = null; adding = true },
-                            singleLine = true,
-                            contentPadding = PaddingValues(AppSpacing.compactGap),
-                            enabled = !busy,
-                            modifier = Modifier.weight(1f).testTag("user_lexicon_open_add"),
-                        )
-                        AppPrimaryButton(
-                            text = stringResource(R.string.user_dict_more_button),
-                            onClick = onTools,
-                            singleLine = true,
-                            contentPadding = PaddingValues(AppSpacing.compactGap),
-                            enabled = !busy,
-                            modifier = Modifier.weight(1f).testTag("user_lexicon_open_more"),
-                        )
+                        if (selecting) {
+                            val allSelected = filtered.isNotEmpty() && selected.containsAll(filtered)
+                            AppPrimaryButton(
+                                text = stringResource(if (allSelected) R.string.user_dict_deselect_all_button else R.string.user_dict_select_all_button),
+                                onClick = { selected = if (allSelected) emptySet() else filtered.toSet() },
+                                singleLine = true,
+                                contentPadding = PaddingValues(AppSpacing.compactGap),
+                                enabled = !busy && filtered.isNotEmpty(),
+                                modifier = Modifier.weight(1f).testTag("user_lexicon_select_all"),
+                            )
+                            AppPrimaryButton(
+                                text = stringResource(R.string.user_dict_select_cancel_button),
+                                onClick = { leaveSelection() },
+                                singleLine = true,
+                                contentPadding = PaddingValues(AppSpacing.compactGap),
+                                enabled = !busy,
+                                modifier = Modifier.weight(1f).testTag("user_lexicon_select_cancel"),
+                            )
+                            AppPrimaryButton(
+                                text = stringResource(R.string.user_dict_delete_selected_button),
+                                onClick = { pendingBulkDelete = selected.toSet() },
+                                singleLine = true,
+                                contentPadding = PaddingValues(AppSpacing.compactGap),
+                                enabled = !busy && selected.isNotEmpty(),
+                                modifier = Modifier.weight(1f).testTag("user_lexicon_delete_selected"),
+                            )
+                        } else {
+                            AppPrimaryButton(
+                                text = stringResource(R.string.user_lexicon_manage),
+                                onClick = { selecting = true; selected = emptySet() },
+                                singleLine = true,
+                                contentPadding = PaddingValues(AppSpacing.compactGap),
+                                enabled = !busy && filtered.isNotEmpty(),
+                                modifier = Modifier.weight(1f).testTag("user_lexicon_select"),
+                            )
+                            AppPrimaryButton(
+                                text = stringResource(R.string.user_dict_add_sheet_button),
+                                onClick = { focus.clearFocus(); newValue = ""; addError = null; adding = true },
+                                singleLine = true,
+                                contentPadding = PaddingValues(AppSpacing.compactGap),
+                                enabled = !busy,
+                                modifier = Modifier.weight(1f).testTag("user_lexicon_open_add"),
+                            )
+                            AppPrimaryButton(
+                                text = stringResource(R.string.user_dict_more_button),
+                                onClick = onTools,
+                                singleLine = true,
+                                contentPadding = PaddingValues(AppSpacing.compactGap),
+                                enabled = !busy,
+                                modifier = Modifier.weight(1f).testTag("user_lexicon_open_more"),
+                            )
+                        }
                     }
                 }
             }
@@ -323,18 +396,30 @@ internal fun UserLexiconPage(
                     items(filtered, key = { it }) { value ->
                         Row(
                             modifier = Modifier.fillMaxWidth().heightIn(min = AppSpacing.rowMinHeight)
+                                .then(
+                                    if (selecting) Modifier.toggleable(
+                                        value = value in selected,
+                                        enabled = !busy,
+                                        role = Role.Checkbox,
+                                        onValueChange = { checked -> selected = if (checked) selected + value else selected - value },
+                                    ).testTag("user_lexicon_check_$value") else Modifier,
+                                )
                                 .padding(start = AppSpacing.rowHorizontal, end = AppSpacing.compactGap),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(AppSpacing.contentGap),
                         ) {
                             Text(value, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                            AppPrimaryButton(
-                                text = stringResource(R.string.user_dict_delete_button),
-                                onClick = { pendingDelete = value },
-                                enabled = !busy,
-                                singleLine = true,
-                                modifier = Modifier.testTag("user_lexicon_delete_$value"),
-                            )
+                            if (selecting) {
+                                Checkbox(checked = value in selected, onCheckedChange = null, enabled = !busy)
+                            } else {
+                                AppPrimaryButton(
+                                    text = stringResource(R.string.user_dict_delete_button),
+                                    onClick = { pendingDelete = value },
+                                    enabled = !busy,
+                                    singleLine = true,
+                                    modifier = Modifier.testTag("user_lexicon_delete_$value"),
+                                )
+                            }
                         }
                         AppSectionDivider()
                     }
@@ -397,6 +482,25 @@ internal fun UserLexiconPage(
         )
     }
 
+    pendingBulkDelete?.let { values ->
+        AegisAlertDialog(
+            onDismissRequest = { pendingBulkDelete = null },
+            title = { Text(stringResource(R.string.user_lexicon_batch_delete_title)) },
+            text = { Text(pluralStringResource(R.plurals.user_lexicon_batch_delete_body, values.size, values.size)) },
+            confirmButton = {
+                TextButton(
+                    onClick = { removeSelected(values) },
+                    modifier = Modifier.testTag("user_lexicon_batch_delete_confirm"),
+                ) { Text(stringResource(R.string.user_dict_delete_confirm)) }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = { pendingBulkDelete = null },
+                    modifier = Modifier.testTag("user_lexicon_batch_delete_cancel"),
+                ) { Text(stringResource(R.string.user_dict_delete_cancel)) }
+            },
+        )
+    }
 }
 
 @Composable

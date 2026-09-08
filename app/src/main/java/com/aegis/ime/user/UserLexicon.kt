@@ -81,6 +81,23 @@ class UserLexicon(private val prefs: SharedPreferences) {
         editor.commit()
     }
 
+    fun removeAll(kind: Kind, values: Collection<String>): Boolean = synchronized(writeLock) {
+        val targets = values.mapNotNull { normalize(kind, it) }.mapTo(HashSet()) { identity(kind, it) }
+        if (targets.isEmpty()) return true
+        val current = entries(kind)
+        val removed = current.filterTo(HashSet()) { identity(kind, it) in targets }
+        val hasCounts = kind == Kind.EMAIL && targets.any { prefs.contains(EMAIL_COUNT_PREFIX + it) }
+        if (removed.isEmpty() && !hasCounts) return true
+        val custom = current.filterNot { it in removed || (kind == Kind.EMAIL && it in COMMON_EMAIL_DOMAINS) }
+        val editor = prefs.edit().putStringSet(kind.key, custom.toSet())
+        if (kind == Kind.EMAIL) {
+            val defaults = targets.filter { it in COMMON_EMAIL_DOMAINS }
+            if (defaults.isNotEmpty()) editor.putStringSet(PREF_DISABLED_EMAIL_DOMAINS, disabledEmailDomains() + defaults)
+            targets.forEach { editor.remove(EMAIL_COUNT_PREFIX + it) }
+        }
+        editor.commit()
+    }
+
     fun resetEmailDefaults(): Boolean = synchronized(writeLock) {
         val editor = prefs.edit().putStringSet(PREF_EMAIL_DOMAINS, emptySet()).putStringSet(PREF_DISABLED_EMAIL_DOMAINS, emptySet())
         for (key in prefs.all.keys) if (key.startsWith(EMAIL_COUNT_PREFIX)) editor.remove(key)

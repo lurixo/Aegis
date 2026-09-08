@@ -183,7 +183,7 @@ class UserLexiconPageTest {
         val search = compose.onNodeWithTag("user_dict_search").getUnclippedBoundsInRoot()
         val overview = compose.onNodeWithTag("user_dict_overview").getUnclippedBoundsInRoot()
         val list = compose.onNodeWithTag("user_dict_list_surface").getUnclippedBoundsInRoot()
-        val action = compose.onNodeWithTag("user_dict_open_add").getUnclippedBoundsInRoot()
+        val action = compose.onNodeWithTag("user_dict_select").getUnclippedBoundsInRoot()
         for (tab in listOf("english", "email", "chinese")) {
             compose.onNodeWithTag("user_lexicon_tab_$tab").performClick()
             settleEdits()
@@ -191,7 +191,7 @@ class UserLexiconPageTest {
             val actualSearch = compose.onNodeWithTag("${prefix}_search").getUnclippedBoundsInRoot()
             val actualOverview = compose.onNodeWithTag("${prefix}_overview").getUnclippedBoundsInRoot()
             val actualList = compose.onNodeWithTag("${prefix}_list_surface").getUnclippedBoundsInRoot()
-            val actualAction = compose.onNodeWithTag("${prefix}_open_add").getUnclippedBoundsInRoot()
+            val actualAction = compose.onNodeWithTag("${prefix}_select").getUnclippedBoundsInRoot()
             assertEquals("$tab search top", search.top.value, actualSearch.top.value, 0.5f)
             assertEquals("$tab search bottom", search.bottom.value, actualSearch.bottom.value, 0.5f)
             assertEquals("$tab overview top", overview.top.value, actualOverview.top.value, 0.5f)
@@ -200,6 +200,12 @@ class UserLexiconPageTest {
             assertEquals("$tab list bottom", list.bottom.value, actualList.bottom.value, 0.5f)
             assertEquals("$tab actions top", action.top.value, actualAction.top.value, 0.5f)
             assertEquals("$tab actions bottom", action.bottom.value, actualAction.bottom.value, 0.5f)
+            compose.onNodeWithTag("${prefix}_select").performClick()
+            val selectionOverview = compose.onNodeWithTag("${prefix}_overview").getUnclippedBoundsInRoot()
+            val selectionList = compose.onNodeWithTag("${prefix}_list_surface").getUnclippedBoundsInRoot()
+            assertEquals("$tab selection preserves overview", overview, selectionOverview)
+            assertEquals("$tab selection preserves list", list, selectionList)
+            compose.onNodeWithTag("${prefix}_select_cancel").performClick()
         }
     }
 
@@ -448,4 +454,101 @@ class UserLexiconPageTest {
         compose.onNodeWithText("AfterResume").assertExists()
     }
 
+    @Test fun english_bulk_selection_tracks_search_results_and_requires_delete_confirmation() {
+        listOf("AegisWord", "AnotherWord", "Unrelated").forEach { lexicon.add(UserLexicon.Kind.ENGLISH, it) }
+        lexicon.add(UserLexicon.Kind.EMAIL, "private.example")
+        val chinese = "aegis-userdb 1\nR\tceshi\t测试\n"
+        chineseDb.writeText(chinese)
+        open("english")
+        compose.onNodeWithTag("user_lexicon_search").performTextInput("Word")
+        compose.onNodeWithTag("user_lexicon_select").performClick()
+        compose.onNodeWithTag("user_lexicon_delete_selected").assertIsNotEnabled()
+        compose.onNodeWithTag("user_lexicon_check_AegisWord").assertIsOff().performClick()
+        compose.onNodeWithTag("user_lexicon_check_AegisWord").assertIsOn()
+        compose.onNodeWithTag("user_lexicon_selected_count").assertTextEquals(context.getString(R.string.user_dict_selected_count_format, 1))
+        compose.onNodeWithTag("user_lexicon_select_all").performClick()
+        compose.onNodeWithTag("user_lexicon_selected_count").assertTextEquals(context.getString(R.string.user_dict_selected_count_format, 2))
+        compose.onNodeWithTag("user_lexicon_select_all").performClick()
+        compose.onNodeWithTag("user_lexicon_delete_selected").assertIsNotEnabled()
+        compose.onNodeWithTag("user_lexicon_select_all").performClick()
+
+        compose.onNodeWithTag("user_lexicon_search").performTextClearance()
+        compose.onNodeWithTag("user_lexicon_selected_count").assertTextEquals(context.getString(R.string.user_dict_selected_count_format, 0))
+        compose.onNodeWithTag("user_lexicon_check_Unrelated").assertIsOff()
+        compose.onNodeWithTag("user_lexicon_search").performTextInput("Word")
+        compose.onNodeWithTag("user_lexicon_select_all").performClick()
+        val before = prefs.all.toMap()
+        compose.onNodeWithTag("user_lexicon_delete_selected").performClick()
+        assertEquals(before, prefs.all)
+        compose.onNodeWithTag("user_lexicon_batch_delete_cancel").performClick()
+        assertEquals(before, prefs.all)
+        compose.onNodeWithTag("user_lexicon_selected_count").assertTextEquals(context.getString(R.string.user_dict_selected_count_format, 2))
+        compose.onNodeWithTag("user_lexicon_delete_selected").performClick()
+        compose.onNodeWithTag("user_lexicon_batch_delete_confirm").performClick()
+        settleEdits()
+
+        assertEquals(listOf("Unrelated"), lexicon.entries(UserLexicon.Kind.ENGLISH))
+        assertEquals(UserLexicon.COMMON_EMAIL_DOMAINS + "private.example", lexicon.entries(UserLexicon.Kind.EMAIL))
+        assertEquals(chinese, chineseDb.readText())
+        compose.onNodeWithTag("user_lexicon_select_cancel").assertDoesNotExist()
+        compose.onNodeWithText(context.getString(R.string.user_lexicon_no_match)).assertExists()
+        compose.onNodeWithTag("user_lexicon_search").performTextClearance()
+        compose.onNodeWithText("Unrelated").assertIsDisplayed()
+    }
+
+    @Test fun email_bulk_deletion_removes_custom_and_default_suffixes_and_their_frequency_counts() {
+        lexicon.add(UserLexicon.Kind.ENGLISH, "KeepWord")
+        lexicon.add(UserLexicon.Kind.EMAIL, "private.example")
+        val domains = EmailDomains(prefs)
+        listOf("gmail.com", "private.example", "qq.com").forEach { domains.record(it) }
+        open("email")
+        compose.onNodeWithTag("user_lexicon_select").performClick()
+        for (value in listOf("gmail.com", "private.example")) {
+            val tag = "user_lexicon_check_$value"
+            compose.onNodeWithTag("user_lexicon_list").performScrollToNode(hasTestTag(tag))
+            compose.onNodeWithTag(tag).performClick()
+        }
+        compose.onNodeWithTag("user_lexicon_selected_count").assertTextEquals(context.getString(R.string.user_dict_selected_count_format, 2))
+        val before = prefs.all.toMap()
+        compose.onNodeWithTag("user_lexicon_delete_selected").performClick()
+        compose.onNodeWithTag("user_lexicon_batch_delete_cancel").performClick()
+        assertEquals(before, prefs.all)
+        compose.onNodeWithTag("user_lexicon_delete_selected").performClick()
+        compose.onNodeWithTag("user_lexicon_batch_delete_confirm").performClick()
+        settleEdits()
+
+        assertEquals(UserLexicon.COMMON_EMAIL_DOMAINS - "gmail.com", lexicon.entries(UserLexicon.Kind.EMAIL))
+        assertEquals(setOf("gmail.com"), prefs.getStringSet(UserLexicon.PREF_DISABLED_EMAIL_DOMAINS, emptySet()))
+        assertFalse(prefs.contains(UserLexicon.EMAIL_COUNT_PREFIX + "gmail.com"))
+        assertFalse(prefs.contains(UserLexicon.EMAIL_COUNT_PREFIX + "private.example"))
+        assertEquals(1L, prefs.getLong(UserLexicon.EMAIL_COUNT_PREFIX + "qq.com", 0))
+        assertEquals(listOf("KeepWord"), lexicon.entries(UserLexicon.Kind.ENGLISH))
+        scenario!!.recreate()
+        settleEdits()
+        compose.onNodeWithTag("user_lexicon_tab_email").assertIsSelected()
+        compose.onNodeWithTag("user_lexicon_search").performTextInput("gmail")
+        compose.onNodeWithText(context.getString(R.string.user_lexicon_no_match)).assertExists()
+    }
+
+    @Test fun cancelling_or_pressing_back_leaves_management_without_deleting_and_external_edits_prune_selection() {
+        listOf("AegisWord", "AnotherWord").forEach { lexicon.add(UserLexicon.Kind.ENGLISH, it) }
+        open("english")
+        compose.onNodeWithTag("user_lexicon_select").performClick()
+        compose.onNodeWithTag("user_lexicon_select_all").performClick()
+        val before = prefs.all.toMap()
+        compose.onNodeWithTag("user_lexicon_select_cancel").performClick()
+        assertEquals(before, prefs.all)
+        compose.onNodeWithTag("user_lexicon_select_cancel").assertDoesNotExist()
+        compose.onNodeWithTag("user_lexicon_select").performClick()
+        compose.onNodeWithTag("user_lexicon_selected_count").assertTextEquals(context.getString(R.string.user_dict_selected_count_format, 0))
+        compose.onNodeWithTag("user_lexicon_select_all").performClick()
+        prefs.edit().putStringSet(UserLexicon.PREF_ENGLISH_WORDS, setOf("AnotherWord")).commit()
+        settleEdits()
+        compose.onNodeWithTag("user_lexicon_selected_count").assertTextEquals(context.getString(R.string.user_dict_selected_count_format, 1))
+        compose.onNodeWithTag("user_lexicon_check_AnotherWord").assertIsOn()
+        scenario!!.onActivity { it.onBackPressedDispatcher.onBackPressed() }
+        compose.onNodeWithTag("user_lexicon_select_cancel").assertDoesNotExist()
+        compose.onNodeWithTag("user_lexicon_tab_english").assertIsSelected()
+        assertEquals(listOf("AnotherWord"), lexicon.entries(UserLexicon.Kind.ENGLISH))
+    }
 }

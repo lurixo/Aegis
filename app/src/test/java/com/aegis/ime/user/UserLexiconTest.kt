@@ -153,4 +153,83 @@ class UserLexiconTest {
         ), prefs.all)
     }
 
+    @Test fun bulk_english_deletion_uses_one_commit_and_preserves_unselected_entries_and_email_data() {
+        store.add(UserLexicon.Kind.ENGLISH, "OpenAegis")
+        store.add(UserLexicon.Kind.ENGLISH, "déjà vu")
+        store.add(UserLexicon.Kind.ENGLISH, "KeepWord")
+        store.add(UserLexicon.Kind.EMAIL, "private.example")
+        EmailDomains(prefs).record("private.example")
+        val counted = CommitCountingPreferences(prefs)
+
+        assertTrue(UserLexicon(counted).removeAll(UserLexicon.Kind.ENGLISH, listOf("openaegis", "deja vu", "OpenAegis", "missing")))
+
+        assertEquals(1, counted.commits)
+        assertEquals(listOf("KeepWord"), store.entries(UserLexicon.Kind.ENGLISH))
+        assertEquals(listOf("KeepWord"), UserLexicon(prefs).entries(UserLexicon.Kind.ENGLISH))
+        assertEquals(UserLexicon.COMMON_EMAIL_DOMAINS + "private.example", store.entries(UserLexicon.Kind.EMAIL))
+        assertEquals(1L, prefs.getLong(UserLexicon.EMAIL_COUNT_PREFIX + "private.example", 0))
+    }
+
+    @Test fun bulk_email_deletion_disables_defaults_removes_custom_entries_and_clears_selected_counts_together() {
+        store.add(UserLexicon.Kind.ENGLISH, "KeepWord")
+        store.add(UserLexicon.Kind.EMAIL, "private.example")
+        store.add(UserLexicon.Kind.EMAIL, "keep.example")
+        store.remove(UserLexicon.Kind.EMAIL, "163.com")
+        val candidates = EmailDomains(prefs)
+        listOf("qq.com", "gmail.com", "private.example", "keep.example").forEach { candidates.record(it) }
+        prefs.edit().putLong(UserLexicon.EMAIL_COUNT_PREFIX + "stale.example", 8).commit()
+        val counted = CommitCountingPreferences(prefs)
+        val other = UserLexicon(prefs)
+        other.entries(UserLexicon.Kind.EMAIL)
+
+        assertTrue(UserLexicon(counted).removeAll(UserLexicon.Kind.EMAIL, listOf("@QQ.COM", "gmail.com", "PRIVATE.EXAMPLE", "stale.example", "invalid", "gmail.com")))
+
+        assertEquals(1, counted.commits)
+        val expected = UserLexicon.COMMON_EMAIL_DOMAINS - setOf("qq.com", "163.com", "gmail.com") + "keep.example"
+        assertEquals(expected, store.entries(UserLexicon.Kind.EMAIL))
+        assertEquals(expected, other.entries(UserLexicon.Kind.EMAIL))
+        assertEquals(expected, UserLexicon(prefs).entries(UserLexicon.Kind.EMAIL))
+        assertEquals(setOf("qq.com", "163.com", "gmail.com"), prefs.getStringSet(UserLexicon.PREF_DISABLED_EMAIL_DOMAINS, emptySet()))
+        assertEquals(setOf("keep.example"), prefs.getStringSet(UserLexicon.PREF_EMAIL_DOMAINS, emptySet()))
+        for (value in listOf("qq.com", "gmail.com", "private.example", "stale.example")) {
+            assertFalse(value, prefs.contains(UserLexicon.EMAIL_COUNT_PREFIX + value))
+            assertFalse(value, candidates.contains(value))
+        }
+        assertEquals(1L, prefs.getLong(UserLexicon.EMAIL_COUNT_PREFIX + "keep.example", 0))
+        assertEquals(listOf("KeepWord"), store.entries(UserLexicon.Kind.ENGLISH))
+    }
+
+    @Test fun bulk_deletion_with_no_matching_entries_does_not_write_preferences() {
+        val counted = CommitCountingPreferences(prefs)
+        val subject = UserLexicon(counted)
+        assertTrue(subject.removeAll(UserLexicon.Kind.EMAIL, emptyList()))
+        assertTrue(subject.removeAll(UserLexicon.Kind.EMAIL, listOf("invalid", "absent.example")))
+        assertTrue(subject.removeAll(UserLexicon.Kind.ENGLISH, listOf("missing")))
+        assertEquals(0, counted.commits)
+        assertTrue(prefs.all.isEmpty())
+    }
+
+    private class CommitCountingPreferences(private val delegate: SharedPreferences) : SharedPreferences by delegate {
+        var commits = 0
+
+        override fun edit(): SharedPreferences.Editor {
+            val editor = delegate.edit()
+            return object : SharedPreferences.Editor by editor {
+                override fun putStringSet(key: String, values: Set<String>?): SharedPreferences.Editor {
+                    editor.putStringSet(key, values)
+                    return this
+                }
+
+                override fun remove(key: String): SharedPreferences.Editor {
+                    editor.remove(key)
+                    return this
+                }
+
+                override fun commit(): Boolean {
+                    commits++
+                    return editor.commit()
+                }
+            }
+        }
+    }
 }
