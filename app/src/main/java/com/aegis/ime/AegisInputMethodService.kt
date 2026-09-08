@@ -369,6 +369,18 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
     }
 
+    private val userLexicon by lazy {
+        com.aegis.ime.user.UserLexicon(getSharedPreferences("aegis", MODE_PRIVATE))
+    }
+    private val userLexiconListener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == null || key == com.aegis.ime.user.UserLexicon.PREF_ENGLISH_WORDS ||
+            key == com.aegis.ime.user.UserLexicon.PREF_EMAIL_DOMAINS ||
+            key == com.aegis.ime.user.UserLexicon.PREF_DISABLED_EMAIL_DOMAINS ||
+            key.startsWith(com.aegis.ime.user.UserLexicon.EMAIL_COUNT_PREFIX)) {
+            mainHandler.post { if (::controller.isInitialized) controller.onUserLexiconChanged() }
+        }
+    }
+
     override fun onCreate() {
         super.onCreate()
         runCatching {
@@ -378,6 +390,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         runCatching {
             getSharedPreferences("aegis", MODE_PRIVATE)
                 .registerOnSharedPreferenceChangeListener(settingsHotApply)
+            getSharedPreferences("aegis", MODE_PRIVATE)
+                .registerOnSharedPreferenceChangeListener(userLexiconListener)
         }
         LiveUserData.onRestored = {
             mainHandler.post {
@@ -404,7 +418,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         LiveUserData.registerClipboardPersistenceHooks(clipboardPendingWriteFlush)
         controller = KeyboardController(
-            this, DictEngine(null, null, null), decodeLane,
+            this, DictEngine(null, null, null, userLexicon = userLexicon), decodeLane,
             emailDomains = com.aegis.ime.ime.EmailDomains(getSharedPreferences("aegis", MODE_PRIVATE)),
         )
         controller.onShowEmoji = { showEmojiPanel() }
@@ -472,7 +486,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val octagram = runCatching { OctagramReader.fromDownloads(this, "wanxiang-lts-zh-hans.gram") }
             .onFailure { Log.e("Aegis", "octagram load failed", it) }.getOrNull()
         val engine = DictEngine(
-            dict, t9Dict, lm, userModel, fuzzyRules, initialsDict, octagram, userLearning, englishDict,
+            dict, t9Dict, lm, userModel, fuzzyRules, initialsDict, octagram, userLearning, englishDict, userLexicon,
         )
         engineSig = sig
         return engine
@@ -1867,6 +1881,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         runCatching {
             getSharedPreferences("aegis", MODE_PRIVATE)
                 .unregisterOnSharedPreferenceChangeListener(settingsHotApply)
+            getSharedPreferences("aegis", MODE_PRIVATE)
+                .unregisterOnSharedPreferenceChangeListener(userLexiconListener)
         }
         super.onDestroy()
     }

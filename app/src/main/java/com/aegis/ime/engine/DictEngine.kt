@@ -25,6 +25,7 @@ import com.aegis.ime.dict.EnglishKey
 import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
+import com.aegis.ime.user.UserLexicon
 
 class DictEngine(
     pinyinDict: BinaryDict?,
@@ -36,6 +37,7 @@ class DictEngine(
     octagram: OctagramReader? = null,
     private val userLearning: UserLearning? = null,
     private val englishDict: BinaryDict? = null,
+    private val userLexicon: UserLexicon? = null,
 ) : CandidateEngine {
     private val decoder = pinyinDict?.let {
         PinyinDecoder(
@@ -128,12 +130,18 @@ class DictEngine(
     }
 
     override fun englishCompletions(typed: String): List<String> {
-        val dict = englishDict ?: return emptyList()
         val key = EnglishKey.normalize(typed)
         if (key.isEmpty()) return emptyList()
         val out = LinkedHashSet<String>()
-        for (hit in dict.prefixByFreq(key, ENGLISH_SUPPLY)) {
+        val custom = userLexicon?.englishCompletions(key).orEmpty()
+        val customKeys = custom.mapTo(HashSet()) { EnglishKey.normalize(it) }
+        for (word in custom) {
+            if (word != typed) out.add(word)
+            if (out.size == MAX_CANDIDATES) return out.toList()
+        }
+        for (hit in englishDict?.prefixByFreq(key, ENGLISH_SUPPLY).orEmpty()) {
             if (hit.word == typed) continue
+            if (EnglishKey.normalize(hit.word) in customKeys) continue
             out.add(hit.word)
             if (out.size == MAX_CANDIDATES) break
         }

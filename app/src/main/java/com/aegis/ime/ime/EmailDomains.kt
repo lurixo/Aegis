@@ -16,35 +16,32 @@
 package com.aegis.ime.ime
 
 import android.content.SharedPreferences
+import com.aegis.ime.user.UserLexicon
 
 class EmailDomains(private val prefs: SharedPreferences? = null) {
     private val counts = HashMap<String, Long>()
+    private val lexicon = prefs?.let(::UserLexicon)
 
     fun suggestions(): List<String> = catalog().sortedByDescending(::count)
 
     fun contains(domain: String): Boolean = domain in catalog()
 
     private fun catalog(): List<String> =
-        COMMON_EMAIL_DOMAINS
+        lexicon?.entries(UserLexicon.Kind.EMAIL) ?: UserLexicon.COMMON_EMAIL_DOMAINS
 
     fun record(domain: String) {
         if (!contains(domain)) return
         val next = count(domain).coerceAtMost(Long.MAX_VALUE - 1) + 1
         if (prefs == null) counts[domain] = next
-        else prefs.edit().putLong(EMAIL_COUNT_PREFIX + domain, next).apply()
+        else prefs.edit().putLong(UserLexicon.EMAIL_COUNT_PREFIX + domain, next).apply()
     }
 
     private fun count(domain: String): Long {
         val stored = prefs ?: return counts[domain] ?: 0L
-        return runCatching { stored.getLong(EMAIL_COUNT_PREFIX + domain, 0L) }.getOrDefault(0L).coerceAtLeast(0L)
+        return runCatching { stored.getLong(UserLexicon.EMAIL_COUNT_PREFIX + domain, 0L) }.getOrDefault(0L).coerceAtLeast(0L)
     }
 
     companion object {
-        const val EMAIL_COUNT_PREFIX = "email_domain_count_"
-        val COMMON_EMAIL_DOMAINS = listOf(
-            "qq.com", "163.com", "gmail.com", "outlook.com", "126.com",
-            "icloud.com", "hotmail.com", "foxmail.com", "yahoo.com", "sina.com",
-        )
         internal fun context(before: CharSequence): String? {
             if (before.length < 2 || before.last() != '@') return null
             val previous = before[before.length - 2]

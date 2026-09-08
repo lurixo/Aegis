@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import android.content.Context
+import com.aegis.ime.user.UserLexicon
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -28,10 +29,26 @@ import org.robolectric.annotation.Config
 class EmailDomainsTest {
     @Test fun a_store_without_preferences_uses_the_ten_defaults_once() {
         val store = EmailDomains()
-        assertEquals(EmailDomains.COMMON_EMAIL_DOMAINS, store.suggestions())
+        assertEquals(UserLexicon.COMMON_EMAIL_DOMAINS, store.suggestions())
         store.record("gmail.com")
         assertEquals("gmail.com", store.suggestions().first())
         assertEquals(10, store.suggestions().distinct().size)
+    }
+
+    @Test fun candidates_follow_default_deletions_and_reset_on_an_already_created_store() {
+        val prefs = RuntimeEnvironment.getApplication().getSharedPreferences("email-catalog", Context.MODE_PRIVATE)
+        val store = EmailDomains(prefs)
+        val lexicon = UserLexicon(prefs)
+        lexicon.add(UserLexicon.Kind.EMAIL, "private.example")
+        store.record("private.example")
+        store.record("gmail.com")
+        assertTrue(lexicon.remove(UserLexicon.Kind.EMAIL, "gmail.com"))
+        assertFalse(store.contains("gmail.com"))
+        assertEquals(listOf("private.example") + UserLexicon.COMMON_EMAIL_DOMAINS.filterNot { it == "gmail.com" }, store.suggestions())
+        assertTrue(lexicon.resetEmailDefaults())
+        assertEquals(UserLexicon.COMMON_EMAIL_DOMAINS, store.suggestions())
+        assertFalse(store.contains("private.example"))
+        assertTrue(store.contains("gmail.com"))
     }
 
     @Test fun selected_counts_survive_recreation_and_keep_ties_in_default_order() {
