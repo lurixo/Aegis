@@ -38,6 +38,7 @@ import com.aegis.ime.user.UserDictEdit
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserLexicon
+import com.aegis.ime.user.UserLexiconTransfer
 import com.aegis.ime.user.UserModel
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -73,6 +74,7 @@ class UserLexiconBackupWiringTest {
     @Before fun clean() {
         UserDictHot.host = null
         LiveUserData.onRestored = null
+        LiveUserData.onLexiconsRestored = null
         LiveUserData.onBeforeExport = null
         LiveUserData.onBeforeRestore = null
         LiveUserData.clipboardHost = null
@@ -87,6 +89,7 @@ class UserLexiconBackupWiringTest {
         services.toList().forEach(::stop)
         UserDictHot.host = null
         LiveUserData.onRestored = null
+        LiveUserData.onLexiconsRestored = null
         LiveUserData.onBeforeExport = null
         LiveUserData.onBeforeRestore = null
         LiveUserData.clipboardHost = null
@@ -105,6 +108,7 @@ class UserLexiconBackupWiringTest {
         shadowOf(Looper.getMainLooper()).idle()
         assertNotNull(UserDictHot.host)
         assertNotNull(LiveUserData.onRestored)
+        assertNotNull(LiveUserData.onLexiconsRestored)
         return service
     }
 
@@ -369,4 +373,104 @@ class UserLexiconBackupWiringTest {
         assertEmptyRestored()
     }
 
+    @Test fun english_and_email_json_imports_preserve_unflushed_chinese_words_and_learning() {
+        for (mode in BackupManager.Mode.entries) {
+            val service = start()
+            val editor = attachEditor(service)
+            val keyboard = controller(service)
+            val lexicon = UserLexicon(prefs)
+            lexicon.add(UserLexicon.Kind.ENGLISH, "OpenAegis")
+            lexicon.add(UserLexicon.Kind.EMAIL, "example.org")
+            val english = UserLexiconTransfer.export(filesDir, prefs, setOf(UserLexiconTransfer.Scope.ENGLISH))
+            val email = UserLexiconTransfer.export(filesDir, prefs, setOf(UserLexiconTransfer.Scope.EMAIL))
+            assertTrue(lexicon.remove(UserLexicon.Kind.ENGLISH, "OpenAegis"))
+            assertTrue(lexicon.resetEmailDefaults())
+            shadowOf(Looper.getMainLooper()).idle()
+
+            val liveModel = model(service)
+            val liveLearning = learning(service)
+            assertTrue(liveModel.addManualWord("weiluopan", "未落盘", System.currentTimeMillis()))
+            formLearnedWord(liveLearning)
+            val wordsBefore = liveModel.userWordEntries()
+            val learnedBefore = liveLearning.formedEntries()
+            val dictionaryBefore = userDb.takeIf { it.exists() }?.readText()
+            val learningBefore = userLearn.takeIf { it.exists() }?.readText()
+            assertTrue(liveModel.dirty)
+            assertTrue(liveLearning.dirty)
+
+            fun assertUnchanged() {
+                assertEquals(mode.name, wordsBefore, liveModel.userWordEntries())
+                assertEquals(mode.name, learnedBefore, liveLearning.formedEntries())
+                assertTrue(mode.name, liveModel.dirty)
+                assertTrue(mode.name, liveLearning.dirty)
+                assertEquals(mode.name, dictionaryBefore, userDb.takeIf { it.exists() }?.readText())
+                assertEquals(mode.name, learningBefore, userLearn.takeIf { it.exists() }?.readText())
+            }
+
+            keyboard.onKey(Key("", action = KeyAction.TOGGLE_LANG))
+            "ope".forEach { keyboard.onKey(Key(it.toString(), output = it.toString())) }
+            assertEquals(listOf("ope"), settledCandidates(service))
+
+            english.inputStream().use { UserLexiconTransfer.importData(filesDir, prefs, it, mode) }
+            drainRestoredStores()
+
+            assertUnchanged()
+            assertEquals(listOf("ope", "OpenAegis"), settledCandidates(service))
+            keyboard.reset()
+            requireNotNull(editor.editable).clear()
+            editor.commitText("name@", 1)
+            keyboard.onEditorContextChanged()
+            assertFalse("example.org" in settledCandidates(service))
+
+            email.inputStream().use { UserLexiconTransfer.importData(filesDir, prefs, it, mode) }
+            drainRestoredStores()
+
+            assertUnchanged()
+            assertTrue("example.org" in settledCandidates(service))
+            stop(service)
+        }
+    }
+
+    @Test fun all_lexicons_json_restores_live_chinese_learning_and_english_email_candidates() {
+        seed()
+        UserLearning().also {
+            formLearnedWord(it)
+            it.save(userLearn)
+        }
+        val archive = UserLexiconTransfer.export(filesDir, prefs, UserLexiconTransfer.Scope.entries.toSet())
+        val service = start()
+        val editor = attachEditor(service)
+        val keyboard = controller(service)
+        assertTrue(UserDictEdit.remove(userDb, "guidangci", "归档词"))
+        assertTrue(model(service).addManualWord("houlaici", "后来词", System.currentTimeMillis()))
+        learning(service).clear()
+        assertTrue(model(service).dirty)
+        assertTrue(learning(service).dirty)
+        assertTrue(UserLexicon(prefs).remove(UserLexicon.Kind.ENGLISH, "OpenAegis"))
+        assertTrue(UserLexicon(prefs).resetEmailDefaults())
+        keyboard.onKey(Key("", action = KeyAction.TOGGLE_LANG))
+        "ope".forEach { keyboard.onKey(Key(it.toString(), output = it.toString())) }
+        assertEquals(listOf("ope"), settledCandidates(service))
+
+        archive.inputStream().use { UserLexiconTransfer.importData(filesDir, prefs, it, BackupManager.Mode.OVERWRITE) }
+        drainRestoredStores()
+
+        assertSeedRestored()
+        assertEquals(listOf("你呢嗯"), learning(service).formedEntries().map { it.word })
+        assertEquals(listOf("你呢嗯"), UserLearning().apply { load(userLearn) }.formedEntries().map { it.word })
+        assertFalse(model(service).dirty)
+        assertFalse(learning(service).dirty)
+        assertEquals(listOf("ope", "OpenAegis"), settledCandidates(service))
+        keyboard.reset()
+        requireNotNull(editor.editable).clear()
+        editor.commitText("name@", 1)
+        keyboard.onEditorContextChanged()
+        assertEquals("example.org", settledCandidates(service).first())
+        assertFalse("qq.com" in settledCandidates(service))
+
+        stop(service)
+        val reopened = start()
+        assertSeedRestored()
+        assertEquals(listOf("你呢嗯"), learning(reopened).formedEntries().map { it.word })
+    }
 }

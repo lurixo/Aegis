@@ -15,6 +15,7 @@
 
 package com.aegis.ime.user
 
+import java.io.BufferedReader
 import java.io.File
 import java.io.IOException
 import java.nio.file.AtomicMoveNotSupportedException
@@ -428,84 +429,89 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         private const val RECENCY_HALF_LIFE_MILLIS = 7L * 24L * 60L * 60L * 1000L
         private val LN_2 = ln(2.0)
 
+        internal fun validateText(text: String): Boolean =
+            text.reader().buffered().use(::parse).let { it.count.isNotEmpty() || it.readings.isNotEmpty() }
+
         private fun parse(file: File): Parsed {
             if (!file.exists() || file.length() == 0L) return Parsed()
+            return file.bufferedReader().use(::parse)
+        }
+
+        private fun parse(reader: BufferedReader): Parsed {
             val parsed = Parsed()
-            file.bufferedReader().use { reader ->
-                val header = reader.readLine()
-                require(
-                    header == TOMBSTONE_HEADER || header == HEADER || header == MARKED_HEADER ||
-                        header == LEGACY_HEADER,
-                ) {
-                    "unsupported userdb header"
-                }
-                val marked = header != LEGACY_HEADER
-                val counted = header == HEADER || header == TOMBSTONE_HEADER
-                val tombstoned = header == TOMBSTONE_HEADER
-                var sawForgotten = false
-                while (true) {
-                    val line = reader.readLine() ?: break
-                    require(line.length <= MAX_LINE_LENGTH) { "userdb line is too long" }
-                    val p = line.split('\t')
-                    when (p.firstOrNull()) {
-                        "W" -> {
-                            require(p.size == 4 && isValidWord(p[1])) { "invalid userdb word row" }
-                            val value = p[2].toIntOrNull()
-                            val used = p[3].toLongOrNull()
-                            require(value != null && value in 1..MAX_COUNT && used != null && used >= 0L) {
-                                "invalid userdb word values"
-                            }
-                            require(parsed.count.put(p[1], value) == null) { "duplicate userdb word" }
-                            parsed.lastUsed[p[1]] = used
+            val header = reader.readLine()
+            require(
+                header == TOMBSTONE_HEADER || header == HEADER || header == MARKED_HEADER ||
+                    header == LEGACY_HEADER,
+            ) {
+                "unsupported userdb header"
+            }
+            val marked = header != LEGACY_HEADER
+            val counted = header == HEADER || header == TOMBSTONE_HEADER
+            val tombstoned = header == TOMBSTONE_HEADER
+            var sawForgotten = false
+            while (true) {
+                val line = reader.readLine() ?: break
+                require(line.length <= MAX_LINE_LENGTH) { "userdb line is too long" }
+                val p = line.split('\t')
+                when (p.firstOrNull()) {
+                    "W" -> {
+                        require(p.size == 4 && isValidWord(p[1])) { "invalid userdb word row" }
+                        val value = p[2].toIntOrNull()
+                        val used = p[3].toLongOrNull()
+                        require(value != null && value in 1..MAX_COUNT && used != null && used >= 0L) {
+                            "invalid userdb word values"
                         }
-                        "B" -> {
-                            require(p.size == 4 && isValidWord(p[1]) && isValidWord(p[2])) {
-                                "invalid userdb bigram row"
-                            }
-                            val value = p[3].toIntOrNull()
-                            require(value != null && value in 1..MAX_COUNT) { "invalid userdb bigram count" }
-                            val words = parsed.bigram.getOrPut(p[1]) { HashMap() }
-                            require(words.put(p[2], value) == null) { "duplicate userdb bigram" }
-                        }
-                        "R" -> {
-                            require(
-                                p.size == 3 && p[1].isNotEmpty() && p[1].length <= MAX_READING_LENGTH &&
-                                    p[1] == sanitizeReading(p[1]) && isValidWord(p[2]),
-                            ) { "invalid userdb reading row" }
-                            require(parsed.readings.getOrPut(p[1]) { LinkedHashSet() }.add(p[2])) {
-                                "duplicate userdb reading"
-                            }
-                        }
-                        "M" -> {
-                            require(marked) { "unsupported userdb row" }
-                            require(
-                                p.size == 3 && p[1].isNotEmpty() && p[1].length <= MAX_READING_LENGTH &&
-                                    p[1] == sanitizeReading(p[1]) && isValidWord(p[2]),
-                            ) { "invalid userdb manual row" }
-                            require(parsed.manual.getOrPut(p[1]) { LinkedHashSet() }.add(p[2])) {
-                                "duplicate userdb manual"
-                            }
-                        }
-                        "D" -> {
-                            require(tombstoned) { "unsupported userdb row" }
-                            require(
-                                p.size == 3 && isValidWord(p[1]) &&
-                                    p[2] == sanitizeReading(p[2]) && p[2].length <= MAX_READING_LENGTH,
-                            ) { "invalid userdb tombstone row" }
-                            require(parsed.tombstones.add(p[1] to p[2])) { "duplicate userdb tombstone" }
-                        }
-                        "G" -> {
-                            require(counted) { "unsupported userdb row" }
-                            require(!sawForgotten) { "duplicate userdb forgotten total" }
-                            val value = p.getOrNull(1)?.toIntOrNull()
-                            require(p.size == 2 && value != null && value in 0..MAX_COUNT) {
-                                "invalid userdb forgotten total"
-                            }
-                            parsed.forgotten = value
-                            sawForgotten = true
-                        }
-                        else -> throw IllegalArgumentException("invalid userdb row")
+                        require(parsed.count.put(p[1], value) == null) { "duplicate userdb word" }
+                        parsed.lastUsed[p[1]] = used
                     }
+                    "B" -> {
+                        require(p.size == 4 && isValidWord(p[1]) && isValidWord(p[2])) {
+                            "invalid userdb bigram row"
+                        }
+                        val value = p[3].toIntOrNull()
+                        require(value != null && value in 1..MAX_COUNT) { "invalid userdb bigram count" }
+                        val words = parsed.bigram.getOrPut(p[1]) { HashMap() }
+                        require(words.put(p[2], value) == null) { "duplicate userdb bigram" }
+                    }
+                    "R" -> {
+                        require(
+                            p.size == 3 && p[1].isNotEmpty() && p[1].length <= MAX_READING_LENGTH &&
+                                p[1] == sanitizeReading(p[1]) && isValidWord(p[2]),
+                        ) { "invalid userdb reading row" }
+                        require(parsed.readings.getOrPut(p[1]) { LinkedHashSet() }.add(p[2])) {
+                            "duplicate userdb reading"
+                        }
+                    }
+                    "M" -> {
+                        require(marked) { "unsupported userdb row" }
+                        require(
+                            p.size == 3 && p[1].isNotEmpty() && p[1].length <= MAX_READING_LENGTH &&
+                                p[1] == sanitizeReading(p[1]) && isValidWord(p[2]),
+                        ) { "invalid userdb manual row" }
+                        require(parsed.manual.getOrPut(p[1]) { LinkedHashSet() }.add(p[2])) {
+                            "duplicate userdb manual"
+                        }
+                    }
+                    "D" -> {
+                        require(tombstoned) { "unsupported userdb row" }
+                        require(
+                            p.size == 3 && isValidWord(p[1]) &&
+                                p[2] == sanitizeReading(p[2]) && p[2].length <= MAX_READING_LENGTH,
+                        ) { "invalid userdb tombstone row" }
+                        require(parsed.tombstones.add(p[1] to p[2])) { "duplicate userdb tombstone" }
+                    }
+                    "G" -> {
+                        require(counted) { "unsupported userdb row" }
+                        require(!sawForgotten) { "duplicate userdb forgotten total" }
+                        val value = p.getOrNull(1)?.toIntOrNull()
+                        require(p.size == 2 && value != null && value in 0..MAX_COUNT) {
+                            "invalid userdb forgotten total"
+                        }
+                        parsed.forgotten = value
+                        sawForgotten = true
+                    }
+                    else -> throw IllegalArgumentException("invalid userdb row")
                 }
             }
             require(parsed.bigram.values.all { words -> words.keys.all { it in parsed.count } }) {

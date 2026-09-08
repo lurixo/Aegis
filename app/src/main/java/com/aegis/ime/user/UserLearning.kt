@@ -16,6 +16,7 @@
 package com.aegis.ime.user
 
 import com.aegis.ime.decoder.T9Pinyin
+import java.io.BufferedReader
 import java.io.File
 import java.io.IOException
 import java.nio.file.AtomicMoveNotSupportedException
@@ -593,41 +594,47 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
             return sb.toString()
         }
 
+        internal fun validateText(text: String) {
+            text.reader().buffered().use(::parse)
+        }
+
         private fun parse(file: File): Parsed {
             if (!file.exists() || file.length() == 0L) return Parsed()
+            return file.bufferedReader().use(::parse)
+        }
+
+        private fun parse(reader: BufferedReader): Parsed {
             val parsed = Parsed()
-            file.bufferedReader().use { reader ->
-                require(reader.readLine() == HEADER) { "unsupported userlearn header" }
-                while (true) {
-                    val line = reader.readLine() ?: break
-                    require(line.length <= MAX_LINE_LENGTH) { "userlearn line is too long" }
-                    val p = line.split('\t')
-                    require(p.size == 5) { "invalid userlearn row" }
-                    val count = p[3].toDoubleOrNull()
-                    val seen = p[4].toLongOrNull()
-                    require(
-                        count != null && count.isFinite() && count > 0.0 && count <= MAX_COUNT &&
-                            seen != null && seen >= 0L,
-                    ) { "invalid userlearn values" }
-                    when (p[0]) {
-                        "F" -> {
-                            require(isFormedReading(p[1]) && isFormableWord(p[2])) { "invalid userlearn formed row" }
-                            val m = parsed.formed.getOrPut(p[2]) { HashMap() }
-                            require(m.put(p[1], Usage(count, seen)) == null) { "duplicate userlearn formed row" }
-                        }
-                        "P" -> {
-                            require(isFormedReading(p[1]) && isFormableWord(p[2])) { "invalid userlearn pending row" }
-                            require(parsed.pending.put(pendingKey(p[1], p[2]), Usage(count, seen)) == null) {
-                                "duplicate userlearn pending row"
-                            }
-                        }
-                        "C" -> {
-                            require(isCollocatable(p[1]) && isCollocatable(p[2])) { "invalid userlearn follow row" }
-                            val m = parsed.follows.getOrPut(p[1]) { HashMap() }
-                            require(m.put(p[2], Usage(count, seen)) == null) { "duplicate userlearn follow row" }
-                        }
-                        else -> throw IllegalArgumentException("invalid userlearn row")
+            require(reader.readLine() == HEADER) { "unsupported userlearn header" }
+            while (true) {
+                val line = reader.readLine() ?: break
+                require(line.length <= MAX_LINE_LENGTH) { "userlearn line is too long" }
+                val p = line.split('\t')
+                require(p.size == 5) { "invalid userlearn row" }
+                val count = p[3].toDoubleOrNull()
+                val seen = p[4].toLongOrNull()
+                require(
+                    count != null && count.isFinite() && count > 0.0 && count <= MAX_COUNT &&
+                        seen != null && seen >= 0L,
+                ) { "invalid userlearn values" }
+                when (p[0]) {
+                    "F" -> {
+                        require(isFormedReading(p[1]) && isFormableWord(p[2])) { "invalid userlearn formed row" }
+                        val m = parsed.formed.getOrPut(p[2]) { HashMap() }
+                        require(m.put(p[1], Usage(count, seen)) == null) { "duplicate userlearn formed row" }
                     }
+                    "P" -> {
+                        require(isFormedReading(p[1]) && isFormableWord(p[2])) { "invalid userlearn pending row" }
+                        require(parsed.pending.put(pendingKey(p[1], p[2]), Usage(count, seen)) == null) {
+                            "duplicate userlearn pending row"
+                        }
+                    }
+                    "C" -> {
+                        require(isCollocatable(p[1]) && isCollocatable(p[2])) { "invalid userlearn follow row" }
+                        val m = parsed.follows.getOrPut(p[1]) { HashMap() }
+                        require(m.put(p[2], Usage(count, seen)) == null) { "duplicate userlearn follow row" }
+                    }
+                    else -> throw IllegalArgumentException("invalid userlearn row")
                 }
             }
             return parsed

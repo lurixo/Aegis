@@ -393,27 +393,33 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             getSharedPreferences("aegis", MODE_PRIVATE)
                 .registerOnSharedPreferenceChangeListener(userLexiconListener)
         }
+        val reloadUserLexicons = {
+            val adoptRestoredStores = {
+                runCatching {
+                    userModel.replaceWordsFrom(userDbFile)
+                    userDbMtime = userDbFile.lastModified()
+                }
+                runCatching {
+                    userLearning.load(userLearnFile)
+                    userLearnMtime = userLearnFile.lastModified()
+                }
+                if (UserDeletionPromises.keep(userModel, userDbFile, userLearning, userLearnFile)) {
+                    userDbMtime = userDbFile.lastModified()
+                    userLearnMtime = userLearnFile.lastModified()
+                }
+                LiveUserData.restoreInProgress = false
+            }
+            if (!liveUserDictHost.handOff(adoptRestoredStores)) adoptRestoredStores()
+        }
+        LiveUserData.onLexiconsRestored = {
+            mainHandler.post { reloadUserLexicons() }
+        }
         LiveUserData.onRestored = {
             mainHandler.post {
                 runCatching { clipboardStore.load() }
                 runCatching { symbolUsageStore.load() }
                 runCatching { emojiUsageStore.load() }
-                val adoptRestoredStores = {
-                    runCatching {
-                        userModel.replaceWordsFrom(userDbFile)
-                        userDbMtime = userDbFile.lastModified()
-                    }
-                    runCatching {
-                        userLearning.load(userLearnFile)
-                        userLearnMtime = userLearnFile.lastModified()
-                    }
-                    if (UserDeletionPromises.keep(userModel, userDbFile, userLearning, userLearnFile)) {
-                        userDbMtime = userDbFile.lastModified()
-                        userLearnMtime = userLearnFile.lastModified()
-                    }
-                    LiveUserData.restoreInProgress = false
-                }
-                if (!liveUserDictHost.handOff(adoptRestoredStores)) adoptRestoredStores()
+                reloadUserLexicons()
             }
         }
         LiveUserData.registerClipboardPersistenceHooks(clipboardPendingWriteFlush)
@@ -1878,6 +1884,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         clipboardStore.stopSaving()
         if (LiveUserData.clipboardHost === clipboardStore) LiveUserData.clipboardHost = null
         LiveUserData.onRestored = null
+        LiveUserData.onLexiconsRestored = null
         runCatching {
             getSharedPreferences("aegis", MODE_PRIVATE)
                 .unregisterOnSharedPreferenceChangeListener(settingsHotApply)

@@ -49,6 +49,8 @@ object UserDictHot {
         fun flush(): Boolean
 
         fun flushDictionary(): Boolean = flush()
+
+        fun flushForRestore(): Boolean = flush()
     }
 
     @Volatile

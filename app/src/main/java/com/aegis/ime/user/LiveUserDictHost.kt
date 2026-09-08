@@ -147,6 +147,11 @@ class LiveUserDictHost(
         return onWriterThread(PersistResult.FAILED) { persistUnsaved(forRestore = true) }.dictionary
     }
 
+    override fun flushForRestore(): Boolean {
+        if (!anythingUnsaved()) return true
+        return onWriterThread(PersistResult.FAILED) { persistUnsaved(forRestore = true) }.both
+    }
+
     fun scheduleSave() {
         val queued = runCatching { io.execute { persistUnsaved() } }.isSuccess
         if (!queued) persistUnsaved()

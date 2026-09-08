@@ -24,7 +24,9 @@ import com.aegis.ime.user.UserDictEdit
 import com.aegis.ime.user.UserDictExport
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserDictImport
+import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserLexicon
+import com.aegis.ime.user.UserLexiconTransfer
 import com.aegis.ime.user.UserModel
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
@@ -157,9 +159,47 @@ object BackupManager {
         rawIn: InputStream,
         mode: Mode,
     ): Mode {
+        return restoring {
+            restoreOnce(filesDir, prefs, mode) { visitor ->
+                BackupCrypto.readDecrypted(rawIn, password) { plainIn ->
+                    GZIPInputStream(plainIn).use { gzip ->
+                        BackupArchive.read(DataInputStream(gzip), visitor)
+                    }
+                }
+            }
+        }
+    }
+
+    internal fun restoreLexicons(
+        filesDir: File,
+        prefs: SharedPreferences,
+        data: UserLexiconTransfer.Data,
+        mode: Mode,
+    ) {
+        restoring {
+            restoreOnce(filesDir, prefs, mode, data) { visitor ->
+                data.chinese?.let { chinese ->
+                    visitor.openFile(USERDB).use { it.write(chinese.userdb.toByteArray()) }
+                    chinese.userlearn?.let { text ->
+                        visitor.openFile(USERLEARN).use { it.write(text.toByteArray()) }
+                    }
+                }
+                val settings = LinkedHashMap<String, Any>()
+                data.english?.let { settings[UserLexicon.PREF_ENGLISH_WORDS] = it }
+                data.email?.let { email ->
+                    settings[UserLexicon.PREF_EMAIL_DOMAINS] = email.domains
+                    settings[UserLexicon.PREF_DISABLED_EMAIL_DOMAINS] = email.disabledDefaults
+                    for ((domain, count) in email.counts) settings[UserLexicon.EMAIL_COUNT_PREFIX + domain] = count
+                }
+                if (settings.isNotEmpty()) visitor.onPrefs(PrefsCodec.encode(settings))
+            }
+        }
+    }
+
+    private fun <T> restoring(work: () -> T): T {
         if (!restoring.compareAndSet(false, true)) throw BackupException(BackupError.ALREADY_RESTORING)
         return try {
-            restoreOnce(filesDir, prefs, password, rawIn, mode)
+            work()
         } finally {
             restoring.set(false)
         }
@@ -168,9 +208,9 @@ object BackupManager {
     private fun restoreOnce(
         filesDir: File,
         prefs: SharedPreferences,
-        password: CharArray,
-        rawIn: InputStream,
         mode: Mode,
+        lexicons: UserLexiconTransfer.Data? = null,
+        read: (StagingVisitor) -> Unit,
     ): Mode {
         val staging = File(filesDir, STAGING_DIR)
         staging.deleteRecursively()
@@ -186,8 +226,13 @@ object BackupManager {
         try {
             try {
                 val live = UserDictHot.host
-                if (live != null && !live.flushDictionary() && live.dictionaryReadable()) {
-                    throw IOException("user dictionary flush failed")
+                if (lexicons == null) {
+                    if (live != null && !live.flushDictionary() && live.dictionaryReadable()) {
+                        throw IOException("user dictionary flush failed")
+                    }
+                } else if (lexicons.chinese != null && live != null && !live.flushForRestore() &&
+                    (live.dictionaryReadable() || live.learnedReadable())) {
+                    throw IOException("Chinese lexicons could not be flushed")
                 }
                 LiveUserData.flushBeforeRestore()
             } catch (e: Exception) {
@@ -196,11 +241,7 @@ object BackupManager {
 
             val visitor = StagingVisitor(staging)
             try {
-                BackupCrypto.readDecrypted(rawIn, password) { plainIn ->
-                    GZIPInputStream(plainIn).use { gzip ->
-                        BackupArchive.read(DataInputStream(gzip), visitor)
-                    }
-                }
+                read(visitor)
             } catch (e: BackupException) {
                 throw e
             } catch (e: Exception) {
@@ -216,11 +257,11 @@ object BackupManager {
                 throw BackupException(BackupError.IO_ERROR, e)
             }
             try {
-                commit(filesDir, prefs, staging, visitor.prefsBlob, mode)
+                commit(filesDir, prefs, staging, visitor.prefsBlob, mode, lexicons)
                 journal.markDone()
             } catch (e: Exception) {
                 val takenBack = runCatching { journal.rollBack(prefs) }.isSuccess
-                if (takenBack) handedOff = reloadLiveStores()
+                if (takenBack) handedOff = reloadLiveStores(lexicons)
                 throw when {
                     !takenBack -> BackupException(BackupError.ROLLBACK_FAILED, e)
                     e is BackupCorruptException -> BackupException(BackupError.WRONG_PASSWORD_OR_CORRUPT, e)
@@ -230,7 +271,7 @@ object BackupManager {
             journal.discard()
             LiveUserData.restoreTrouble = null
 
-            val reload = LiveUserData.onRestored
+            val reload = restoredCallback(lexicons)
             if (reload != null) {
                 reload()
                 handedOff = true
@@ -242,9 +283,17 @@ object BackupManager {
         }
     }
 
-    private fun reloadLiveStores(): Boolean {
-        UserDictHot.host?.let { host -> runCatching { host.reloadDictionary() } }
-        val reload = LiveUserData.onRestored ?: return false
+    private fun restoredCallback(lexicons: UserLexiconTransfer.Data?): (() -> Unit)? = when {
+        lexicons == null -> LiveUserData.onRestored
+        lexicons.chinese != null -> LiveUserData.onLexiconsRestored
+        else -> null
+    }
+
+    private fun reloadLiveStores(lexicons: UserLexiconTransfer.Data?): Boolean {
+        if (lexicons == null || lexicons.chinese != null) {
+            UserDictHot.host?.let { host -> runCatching { host.reloadDictionary() } }
+        }
+        val reload = restoredCallback(lexicons) ?: return false
         return runCatching { reload() }.isSuccess
     }
 
@@ -269,10 +318,11 @@ object BackupManager {
         staging: File,
         prefsBlob: ByteArray?,
         mode: Mode,
+        lexicons: UserLexiconTransfer.Data?,
     ) {
         val merge = mode == Mode.MERGE
-        applyUserDb(filesDir, staging, merge)
-        applyUserLearning(filesDir, staging, merge)
+        applyUserDb(filesDir, staging, merge, allowEmpty = lexicons?.legacy != true)
+        applyUserLearning(filesDir, staging, merge, mergeRecords = lexicons != null && !lexicons.legacy)
         applyPhrases(filesDir, staging, merge)
         applyClipboard(filesDir, staging, merge)
         applySymbolUsage(filesDir, staging, merge)
@@ -325,10 +375,10 @@ object BackupManager {
         if (!editor.commit()) throw IOException("preferences restore failed")
     }
 
-    private fun applyUserDb(filesDir: File, staging: File, merge: Boolean) {
+    private fun applyUserDb(filesDir: File, staging: File, merge: Boolean, allowEmpty: Boolean) {
         val staged = File(staging, USERDB)
         if (!staged.isFile) return
-        if (UserModel().apply { load(staged, sweepStale = false) }.isEmpty()) {
+        if (allowEmpty && UserModel().apply { load(staged, sweepStale = false) }.isEmpty()) {
             if (merge) return
             val target = File(filesDir, USERDB)
             val incoming = UserModel().apply { replaceWordsFrom(staged) }
@@ -350,12 +400,30 @@ object BackupManager {
         if (!applied) throw IOException("user dictionary import failed")
     }
 
-    private fun applyUserLearning(filesDir: File, staging: File, merge: Boolean) {
+    private fun applyUserLearning(filesDir: File, staging: File, merge: Boolean, mergeRecords: Boolean) {
         val staged = File(staging, USERLEARN)
         if (!staged.isFile) return
         val target = File(filesDir, USERLEARN)
-        if (merge && target.isFile) return
-        AtomicFileSwap.copy(staged, target, TMP_TAG)
+        if (merge && target.isFile) {
+            if (!mergeRecords) return
+            val local = target.readText().ifEmpty { "aegis-userlearn 1\n" }
+            val incoming = staged.readText()
+            UserLearning.validateText(local)
+            val rows = LinkedHashMap<List<String>, String>()
+            for (text in listOf(local, incoming)) {
+                for (row in text.lineSequence().drop(1).filter { it.isNotEmpty() }) {
+                    rows.putIfAbsent(row.split('\t').take(3), row)
+                }
+            }
+            val combined = buildString {
+                append("aegis-userlearn 1\n")
+                for (row in rows.values) append(row).append('\n')
+            }
+            UserLearning.validateText(combined)
+            AtomicFileSwap.write(target, TMP_TAG, combined)
+        } else {
+            AtomicFileSwap.copy(staged, target, TMP_TAG)
+        }
     }
 
     private fun applyPhrases(filesDir: File, staging: File, merge: Boolean) {

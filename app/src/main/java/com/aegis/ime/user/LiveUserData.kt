@@ -22,6 +22,9 @@ object LiveUserData {
     var onRestored: (() -> Unit)? = null
 
     @Volatile
+    var onLexiconsRestored: (() -> Unit)? = null
+
+    @Volatile
     var clipboardHost: ClipboardStore? = null
 
     private val clipboardPersistenceHookLock = Any()

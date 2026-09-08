@@ -119,13 +119,16 @@ class SettingsWiringTest {
             svc.contains("if (quiet && (!userModel.dirty || !userModel.readable) && userDbFile.lastModified() > userDbMtime)") &&
                 svc.contains("if (quiet && !userLearning.dirty && userLearnFile.lastModified() > userLearnMtime)"),
         )
-        val restored = svc.substringAfter("LiveUserData.onRestored = {").substringBefore("LiveUserData.registerClipboardPersistenceHooks")
+        val restored = memberBody(svc, "val reloadUserLexicons =")
         assertTrue(restored.contains("userLearning.load(userLearnFile)"))
     }
 
     @Test fun a_restore_reaches_both_user_stores_before_the_capture_guard_comes_down() {
         val svc = src("src/main/java/com/aegis/ime/AegisInputMethodService.kt")
-        val restored = svc.substringAfter("LiveUserData.onRestored = {").substringBefore("LiveUserData.registerClipboardPersistenceHooks")
+        for (callback in listOf("LiveUserData.onRestored =", "LiveUserData.onLexiconsRestored =")) {
+            assertTrue("both restore paths must reload the live user stores", memberBody(svc, callback).contains("reloadUserLexicons()"))
+        }
+        val restored = memberBody(svc, "val reloadUserLexicons =")
         assertTrue(
             "a restore replaces the user dictionary on disk, so the running keyboard must read it back, " +
                 "and it must read it back the way that leaves the archive's own deletions behind",
@@ -225,7 +228,7 @@ class SettingsWiringTest {
                 coldStart.lastIndexOf("userLearnMtime = userLearnFile.lastModified()") > coldStart.indexOf(keeper),
         )
 
-        val restored = svc.substringAfter("LiveUserData.onRestored = {").substringBefore("LiveUserData.registerClipboardPersistenceHooks")
+        val restored = memberBody(svc, "val reloadUserLexicons =")
         val kept = restored.indexOf(keeper)
         assertTrue(
             "the guard may only come down once the restored stores owe nothing",
