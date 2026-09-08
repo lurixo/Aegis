@@ -15,14 +15,11 @@
 
 package com.aegis.ime.ui
 
-import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.displayCutout
@@ -45,18 +42,17 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -78,7 +74,6 @@ import com.aegis.ime.ui.theme.AppShapes
 import com.aegis.ime.ui.theme.AppSpacing
 import com.aegis.ime.ui.theme.SettingsMotion
 import com.aegis.ime.user.UserDictEdit
-import com.aegis.ime.user.UserDictImport
 import com.aegis.ime.user.UserDictSearch
 import com.aegis.ime.user.UserLearnEdit
 import com.aegis.ime.user.UserLearning
@@ -89,12 +84,20 @@ import kotlin.math.roundToInt
 
 @Composable
 internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
+    UserLexiconTransferUi { onTools, importSignal ->
+        ChineseUserDictPage(resumeSignal + importSignal, onBack, onTools)
+    }
+}
+
+@Composable
+private fun ChineseUserDictPage(
+    resumeSignal: Int,
+    onBack: () -> Unit,
+    onTools: () -> Unit,
+) {
     val context = LocalContext.current
     val userDb = File(context.filesDir, "userdb.txt")
     val userLearn = File(context.filesDir, "userlearn.txt")
-    val importMergedToast = stringResource(R.string.user_dict_toast_import_merged)
-    val importOverwrittenToast = stringResource(R.string.user_dict_toast_import_overwritten)
-    val importFailedToast = stringResource(R.string.user_dict_toast_import_failed)
     val addedToast = stringResource(R.string.user_dict_toast_added)
     val keptToast = stringResource(R.string.user_dict_toast_kept)
     val addFailedToast = stringResource(R.string.user_dict_toast_add_failed)
@@ -102,11 +105,6 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
     val deletedToast = stringResource(R.string.user_dict_toast_deleted)
     val batchDeletedToast = stringResource(R.string.user_dict_toast_batch_deleted)
     val writeFailedToast = stringResource(R.string.user_dict_toast_write_failed)
-    val exportBlockedToast = stringResource(R.string.user_dict_toast_export_blocked)
-    val exportDoneToast = stringResource(R.string.user_dict_toast_export_done)
-    val exportFailedToast = stringResource(R.string.user_dict_toast_export_failed)
-    val exportEmptyToast = stringResource(R.string.user_dict_toast_export_empty)
-    var pendingImport by remember { mutableStateOf<Uri?>(null) }
     var pendingDelete by remember { mutableStateOf<PendingDelete?>(null) }
     var pendingBatchDelete by remember { mutableStateOf(false) }
     var selecting by remember { mutableStateOf(false) }
@@ -165,41 +163,6 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
         }
     }
 
-    val exportLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("text/plain"),
-    ) { uri ->
-        if (uri != null) {
-            UserStoreEdits.submit {
-                val outcome = UserDictEdit.exportDictionary(
-                    userDb,
-                    runCatching { context.contentResolver.openOutputStream(uri, "wt") }.getOrNull(),
-                )
-                mainHandler.post {
-                    AegisToast.show(
-                        when (outcome) {
-                            UserDictEdit.ExportResult.WRITTEN -> exportDoneToast
-                            UserDictEdit.ExportResult.NOTHING_TO_EXPORT -> exportEmptyToast
-                            UserDictEdit.ExportResult.NOT_WRITTEN -> exportFailedToast
-                        },
-                    )
-                }
-            }
-        }
-    }
-    val importLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument(),
-    ) { uri -> if (uri != null) pendingImport = uri }
-
-    fun applyImport(uri: Uri, merge: Boolean) {
-        edit(if (merge) importMergedToast else importOverwrittenToast, importFailedToast) {
-            val staging = File(context.cacheDir, "import_userdb.txt")
-            staging.delete()
-            val staged = context.contentResolver.openInputStream(uri)?.use { UserDictImport.stage(it, staging) } ?: false
-            (staged && UserDictEdit.applyImport(userDb, staging, merge, System.currentTimeMillis()))
-                .also { staging.delete() }
-        }
-    }
-
     fun readingHasLetter(s: String): Boolean = s.any { it in 'a'..'z' || it in 'A'..'Z' }
 
     fun addWord() {
@@ -254,20 +217,6 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
         }
     }
 
-    fun startExport() {
-        UserStoreEdits.submit {
-            val ready = UserDictEdit.flushBeforeDictionaryExport()
-            val anythingToExport = UserDictEdit.hasDictionaryToExport(userDb)
-            mainHandler.post {
-                when {
-                    !ready -> AegisToast.show(exportBlockedToast)
-                    !anythingToExport -> AegisToast.show(exportEmptyToast)
-                    else -> runCatching { exportLauncher.launch("aegis-userdb.txt") }
-                }
-            }
-        }
-    }
-
     fun leaveSelection() {
         selecting = false
         selected = emptySet()
@@ -316,7 +265,7 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
                 allSelected = allSelected,
                 onManage = { selecting = true },
                 onAdd = { sheet = UserDictSheet.ADD },
-                onMore = { sheet = UserDictSheet.MORE },
+                onMore = onTools,
                 onSelectAll = {
                     val current = (filtered.map { manualKey(it) } + filteredLearned.map { learnedKey(it) }).toSet()
                     selected = if (selected.containsAll(current)) emptySet() else current
@@ -431,21 +380,6 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
         )
     }
 
-    if (sheet == UserDictSheet.MORE) {
-        UserDictMoreSheet(
-            dictionaryPath = userDb.absolutePath,
-            onExport = {
-                sheet = null
-                startExport()
-            },
-            onImport = {
-                sheet = null
-                importLauncher.launch(arrayOf("text/plain"))
-            },
-            onDismiss = { sheet = null },
-        )
-    }
-
     val rowDelete = pendingDelete
     if (rowDelete != null) {
         AegisAlertDialog(
@@ -512,31 +446,9 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
         )
     }
 
-    val uri = pendingImport
-    if (uri != null) {
-        AegisAlertDialog(
-            onDismissRequest = { pendingImport = null },
-            title = { Text(stringResource(R.string.user_dict_import_dialog_title)) },
-            text = {
-                Text(
-                    stringResource(R.string.user_dict_import_dialog_body),
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = { applyImport(uri, merge = true); pendingImport = null }) {
-                    Text(stringResource(R.string.user_dict_import_merge))
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { applyImport(uri, merge = false); pendingImport = null }) {
-                    Text(stringResource(R.string.user_dict_import_overwrite))
-                }
-            },
-        )
-    }
 }
 
-private enum class UserDictSheet { ADD, MORE }
+private enum class UserDictSheet { ADD }
 
 @Composable
 private fun UserDictTopCard(
@@ -818,63 +730,6 @@ private fun UserDictAddDialog(
             }
         },
     )
-}
-
-@Composable
-@OptIn(ExperimentalMaterial3Api::class)
-private fun UserDictMoreSheet(
-    dictionaryPath: String,
-    onExport: () -> Unit,
-    onImport: () -> Unit,
-    onDismiss: () -> Unit,
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        shape = AppShapes.sheet,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-        modifier = Modifier.testTag("user_dict_more_sheet"),
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(horizontal = AppSpacing.screenHorizontal)
-                .padding(bottom = AppSpacing.pageBottom),
-            verticalArrangement = Arrangement.spacedBy(AppSpacing.sectionGap),
-        ) {
-            Text(stringResource(R.string.user_dict_more_title), style = MaterialTheme.typography.titleLarge)
-            AppSection {
-                Column(
-                    modifier = Modifier.padding(AppSpacing.sectionPadding),
-                    verticalArrangement = Arrangement.spacedBy(AppSpacing.contentGap),
-                ) {
-                    Text(stringResource(R.string.user_dict_data_title), style = MaterialTheme.typography.titleMedium)
-                    Text(
-                        stringResource(R.string.user_dict_description),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    Text(
-                        stringResource(R.string.user_dict_default_path_format, dictionaryPath),
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                    AppPrimaryButton(
-                        text = stringResource(R.string.user_dict_export_button),
-                        onClick = onExport,
-                        modifier = Modifier.fillMaxWidth().testTag("user_dict_export"),
-                    )
-                    AppPrimaryButton(
-                        text = stringResource(R.string.user_dict_import_button),
-                        onClick = onImport,
-                        modifier = Modifier.fillMaxWidth().testTag("user_dict_import"),
-                    )
-                }
-            }
-        }
-    }
 }
 
 private class PendingDelete(val word: String, val reading: String, val learned: Boolean)

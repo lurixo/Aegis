@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="user_lexicon_transfer_help">可同时导出中文词、英文词和邮箱后缀，也可单独选择。支持导入词库导出文件及旧版中文文本词库。</string>
+    <string name="user_lexicon_export_help">选择要保存到同一个文件的词库。</string>
+    <string name="user_lexicon_export_confirm">导出</string>
+    <string name="user_lexicon_import_help">文件包含：%1$s。合并会保留现有条目并加入导入内容；覆盖会替换这些词库，空词库也会生效。未包含的词库保持原样。</string>
+</resources>

@@ -176,6 +176,7 @@ class UserDictPageTest {
     private fun startExportFromTools() {
         openMoreSheet()
         compose.onNodeWithTag("user_dict_export").performScrollTo().performClick()
+        compose.onNodeWithTag("lexicon_export_confirm").performClick()
     }
 
     private fun seed(n: Int, vararg extras: Pair<String, String>) {
@@ -955,19 +956,15 @@ class UserDictPageTest {
         compose.onNodeWithText(row("删除词", "shanchu")).assertDoesNotExist()
     }
 
-    @Test fun an_export_is_not_blocked_by_a_word_list_that_could_not_be_read() {
+    @Test fun an_export_rejects_unreadable_chinese_data_before_creating_a_document() {
         UserDictHot.host = unreadableDictionaryHost()
         openUserDictPage()
-
         AegisToast.reset()
         startExportFromTools()
         settleEdits()
-
+        assertEquals(s(R.string.user_dict_toast_export_failed), AegisToast.textForTest())
         scenario!!.onActivity { activity ->
-            assertNotNull(
-                "carrying the broken file out to repair it by hand must stay possible",
-                shadowOf(activity).peekNextStartedActivityForResult(),
-            )
+            assertNull(shadowOf(activity).peekNextStartedActivityForResult())
         }
     }
 
@@ -1060,23 +1057,14 @@ class UserDictPageTest {
         assertEquals(s(R.string.user_dict_toast_write_failed), reported())
     }
 
-    @Test fun an_export_with_nothing_behind_it_says_so_instead_of_blaming_the_picked_file() {
+    @Test fun an_export_of_empty_dictionaries_can_preserve_their_empty_state() {
         openUserDictPage()
-
         AegisToast.reset()
         startExportFromTools()
         settleEdits()
-
-        assertEquals(s(R.string.user_dict_toast_export_empty), AegisToast.textForTest())
-        assertFalse(
-            "a device with no word list must not be told its file could not be written",
-            s(R.string.user_dict_toast_export_failed) == AegisToast.textForTest(),
-        )
+        assertNull(AegisToast.textForTest())
         scenario!!.onActivity { activity ->
-            assertNull(
-                "and no empty document may be created for an export that has nothing to carry",
-                shadowOf(activity).peekNextStartedActivityForResult(),
-            )
+            assertNotNull(shadowOf(activity).peekNextStartedActivityForResult())
         }
     }
 
@@ -1108,8 +1096,7 @@ class UserDictPageTest {
         override fun hasLearnedData() = false
         override fun removeLearned(word: String, reading: String) = false
         override fun clearLearned() = false
-        override fun flush() = true
-        override fun flushDictionary(): Boolean {
+        override fun flush(): Boolean {
             onMainThread.set(Looper.myLooper() === Looper.getMainLooper())
             return true
         }
@@ -1148,8 +1135,7 @@ class UserDictPageTest {
         override fun hasLearnedData() = false
         override fun removeLearned(word: String, reading: String) = false
         override fun clearLearned() = false
-        override fun flush() = true
-        override fun flushDictionary(): Boolean {
+        override fun flush(): Boolean {
             gate.await(10, TimeUnit.SECONDS)
             return true
         }

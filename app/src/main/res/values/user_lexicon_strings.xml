@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="user_lexicon_chinese">Chinese</string>
+    <string name="user_lexicon_english">English</string>
+    <string name="user_lexicon_email">Email suffixes</string>
+</resources>
