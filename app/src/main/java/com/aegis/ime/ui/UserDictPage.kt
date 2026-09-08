@@ -24,6 +24,11 @@ import androidx.compose.animation.core.tween
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -31,7 +36,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -273,6 +277,7 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
 
     val pageBack = { if (selecting) leaveSelection() else onBack() }
     AppPageScaffold(
+        bottomInsets = if (sheet == UserDictSheet.ADD) WindowInsets.systemBars.union(WindowInsets.displayCutout) else WindowInsets.safeDrawing,
         title = stringResource(R.string.settings_group_userdict_title),
         onBack = pageBack,
     ) {
@@ -416,7 +421,7 @@ internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
     }
 
     if (sheet == UserDictSheet.ADD) {
-        UserDictAddSheet(
+        UserDictAddDialog(
             word = newWord,
             reading = newReading,
             onWordChange = { newWord = it },
@@ -763,8 +768,7 @@ private fun UserDictListNote(
 }
 
 @Composable
-@OptIn(ExperimentalMaterial3Api::class)
-private fun UserDictAddSheet(
+private fun UserDictAddDialog(
     word: String,
     reading: String,
     onWordChange: (String) -> Unit,
@@ -772,56 +776,48 @@ private fun UserDictAddSheet(
     onAdd: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(
+    UserDictEntryDialog(
         onDismissRequest = onDismiss,
-        shape = AppShapes.sheet,
-        sheetState = sheetState,
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
         modifier = Modifier.testTag("user_dict_add_sheet"),
-    ) {
-        Box(modifier = Modifier.fillMaxWidth().imePadding()) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .verticalScroll(rememberScrollState())
-                    .padding(horizontal = AppSpacing.screenHorizontal)
-                    .padding(bottom = AppSpacing.pageBottom),
-                verticalArrangement = Arrangement.spacedBy(AppSpacing.contentGap),
-            ) {
-                Text(stringResource(R.string.user_dict_add_sheet_button), style = MaterialTheme.typography.titleLarge)
-                OutlinedTextField(
-                    value = word,
-                    onValueChange = onWordChange,
-                    label = { Text(stringResource(R.string.user_dict_word_hint)) },
-                    singleLine = true,
-                    shape = AppShapes.section,
-                    modifier = Modifier.fillMaxWidth().testTag("user_dict_new_word"),
-                )
-                OutlinedTextField(
-                    value = reading,
-                    onValueChange = onReadingChange,
-                    label = { Text(stringResource(R.string.user_dict_reading_hint)) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
-                    shape = AppShapes.section,
-                    modifier = Modifier.fillMaxWidth().testTag("user_dict_new_reading"),
-                )
-                AppPrimaryButton(
-                    text = stringResource(R.string.user_dict_add_button),
-                    onClick = onAdd,
-                    modifier = Modifier.fillMaxWidth().testTag("user_dict_add"),
-                )
+        title = { Text(stringResource(R.string.user_dict_add_sheet_button)) },
+        confirmButton = {
+            TextButton(onClick = onAdd, modifier = Modifier.testTag("user_dict_add")) {
+                Text(stringResource(R.string.user_dict_add_button))
             }
-            Box(
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = AppSpacing.compactGap),
-            ) {
-                AegisToastOverlay(modifier = Modifier.testTag("user_dict_add_sheet_toast"))
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.user_dict_delete_cancel)) }
+        },
+        text = {
+            Box(modifier = Modifier.fillMaxWidth()) {
+                Column(
+                    modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(AppSpacing.contentGap),
+                ) {
+                    OutlinedTextField(
+                        value = word,
+                        onValueChange = onWordChange,
+                        label = { Text(stringResource(R.string.user_dict_word_hint)) },
+                        singleLine = true,
+                        shape = AppShapes.section,
+                        modifier = Modifier.fillMaxWidth().testTag("user_dict_new_word").userDictInitialFocus(),
+                    )
+                    OutlinedTextField(
+                        value = reading,
+                        onValueChange = onReadingChange,
+                        label = { Text(stringResource(R.string.user_dict_reading_hint)) },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+                        shape = AppShapes.section,
+                        modifier = Modifier.fillMaxWidth().testTag("user_dict_new_reading"),
+                    )
+                }
+                Box(modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = AppSpacing.compactGap)) {
+                    AegisToastOverlay(modifier = Modifier.testTag("user_dict_add_sheet_toast"))
+                }
             }
-        }
-    }
+        },
+    )
 }
 
 @Composable

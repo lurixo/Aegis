@@ -20,6 +20,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Looper
 import androidx.compose.ui.test.assertCountEquals
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
@@ -164,6 +165,7 @@ class UserDictPageTest {
     private fun openAddSheet() {
         compose.onNodeWithTag("user_dict_open_add").performClick()
         compose.onNodeWithTag("user_dict_add_sheet").assertExists()
+        compose.onNodeWithTag("user_dict_new_word").assertIsFocused()
     }
 
     private fun openMoreSheet() {
@@ -240,7 +242,7 @@ class UserDictPageTest {
         openAddSheet()
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("测试词")
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("ceshici")
-        compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
+        compose.onNodeWithTag("user_dict_add").performClick()
         assertEquals(s(R.string.user_dict_toast_added), reported())
         assertEquals(listOf("测试词"), UserDictEdit.list(db).filter { it.reading == "ceshici" }.map { it.word })
         compose.onNodeWithText(ctx.getString(R.string.user_dict_count_format, 1)).assertExists()
@@ -768,7 +770,7 @@ class UserDictPageTest {
         openAddSheet()
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("自动词")
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("zidongci")
-        compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
+        compose.onNodeWithTag("user_dict_add").performClick()
         assertEquals(s(R.string.user_dict_toast_kept), reported())
         assertEquals(
             "the word is marked as the user's own, which is what exempts it from fading out",
@@ -781,7 +783,7 @@ class UserDictPageTest {
         openAddSheet()
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("全新词")
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("quanxinci")
-        compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
+        compose.onNodeWithTag("user_dict_add").performClick()
         assertEquals(
             "a word that was not there yet keeps the plain confirmation",
             s(R.string.user_dict_toast_added),
@@ -797,7 +799,7 @@ class UserDictPageTest {
         openAddSheet()
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("词".repeat(257))
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("ceshi")
-        compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
+        compose.onNodeWithTag("user_dict_add").performClick()
         compose.waitForIdle()
 
         assertEquals(s(R.string.user_dict_toast_add_rejected), AegisToast.textForTest())
@@ -890,7 +892,7 @@ class UserDictPageTest {
         openAddSheet()
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("幽灵词")
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("youlingci")
-        compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
+        compose.onNodeWithTag("user_dict_add").performClick()
 
         assertEquals(s(R.string.user_dict_toast_write_failed), reported())
         compose.onNodeWithTag("user_dict_unreadable").assertExists()
@@ -1027,7 +1029,7 @@ class UserDictPageTest {
         openAddSheet()
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().performTextInput("测试词")
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().performTextInput("ceshici")
-        compose.onNodeWithTag("user_dict_add").performScrollTo().performClick()
+        compose.onNodeWithTag("user_dict_add").performClick()
 
         assertEquals(s(R.string.user_dict_toast_write_failed), reported())
         compose.onNodeWithText("测试词").assertExists()

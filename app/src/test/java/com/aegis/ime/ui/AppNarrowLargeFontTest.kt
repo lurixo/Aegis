@@ -62,6 +62,6 @@ class AppNarrowLargeFontTest {
         compose.onNodeWithTag("user_dict_open_add").assertIsDisplayed().performClick()
         compose.onNodeWithTag("user_dict_new_word").performScrollTo().assertIsDisplayed()
         compose.onNodeWithTag("user_dict_new_reading").performScrollTo().assertIsDisplayed()
-        compose.onNodeWithTag("user_dict_add").performScrollTo().assertIsDisplayed()
+        compose.onNodeWithTag("user_dict_add").assertIsDisplayed()
     }
 }

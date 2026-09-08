@@ -88,13 +88,14 @@ internal fun AppPageScaffold(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
     bottomBar: @Composable () -> Unit = {},
+    bottomInsets: WindowInsets = WindowInsets.safeDrawing,
     content: @Composable BoxScope.() -> Unit,
 ) {
     Column(
         modifier = modifier
             .fillMaxSize()
             .appPageInsets(
-                bottomInsets = WindowInsets.safeDrawing,
+                bottomInsets = bottomInsets,
                 topInsets = settingsTopInset(),
             ),
     ) {
