@@ -63,7 +63,11 @@ import java.io.File
 import java.util.concurrent.atomic.AtomicBoolean
 
 @Composable
-internal fun UserLexiconTransferUi(content: @Composable (() -> Unit, Int) -> Unit) {
+internal fun UserLexiconTransferUi(
+    onResetEmailDefaults: () -> Unit,
+    canResetEmailDefaults: () -> Boolean,
+    content: @Composable (() -> Unit, Int) -> Unit,
+) {
     val context = LocalContext.current
     val prefs = remember(context) { context.getSharedPreferences("aegis", Context.MODE_PRIVATE) }
     val handler = remember { Handler(Looper.getMainLooper()) }
@@ -245,6 +249,7 @@ internal fun UserLexiconTransferUi(content: @Composable (() -> Unit, Int) -> Uni
                 runCatching { importLauncher.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) }
                     .onFailure { AegisToast.show(importFailed) }
             },
+            onReset = if (canResetEmailDefaults()) ({ toolsOpen = false; onResetEmailDefaults() }) else null,
             onDismiss = { toolsOpen = false },
         )
     }
@@ -318,7 +323,7 @@ private fun scopeLabel(scope: Scope): String = stringResource(
 
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-private fun UserLexiconToolsSheet(onExport: () -> Unit, onImport: () -> Unit, onDismiss: () -> Unit) {
+private fun UserLexiconToolsSheet(onExport: () -> Unit, onImport: () -> Unit, onReset: (() -> Unit)?, onDismiss: () -> Unit) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         shape = AppShapes.sheet,
@@ -343,6 +348,12 @@ private fun UserLexiconToolsSheet(onExport: () -> Unit, onImport: () -> Unit, on
                 onClick = onImport,
                 modifier = Modifier.fillMaxWidth().testTag("user_dict_import"),
             )
+            if (onReset != null) {
+                TextButton(
+                    onClick = onReset,
+                    modifier = Modifier.fillMaxWidth().testTag("user_lexicon_reset_defaults"),
+                ) { Text(stringResource(R.string.user_lexicon_reset_defaults)) }
+            }
         }
     }
 }

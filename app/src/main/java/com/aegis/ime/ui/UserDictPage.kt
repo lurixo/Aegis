@@ -18,15 +18,22 @@ package com.aegis.ime.ui
 import android.os.Handler
 import android.os.Looper
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -37,6 +44,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardOptions
@@ -49,26 +59,29 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.Layout
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.zIndex
 import com.aegis.ime.R
 import com.aegis.ime.ui.theme.AppShapes
 import com.aegis.ime.ui.theme.AppSpacing
@@ -80,22 +93,92 @@ import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
 import com.aegis.ime.user.UserStoreEdits
 import java.io.File
-import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 @Composable
 internal fun UserDictPage(resumeSignal: Int = 0, onBack: () -> Unit) {
-    UserLexiconTransferUi { onTools, importSignal ->
-        ChineseUserDictPage(resumeSignal + importSignal, onBack, onTools)
+    val pager = rememberPagerState { UserLexiconTab.entries.size }
+    val focus = LocalFocusManager.current
+    val backDispatcher = LocalOnBackPressedDispatcherOwner.current?.onBackPressedDispatcher
+    LaunchedEffect(pager, focus) {
+        snapshotFlow { pager.currentPage }.collect { focus.clearFocus() }
+    }
+    var confirmEmailReset by rememberSaveable { mutableStateOf(false) }
+    val initialChineseHelp = stringResource(R.string.user_dict_forgotten_format, 0)
+    var chineseHelp by remember(initialChineseHelp) { mutableStateOf(initialChineseHelp) }
+    UserLexiconTransferUi(
+        onResetEmailDefaults = { confirmEmailReset = true },
+        canResetEmailDefaults = { pager.settledPage == UserLexiconTab.EMAIL.ordinal },
+    ) { onTools, importSignal ->
+        AppPageScaffold(
+            title = stringResource(R.string.settings_group_userdict_title),
+            onBack = { backDispatcher?.onBackPressed() ?: onBack() },
+            bottomInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout),
+        ) {
+            Column(
+                modifier = Modifier.fillMaxSize()
+                    .padding(horizontal = AppSpacing.screenHorizontal)
+                    .padding(top = AppSpacing.compactGap),
+                verticalArrangement = Arrangement.spacedBy(AppSpacing.contentGap),
+            ) {
+                UserLexiconPagerTabs(pager)
+                BoxWithConstraints(Modifier.fillMaxWidth().weight(1f)) {
+                    val overviewHeight = userLexiconOverviewHeight(maxWidth, chineseHelp)
+                    HorizontalPager(
+                        state = pager,
+                        key = { UserLexiconTab.entries[it].tag },
+                        beyondViewportPageCount = UserLexiconTab.entries.lastIndex,
+                        pageSpacing = AppSpacing.screenHorizontal,
+                        modifier = Modifier.fillMaxSize().clipToBounds().testTag("user_lexicon_pager"),
+                    ) { page ->
+                        val tab = UserLexiconTab.entries[page]
+                        val current = page == pager.settledPage
+                        Box(
+                            Modifier.fillMaxSize().clipToBounds()
+                                .focusProperties { onEnter = { if (!current) cancelFocusChange() } }
+                                .focusGroup()
+                                .testTag("user_lexicon_page_${tab.tag}")
+                                .then(if (current) Modifier else Modifier.clearAndSetSemantics {}),
+                        ) {
+                            if (tab == UserLexiconTab.CHINESE) {
+                                ChineseUserDictPage(
+                                    resumeSignal + importSignal, current, overviewHeight,
+                                    onOverviewText = { chineseHelp = it }, onTools = onTools,
+                                )
+                            } else {
+                                UserLexiconPage(
+                                    requireNotNull(tab.kind), resumeSignal + importSignal, current, overviewHeight, onTools,
+                                    confirmReset = tab == UserLexiconTab.EMAIL && confirmEmailReset,
+                                    onResetDismiss = { confirmEmailReset = false },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UserLexiconPagerTabs(pager: PagerState) {
+    val scope = rememberCoroutineScope()
+    UserLexiconTabs(UserLexiconTab.entries[pager.currentPage]) { tab ->
+        scope.launch { pager.animateScrollToPage(tab.ordinal) }
     }
 }
 
 @Composable
 private fun ChineseUserDictPage(
     resumeSignal: Int,
-    onBack: () -> Unit,
+    current: Boolean,
+    overviewHeight: Dp,
+    onOverviewText: (String) -> Unit,
     onTools: () -> Unit,
 ) {
     val context = LocalContext.current
+    val focus = LocalFocusManager.current
+    var searchFocused by remember { mutableStateOf(false) }
     val userDb = File(context.filesDir, "userdb.txt")
     val userLearn = File(context.filesDir, "userlearn.txt")
     val addedToast = stringResource(R.string.user_dict_toast_added)
@@ -115,6 +198,9 @@ private fun ChineseUserDictPage(
     val learned = learnedView.entries
     val learnedHasData = learnedView.hasData
     var summary by remember { mutableStateOf(UserDictEdit.summary(userDb)) }
+    val overviewText = if (summary.readable) stringResource(R.string.user_dict_forgotten_format, summary.forgotten)
+        else stringResource(R.string.user_dict_unreadable)
+    LaunchedEffect(overviewText) { onOverviewText(overviewText) }
     val entries = if (summary.readable) summary.entries else emptyList()
     var query by remember { mutableStateOf("") }
     val searchIndex = remember(entries) { UserDictSearch.index(entries) }
@@ -222,19 +308,16 @@ private fun ChineseUserDictPage(
         selected = emptySet()
     }
 
-    BackHandler(enabled = selecting) { leaveSelection() }
+    LaunchedEffect(current) { if (!current) leaveSelection() }
+    BackHandler(enabled = current && selecting) { leaveSelection() }
 
-    val pageBack = { if (selecting) leaveSelection() else onBack() }
-    AppPageScaffold(
-        bottomInsets = if (sheet == UserDictSheet.ADD) WindowInsets.systemBars.union(WindowInsets.displayCutout) else WindowInsets.safeDrawing,
-        title = stringResource(R.string.settings_group_userdict_title),
-        onBack = pageBack,
+    Box(
+        modifier = Modifier.fillMaxSize().windowInsetsPadding(
+            if (searchFocused) WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom) else WindowInsets(0),
+        ),
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(horizontal = AppSpacing.screenHorizontal)
-                .padding(top = AppSpacing.compactGap),
+            modifier = Modifier.fillMaxSize(),
             verticalArrangement = Arrangement.spacedBy(AppSpacing.contentGap),
         ) {
             OutlinedTextField(
@@ -245,6 +328,7 @@ private fun ChineseUserDictPage(
                 shape = AppShapes.section,
                 modifier = Modifier
                     .fillMaxWidth()
+                    .onFocusChanged { searchFocused = it.isFocused }
                     .testTag("user_dict_search"),
             )
             val selectionProgress by animateFloatAsState(
@@ -254,6 +338,7 @@ private fun ChineseUserDictPage(
             val visibleKeys = filtered.map { manualKey(it) } + filteredLearned.map { learnedKey(it) }
             val allSelected = visibleKeys.isNotEmpty() && selected.containsAll(visibleKeys)
             UserDictTopCard(
+                height = overviewHeight,
                 selecting = selecting,
                 selectionProgress = selectionProgress,
                 readable = summary.readable,
@@ -264,7 +349,7 @@ private fun ChineseUserDictPage(
                 deleteEnabled = selected.isNotEmpty(),
                 allSelected = allSelected,
                 onManage = { selecting = true },
-                onAdd = { sheet = UserDictSheet.ADD },
+                onAdd = { focus.clearFocus(); sheet = UserDictSheet.ADD },
                 onMore = onTools,
                 onSelectAll = {
                     val current = (filtered.map { manualKey(it) } + filteredLearned.map { learnedKey(it) }).toSet()
@@ -276,7 +361,7 @@ private fun ChineseUserDictPage(
             AppSection(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(bottom = AppSpacing.compactGap)
+                    .padding(bottom = AppSpacing.pageBottom)
                     .testTag("user_dict_list_surface"),
             ) {
                 LazyColumn(
@@ -452,6 +537,7 @@ private enum class UserDictSheet { ADD }
 
 @Composable
 private fun UserDictTopCard(
+    height: Dp,
     selecting: Boolean,
     selectionProgress: Float,
     readable: Boolean,
@@ -468,13 +554,13 @@ private fun UserDictTopCard(
     onCancel: () -> Unit,
     onDeleteSelected: () -> Unit,
 ) {
-    AppSection(modifier = Modifier.testTag("user_dict_overview")) {
+    AppSection(modifier = Modifier.height(height).testTag("user_dict_overview")) {
         Column(
-            modifier = Modifier.padding(
+            modifier = Modifier.fillMaxSize().padding(
                 horizontal = AppSpacing.sectionPadding,
                 vertical = AppSpacing.contentGap,
             ),
-            verticalArrangement = Arrangement.spacedBy(AppSpacing.textGap),
+            verticalArrangement = Arrangement.SpaceBetween,
         ) {
             Box(modifier = Modifier.fillMaxWidth()) {
                 Column(
@@ -518,122 +604,40 @@ private fun UserDictTopCard(
                     )
                 }
             }
-            Layout(
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                content = {
-                    UserDictSlotButtons(
-                        selecting = selecting,
-                        selectionProgress = selectionProgress,
-                        normalText = stringResource(R.string.user_dict_select_button),
-                        normalEnabled = manageEnabled,
-                        onNormal = onManage,
-                        normalTag = "user_dict_select",
-                        selectText = stringResource(
-                            if (allSelected) R.string.user_dict_deselect_all_button else R.string.user_dict_select_all_button,
-                        ),
-                        selectEnabled = true,
-                        onSelect = onSelectAll,
-                        selectTag = "user_dict_select_all",
-                    )
-                    UserDictSlotButtons(
-                        selecting = selecting,
-                        selectionProgress = selectionProgress,
-                        normalText = stringResource(R.string.user_dict_add_sheet_button),
-                        normalEnabled = true,
-                        onNormal = onAdd,
-                        normalTag = "user_dict_open_add",
-                        selectText = stringResource(R.string.user_dict_select_cancel_button),
-                        selectEnabled = true,
-                        onSelect = onCancel,
-                        selectTag = "user_dict_select_cancel",
-                    )
-                    UserDictSlotButtons(
-                        selecting = selecting,
-                        selectionProgress = selectionProgress,
-                        normalText = stringResource(R.string.user_dict_more_button),
-                        normalEnabled = true,
-                        onNormal = onMore,
-                        normalTag = "user_dict_open_more",
-                        selectText = stringResource(R.string.user_dict_delete_selected_button),
-                        selectEnabled = deleteEnabled,
-                        onSelect = onDeleteSelected,
-                        selectTag = "user_dict_delete_selected",
-                    )
-                },
-            ) { measurables, constraints ->
-                val width = constraints.maxWidth
-                val intrinsics = measurables.map { it.maxIntrinsicWidth(Constraints.Infinity) }
-                val normalSum = intrinsics[0] + intrinsics[2] + intrinsics[4]
-                val selectSum = intrinsics[1] + intrinsics[3] + intrinsics[5]
-                fun budget(index: Int): Int {
-                    val sum = if (index % 2 == 0) normalSum else selectSum
-                    if (sum <= width || sum == 0) return intrinsics[index]
-                    return (width.toLong() * intrinsics[index] / sum).toInt()
-                }
-                val placeables = measurables.mapIndexed { index, measurable ->
-                    measurable.measure(
-                        constraints.copy(minWidth = 0, minHeight = 0, maxWidth = budget(index)),
-                    )
-                }
-                fun slotWidth(slot: Int): Int {
-                    val normal = placeables[slot * 2].width
-                    val select = placeables[slot * 2 + 1].width
-                    return normal + ((select - normal) * selectionProgress).roundToInt()
-                }
-                val height = placeables.maxOf { it.height }
-                val middle = slotWidth(0) + (width - slotWidth(2) - slotWidth(0) - slotWidth(1)) / 2
-                layout(width, height) {
-                    for (i in 0..5) {
-                        val slot = i / 2
-                        val x = when (slot) {
-                            0 -> 0
-                            1 -> middle + (slotWidth(1) - placeables[i].width) / 2
-                            else -> width - placeables[i].width
-                        }
-                        val y = (height - placeables[i].height) / 2
-                        placeables[i].placeRelative(x, y)
-                    }
-                }
+                horizontalArrangement = Arrangement.spacedBy(AppSpacing.compactGap),
+            ) {
+                AppPrimaryButton(
+                    text = stringResource(
+                        if (selecting) {
+                            if (allSelected) R.string.user_dict_deselect_all_button else R.string.user_dict_select_all_button
+                        } else R.string.user_dict_select_button,
+                    ),
+                    onClick = if (selecting) onSelectAll else onManage,
+                    enabled = if (selecting) true else manageEnabled,
+                    singleLine = true,
+                    contentPadding = PaddingValues(AppSpacing.compactGap),
+                    modifier = Modifier.weight(1f).testTag(if (selecting) "user_dict_select_all" else "user_dict_select"),
+                )
+                AppPrimaryButton(
+                    text = stringResource(if (selecting) R.string.user_dict_select_cancel_button else R.string.user_dict_add_sheet_button),
+                    onClick = if (selecting) onCancel else onAdd,
+                    singleLine = true,
+                    contentPadding = PaddingValues(AppSpacing.compactGap),
+                    modifier = Modifier.weight(1f).testTag(if (selecting) "user_dict_select_cancel" else "user_dict_open_add"),
+                )
+                AppPrimaryButton(
+                    text = stringResource(if (selecting) R.string.user_dict_delete_selected_button else R.string.user_dict_more_button),
+                    onClick = if (selecting) onDeleteSelected else onMore,
+                    enabled = !selecting || deleteEnabled,
+                    singleLine = true,
+                    contentPadding = PaddingValues(AppSpacing.compactGap),
+                    modifier = Modifier.weight(1f).testTag(if (selecting) "user_dict_delete_selected" else "user_dict_open_more"),
+                )
             }
         }
     }
-}
-
-@Composable
-private fun UserDictSlotButtons(
-    selecting: Boolean,
-    selectionProgress: Float,
-    normalText: String,
-    normalEnabled: Boolean,
-    onNormal: () -> Unit,
-    normalTag: String,
-    selectText: String,
-    selectEnabled: Boolean,
-    onSelect: () -> Unit,
-    selectTag: String,
-) {
-    AppPrimaryButton(
-        text = normalText,
-        onClick = onNormal,
-        enabled = !selecting && normalEnabled,
-        singleLine = true,
-        modifier = Modifier
-            .zIndex(if (selecting) 0f else 1f)
-            .alpha(1f - selectionProgress)
-            .then(if (selecting) Modifier.clearAndSetSemantics {} else Modifier)
-            .testTag(normalTag),
-    )
-    AppPrimaryButton(
-        text = selectText,
-        onClick = onSelect,
-        enabled = selecting && selectEnabled,
-        singleLine = true,
-        modifier = Modifier
-            .zIndex(if (selecting) 1f else 0f)
-            .alpha(selectionProgress)
-            .then(if (selecting) Modifier else Modifier.clearAndSetSemantics {})
-            .testTag(selectTag),
-    )
 }
 
 @Composable
