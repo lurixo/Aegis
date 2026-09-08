@@ -174,6 +174,32 @@ object BackupManager {
         }
     }
 
+    internal fun restoreLexicons(
+        filesDir: File,
+        prefs: SharedPreferences,
+        data: UserLexiconTransfer.Data,
+        mode: Mode,
+    ) {
+        restoring {
+            restoreOnce(filesDir, prefs, mode, data) { visitor ->
+                data.chinese?.let { chinese ->
+                    visitor.openFile(USERDB).use { it.write(chinese.userdb.toByteArray()) }
+                    chinese.userlearn?.let { text ->
+                        visitor.openFile(USERLEARN).use { it.write(text.toByteArray()) }
+                    }
+                }
+                val settings = LinkedHashMap<String, Any>()
+                data.english?.let { settings[UserLexicon.PREF_ENGLISH_WORDS] = it }
+                data.email?.let { email ->
+                    settings[UserLexicon.PREF_EMAIL_DOMAINS] = email.domains
+                    settings[UserLexicon.PREF_DISABLED_EMAIL_DOMAINS] = email.disabledDefaults
+                    for ((domain, count) in email.counts) settings[UserLexicon.EMAIL_COUNT_PREFIX + domain] = count
+                }
+                if (settings.isNotEmpty()) visitor.onPrefs(PrefsCodec.encode(settings))
+            }
+        }
+    }
+
     private fun <T> restoring(work: () -> T): T {
         if (!restoring.compareAndSet(false, true)) throw BackupException(BackupError.ALREADY_RESTORING)
         return try {

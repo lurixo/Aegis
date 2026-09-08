@@ -514,6 +514,9 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         private const val RECENCY_HALF_LIFE_MILLIS = 7L * 24L * 60L * 60L * 1000L
         private val LN_2 = ln(2.0)
 
+        internal fun validateText(text: String): Boolean =
+            text.reader().buffered().use(::parse).let { it.count.isNotEmpty() || it.readings.isNotEmpty() }
+
         private fun parse(file: File): Parsed {
             if (!file.exists() || file.length() == 0L) return Parsed()
             return file.bufferedReader().use(::parse)
