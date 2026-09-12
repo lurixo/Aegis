@@ -9,10 +9,18 @@ import os
 import re
 import shutil
 import sys
+import time
 import urllib.request
 import zipfile
+from http.client import IncompleteRead
 from pathlib import Path
+from urllib.error import HTTPError, URLError
 from urllib.parse import urlsplit
+
+RETRY_ATTEMPTS = 6
+RETRY_BASE_DELAY_SECONDS = 2.0
+RETRY_WINDOW_SECONDS = 120.0
+RETRYABLE_STATUS = frozenset({404, 408, 425, 429, 500, 502, 503, 504})
 
 DICT_LATEST_TAG = "dict-latest"
 MANIFEST_URL = (
@@ -48,7 +56,48 @@ def sha256_file(path):
     return digest.hexdigest()
 
 
-def http_get(url, timeout):
+def retryable(error):
+    if isinstance(error, HTTPError):
+        return error.code in RETRYABLE_STATUS
+    return isinstance(error, (URLError, TimeoutError, OSError, IncompleteRead))
+
+
+def with_retry(
+    description,
+    attempt,
+    attempts=RETRY_ATTEMPTS,
+    base_delay=RETRY_BASE_DELAY_SECONDS,
+    window=RETRY_WINDOW_SECONDS,
+    sleep=None,
+    clock=None,
+):
+    sleep = sleep or time.sleep
+    clock = clock or time.monotonic
+    deadline = clock() + window
+    last = None
+    for index in range(attempts):
+        remaining = deadline - clock()
+        if remaining <= 0:
+            break
+        try:
+            return attempt(remaining)
+        except (HTTPError, URLError, TimeoutError, OSError, IncompleteRead) as error:
+            if isinstance(error, HTTPError):
+                error.close()
+            if not retryable(error):
+                raise SystemExit(f"{description} failed: {error}") from error
+            last = error
+            if index == attempts - 1:
+                break
+            remaining = deadline - clock()
+            if remaining <= 0:
+                break
+            sleep(min(base_delay * (2 ** index), remaining))
+    reason = last or "retry count or window exhausted before the first attempt"
+    raise SystemExit(f"{description} failed after bounded retries: {reason}")
+
+
+def open_once(url, timeout):
     headers = {"User-Agent": "Aegis-test-dict-fetch"}
     token = os.environ.get("GITHUB_TOKEN")
     parsed = urlsplit(url)
@@ -58,9 +107,16 @@ def http_get(url, timeout):
     return urllib.request.urlopen(request, timeout=timeout)
 
 
+def http_get(url, timeout, **retry):
+    def attempt(remaining):
+        with open_once(url, min(timeout, remaining)) as response:
+            return response.read()
+
+    return with_retry(f"GET {url}", attempt, **retry)
+
+
 def resolve_asset(manifest_url):
-    with http_get(manifest_url, 60) as response:
-        manifest = json.loads(response.read().decode("utf-8"))
+    manifest = json.loads(http_get(manifest_url, 60).decode("utf-8"))
     if manifest.get("schema_version") != 1 or manifest.get("kind") != "dictionary_update":
         raise SystemExit(f"unexpected dictionary manifest at {manifest_url}")
     asset = manifest["asset"]
@@ -77,8 +133,7 @@ def resolve_asset(manifest_url):
 
 
 def resolve_grammar_asset(release_api):
-    with http_get(release_api, 60) as response:
-        release = json.loads(response.read().decode("utf-8"))
+    release = json.loads(http_get(release_api, 60).decode("utf-8"))
     if release.get("tag_name") != GRAMMAR_TAG:
         raise SystemExit(f"unexpected grammar release at {release_api}")
     assets = [asset for asset in release.get("assets", []) if asset.get("name") == GRAMMAR_NAME]
@@ -94,17 +149,27 @@ def resolve_grammar_asset(release_api):
     return GRAMMAR_URL, sha256, GRAMMAR_NAME, size
 
 
-def download_to(url, dest, timeout):
+def download_to(url, dest, timeout, **retry):
     dest.parent.mkdir(parents=True, exist_ok=True)
     part = dest.with_name(dest.name + ".part")
     part.unlink(missing_ok=True)
-    try:
-        with http_get(url, timeout) as response, part.open("wb") as out:
-            shutil.copyfileobj(response, out, 1024 * 1024)
-        part.replace(dest)
-    except BaseException:
-        part.unlink(missing_ok=True)
-        raise
+
+    def attempt(remaining):
+        try:
+            with open_once(url, min(timeout, remaining)) as response, part.open("wb") as out:
+                length = getattr(response, "headers", {}).get("Content-Length")
+                expected_size = int(length) if length is not None else None
+                copied = 0
+                for chunk in iter(lambda: response.read(1024 * 1024), b""):
+                    out.write(chunk)
+                    copied += len(chunk)
+                if expected_size is not None and copied < expected_size:
+                    raise IncompleteRead(b"", expected_size - copied)
+            part.replace(dest)
+        finally:
+            part.unlink(missing_ok=True)
+
+    with_retry(f"download {url}", attempt, **retry)
 
 
 def ensure_pack(url, expected_sha256, zip_path, local_zip, timeout):
@@ -245,7 +310,15 @@ def main(argv):
         help="Directory that keeps the verified grammar model between runs.",
     )
     parser.add_argument("--zip", dest="local_zip", help="Use a local pack zip instead of downloading.")
-    parser.add_argument("--timeout", type=int, default=300, help="Download timeout in seconds.")
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=300,
+        help=(
+            "Download socket inactivity timeout in seconds, capped by the time left "
+            "to start retries. An active transfer can outlast the retry window."
+        ),
+    )
     parser.add_argument(
         "--with-grammar",
         action="store_true",

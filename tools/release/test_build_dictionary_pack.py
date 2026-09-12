@@ -1257,7 +1257,7 @@ class GrammarAssetResolutionTest(unittest.TestCase):
 
     def resolve(self, release):
         payload = json.dumps(release).encode("utf-8")
-        with mock.patch.object(ftd, "http_get", return_value=io.BytesIO(payload)) as get:
+        with mock.patch.object(ftd, "http_get", return_value=payload) as get:
             result = ftd.resolve_grammar_asset(self.API)
         get.assert_called_once_with(self.API, 60)
         return result
@@ -1377,7 +1377,7 @@ class GrammarCacheTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             model = Path(directory) / ftd.GRAMMAR_NAME
             model.write_bytes(payload)
-            with mock.patch.object(ftd, "http_get") as get:
+            with mock.patch.object(ftd, "open_once") as get:
                 self.assertEqual(
                     model,
                     ftd.ensure_grammar(self.URL, digest, len(payload), model, 17),
@@ -1392,7 +1392,7 @@ class GrammarCacheTest(unittest.TestCase):
             model = Path(directory) / ftd.GRAMMAR_NAME
             model.write_bytes(b"stale")
             with mock.patch.object(
-                ftd, "http_get", return_value=io.BytesIO(payload)
+                ftd, "open_once", return_value=io.BytesIO(payload)
             ) as get:
                 result = ftd.ensure_grammar(self.URL, digest, len(payload), model, 23)
             get.assert_called_once_with(self.URL, 23)
@@ -1412,7 +1412,7 @@ class GrammarCacheTest(unittest.TestCase):
                 model.write_bytes(b"stale")
                 model.with_name(model.name + ".part").write_bytes(b"old-partial")
                 with mock.patch.object(
-                    ftd, "http_get", return_value=io.BytesIO(payload)
+                    ftd, "open_once", return_value=io.BytesIO(payload)
                 ):
                     with self.assertRaisesRegex(SystemExit, "downloaded grammar mismatch"):
                         ftd.ensure_grammar(self.URL, digest, size, model, 29)
@@ -1424,10 +1424,13 @@ class GrammarCacheTest(unittest.TestCase):
             model = Path(directory) / ftd.GRAMMAR_NAME
             model.write_bytes(b"stale")
             model.with_name(model.name + ".part").write_bytes(b"old-partial")
-            with mock.patch.object(ftd, "http_get", side_effect=OSError("offline")) as get:
-                with self.assertRaisesRegex(OSError, "offline"):
+            with mock.patch.object(ftd.time, "sleep"), mock.patch.object(
+                ftd, "open_once", side_effect=OSError("offline")
+            ) as get:
+                with self.assertRaisesRegex(SystemExit, "failed after bounded retries: offline"):
                     ftd.ensure_grammar(self.URL, "11" * 32, 4096, model, 31)
-            get.assert_called_once_with(self.URL, 31)
+            self.assertEqual(ftd.RETRY_ATTEMPTS, get.call_count)
+            get.assert_called_with(self.URL, 31)
             self.assertFalse(model.exists())
             self.assertFalse(model.with_name(model.name + ".part").exists())
 

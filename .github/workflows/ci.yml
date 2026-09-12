@@ -51,6 +51,7 @@ jobs:
         run: |
           python3 tools/release/test_build_dictionary_pack.py
           python3 tools/release/test_build_tgh_asset.py
+          python3 tools/release/test_fetch_test_dict.py
 
       - name: Install the JDK the local gate runs on
         env:
