@@ -149,6 +149,66 @@ def resolve_grammar_asset(release_api, **retry):
         raise SystemExit("grammar release carries an invalid asset size")
     return GRAMMAR_URL, sha256, GRAMMAR_NAME, size
 
+
+def grammar_lock_from_release(release):
+    if not isinstance(release, dict) or release.get("tag_name") != GRAMMAR_TAG:
+        raise SystemExit("unexpected grammar release for lock")
+    entries = release.get("assets")
+    if not isinstance(entries, list):
+        raise SystemExit("grammar release must list its assets")
+    assets = [a for a in entries if isinstance(a, dict) and a.get("name") == GRAMMAR_NAME]
+    if len(assets) != 1:
+        raise SystemExit("grammar release must carry exactly one matching asset")
+    asset = assets[0]
+    lock = {
+        "schema_version": 1,
+        "kind": "aegis.grammar-lock",
+        "release_tag": GRAMMAR_TAG,
+        "asset": {
+            "name": GRAMMAR_NAME,
+            "url": asset.get("browser_download_url"),
+            "github_asset_id": asset.get("id"),
+            "sha256": normalize_sha256(asset.get("digest")),
+            "size_bytes": asset.get("size"),
+        },
+    }
+    validate_grammar_lock(lock)
+    return lock
+
+
+def validate_grammar_lock(lock):
+    if (not isinstance(lock, dict) or lock.get("schema_version") != 1
+            or lock.get("kind") != "aegis.grammar-lock" or lock.get("release_tag") != GRAMMAR_TAG):
+        raise SystemExit("invalid grammar lock schema")
+    asset = lock.get("asset")
+    if not isinstance(asset, dict):
+        raise SystemExit("grammar lock must identify its asset")
+    size = asset.get("size_bytes")
+    asset_id = asset.get("github_asset_id")
+    if (asset.get("name") != GRAMMAR_NAME or asset.get("url") != GRAMMAR_URL
+            or not isinstance(asset.get("sha256"), str)
+            or normalize_sha256(asset["sha256"]) != asset["sha256"]
+            or isinstance(size, bool) or not isinstance(size, int) or size <= 1024
+            or isinstance(asset_id, bool) or not isinstance(asset_id, int) or asset_id <= 0):
+        raise SystemExit("invalid grammar lock asset identity")
+    return asset["url"], asset["sha256"], asset["name"], size
+
+
+def freeze_grammar(path, release_api=GRAMMAR_RELEASE_API):
+    if Path(path).exists() or Path(path).is_symlink():
+        raise SystemExit(f"grammar lock already exists: {path}")
+    release = json.loads(http_get(release_api, 60).decode("utf-8"))
+    lock = grammar_lock_from_release(release)
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with target.open("x", encoding="utf-8") as output:
+            output.write(json.dumps(lock, indent=2) + "\n")
+    except FileExistsError as error:
+        raise SystemExit(f"grammar lock already exists: {target}") from error
+    return lock
+
+
 def load_build_info(path):
     try:
         info = json.loads(Path(path).read_text(encoding="utf-8"))

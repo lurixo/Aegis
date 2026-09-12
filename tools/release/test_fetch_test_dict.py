@@ -763,5 +763,38 @@ class FixedInputsTest(unittest.TestCase):
             with self.assertRaisesRegex(SystemExit, "duplicate JSON key"):
                 ftd.fixed_input_metadata(manifest, info)
 
+
+class CurrentGrammarLockTest(unittest.TestCase):
+    def release(self):
+        return {"tag_name": ftd.GRAMMAR_TAG, "assets": [{"id": 42, "name": ftd.GRAMMAR_NAME,
+                "browser_download_url": ftd.GRAMMAR_URL, "size": 2048, "digest": "sha256:" + "a" * 64}]}
+
+    def test_freeze_uses_one_api_response_and_never_overwrites_a_lock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "lock.json"
+            with mock.patch.object(ftd, "http_get", return_value=json.dumps(self.release()).encode()) as get:
+                lock = ftd.freeze_grammar(path)
+                with self.assertRaisesRegex(SystemExit, "already exists"):
+                    ftd.freeze_grammar(path)
+                self.assertEqual(1, get.call_count)
+            self.assertEqual(lock, ftd.load_json_document(path))
+
+    def test_api_failure_never_uses_historical_build_info(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "lock.json"
+            with mock.patch.object(ftd, "http_get", side_effect=SystemExit("API unavailable")), \
+                 mock.patch.object(ftd, "pinned_grammar") as historical:
+                with self.assertRaisesRegex(SystemExit, "API unavailable"):
+                    ftd.freeze_grammar(path)
+            historical.assert_not_called()
+            self.assertFalse(path.exists())
+
+    def test_invalid_hash_size_name_url_and_asset_id_are_rejected(self):
+        for field, value in (("sha256", "bad"), ("size_bytes", True), ("size_bytes", 3),
+                             ("name", "other"), ("url", "https://example.invalid/model"), ("github_asset_id", 0)):
+            with self.subTest(field=field, value=value):
+                lock = ftd.grammar_lock_from_release(self.release()); lock["asset"][field] = value
+                with self.assertRaises(SystemExit): ftd.validate_grammar_lock(lock)
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
