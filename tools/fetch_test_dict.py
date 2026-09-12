@@ -39,10 +39,16 @@ GRAMMAR_RELEASE_API = (
 GRAMMAR_URL = (
     f"https://github.com/amzxyz/RIME-LMDG/releases/download/{GRAMMAR_TAG}/{GRAMMAR_NAME}"
 )
+BUILD_INFO_NAME = "aegis-build-info.json"
+BUILD_INFO_SCHEMA = "aegis.resource-build-info"
+PACK_NAME = f"aegis_dict_pack_{DICT_LATEST_TAG}.zip"
+PACK_URL = f"https://github.com/lurixo/Aegis/releases/download/{DICT_LATEST_TAG}/{PACK_NAME}"
 
 
 def normalize_sha256(value):
-    raw = (value or "").strip().lower()
+    if not isinstance(value, str):
+        return None
+    raw = value.strip().lower()
     if raw.startswith("sha256:"):
         raw = raw[len("sha256:"):]
     return raw if re.fullmatch(r"[0-9a-f]{64}", raw) else None
@@ -115,25 +121,21 @@ def http_get(url, timeout, **retry):
     return with_retry(f"GET {url}", attempt, **retry)
 
 
-def resolve_asset(manifest_url):
-    manifest = json.loads(http_get(manifest_url, 60).decode("utf-8"))
+def resolve_asset(manifest_url, **retry):
+    manifest = json.loads(http_get(manifest_url, 60, **retry).decode("utf-8"))
     if manifest.get("schema_version") != 1 or manifest.get("kind") != "dictionary_update":
         raise SystemExit(f"unexpected dictionary manifest at {manifest_url}")
     asset = manifest["asset"]
     name = asset["name"]
     url = asset["url"]
     sha256 = normalize_sha256(asset["sha256"])
-    expected_name = f"aegis_dict_pack_{DICT_LATEST_TAG}.zip"
-    expected_url = (
-        f"https://github.com/lurixo/Aegis/releases/download/{DICT_LATEST_TAG}/{expected_name}"
-    )
-    if name != expected_name or url != expected_url or sha256 is None:
+    if name != PACK_NAME or url != PACK_URL or sha256 is None:
         raise SystemExit("dictionary manifest does not describe the expected dict-latest pack")
     return url, sha256, name
 
 
-def resolve_grammar_asset(release_api):
-    release = json.loads(http_get(release_api, 60).decode("utf-8"))
+def resolve_grammar_asset(release_api, **retry):
+    release = json.loads(http_get(release_api, 60, **retry).decode("utf-8"))
     if release.get("tag_name") != GRAMMAR_TAG:
         raise SystemExit(f"unexpected grammar release at {release_api}")
     assets = [asset for asset in release.get("assets", []) if asset.get("name") == GRAMMAR_NAME]
@@ -147,6 +149,93 @@ def resolve_grammar_asset(release_api):
     if not isinstance(size, int) or size <= 1024:
         raise SystemExit("grammar release carries an invalid asset size")
     return GRAMMAR_URL, sha256, GRAMMAR_NAME, size
+
+
+def load_build_info(path):
+    try:
+        info = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        return None, f"{path} is unreadable: {error}"
+    if not isinstance(info, dict) or info.get("schema_name") != BUILD_INFO_SCHEMA or info.get("schema_version") != 1:
+        return None, f"{path} is not a version 1 {BUILD_INFO_SCHEMA} document"
+    return info, None
+
+
+def pinned_asset(info, kind, section):
+    entries = info.get(section, [])
+    if not isinstance(entries, list):
+        return None
+    for entry in entries:
+        if isinstance(entry, dict) and entry.get("kind") == kind:
+            asset = entry.get("physical_asset")
+            return asset if isinstance(asset, dict) else {}
+    return None
+
+
+def pinned_pack(info):
+    asset = pinned_asset(info, "dictionary", "resources")
+    if asset is None:
+        return None, "it describes no dictionary resource"
+    sha256 = normalize_sha256(asset.get("sha256"))
+    if asset.get("name") != PACK_NAME or asset.get("url") != PACK_URL or sha256 is None:
+        return None, "its dictionary resource is not the expected dict-latest pack"
+    return (PACK_URL, sha256, PACK_NAME), None
+
+
+def pinned_grammar(info):
+    asset = pinned_asset(info, "grammar_model", "external_resource_references")
+    if asset is None:
+        return None, "it references no grammar model"
+    sha256 = normalize_sha256(asset.get("sha256"))
+    size = asset.get("size_bytes")
+    if asset.get("url") != GRAMMAR_URL or sha256 is None:
+        return None, f"its grammar reference is not the expected {GRAMMAR_TAG} asset"
+    if isinstance(size, bool) or not isinstance(size, int) or size <= 1024:
+        return None, "its grammar reference carries an invalid asset size"
+    return (GRAMMAR_URL, sha256, GRAMMAR_NAME, size), None
+
+
+def note(message):
+    print(f"[fetch_test_dict] {message}", file=sys.stderr)
+
+
+def resolve_against_pin(label, build_info_path, read_pin, resolve_live):
+    info, problem = load_build_info(build_info_path)
+    if info is None:
+        pin, pin_problem = None, problem
+    else:
+        pin, pin_problem = read_pin(info)
+    if pin is None:
+        note(f"{label}: no usable pin ({pin_problem})")
+    try:
+        live = resolve_live()
+    except (SystemExit, ValueError, OSError) as error:
+        if pin is None:
+            raise
+        note(f"{label}: the live channel is unusable ({error})")
+        note(f"{label}: continuing on the committed pin {pin[1]}")
+        return pin
+    if pin is not None and pin[1] != live[1]:
+        note(f"{label}: resolved metadata selects {live[1]} instead of the committed pin {pin[1]}")
+    return live
+
+
+def resolve_dictionary(manifest_url, build_info_path, **retry):
+    return resolve_against_pin(
+        "dictionary pack",
+        build_info_path,
+        pinned_pack,
+        lambda: resolve_asset(manifest_url, **retry),
+    )
+
+
+def resolve_grammar(release_api, build_info_path, **retry):
+    return resolve_against_pin(
+        "grammar model",
+        build_info_path,
+        pinned_grammar,
+        lambda: resolve_grammar_asset(release_api, **retry),
+    )
 
 
 def download_to(url, dest, timeout, **retry):
@@ -285,6 +374,14 @@ def main(argv):
     )
     parser.add_argument("--manifest-url", default=MANIFEST_URL, help="Dictionary update manifest URL.")
     parser.add_argument(
+        "--build-info",
+        default=str(repo_root / BUILD_INFO_NAME),
+        help=(
+            "Committed resource pin used for the cache key and the expected sha256 when the live "
+            "channel cannot be reached."
+        ),
+    )
+    parser.add_argument(
         "--assets-dir",
         default=str(repo_root / "app" / "src" / "main" / "assets"),
         help="Directory that receives " + " / ".join(RUNTIME_BINS) + ".",
@@ -338,11 +435,11 @@ def main(argv):
     args = parser.parse_args(argv)
 
     if args.print_grammar_sha:
-        _, grammar_sha256, _, _ = resolve_grammar_asset(args.grammar_release_api)
+        _, grammar_sha256, _, _ = resolve_grammar(args.grammar_release_api, args.build_info)
         print(grammar_sha256)
         return 0
 
-    url, expected_sha256, asset_name = resolve_asset(args.manifest_url)
+    url, expected_sha256, asset_name = resolve_dictionary(args.manifest_url, args.build_info)
     if args.print_sha:
         print(expected_sha256)
         return 0
@@ -357,8 +454,8 @@ def main(argv):
         path, size = produced[name]
         print(f"  {name}  {size} bytes  {path}")
     if args.with_grammar:
-        grammar_url, grammar_sha256, grammar_name, grammar_size = resolve_grammar_asset(
-            args.grammar_release_api
+        grammar_url, grammar_sha256, grammar_name, grammar_size = resolve_grammar(
+            args.grammar_release_api, args.build_info
         )
         grammar_path = ensure_grammar(
             grammar_url,

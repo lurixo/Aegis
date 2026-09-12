@@ -479,5 +479,218 @@ class BodyTransferRetryTest(unittest.TestCase):
                 self.assertFalse(destination.with_name(destination.name + ".part").exists())
 
 
+class CommittedPinTest(unittest.TestCase):
+    PIN_SHA = "11" * 32
+    LIVE_SHA = "22" * 32
+    GRAMMAR_PIN_SHA = "33" * 32
+    GRAMMAR_LIVE_SHA = "44" * 32
+    GRAMMAR_SIZE = 420343852
+
+    def build_info(self, pack_sha256=PIN_SHA, grammar_sha256=GRAMMAR_PIN_SHA, **overrides):
+        document = {
+            "schema_version": 1,
+            "schema_name": ftd.BUILD_INFO_SCHEMA,
+            "resources": [
+                {
+                    "kind": "dictionary",
+                    "physical_asset": {
+                        "name": ftd.PACK_NAME,
+                        "url": ftd.PACK_URL,
+                        "sha256": pack_sha256,
+                        "size_bytes": 103958228,
+                    },
+                }
+            ],
+            "external_resource_references": [
+                {
+                    "kind": "grammar_model",
+                    "physical_asset": {
+                        "name": ftd.GRAMMAR_NAME,
+                        "url": ftd.GRAMMAR_URL,
+                        "sha256": grammar_sha256,
+                        "size_bytes": self.GRAMMAR_SIZE,
+                    },
+                }
+            ],
+        }
+        document.update(overrides)
+        return document
+
+    def written(self, directory, document):
+        path = Path(directory) / ftd.BUILD_INFO_NAME
+        path.write_text(json.dumps(document), encoding="utf-8")
+        return path
+
+    def live_manifest(self, sha256):
+        return json.dumps(
+            {
+                "schema_version": 1,
+                "kind": "dictionary_update",
+                "asset": {"name": ftd.PACK_NAME, "url": ftd.PACK_URL, "sha256": sha256},
+            }
+        ).encode("utf-8")
+
+    def live_grammar_release(self, sha256):
+        return json.dumps(
+            {
+                "tag_name": ftd.GRAMMAR_TAG,
+                "assets": [
+                    {
+                        "name": ftd.GRAMMAR_NAME,
+                        "browser_download_url": ftd.GRAMMAR_URL,
+                        "digest": f"sha256:{sha256}",
+                        "size": self.GRAMMAR_SIZE,
+                    }
+                ],
+            }
+        ).encode("utf-8")
+
+    def test_a_dead_manifest_falls_back_to_the_committed_pack_pin(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.written(directory, self.build_info())
+            with mock.patch.object(ftd.time, "sleep"), mock.patch.object(
+                ftd.urllib.request, "urlopen", side_effect=http_error(404)
+            ):
+                url, sha256, name = ftd.resolve_dictionary(ftd.MANIFEST_URL, path)
+        self.assertEqual(ftd.PACK_URL, url)
+        self.assertEqual(self.PIN_SHA, sha256)
+        self.assertEqual(ftd.PACK_NAME, name)
+
+    def test_a_dead_grammar_release_api_falls_back_to_the_committed_grammar_pin(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.written(directory, self.build_info())
+            with mock.patch.object(ftd.time, "sleep"), mock.patch.object(
+                ftd.urllib.request, "urlopen", side_effect=http_error(503)
+            ):
+                url, sha256, name, size = ftd.resolve_grammar(ftd.GRAMMAR_RELEASE_API, path)
+        self.assertEqual(ftd.GRAMMAR_URL, url)
+        self.assertEqual(self.GRAMMAR_PIN_SHA, sha256)
+        self.assertEqual(ftd.GRAMMAR_NAME, name)
+        self.assertEqual(self.GRAMMAR_SIZE, size)
+
+    def test_the_published_channel_wins_over_a_pin_it_disagrees_with(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = self.written(directory, self.build_info())
+            with mock.patch.object(
+                ftd.urllib.request,
+                "urlopen",
+                return_value=io.BytesIO(self.live_manifest(self.LIVE_SHA)),
+            ):
+                _, sha256, _ = ftd.resolve_dictionary(ftd.MANIFEST_URL, path)
+            self.assertEqual(
+                self.LIVE_SHA,
+                sha256,
+                "the rolling URL serves what is published now, not what the pin recorded",
+            )
+            with mock.patch.object(
+                ftd.urllib.request,
+                "urlopen",
+                return_value=io.BytesIO(self.live_grammar_release(self.GRAMMAR_LIVE_SHA)),
+            ):
+                _, grammar_sha256, _, _ = ftd.resolve_grammar(ftd.GRAMMAR_RELEASE_API, path)
+            self.assertEqual(self.GRAMMAR_LIVE_SHA, grammar_sha256)
+
+    def test_an_unusable_pin_is_not_fatal_while_the_channel_answers(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / ftd.BUILD_INFO_NAME
+            with mock.patch.object(
+                ftd.urllib.request,
+                "urlopen",
+                return_value=io.BytesIO(self.live_manifest(self.LIVE_SHA)),
+            ):
+                _, sha256, _ = ftd.resolve_dictionary(ftd.MANIFEST_URL, missing)
+            self.assertEqual(self.LIVE_SHA, sha256)
+
+            wrong_schema = self.written(directory, self.build_info(schema_name="something.else"))
+            with mock.patch.object(
+                ftd.urllib.request,
+                "urlopen",
+                return_value=io.BytesIO(self.live_manifest(self.LIVE_SHA)),
+            ):
+                _, sha256, _ = ftd.resolve_dictionary(ftd.MANIFEST_URL, wrong_schema)
+            self.assertEqual(self.LIVE_SHA, sha256)
+
+    def test_a_dead_channel_with_no_usable_pin_still_exits_non_zero(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / ftd.BUILD_INFO_NAME
+            with mock.patch.object(ftd.time, "sleep"), mock.patch.object(
+                ftd.urllib.request, "urlopen", side_effect=http_error(404)
+            ):
+                with self.assertRaisesRegex(SystemExit, "failed after bounded retries"):
+                    ftd.resolve_dictionary(ftd.MANIFEST_URL, missing)
+                with self.assertRaisesRegex(SystemExit, "failed after bounded retries"):
+                    ftd.resolve_grammar(ftd.GRAMMAR_RELEASE_API, missing)
+
+    def test_malformed_pins_do_not_block_a_healthy_channel(self):
+        documents = [
+            [], None, 7,
+            self.build_info(resources=None),
+            self.build_info(resources=[None, 7]),
+            self.build_info(resources=[{"kind": "dictionary", "physical_asset": "invalid"}]),
+            self.build_info(pack_sha256=7),
+            self.build_info(external_resource_references=None),
+            self.build_info(grammar_sha256=[]),
+        ]
+        for document in documents:
+            with self.subTest(document=document), tempfile.TemporaryDirectory() as directory:
+                path = self.written(directory, document)
+                with mock.patch.object(
+                    ftd.urllib.request, "urlopen", side_effect=[
+                        io.BytesIO(self.live_manifest(self.LIVE_SHA)),
+                        io.BytesIO(self.live_grammar_release(self.GRAMMAR_LIVE_SHA)),
+                    ],
+                ):
+                    self.assertEqual(self.LIVE_SHA, ftd.resolve_dictionary(ftd.MANIFEST_URL, path)[1])
+                    self.assertEqual(self.GRAMMAR_LIVE_SHA, ftd.resolve_grammar(ftd.GRAMMAR_RELEASE_API, path)[1])
+
+    def test_channel_failure_uses_verified_cached_bytes_without_asset_requests(self):
+        pack_bytes = b"cached pack"
+        grammar_bytes = b"cached grammar" * 1024
+        pack_sha = hashlib.sha256(pack_bytes).hexdigest()
+        grammar_sha = hashlib.sha256(grammar_bytes).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            document = self.build_info(pack_sha, grammar_sha)
+            document["external_resource_references"][0]["physical_asset"]["size_bytes"] = len(grammar_bytes)
+            path = self.written(directory, document)
+            pack_path = Path(directory) / ftd.PACK_NAME
+            grammar_path = Path(directory) / ftd.GRAMMAR_NAME
+            pack_path.write_bytes(pack_bytes)
+            grammar_path.write_bytes(grammar_bytes)
+            with mock.patch.object(ftd.urllib.request, "urlopen", side_effect=http_error(404)) as opened:
+                pack = ftd.resolve_dictionary(ftd.MANIFEST_URL, path, attempts=1)
+                grammar = ftd.resolve_grammar(ftd.GRAMMAR_RELEASE_API, path, attempts=1)
+                self.assertEqual(pack_path, ftd.ensure_pack(pack[0], pack[1], pack_path, None, 30))
+                self.assertEqual(grammar_path, ftd.ensure_grammar(grammar[0], grammar[1], grammar[3], grammar_path, 30))
+            self.assertEqual(2, opened.call_count)
+
+    def test_a_pin_that_names_a_different_asset_is_refused(self):
+        with tempfile.TemporaryDirectory() as directory:
+            document = self.build_info()
+            document["resources"][0]["physical_asset"]["url"] = "https://example.invalid/other.zip"
+            document["external_resource_references"][0]["physical_asset"]["size_bytes"] = 12
+            path = self.written(directory, document)
+            with mock.patch.object(ftd.time, "sleep"), mock.patch.object(
+                ftd.urllib.request, "urlopen", side_effect=http_error(404)
+            ):
+                with self.assertRaisesRegex(SystemExit, "failed after bounded retries"):
+                    ftd.resolve_dictionary(ftd.MANIFEST_URL, path)
+                with self.assertRaisesRegex(SystemExit, "failed after bounded retries"):
+                    ftd.resolve_grammar(ftd.GRAMMAR_RELEASE_API, path)
+
+    def test_the_committed_build_info_in_this_repository_is_a_usable_pin(self):
+        repo_root = Path(ftd.__file__).resolve().parents[1]
+        info, problem = ftd.load_build_info(repo_root / ftd.BUILD_INFO_NAME)
+        self.assertIsNone(problem)
+        pack, pack_problem = ftd.pinned_pack(info)
+        self.assertIsNone(pack_problem)
+        self.assertEqual(ftd.PACK_URL, pack[0])
+        self.assertRegex(pack[1], r"^[0-9a-f]{64}$")
+        grammar, grammar_problem = ftd.pinned_grammar(info)
+        self.assertIsNone(grammar_problem)
+        self.assertEqual(ftd.GRAMMAR_URL, grammar[0])
+        self.assertRegex(grammar[1], r"^[0-9a-f]{64}$")
+        self.assertGreater(grammar[3], 1024)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
