@@ -17,6 +17,12 @@ package com.aegis.ime.ime
 
 import com.aegis.ime.R
 import com.aegis.ime.user.ClipEntry
+import com.aegis.ime.user.ClipboardImages
+import android.graphics.Bitmap
+import android.util.LruCache
+import java.lang.ref.WeakReference
+import java.util.concurrent.Executors
+import android.widget.ImageView
 import com.aegis.ime.user.PhraseChange
 import com.aegis.ime.user.PhraseEdit
 import com.aegis.ime.ime.theme.ImePalette
@@ -61,6 +67,8 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     )
 
     var onPick: (String) -> Unit = {}
+    var onPickImage: (ClipEntry) -> Unit = {}
+    var onCopyImage: (ClipEntry) -> Unit = {}
     var onCopyBlocksToAegis: (List<String>) -> Unit = {}
     var onSplitSelectionChanged: (String) -> Unit = {}
     var onSplitSelectionFinished: () -> Unit = {}
@@ -397,6 +405,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         const val INITIAL_SYNC_ROWS = 12
         const val APPEND_ROWS_PER_FRAME = 12
         const val LIST_LOOKAHEAD_VIEWPORTS = 2
+        private val thumbnailIo = Executors.newSingleThreadExecutor { work -> Thread(work, "aegis-clip-thumbnails").apply { isDaemon = true } }
+        private val thumbnailCache = object : LruCache<String, Bitmap>(8 * 1024 * 1024) {
+            override fun sizeOf(key: String, bitmap: Bitmap): Int = bitmap.allocationByteCount
+        }
+
         const val SWIPE_ACTION_SIZE_DP = 48
         const val SWIPE_ACTION_GAP_DP = 4
         const val TAB_PILL_DP = 76
@@ -434,6 +447,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         if (!entry.available) {
             return context.getString(R.string.clipboard_entry_lost_format, entry.hash.orEmpty().take(8))
         }
+        if (entry.isImage) return context.getString(R.string.clip_image_label)
         return entry.preview()
     }
 
@@ -445,8 +459,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
 
     private fun entryBodies(keys: List<String>): List<String> = keys.mapNotNull(::entryBody)
 
+    private fun entryIsImage(key: String): Boolean = clipTab() && clipIndex[key]?.isImage == true
+
     private fun entryEditable(key: String): Boolean {
         if (!clipTab()) return true
+        if (entryIsImage(key)) return false
         if (!ClipEntry.isReferenceKey(key)) return true
         return clipIndex[key]?.available == true
     }
@@ -1114,6 +1131,48 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         return if (note.isNotEmpty()) note else text
     }
 
+    private fun imagePreview(entry: ClipEntry): ImageView = ImageView(context).apply {
+        contentDescription = context.getString(R.string.clip_image_label)
+        minimumHeight = dp(112)
+        scaleType = ImageView.ScaleType.FIT_CENTER
+        setPadding(dp(14), dp(8), dp(4), dp(8))
+        tag = entry.key
+        val cached = thumbnailCache.get(entry.key)
+        if (cached != null) setImageBitmap(cached)
+        else {
+            val target = WeakReference(this)
+            thumbnailIo.execute {
+                val bitmap = ClipboardImages.thumbnail(entry, 512)
+                if (bitmap != null) thumbnailCache.put(entry.key, bitmap)
+                Handler(Looper.getMainLooper()).post {
+                    target.get()?.takeIf { it.tag == entry.key }?.let { view ->
+                        if (bitmap != null) view.setImageBitmap(bitmap)
+                        else view.contentDescription = context.getString(R.string.clip_image_unavailable)
+                    }
+                }
+            }
+        }
+    }
+
+    private fun pickEntry(key: String) {
+        val entry = if (clipTab()) clipIndex[key] else null
+        if (entry?.isImage == true) {
+            if (entry.imageFile() != null) onPickImage(entry) else showNotice(R.string.clip_image_unavailable)
+            return
+        }
+        val body = entryBody(key)
+        when {
+            body != null -> onPick(body)
+            entry?.available == true -> showNotice(R.string.clip_entry_unreadable_body)
+            else -> showNotice(R.string.clip_entry_lost_body)
+        }
+    }
+
+    private fun copyImage(key: String) {
+        val entry = clipIndex[key] ?: return
+        if (entry.imageFile() != null) onCopyImage(entry) else showNotice(R.string.clip_image_unavailable)
+    }
+
     private fun card(text: String, index: Int, category: String): View {
         val expanded = st.expanded == text
         val phrase = st.tab == Tab.PHRASE
@@ -1139,27 +1198,21 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             gravity = Gravity.CENTER_VERTICAL
             if (!expanded) background = rounded(CARD, ImeShapes.cardRadiusDp)
         }
-        val body = TextView(context).apply {
+        val imageEntry = if (phrase) null else clipIndex[text]?.takeIf { it.isImage }
+        val body = (if (imageEntry != null) imagePreview(imageEntry) else TextView(context).apply {
             this.text = preview(display)
             maxLines = 2
             ellipsize = android.text.TextUtils.TruncateAt.END
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setTextColor(TEXT_DARK)
             setPadding(dp(14), dp(12), dp(4), dp(12))
+        }).apply {
             Motion.applyTapFeedback(this, TEXT_DARK)
             setOnClickListener {
                 when {
                     swipeRevealed == text -> hideSwipe(text)
                     st.expanded == text -> toggleExpandInPlace(text)
-                    else -> {
-                        val body = entryBody(text)
-                        val onDevice = clipTab() && clipIndex[text]?.available == true
-                        when {
-                            body != null -> onPick(body)
-                            onDevice -> showNotice(R.string.clip_entry_unreadable_body)
-                            else -> showNotice(R.string.clip_entry_lost_body)
-                        }
-                    }
+                    else -> pickEntry(text)
                 }
             }
             if (!phrase) setOnLongClickListener { showLongPressMenu(text); true }
@@ -1198,7 +1251,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     private fun swipeRevealWidthDp(text: String, phrase: Boolean): Int {
-        val count = if (phrase || entryEditable(text)) 4 else 3
+        val count = if (!phrase && entryIsImage(text)) 2 else if (phrase || entryEditable(text)) 4 else 3
         return count * (SWIPE_ACTION_SIZE_DP + SWIPE_ACTION_GAP_DP)
     }
 
@@ -1264,6 +1317,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
                 addGlyphSwipeAction(context.getString(R.string.clip_move), moveClick) { c, p, x, y, s -> Glyphs.drawArrowToEdge(c, p, x, y, s, toStart = false) }
             }
             addGlyphSwipeAction(context.getString(R.string.clip_delete), { confirmDelete(listOf(text)) }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }
+        } else if (entryIsImage(text)) {
+            addGlyphSwipeAction(context.getString(R.string.clip_image_copy), { copyImage(text) }) { c, p, x, y, s -> Glyphs.drawCopy(c, p, x, y, s) }
+            addGlyphSwipeAction(context.getString(R.string.clip_delete), { confirmDelete(listOf(text)) }) { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }
         } else {
             addGlyphSwipeAction(context.getString(R.string.clip_add_phrase), { chooseCategoryThen(listOf(text)) }) { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }
             if (entryEditable(text)) {
@@ -1283,6 +1339,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         layoutDirection = View.LAYOUT_DIRECTION_LTR
         gravity = Gravity.CENTER_VERTICAL
         setPadding(dp(8), dp(4), dp(8), dp(8))
+        if (entryIsImage(text)) {
+            addActionButton(glyphAction(context.getString(R.string.clip_image_copy), render = { c, p, x, y, s -> Glyphs.drawCopy(c, p, x, y, s) }) { copyImage(text) })
+            addActionButton(glyphAction(context.getString(R.string.clip_delete), render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { confirmDelete(listOf(text)) })
+            return@apply
+        }
         addActionButton(glyphAction(context.getString(R.string.clip_phrases), render = { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }) { chooseCategoryThen(listOf(text)) })
         if (entryEditable(text)) {
             addActionButton(glyphAction(context.getString(R.string.clip_edit), render = { c, p, x, y, s -> Glyphs.drawEditSquare(c, p, x, y, s) }) { onEditClip(text) })
@@ -2424,12 +2485,17 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private fun showLongPressMenu(text: String) {
         val card = menuCard()
         card.addView(menuItem(context.getString(R.string.clip_delete_item)) { confirmDelete(listOf(text)) })
-        card.addView(menuItem(context.getString(R.string.clip_add_phrase)) { hideOverlay(); chooseCategoryThen(listOf(text)) })
-        card.addView(menuItem(context.getString(R.string.clip_split_title)) { hideOverlay(); showSplit(text) })
+        if (entryIsImage(text)) {
+            card.addView(menuItem(context.getString(R.string.clip_image_copy)) { hideOverlay(); copyImage(text) })
+        } else {
+            card.addView(menuItem(context.getString(R.string.clip_add_phrase)) { hideOverlay(); chooseCategoryThen(listOf(text)) })
+            card.addView(menuItem(context.getString(R.string.clip_split_title)) { hideOverlay(); showSplit(text) })
+        }
         showActionPopup(card)
     }
 
     private fun chooseCategoryThen(keys: List<String>, after: () -> Unit = {}) {
+        if (keys.any(::entryIsImage)) { showNotice(R.string.clip_image_text_only); return }
         val cats = categoriesProvider()
         if (cats.isEmpty()) { after(); handOffToNewCategory(keys); return }
         val card = menuCard()

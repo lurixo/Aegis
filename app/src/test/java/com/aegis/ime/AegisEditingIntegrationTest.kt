@@ -514,4 +514,534 @@ class AegisEditingIntegrationTest {
         assertEquals("old", f.connection.editable.toString())
     }
 
+    @Test fun image_capture_and_paste_preserve_mime_and_uri_grant_without_text_fallback() {
+        val f = fixture()
+        clipboard(f).setPrimaryClip(image(f))
+        invoke(f.service, "captureClip")
+        finishImage(f)
+        assertTrue(store(f).latestEntry()!!.isImage)
+        val tracked = f.service.currentInputConnection
+        assertNotSame(f.connection, tracked)
+        f.connection.onContent = { assertSame(f.connection, f.service.currentInputConnection) }
+        edit(f, EditAction.PASTE)
+        finishImage(f)
+        assertNotSame(f.connection, f.service.currentInputConnection)
+        val content = requireNotNull(f.connection.content)
+        assertTrue(content.description.hasMimeType("image/png"))
+        assertEquals(1, f.connection.contentFlags)
+        assertNotNull(f.service.contentResolver.openInputStream(content.contentUri)?.use { it.read() })
+        assertEquals("", f.connection.editable.toString())
+        store(f).clearHistory()
+        store(f).flushPendingWrites()
+        assertEquals(content.contentUri, clipboard(f).primaryClip!!.getItemAt(0).uri)
+        assertNotNull(f.service.contentResolver.openInputStream(content.contentUri)?.use { it.read() })
+    }
+
+    @Test fun image_paste_entry_points_wait_for_pending_text_replay() {
+        val original = "原文 restore🙂\r\n".repeat(20_000)
+        for (inserting in listOf(false, true)) for (entryPoint in listOf("pasteImage", "requestImageClipboardPaste")) {
+            val label = "$entryPoint inserting=$inserting"
+            val f = fixture()
+            clipboard(f).setPrimaryClip(image(f))
+            invoke(f.service, "captureClip")
+            finishImage(f)
+            val entry = requireNotNull(store(f).latestEntry())
+            val history = f.service.javaClass.getDeclaredField("editorUndo").apply { isAccessible = true }
+                .get(f.service) as com.aegis.ime.ime.EditorUndoHistory
+            history.selectionProvider = {
+                Selection.getSelectionStart(f.connection.editable) to Selection.getSelectionEnd(f.connection.editable)
+            }
+            val connection = requireNotNull(f.service.currentInputConnection)
+            if (inserting) {
+                f.connection.setSelection(0, 0)
+                assertTrue(label, history.commitCapturedText(connection, original) { error("unexpected inline insertion") })
+                assertTrue(label, history.hasPendingInsertion)
+            } else {
+                f.connection.commitText(original, 1)
+                f.connection.setSelection(0, original.length)
+                assertTrue(label, history.replaceCapturedSelection(connection, 0, original, "", 0, original.length))
+                shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(30))
+                assertEquals(label, "", f.connection.editable.toString())
+                assertFalse(label, history.undo(connection))
+                assertTrue(label, history.hasPendingUndo)
+            }
+            val before = f.connection.editable.toString()
+            if (entryPoint == "pasteImage") {
+                f.service.javaClass.getDeclaredMethod(entryPoint, entry.javaClass)
+                    .apply { isAccessible = true }.invoke(f.service, entry)
+            } else {
+                f.service.javaClass.getDeclaredMethod(entryPoint, entry.javaClass, Boolean::class.javaPrimitiveType)
+                    .apply { isAccessible = true }.invoke(f.service, entry, false)
+            }
+            assertNull(label, f.connection.content)
+            assertTrue(label, f.connection.keys.none { it.keyCode == KeyEvent.KEYCODE_PASTE })
+            assertEquals(label, before, f.connection.editable.toString())
+            assertTrue(label, history.hasPendingUndo || history.hasPendingInsertion)
+            shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(30))
+            assertFalse(label, history.hasPendingUndo || history.hasPendingInsertion)
+            assertEquals(label, original, f.connection.editable.toString())
+            f.service.onFinishInput()
+            store(f).stopSaving()
+        }
+    }
+
+    @Test fun image_paste_reaches_receivers_without_a_matching_mime_declaration() {
+        val f = fixture()
+        clipboard(f).setPrimaryClip(image(f))
+        for (types in listOf(null, emptyArray(), arrayOf("image/jpeg"))) {
+            f.info.contentMimeTypes = types
+            f.connection.content = null
+            f.connection.onContent = { assertSame(f.connection, f.service.currentInputConnection) }
+            edit(f, EditAction.PASTE)
+            finishImage(f)
+            val content = requireNotNull(f.connection.content)
+            assertTrue(content.description.hasMimeType("image/png"))
+            assertEquals(1, f.connection.contentFlags)
+            assertNotNull(f.service.contentResolver.openInputStream(content.contentUri)?.use { it.read() })
+            assertNotSame(f.connection, f.service.currentInputConnection)
+            assertEquals("", f.connection.editable.toString())
+        }
+    }
+
+    @Test fun rejected_image_paste_preserves_selected_text_without_context_menu_fallback() {
+        val f = fixture()
+        clipboard(f).setPrimaryClip(image(f))
+        f.info.contentMimeTypes = emptyArray()
+        f.connection.acceptImage = false
+        f.connection.commitText("keep selected text", 1)
+        f.connection.setSelection(5, 13)
+        edit(f, EditAction.PASTE)
+        finishImage(f)
+        assertNotNull(f.connection.content)
+        assertEquals("keep selected text", f.connection.editable.toString())
+        assertEquals(5, Selection.getSelectionStart(f.connection.editable))
+        assertEquals(13, Selection.getSelectionEnd(f.connection.editable))
+        assertFalse(f.connection.menus.contains(android.R.id.paste))
+        assertTrue(f.connection.keys.isEmpty())
+        assertNotSame(f.connection, f.service.currentInputConnection)
+        f.service.commitText("tracked")
+        edit(f, EditAction.UNDO)
+        assertEquals("keep selected text", f.connection.editable.toString())
+    }
+
+    @Test fun image_cut_saves_readable_content_before_removing_the_selected_image() {
+        val f = fixture()
+        val clip = image(f)
+        f.connection.commitText("\uFFFC", 1)
+        f.connection.setSelection(0, 1)
+        f.service.onUpdateSelection(1, 1, 0, 1, -1, -1)
+        clipboard(f).setPrimaryClip(ClipData.newPlainText("old", "old"))
+        f.connection.onMenu = { id ->
+            if (id == android.R.id.copy) clipboard(f).setPrimaryClip(clip)
+            if (id == android.R.id.cut) assertTrue(store(f).latestEntry()!!.imageFile()!!.isFile)
+        }
+        edit(f, EditAction.CUT)
+        assertEquals("\uFFFC", f.connection.editable.toString())
+        finishImage(f)
+        assertEquals(listOf(android.R.id.copy, android.R.id.cut), f.connection.menus)
+        assertEquals("", f.connection.editable.toString())
+    }
+
+    @Test fun image_paste_publishes_the_picked_image_before_requesting_native_clipboard_paste() {
+        val f = fixture()
+        clipboard(f).setPrimaryClip(image(f))
+        invoke(f.service, "captureClip")
+        finishImage(f)
+        val entry = store(f).latestEntry()!!
+        clipboard(f).setPrimaryClip(ClipData.newPlainText("unrelated", "do not paste this"))
+        f.info.contentMimeTypes = null
+        f.connection.acceptImage = false
+        f.connection.onKey = { event ->
+            assertEquals(KeyEvent.KEYCODE_PASTE, event.keyCode)
+            val clip = clipboard(f).primaryClip!!
+            assertTrue(clip.description.hasMimeType("image/png"))
+            assertNull(clip.getItemAt(0).text)
+            assertEquals(ClipboardImages.uri(f.service, entry), clip.getItemAt(0).uri)
+            assertNotNull(f.service.contentResolver.openInputStream(clip.getItemAt(0).uri)?.use { it.read() })
+        }
+        f.service.javaClass.getDeclaredMethod("pasteImage", entry.javaClass).apply { isAccessible = true }.invoke(f.service, entry)
+        assertNotNull(f.connection.content)
+        assertTrue(f.connection.menus.isEmpty())
+        assertEquals(listOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP), f.connection.keys.map { it.action })
+        assertEquals("", f.connection.editable.toString())
+        assertEquals(f.service.getString(R.string.clip_image_paste_requested), f.service.toastTextForTest())
+    }
+
+    @Test fun image_paste_does_not_fall_back_after_native_acceptance_or_an_exception() {
+        val f = fixture(type = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_WEB_EDIT_TEXT)
+        clipboard(f).setPrimaryClip(image(f))
+        f.info.contentMimeTypes = null
+        edit(f, EditAction.PASTE)
+        finishImage(f)
+        assertNotNull(f.connection.content)
+        assertTrue(f.connection.menus.isEmpty())
+        assertTrue(f.connection.keys.isEmpty())
+        f.connection.onContent = { throw IllegalStateException("ambiguous receiver failure") }
+        edit(f, EditAction.PASTE)
+        finishImage(f)
+        assertTrue(f.connection.menus.isEmpty())
+        assertTrue(f.connection.keys.isEmpty())
+    }
+
+    @Test fun web_image_paste_preserves_selection_when_native_content_is_rejected() {
+        val f = fixture(type = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_WEB_EDIT_TEXT)
+        clipboard(f).setPrimaryClip(image(f))
+        f.info.contentMimeTypes = null
+        f.connection.acceptImage = false
+        f.connection.commitText("keep selected text", 1)
+        f.connection.setSelection(5, 13)
+        edit(f, EditAction.PASTE)
+        finishImage(f)
+        assertNotNull(f.connection.content)
+        assertTrue(f.connection.menus.isEmpty())
+        assertTrue(f.connection.keys.isEmpty())
+        assertEquals("keep selected text", f.connection.editable.toString())
+        assertEquals(5, Selection.getSelectionStart(f.connection.editable))
+        assertEquals(13, Selection.getSelectionEnd(f.connection.editable))
+        assertEquals(f.service.getString(R.string.clip_image_paste_cursor), f.service.toastTextForTest())
+    }
+
+    @Test fun web_image_paste_does_not_guess_an_unreadable_selection() {
+        val f = fixture(type = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_WEB_EDIT_TEXT)
+        clipboard(f).setPrimaryClip(image(f))
+        f.connection.acceptImage = false
+        f.connection.extractedTextAvailable = false
+        f.connection.surroundingTextAvailable = false
+        edit(f, EditAction.PASTE)
+        finishImage(f)
+        assertNotNull(f.connection.content)
+        assertTrue(f.connection.menus.isEmpty())
+        assertTrue(f.connection.keys.isEmpty())
+        assertEquals(f.service.getString(R.string.clip_image_paste_unsupported), f.service.toastTextForTest())
+    }
+
+    @Test fun clipboard_image_paste_reads_the_cursor_from_either_supported_query() {
+        for (surroundingAvailable in listOf(true, false)) {
+            val f = fixture(type = if (surroundingAvailable) InputType.TYPE_CLASS_TEXT else
+                InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_WEB_EDIT_TEXT)
+            clipboard(f).setPrimaryClip(image(f))
+            f.connection.acceptImage = false
+            f.connection.commitText("Existing draft", 1)
+            f.connection.surroundingTextAvailable = surroundingAvailable
+            f.connection.extractedTextAvailable = !surroundingAvailable
+            var pasteRequests = 0
+            f.connection.onKey = { if (it.keyCode == KeyEvent.KEYCODE_PASTE && it.action == KeyEvent.ACTION_DOWN) pasteRequests++ }
+            edit(f, EditAction.PASTE)
+            finishImage(f)
+            assertEquals(1, pasteRequests)
+            assertEquals(listOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP), f.connection.keys.map { it.action })
+            assertTrue(f.connection.menus.isEmpty())
+            assertEquals("Existing draft", f.connection.editable.toString())
+            assertEquals(14, Selection.getSelectionStart(f.connection.editable))
+            assertEquals(14, Selection.getSelectionEnd(f.connection.editable))
+            assertEquals(f.service.getString(R.string.clip_image_paste_requested), f.service.toastTextForTest())
+            store(f).stopSaving()
+        }
+    }
+
+    @Test fun image_paste_restores_tracking_after_a_receiver_exception() {
+        val f = fixture()
+        clipboard(f).setPrimaryClip(image(f))
+        f.connection.onContent = { throw IllegalStateException("receiver failure") }
+        edit(f, EditAction.PASTE)
+        finishImage(f)
+        assertNotSame(f.connection, f.service.currentInputConnection)
+        f.service.commitText("tracked")
+        edit(f, EditAction.UNDO)
+        assertEquals("", f.connection.editable.toString())
+    }
+
+    @Test fun image_cut_waits_for_remote_copy_to_complete_before_reading_the_clipboard() {
+        val f = fixture()
+        val clip = image(f)
+        f.connection.commitText("\uFFFC", 1)
+        f.connection.setSelection(0, 1)
+        f.service.onUpdateSelection(1, 1, 0, 1, -1, -1)
+        clipboard(f).setPrimaryClip(ClipData.newPlainText("old", "old"))
+        f.connection.deferCopy = true
+        f.connection.onMenu = { id -> if (id == android.R.id.copy) clipboard(f).setPrimaryClip(clip) }
+        edit(f, EditAction.CUT)
+        finishImage(f)
+        assertEquals(listOf(android.R.id.copy, android.R.id.cut), f.connection.menus)
+        assertEquals("", f.connection.editable.toString())
+        assertTrue(store(f).latestEntry()!!.isImage)
+    }
+
+    @Test fun delayed_image_cut_does_not_delete_a_changed_selection() {
+        val f = fixture()
+        val clip = image(f)
+        f.connection.commitText("\uFFFCother", 1)
+        f.connection.setSelection(0, 1)
+        f.service.onUpdateSelection(6, 6, 0, 1, -1, -1)
+        clipboard(f).setPrimaryClip(ClipData.newPlainText("old", "old"))
+        f.connection.onMenu = { id -> if (id == android.R.id.copy) clipboard(f).setPrimaryClip(clip) }
+        edit(f, EditAction.CUT)
+        f.connection.setSelection(1, 6)
+        f.service.onUpdateSelection(0, 1, 1, 6, -1, -1)
+        finishImage(f)
+        assertEquals("\uFFFCother", f.connection.editable.toString())
+        assertFalse(f.connection.menus.contains(android.R.id.cut))
+    }
+    @Test fun image_copy_republishes_aegis_owned_bytes_and_survives_source_removal() {
+        val f = fixture()
+        val clip = image(f)
+        f.connection.commitText("\uFFFC", 1)
+        f.connection.setSelection(0, 1)
+        f.service.onUpdateSelection(1, 1, 0, 1, -1, -1)
+        clipboard(f).setPrimaryClip(ClipData.newPlainText("old", "old"))
+        f.connection.onMenu = { id -> if (id == android.R.id.copy) clipboard(f).setPrimaryClip(clip) }
+        edit(f, EditAction.COPY)
+        finishImage(f)
+        val published = clipboard(f).primaryClip!!.getItemAt(0).uri
+        assertNotEquals(clip.getItemAt(0).uri, published)
+        File(f.service.filesDir, "clips/images/source.png").delete()
+        assertTrue(f.service.contentResolver.openInputStream(published)!!.use { it.readBytes().isNotEmpty() })
+        assertEquals("\uFFFC", f.connection.editable.toString())
+    }
+
+    @Test fun native_copy_preserves_rich_clipboard_content_despite_a_false_menu_return() {
+        val f = fixture()
+        f.connection.commitText("opaque picture representation", 1)
+        f.connection.setSelection(0, f.connection.editable!!.length)
+        f.service.onUpdateSelection(0, 0, 0, f.connection.editable!!.length, -1, -1)
+        val clip = image(f)
+        clipboard(f).setPrimaryClip(ClipData.newPlainText("old", "old"))
+        f.connection.acceptMenus = false
+        f.connection.onMenu = { id -> if (id == android.R.id.copy) clipboard(f).setPrimaryClip(clip) }
+        edit(f, EditAction.COPY)
+        finishImage(f)
+        assertTrue(store(f).latestEntry()!!.isImage)
+        assertNotNull(clipboard(f).primaryClip!!.getItemAt(0).uri)
+        assertNull(clipboard(f).primaryClip!!.getItemAt(0).text)
+        assertEquals("opaque picture representation", f.connection.editable.toString())
+    }
+
+    @Test fun native_copy_keeps_the_hosts_html_instead_of_overwriting_it_with_plain_text() {
+        val f = fixture()
+        f.connection.commitText("bold", 1)
+        f.connection.setSelection(0, 4)
+        f.service.onUpdateSelection(4, 4, 0, 4, -1, -1)
+        f.connection.onMenu = { id -> if (id == android.R.id.copy)
+            clipboard(f).setPrimaryClip(ClipData.newHtmlText("host", "bold", "<b>bold</b>")) }
+        edit(f, EditAction.COPY)
+        assertEquals("<b>bold</b>", clipboard(f).primaryClip!!.getItemAt(0).htmlText)
+        assertEquals("bold", store(f).latest())
+    }
+
+    @Test fun image_copy_and_cut_with_history_paused_use_the_hosts_system_clipboard() {
+        for (cut in listOf(false, true)) {
+            val f = fixture()
+            f.service.getSharedPreferences("aegis", Context.MODE_PRIVATE).edit().putBoolean("clip_history", false).commit()
+            f.connection.commitText("\uFFFC", 1)
+            f.connection.setSelection(0, 1)
+            f.service.onUpdateSelection(1, 1, 0, 1, -1, -1)
+            val clip = image(f)
+            clipboard(f).setPrimaryClip(ClipData.newPlainText("old", "old"))
+            f.connection.onMenu = { id -> if (id == android.R.id.copy) clipboard(f).setPrimaryClip(clip) }
+            edit(f, if (cut) EditAction.CUT else EditAction.COPY)
+            assertEquals(clip.getItemAt(0).uri, clipboard(f).primaryClip!!.getItemAt(0).uri)
+            assertNull(store(f).latestEntry())
+            assertEquals(if (cut) "" else "\uFFFC", f.connection.editable.toString())
+        }
+    }
+
+    @Test fun system_image_paste_with_history_paused_does_not_need_an_aegis_history_entry() {
+        val f = fixture()
+        f.service.getSharedPreferences("aegis", Context.MODE_PRIVATE).edit().putBoolean("clip_history", false).commit()
+        val clip = image(f)
+        clipboard(f).setPrimaryClip(clip)
+        edit(f, EditAction.PASTE)
+        finishImage(f)
+        assertNull(store(f).latestEntry())
+        assertNull(f.connection.content)
+        assertEquals(listOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP), f.connection.keys.map { it.action })
+        assertTrue(f.connection.keys.all { it.keyCode == KeyEvent.KEYCODE_PASTE && it.metaState == 0 })
+        assertEquals(clip.getItemAt(0).uri, clipboard(f).primaryClip!!.getItemAt(0).uri)
+    }
+
+    @Test fun image_deletion_undo_replays_the_image_after_clipboard_history_and_system_clipboard_change() = restoreDeletedImage(false)
+
+    @Test fun image_deletion_swipe_down_replays_the_image_after_clipboard_history_and_system_clipboard_change() = restoreDeletedImage(true)
+
+    private fun restoreDeletedImage(swipeDown: Boolean) {
+        for (layout in listOf(LayoutChoice.CN_NINE, LayoutChoice.CN_ALPHA)) {
+            for (paused in listOf(false, true)) {
+                for (native in listOf(false, true)) {
+                    val f = fixture(layout)
+                    f.service.getSharedPreferences("aegis", Context.MODE_PRIVATE).edit().putBoolean("clip_history", !paused).commit()
+                    f.connection.acceptImage = native
+                    f.connection.commitText("LEFT|RIGHT", 1)
+                    f.connection.setSelection(5, 5)
+                    f.service.onUpdateSelection(10, 10, 5, 5, -1, -1)
+                    var received = 0
+                    var latestMarker = ""
+                    fun insertImage() {
+                        received++
+                        latestMarker = "[private-object-" + "x".repeat(received) + "]"
+                        f.connection.commitText(latestMarker, 1)
+                    }
+                    f.connection.onContent = { if (native) insertImage() }
+                    f.connection.onKey = { event ->
+                        if (event.keyCode == KeyEvent.KEYCODE_PASTE && event.action == KeyEvent.ACTION_DOWN) {
+                            val uri = clipboard(f).primaryClip!!.getItemAt(0).uri!!
+                            assertNotNull(f.service.contentResolver.openInputStream(uri)?.use { it.readBytes() })
+                            insertImage()
+                        }
+                    }
+                    clipboard(f).setPrimaryClip(image(f))
+                    edit(f, EditAction.PASTE)
+                    finishImage(f)
+                    assertEquals(1, received)
+                    if (paused) assertNull(store(f).latestEntry())
+                    val oldMarker = latestMarker
+                    f.connection.setSelection(5, 5 + oldMarker.length)
+                    f.service.onUpdateSelection(5 + oldMarker.length, 5 + oldMarker.length, 5, 5 + oldMarker.length, -1, -1)
+                    edit(f, EditAction.DELETE)
+                    assertEquals("LEFT|RIGHT", f.connection.editable.toString())
+                    val entry = store(f).latestEntry()
+                    if (entry != null) store(f).delete(entry.key)
+                    clipboard(f).setPrimaryClip(ClipData.newPlainText("replacement", "unrelated clipboard"))
+                    finishImage(f)
+                    if (swipeDown) {
+                        val canRestore = f.service.javaClass.getDeclaredMethod("canBackspaceSwipe", Boolean::class.javaPrimitiveType)
+                            .apply { isAccessible = true }.invoke(f.service, false) as Boolean
+                        assertTrue(canRestore)
+                        f.service.javaClass.getDeclaredMethod("backspaceSwipe", Boolean::class.javaPrimitiveType)
+                            .apply { isAccessible = true }.invoke(f.service, false)
+                    } else edit(f, EditAction.UNDO)
+                    assertEquals(2, received)
+                    if (native) assertEquals("unrelated clipboard", clipboard(f).primaryClip!!.getItemAt(0).text.toString())
+                    assertNotEquals(oldMarker, latestMarker)
+                    assertEquals("LEFT|" + latestMarker + "RIGHT", f.connection.editable.toString())
+                    assertFalse(f.connection.menus.contains(android.R.id.undo))
+                    f.service.onFinishInput()
+                    store(f).stopSaving()
+                }
+            }
+        }
+    }
+
+    @Test fun an_uncertain_paste_key_result_still_tracks_the_image_that_was_inserted() {
+        for (throwsOnUp in listOf(false, true)) {
+            val f = fixture()
+            f.connection.acceptImage = false
+            f.connection.rejectPasteUp = true
+            var received = 0
+            f.connection.onKey = { event ->
+                if (event.keyCode == KeyEvent.KEYCODE_PASTE) {
+                    if (event.action == KeyEvent.ACTION_DOWN) {
+                        received++
+                        f.connection.commitText("[private-image-$received]", 1)
+                    } else if (throwsOnUp) throw IllegalStateException("up result unavailable")
+                }
+            }
+            clipboard(f).setPrimaryClip(image(f))
+            edit(f, EditAction.PASTE)
+            finishImage(f)
+            assertEquals("[private-image-1]", f.connection.editable.toString())
+            f.connection.setSelection(0, f.connection.editable!!.length)
+            f.service.onUpdateSelection(-1, -1, 0, f.connection.editable!!.length, -1, -1)
+            edit(f, EditAction.DELETE)
+            assertEquals("", f.connection.editable.toString())
+            edit(f, EditAction.UNDO)
+            assertEquals(2, received)
+            assertEquals("[private-image-2]", f.connection.editable.toString())
+            f.service.onFinishInput()
+            store(f).stopSaving()
+        }
+    }
+
+    @Test fun backspace_swipe_restores_images_at_the_current_selection_and_remains_undoable() {
+        for (layout in listOf(LayoutChoice.CN_ALPHA, LayoutChoice.CN_NINE)) {
+            for (native in listOf(true, false)) {
+                for (paused in listOf(false, true)) {
+                    val f = fixture(layout)
+                    val c = f.connection
+                    f.service.getSharedPreferences("aegis", Context.MODE_PRIVATE).edit().putBoolean("clip_history", !paused).commit()
+                    c.acceptImage = native
+                    c.commitText("LEFT|RIGHT", 1)
+                    c.setSelection(5, 5)
+                    f.service.onUpdateSelection(10, 10, 5, 5, -1, -1)
+                    var received = 0
+                    var marker = ""
+                    fun insertImage() {
+                        received++
+                        marker = "[private-object-" + "x".repeat(received) + "]"
+                        c.commitText(marker, 1)
+                    }
+                    c.onContent = { if (native) insertImage() }
+                    c.onKey = { event ->
+                        if (event.keyCode == KeyEvent.KEYCODE_PASTE && event.action == KeyEvent.ACTION_DOWN) {
+                            val uri = clipboard(f).primaryClip!!.getItemAt(0).uri!!
+                            assertNotNull(f.service.contentResolver.openInputStream(uri)?.use { it.readBytes() })
+                            insertImage()
+                        }
+                    }
+                    clipboard(f).setPrimaryClip(image(f))
+                    edit(f, EditAction.PASTE)
+                    finishImage(f)
+                    assertEquals(1, received)
+                    val oldMarker = marker
+                    fun swipe(up: Boolean) {
+                        f.service.javaClass.getDeclaredMethod("handleBackspaceSwipe", Boolean::class.javaPrimitiveType)
+                            .apply { isAccessible = true }.invoke(f.service, up)
+                    }
+                    swipe(true)
+                    assertEquals("", c.editable.toString())
+                    assertFalse(File(f.service.filesDir, "cleared_text.txt").exists())
+                    store(f).latestEntry()?.let { store(f).delete(it.key) }
+                    clipboard(f).setPrimaryClip(ClipData.newPlainText("replacement", "unrelated clipboard"))
+                    finishImage(f)
+                    f.service.commitText("new [] draft")
+                    c.setSelection(4, 6)
+                    f.service.onUpdateSelection(12, 12, 4, 6, -1, -1)
+                    swipe(false)
+                    assertEquals(2, received)
+                    assertNotEquals(oldMarker, marker)
+                    assertEquals("new LEFT|${marker}RIGHT draft", c.editable.toString())
+                    assertEquals(14 + marker.length, Selection.getSelectionStart(c.editable))
+                    assertEquals(Selection.getSelectionStart(c.editable), Selection.getSelectionEnd(c.editable))
+                    if (native) assertEquals("unrelated clipboard", clipboard(f).primaryClip!!.getItemAt(0).text.toString())
+                    edit(f, EditAction.UNDO)
+                    assertEquals("new [] draft", c.editable.toString())
+                    swipe(false)
+                    assertEquals("new [] draft", c.editable.toString())
+                    assertEquals(2, received)
+                    assertFalse(c.menus.contains(android.R.id.undo))
+                    f.service.onFinishInput()
+                    store(f).stopSaving()
+                }
+            }
+        }
+    }
+
+    @Test fun rejected_image_paste_without_dispatch_preserves_existing_text_undo() {
+        val f = fixture()
+        f.service.commitText("keep undo")
+        f.connection.setSelection(0, 4)
+        f.service.onUpdateSelection(9, 9, 0, 4, -1, -1)
+        f.connection.acceptImage = false
+        clipboard(f).setPrimaryClip(image(f))
+        edit(f, EditAction.PASTE)
+        finishImage(f)
+        assertTrue(f.connection.keys.isEmpty())
+        edit(f, EditAction.UNDO)
+        assertEquals("", f.connection.editable.toString())
+    }
+
+    @Test fun failed_image_import_does_not_cut_the_source() {
+        val f = fixture()
+        val clip = image(f)
+        File(f.service.filesDir, "clips/images/source.png").delete()
+        f.connection.commitText("\uFFFC", 1)
+        f.connection.setSelection(0, 1)
+        f.service.onUpdateSelection(1, 1, 0, 1, -1, -1)
+        clipboard(f).setPrimaryClip(ClipData.newPlainText("old", "old"))
+        f.connection.onMenu = { id -> if (id == android.R.id.copy) clipboard(f).setPrimaryClip(clip) }
+        edit(f, EditAction.CUT)
+        finishImage(f)
+        assertEquals("\uFFFC", f.connection.editable.toString())
+        assertFalse(f.connection.menus.contains(android.R.id.cut))
+    }
+
 }
