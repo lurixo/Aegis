@@ -152,6 +152,7 @@ internal class RichTextBoundary {
     private var pending: Range? = null
     private var uncertain = false
     private var active = false
+    val isActive: Boolean get() = active
 
     fun clear() {
         text = null
@@ -257,6 +258,14 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
     enum class ClearCapture { PLAIN, RICH, UNSUPPORTED }
 
     private val history = TextUndoHistory()
+    private val windowHistory = WindowedEditorUndoHistory().also {
+        it.onChange = { changed() }
+        it.onUndoCompleted = { success -> onUndoCompleted?.invoke(success) }
+        it.onInsertionCompleted = { success -> onInsertionCompleted?.invoke(success) }
+    }
+    var selectionProvider: (() -> Pair<Int, Int>?)? = null
+        set(value) { field = value; windowHistory.selectionProvider = value }
+    private var incompleteRead = false
     private val richBoundary = RichTextBoundary()
     private data class RichDispatch(val target: InputConnection, val before: EditorTextSnapshot?, val image: ImageContent?, val instance: Long,
         val ambiguous: Boolean = false)
@@ -275,6 +284,7 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
     var onChange: (() -> Unit)? = null
     var onRetainedImagesChanged: ((Set<String>) -> Unit)? = null
     var onUndoCompleted: ((Boolean) -> Unit)? = null
+    var onInsertionCompleted: ((Boolean) -> Unit)? = null
     var onClearedContentRestored: ((Boolean) -> Unit)? = null
     var onClearCompleted: ((ClearCapture, CharSequence) -> Unit)? = null
     private data class ClearDraft(val target: InputConnection, val kind: ClearCapture, val before: EditorTextSnapshot?,
@@ -293,11 +303,11 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
     }
     private var replay: Replay? = null
     private var settlingReplay = false
-    val hasPendingUndo: Boolean get() = replay != null
+    val hasPendingUndo: Boolean get() = replay != null || windowHistory.hasPendingUndo
     val hasUndo: Boolean get() = richDispatch == null && replay == null &&
-        (history.hasUndo || compositionBefore != null && !compositionUnsafe || delayed != null)
-    val hasDeletionToRestore: Boolean get() = hasUndo && (
-        history.hasDeletion || delayed?.let { it.first.text.length > it.second.length } == true)
+        (windowHistory.hasUndo || history.hasUndo || compositionBefore != null && !compositionUnsafe || delayed != null)
+    val hasDeletionToRestore: Boolean get() = hasUndo && (windowHistory.hasDeletion || !windowHistory.active &&
+        (history.hasDeletion || delayed?.let { it.first.text.length > it.second.length } == true))
 
     private fun changed() {
         val ids = history.retainedImageIds().toMutableSet()
@@ -315,6 +325,7 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
     }
 
     fun clear() {
+        windowHistory.clear()
         richBoundary.clear()
         richDispatch = null
         pendingImage = null
@@ -337,8 +348,12 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
     fun wrap(target: InputConnection): InputConnection {
         val existing = connection
         if (target === existing || target === existing?.target) return existing
+        // Publish the new connection first so anything the reset notifies re-enters here harmlessly.
         val wrapped = TrackedConnection(target)
         connection = wrapped
+        // An editor that rewrites a large document restarts input and hands over a new connection
+        // without losing its text, so keep the window history and confirm it against a read.
+        windowHistory.reconnected()
         history.clear()
         compositionBefore = null
         compositionAfter = null
@@ -347,10 +362,16 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
         return wrapped
     }
 
+    fun replaceCapturedSelection(target: InputConnection, start: Int, removed: CharSequence,
+        inserted: CharSequence, selectionStart: Int, selectionEnd: Int): Boolean {
+        return windowHistory.replace(unwrap(target), start, removed, inserted, selectionStart, selectionEnd)
+    }
+
     fun beginRichContent(target: InputConnection, image: ImageContent? = null) {
         val raw = unwrap(target)
         val dispatch = RichDispatch(raw, null, image, ++imageSequence)
         richDispatch = dispatch
+        windowHistory.clear()
         val before = capture(raw)
         settleDelayed(before)
         if (!richBoundary.observe(before)) history.clear()
@@ -406,6 +427,7 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
     fun canUndo(target: InputConnection): Boolean {
         if (richDispatch != null) return false
         val raw = unwrap(target)
+        if (windowHistory.active) return windowHistory.canUndo(raw)
         if (replay != null) {
             if (replay?.target !== raw) finishReplay(false) else continueReplay()
             if (replay != null) return false
@@ -433,6 +455,7 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
     }
 
     fun beginClearRestore(target: InputConnection): ClearCapture {
+        windowHistory.clear()
         val raw = unwrap(target)
         val before = capture(raw)
         settleDelayed(before)
@@ -577,6 +600,7 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
     fun undo(target: InputConnection): Boolean {
         if (richDispatch != null || replay != null) return false
         val raw = unwrap(target)
+        if (windowHistory.active) return windowHistory.undo(raw)
         val current = capture(raw)
         settleDelayed(current)
         if (!richBoundary.observe(current)) history.clear()
@@ -704,16 +728,18 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
         if (target is TrackedConnection) target.target else target
 
     private fun readRaw(target: InputConnection, retryChanged: Boolean = true): EditorTextSnapshot? = runCatching {
+        incompleteRead = false
         val before = target.getTextBeforeCursor(maxTextLength + 1, 0)
         val after = target.getTextAfterCursor(maxTextLength + 1, 0)
-        if (before == null || after == null) return@runCatching null
-        if (before.length + after.length > maxTextLength) return@runCatching null
+        if (before == null || after == null) { incompleteRead = true; return@runCatching null }
+        if (before.length + after.length > maxTextLength) { incompleteRead = true; return@runCatching null }
         val extracted = target.getExtractedText(ExtractedTextRequest().apply {
             flags = InputConnection.GET_TEXT_WITH_STYLES
             hintMaxChars = maxTextLength + 1
             hintMaxLines = maxTextLength + 1
-        }, 0) ?: return@runCatching null
-        val text = extracted.text ?: return@runCatching null
+        }, 0) ?: run { incompleteRead = true; return@runCatching null }
+        val text = extracted.text ?: run { incompleteRead = true; return@runCatching null }
+        if (text.length > maxTextLength || extracted.startOffset != 0 || extracted.partialStartOffset >= 0) incompleteRead = true
         if (extracted.startOffset != 0 || extracted.partialStartOffset >= 0 ||
             text.length > maxTextLength ||
             extracted.selectionStart !in 0..text.length || extracted.selectionEnd !in 0..text.length
@@ -937,14 +963,27 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
         private var batchChanged = false
         private var batchFinishesComposition = false
         private var batchSafe = true
+        private var windowBatch = false
+
+        private fun allowsWindow(): Boolean = richDispatch == null && pendingImage == null && anonymousBefore == null &&
+            imageRanges.isEmpty() && !richBoundary.isActive && replay == null
+
+        private fun allowsLocal(): Boolean = allowsWindow() && compositionBefore == null && delayed == null &&
+            clearDraft == null && selectionProvider?.invoke() != null
 
         private fun tracked(
             composing: Boolean = false,
             finishesComposition: Boolean = false,
             expected: ((EditorTextSnapshot) -> String?)? = null,
+            windowEdit: WindowEdit = WindowEdit.Unknown,
             action: () -> Boolean,
         ): Boolean {
+            if (windowHistory.hasPendingInsertion || windowHistory.hasPendingUndo) return false
             if (connection !== this || richDispatch != null) return action()
+            if (!windowBatch && batchDepth == 0 && !composing && allowsLocal()) {
+                windowHistory.trackLocal(target, windowEdit, action)?.let { return it }
+            }
+            if (windowBatch || windowHistory.active && allowsWindow()) return windowHistory.track(target, windowEdit, action)
             if (replay != null) finishReplay(false)
             if (batchDepth > 0) {
                 batchChanged = true
@@ -960,6 +999,7 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
                 return result
             }
             val before = capture(target)
+            if (before == null && incompleteRead && allowsWindow()) return windowHistory.track(target, windowEdit, action)
             settleDelayed(before)
             if (!richBoundary.observe(before)) history.clear()
             reconcileComposition(before)
@@ -1013,6 +1053,11 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
         override fun beginBatchEdit(): Boolean {
             if (connection === this && batchDepth++ == 0) {
                 val current = capture(target)
+                if (allowsWindow() && (windowHistory.active || current == null && incompleteRead)) {
+                    windowBatch = true
+                    windowHistory.beginBatch(target)
+                    return target.beginBatchEdit()
+                }
                 settleDelayed(current)
                 if (!richBoundary.observe(current)) history.clear()
                 reconcileComposition(current)
@@ -1028,6 +1073,11 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
         override fun endBatchEdit(): Boolean {
             val result = target.endBatchEdit()
             if (connection === this && batchDepth > 0 && --batchDepth == 0) {
+                if (windowBatch) {
+                    windowBatch = false
+                    windowHistory.endBatch(target)
+                    return result
+                }
                 if (batchChanged) {
                     val after = capture(target)
                     compositionUnsafe = compositionUnsafe || !batchSafe
@@ -1050,26 +1100,30 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
             return tracked(
                 finishesComposition = true,
                 expected = { before -> insertedText(compositionBefore ?: before, text) },
+                windowEdit = WindowEdit.Commit(text ?: "", newCursorPosition),
             ) { target.commitText(text, newCursorPosition) }
         }
 
         override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean =
-            tracked(composing = true, expected = { before -> insertedText(compositionBefore ?: before, text) }) {
+            tracked(composing = true, expected = { before -> insertedText(compositionBefore ?: before, text) },
+                windowEdit = WindowEdit.Commit(text ?: "", newCursorPosition, composing = true)) {
                 target.setComposingText(text, newCursorPosition)
             }
 
         override fun finishComposingText(): Boolean {
-            return if (compositionBefore == null) target.finishComposingText()
-            else tracked(finishesComposition = true) { target.finishComposingText() }
+            return if (compositionBefore == null && !windowHistory.active) target.finishComposingText()
+            else tracked(finishesComposition = true, windowEdit = WindowEdit.FinishComposition) { target.finishComposingText() }
         }
 
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean =
-            tracked(expected = { surroundingDeletion(it, beforeLength, afterLength, false) }) {
+            tracked(expected = { surroundingDeletion(it, beforeLength, afterLength, false) },
+                windowEdit = WindowEdit.Delete(beforeLength, afterLength)) {
                 target.deleteSurroundingText(beforeLength, afterLength)
             }
 
         override fun deleteSurroundingTextInCodePoints(beforeLength: Int, afterLength: Int): Boolean =
-            tracked(expected = { surroundingDeletion(it, beforeLength, afterLength, true) }) {
+            tracked(expected = { surroundingDeletion(it, beforeLength, afterLength, true) },
+                windowEdit = WindowEdit.Delete(beforeLength, afterLength, codePoints = true)) {
                 target.deleteSurroundingTextInCodePoints(beforeLength, afterLength)
             }
 
@@ -1083,7 +1137,7 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
                     KeyEvent.KEYCODE_DEL, KeyEvent.KEYCODE_FORWARD_DEL, KeyEvent.KEYCODE_ENTER,
                     KeyEvent.KEYCODE_TAB, KeyEvent.KEYCODE_CUT, KeyEvent.KEYCODE_PASTE,
                 ))
-            return if (edits) tracked(expected = { keyResult(it, event) }) { target.sendKeyEvent(event) }
+            return if (edits) tracked(expected = { keyResult(it, event) }, windowEdit = WindowEdit.Key(event)) { target.sendKeyEvent(event) }
                 else target.sendKeyEvent(event)
         }
 
@@ -1134,7 +1188,8 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
 
         override fun performContextMenuAction(id: Int): Boolean {
             return if (id == android.R.id.cut || id == android.R.id.paste || id == android.R.id.pasteAsPlainText)
-                tracked(expected = if (id == android.R.id.cut) { before -> insertedText(before, "") } else null) {
+                tracked(expected = if (id == android.R.id.cut) { before -> insertedText(before, "") } else null,
+                    windowEdit = WindowEdit.Context(id)) {
                     target.performContextMenuAction(id)
                 }
             else target.performContextMenuAction(id)

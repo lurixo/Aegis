@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import android.text.InputFilter
 import android.text.Selection
 import android.text.SpannedString
 import android.text.method.TextKeyListener
@@ -96,10 +97,176 @@ class WindowedEditorUndoHistoryTest {
             }
             return true
         }
+        override fun performContextMenuAction(id: Int): Boolean = when (id) {
+            android.R.id.cut -> super.commitText("", 1)
+            android.R.id.paste -> super.commitText("pasted", 1)
+            else -> false
+        }
         fun flush() { while (queued.isNotEmpty()) queued.removeFirst().invoke() }
     }
 
     private val text = "line one\r\n第二行 A🙂B\r\n".repeat(10_000)
+
+    @Test fun local_edits_in_large_documents_undo_at_start_middle_and_end_without_full_extraction() {
+        for (position in listOf(0, text.length / 2, text.length)) {
+            val editor = Editor(text)
+            editor.setSelection(position, position)
+            val history = EditorUndoHistory()
+            val connection = history.wrap(editor)
+            connection.commitText("abc\t", 1)
+            connection.deleteSurroundingText(1, 0)
+            assertTrue(history.canUndo(connection))
+            assertTrue(history.undo(connection))
+            assertTrue(history.undo(connection))
+            assertEquals(text, editor.content.toString())
+            assertEquals(position to position, editor.selection())
+            assertEquals(0, editor.extractions)
+            assertTrue(editor.largestRequest <= 65_536)
+        }
+    }
+
+    @Test fun forward_delete_and_reversed_selection_restore_original_text_and_selection() {
+        val editor = Editor(text)
+        val history = EditorUndoHistory()
+        val connection = history.wrap(editor)
+        editor.setSelection(100_010, 100_003)
+        connection.commitText("XY", 1)
+        val replaced = editor.content.toString()
+        connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_FORWARD_DEL))
+        assertTrue(history.undo(connection))
+        assertEquals(replaced, editor.content.toString())
+        assertTrue(history.undo(connection))
+        assertEquals(text, editor.content.toString())
+        assertEquals(100_010 to 100_003, editor.selection())
+    }
+
+    @Test fun small_cut_paste_and_navigation_keep_ordered_undo_without_host_undo() {
+        val editor = Editor(text)
+        val history = EditorUndoHistory()
+        val connection = history.wrap(editor)
+        editor.setSelection(100_000, 100_005)
+        connection.performContextMenuAction(android.R.id.cut)
+        val cut = editor.content.toString()
+        connection.performContextMenuAction(android.R.id.paste)
+        connection.setSelection(0, 0)
+        assertTrue(history.canUndo(connection))
+        assertTrue(history.undo(connection))
+        assertEquals(cut, editor.content.toString())
+        assertTrue(history.undo(connection))
+        assertEquals(text, editor.content.toString())
+    }
+
+    @Test fun default_negative_offsets_use_the_editor_selection_provider() {
+        val editor = Editor(text, offsets = false)
+        editor.setSelection(100_000, 100_000)
+        val history = EditorUndoHistory().apply { selectionProvider = editor::selection }
+        val connection = history.wrap(editor)
+        connection.commitText("字", 1)
+        connection.setSelection(0, 0)
+        assertTrue(history.canUndo(connection))
+        assertTrue(history.undo(connection))
+        assertEquals(text, editor.content.toString())
+        assertEquals(100_000 to 100_000, editor.selection())
+    }
+
+    @Test fun delayed_edits_and_replay_wait_for_content_acknowledgements_without_resending() {
+        val editor = Editor(text, offsets = false)
+        editor.setSelection(100_000, 100_000)
+        val history = EditorUndoHistory().apply { selectionProvider = editor::selection }
+        val connection = history.wrap(editor)
+        editor.deferred = true
+        connection.commitText("字", 1)
+        assertFalse(history.canUndo(connection))
+        editor.flush()
+        assertTrue(history.canUndo(connection))
+        assertFalse(history.undo(connection))
+        assertTrue(history.hasPendingUndo)
+        val writes = editor.writes
+        assertFalse(history.canUndo(connection))
+        assertEquals(writes, editor.writes)
+        editor.flush()
+        assertFalse(history.canUndo(connection))
+        assertFalse(history.hasPendingUndo)
+        assertEquals(text, editor.content.toString())
+    }
+
+    @Test fun transformed_edits_and_changed_replay_context_do_not_overwrite_external_content() {
+        val editor = Editor(text)
+        editor.setSelection(100_000, 100_000)
+        val history = EditorUndoHistory()
+        val connection = history.wrap(editor)
+        editor.content.filters = arrayOf(InputFilter.AllCaps())
+        connection.commitText("a", 1)
+        assertFalse(history.canUndo(connection))
+        editor.content.filters = emptyArray()
+        connection.commitText("!", 1)
+        editor.content.replace(99_999, 100_000, "X")
+        val original = editor.content.toString()
+        val writes = editor.writes
+        assertFalse(history.undo(connection))
+        assertEquals(original, editor.content.toString())
+        assertEquals(writes, editor.writes)
+    }
+
+    @Test fun batches_and_composition_remain_one_undo_step() {
+        for (composition in listOf(false, true)) {
+            val editor = Editor(text)
+            editor.setSelection(100_000, 100_000)
+            val history = EditorUndoHistory()
+            val connection = history.wrap(editor)
+            if (composition) {
+                connection.setComposingText("n", 1)
+                connection.setComposingText("ni", 1)
+                connection.commitText("你", 1)
+            } else {
+                connection.beginBatchEdit()
+                connection.commitText("（", 1)
+                connection.commitText("）", 0)
+                connection.endBatchEdit()
+            }
+            assertTrue(history.canUndo(connection))
+            assertTrue(history.undo(connection))
+            assertEquals(text, editor.content.toString())
+            assertFalse(history.canUndo(connection))
+        }
+    }
+
+    @Test fun delayed_selection_metadata_does_not_turn_a_paste_into_a_window_replacement() {
+        val editor = Editor(text, offsets = false)
+        editor.setSelection(100_000, 100_000)
+        var selection = editor.selection()
+        val history = EditorUndoHistory().apply { selectionProvider = { selection } }
+        val connection = history.wrap(editor)
+        connection.performContextMenuAction(android.R.id.paste)
+        assertFalse(history.canUndo(connection))
+        selection = editor.selection()
+        assertTrue(history.canUndo(connection))
+        assertFalse(history.undo(connection))
+        selection = editor.selection()
+        history.canUndo(connection)
+        selection = editor.selection()
+        history.canUndo(connection)
+        selection = editor.selection()
+        history.canUndo(connection)
+        assertFalse(history.hasPendingUndo)
+        assertEquals(text, editor.content.toString())
+    }
+
+    @Test fun unacknowledged_undo_times_out_without_repeating_the_edit() {
+        val editor = Editor(text)
+        editor.setSelection(100_000, 100_000)
+        val history = EditorUndoHistory()
+        val connection = history.wrap(editor)
+        connection.commitText("!", 1)
+        editor.deferred = true
+        assertFalse(history.undo(connection))
+        assertTrue(history.hasPendingUndo)
+        val writes = editor.writes
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(3))
+        assertFalse(history.hasPendingUndo)
+        assertTrue(history.hasUndo)
+        assertEquals(writes, editor.writes)
+    }
 
     @Test fun a_forward_delete_the_editor_accepts_but_never_applies_stops_at_its_deadline() {
         val editor = Editor("original text here").apply { deferred = true }
@@ -532,6 +699,40 @@ class WindowedEditorUndoHistoryTest {
             assertEquals(original.length to 0, editor.selection())
             assertFalse(history.canUndo(editor))
             assertTrue(editor.largestResponse <= 65_536)
+        }
+    }
+
+    @Test fun keyboard_edits_wait_until_large_deletion_undo_finishes() {
+        val original = "原文 restore🙂\r\n".repeat(20_000)
+        for (action in listOf("commit", "compose", "delete", "batch")) {
+            val editor = Editor(original).apply { responseCapacity = 65_536 }
+            editor.setSelection(0, original.length)
+            val history = EditorUndoHistory().apply { selectionProvider = editor::selection }
+            val connection = history.wrap(editor)
+            assertTrue(action, history.replaceCapturedSelection(connection, 0, original, "", 0, original.length))
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(30))
+            assertEquals(action, "", editor.content.toString())
+            assertTrue(action, history.hasUndo)
+            assertFalse(action, history.undo(connection))
+            assertTrue(action, history.hasPendingUndo)
+            val writes = editor.writes
+            val accepted = when (action) {
+                "commit" -> connection.commitText("x", 1)
+                "compose" -> connection.setComposingText("x", 1)
+                "delete" -> connection.deleteSurroundingText(1, 0)
+                else -> {
+                    connection.beginBatchEdit()
+                    try { connection.commitText("x", 1) } finally { connection.endBatchEdit() }
+                }
+            }
+            assertFalse(action, accepted)
+            assertEquals(action, writes, editor.writes)
+            assertTrue(action, history.hasPendingUndo)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(30))
+            assertFalse(action, history.hasPendingUndo)
+            assertEquals(action, original, editor.content.toString())
+            assertEquals(action, 0 to original.length, editor.selection())
+            assertFalse(action, history.canUndo(connection))
         }
     }
 
