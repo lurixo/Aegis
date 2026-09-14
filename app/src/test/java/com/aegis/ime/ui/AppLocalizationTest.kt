@@ -15,6 +15,11 @@
 
 package com.aegis.ime.ui
 
+import android.content.ComponentName
+import android.content.pm.PackageManager
+import android.content.pm.ResolveInfo
+import android.view.inputmethod.InputMethodInfo
+import com.aegis.ime.AegisInputMethodService
 import com.aegis.ime.R
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -27,13 +32,32 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34])
 class AppLocalizationTest {
 
+    private fun assertInputMethodLabels(ime: String, chinese: String, english: String) {
+        val ctx = RuntimeEnvironment.getApplication()
+        assertEquals(ime, ctx.getString(R.string.ime_label))
+        assertEquals(chinese, ctx.getString(R.string.subtype_zh))
+        assertEquals(english, ctx.getString(R.string.subtype_en))
+        val service = ctx.packageManager.getServiceInfo(
+            ComponentName(ctx, AegisInputMethodService::class.java), PackageManager.GET_META_DATA,
+        )
+        val inputMethod = InputMethodInfo(ctx, ResolveInfo().apply { serviceInfo = service })
+        assertEquals(ime, inputMethod.loadLabel(ctx.packageManager).toString())
+        assertEquals(2, inputMethod.subtypeCount)
+        assertEquals(
+            listOf(chinese, english),
+            (0 until inputMethod.subtypeCount).map {
+                inputMethod.getSubtypeAt(it).getDisplayName(ctx, ctx.packageName, ctx.applicationInfo).toString()
+            },
+        )
+    }
+
     @Test
     @Config(qualifiers = "zh-rCN")
     fun chinese_locale_uses_chinese_app_ui_strings() {
         val ctx = RuntimeEnvironment.getApplication()
 
         assertEquals("Aegis 输入法", ctx.getString(R.string.setup_title))
-        assertEquals("Aegis 输入法", ctx.getString(R.string.ime_label))
+        assertInputMethodLabels("Aegis 输入法（debug）", "Aegis 输入法（debug）", "Aegis English (debug)")
         assertEquals("增强模型（万象离线大模型）", ctx.getString(R.string.gram_card_title))
         assertEquals("检测模型更新", ctx.getString(R.string.check_model_update_button))
         assertEquals("检测词库更新", ctx.getString(R.string.check_dict_update_button))
@@ -70,7 +94,7 @@ class AppLocalizationTest {
         val ctx = RuntimeEnvironment.getApplication()
 
         assertEquals("Aegis IME", ctx.getString(R.string.setup_title))
-        assertEquals("Aegis IME", ctx.getString(R.string.ime_label))
+        assertInputMethodLabels("Aegis IME (debug)", "Aegis Chinese (debug)", "Aegis English (debug)")
         assertEquals("Enhancement model (Wanxiang offline model)", ctx.getString(R.string.gram_card_title))
         assertEquals("Check model updates", ctx.getString(R.string.check_model_update_button))
         assertEquals("Check dictionary updates", ctx.getString(R.string.check_dict_update_button))
@@ -104,7 +128,7 @@ class AppLocalizationTest {
         val ctx = RuntimeEnvironment.getApplication()
 
         assertEquals("Aegis IME", ctx.getString(R.string.setup_title))
-        assertEquals("Aegis Chinese", ctx.getString(R.string.subtype_zh))
+        assertInputMethodLabels("Aegis IME (debug)", "Aegis Chinese (debug)", "Aegis English (debug)")
         assertEquals("Full dictionary pack", ctx.getString(R.string.dict_card_title))
         assertEquals("Check model updates", ctx.getString(R.string.check_model_update_button))
         assertEquals("Check dictionary updates", ctx.getString(R.string.check_dict_update_button))
