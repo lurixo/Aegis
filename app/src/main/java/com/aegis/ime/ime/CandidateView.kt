@@ -311,7 +311,6 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
         }
         canvas.restore()
 
-        canvas.drawRect(visibleW, height * 0.25f, visibleW + ruleWidth, height * 0.75f, sepPaint)
         drawPressLayer(canvas, PressKind.EXPAND, -1, visibleW, 4f * density, width.toFloat(), height - 4f * density)
         val chCx = visibleW + expandW / 2f; val chCy = height / 2f; val chS = 9f * density * CHEVRON_SCALE
         Glyphs.drawChevron(canvas, iconPaint, chCx, chCy, chS, down = !expanded)

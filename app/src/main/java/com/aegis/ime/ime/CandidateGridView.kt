@@ -143,7 +143,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
 
     init {
         orientation = HORIZONTAL
-        setBackgroundColor(palette.keyboardBg)
+        setBackgroundColor(palette.railBg)
         readingScroll.applyPalette(palette)
         table.applyPalette(palette)
         table.adapter = candidateAdapter
@@ -237,7 +237,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
 
     fun applyPalette(p: ImePalette) {
         palette = p
-        setBackgroundColor(p.keyboardBg)
+        setBackgroundColor(p.railBg)
         readingScroll.applyPalette(p)
         table.applyPalette(p)
         rulePaint.color = p.gridLine
@@ -846,7 +846,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         }
 
         fun applyPalette(p: ImePalette) {
-            setBackgroundColor(p.railBg)
+            setBackgroundColor(p.keyboardBg)
             separatorPaint.color = p.gridLine
             thumbPaint.color = Motion.withAlpha(p.icon, KeyboardView.SCROLLBAR_ALPHA)
             invalidate()
@@ -943,7 +943,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         }
 
         fun applyPalette(p: ImePalette) {
-            setBackgroundColor(p.railBg)
+            setBackgroundColor(p.keyboardBg)
             rulePaint.color = p.gridLine
             invalidate()
         }

@@ -70,7 +70,9 @@ internal class ImePanelFaceGrid(context: Context, density: Float) : GridLayout(c
             if (child.visibility != View.VISIBLE || child.background !is ImeKeySurface) continue
             val right = child.right - half
             val bottom = child.bottom - half
-            canvas.drawLine(right, child.top.toFloat(), right, child.bottom.toFloat(), rulePaint)
+            if (child.right < width) {
+                canvas.drawLine(right, child.top.toFloat(), right, child.bottom.toFloat(), rulePaint)
+            }
             canvas.drawLine(child.left.toFloat(), bottom, child.right.toFloat(), bottom, rulePaint)
         }
     }
@@ -177,7 +179,7 @@ internal class ImePanelActionColumn(context: Context, density: Float) : LinearLa
     }
 
     fun applyPalette(p: ImePalette) {
-        setBackgroundColor(p.railBg)
+        setBackgroundColor(p.keyboardBg)
         rulePaint.color = p.gridLine
         invalidate()
     }
@@ -185,6 +187,7 @@ internal class ImePanelActionColumn(context: Context, density: Float) : LinearLa
     override fun dispatchDraw(canvas: Canvas) {
         super.dispatchDraw(canvas)
         val half = rulePaint.strokeWidth / 2f
+        canvas.drawLine(half, 0f, half, height.toFloat(), rulePaint)
         for (index in 0 until childCount - 1) {
             val y = getChildAt(index).bottom - half
             canvas.drawLine(0f, y, width.toFloat(), y, rulePaint)

@@ -142,15 +142,21 @@ class PanelActionKeyParityTest {
         for ((name, panel) in listOf("emoji" to emoji, "symbol" to symbols)) {
             val column = if (panel is EmojiView) panel.actionColumnForTest() else (panel as SymbolsView).actionColumnForTest()
             val bar = if (panel is EmojiView) panel.categoryBarForTest() else (panel as SymbolsView).categoryBarForTest()
+            val viewport = if (panel is EmojiView) panel.gridViewportForTest() else (panel as SymbolsView).gridViewportForTest()
             assertEquals(
-                "the $name action column takes the rail surface of the nine-key scroll column",
-                palette.railBg,
+                "the $name action column takes the keyboard surface",
+                palette.keyboardBg,
                 (column.background as ColorDrawable).color,
             )
             assertEquals(
-                "the $name category bar takes the rail surface of the nine-key scroll column",
-                palette.railBg,
+                "the $name category bar takes the keyboard surface",
+                palette.keyboardBg,
                 (bar.background as ColorDrawable).color,
+            )
+            assertEquals(
+                "the $name content viewport takes the rail surface",
+                palette.railBg,
+                (viewport.background as ColorDrawable).color,
             )
         }
         assertEquals("an emoji category fills the bar height", emoji.categoryBarForTest().height, emojiTab.height)

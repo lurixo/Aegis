@@ -897,8 +897,8 @@ class CandidateGridViewTest {
         for (pal in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
             val v = CandidateGridView(ctx).apply { applyPalette(pal) }
             assertEquals(
-                "the side columns take the rail surface and the candidates sit on the board",
-                Triple(pal.railBg, pal.keyboardBg, pal.railBg),
+                "the side columns take the board surface and the candidates take the rail surface",
+                Triple(pal.keyboardBg, pal.railBg, pal.keyboardBg),
                 v.columnBackgroundsForTest(),
             )
             assertTrue("the two surfaces must actually differ", pal.railBg != pal.keyboardBg)

@@ -228,7 +228,8 @@ class SymbolsView(context: Context) :
             addView(actionColumnView, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         }
         gridRow = content
-        railScroll.setBackgroundColor(palette.railBg)
+        gridScroll.setBackgroundColor(palette.railBg)
+        railScroll.setBackgroundColor(palette.keyboardBg)
         val panelColumn = LinearLayout(context).apply {
             orientation = VERTICAL
             addView(content, LayoutParams(LayoutParams.MATCH_PARENT, gridAreaHeightPx()))
@@ -269,7 +270,8 @@ class SymbolsView(context: Context) :
     fun applyPalette(p: ImePalette) {
         palette = p
         setBackgroundColor(p.keyboardBg)
-        railScroll.setBackgroundColor(p.railBg)
+        gridScroll.setBackgroundColor(p.railBg)
+        railScroll.setBackgroundColor(p.keyboardBg)
         actionColumnView.applyPalette(p)
         grid.ruleColor = p.gridLine
         panelFrame.outlineColor = p.gridLine
@@ -307,7 +309,7 @@ class SymbolsView(context: Context) :
                 gridScroll.fling(0)
             }
         }
-        if (animate && tabChanged && gridScroll.isShown) Motion.coverThrough(gridScroll, palette.keyboardBg, swap)
+        if (animate && tabChanged && gridScroll.isShown) Motion.coverThrough(gridScroll, palette.railBg, swap)
         else swap()
     }
 
