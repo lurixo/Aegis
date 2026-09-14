@@ -16,6 +16,7 @@
 package com.aegis.ime
 
 import android.content.ClipData
+import android.content.ClipDescription
 import android.content.Context
 import android.os.LocaleList
 import android.content.res.Configuration
@@ -31,11 +32,13 @@ import android.text.InputType
 import android.text.Spanned
 import android.text.style.ReplacementSpan
 import android.util.Log
+import android.view.KeyCharacterMap
 import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputContentInfo
 import android.window.OnBackInvokedCallback
 import android.window.OnBackInvokedDispatcher
 import com.aegis.ime.ui.appLocaleTag
@@ -161,12 +164,19 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var silentUndo = false
     private var queuedUndos = 0
     private var largeEdit = false
+    private var committingContent = false
     private var pasteCompletionNotice = false
     private var cutCompletionNotice: String? = null
+    private val undoImageLeases = HashMap<String, com.aegis.ime.user.ClipboardStore.InputImageLease>()
     private val editorUndo = EditorUndoHistory().also {
         it.webWriteSettleMs = WEB_WRITE_SETTLE_MS
         it.selectionProvider = { if (selStart >= 0 && selEnd >= 0) selStart to selEnd else null }
         it.onChange = { refreshUndoAvailability() }
+        it.onRetainedImagesChanged = { retained ->
+            undoImageLeases.keys.toList().filterNot { key -> key in retained }.forEach { key ->
+                undoImageLeases.remove(key)?.close()
+            }
+        }
         it.onUndoCompleted = { restored -> finishEditingUndo(restored) }
         it.onInsertionCompleted = { inserted ->
             largeEdit = false
@@ -191,7 +201,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun getCurrentInputConnection(): InputConnection? {
         val connection = super.getCurrentInputConnection() ?: return null
-        return if (undoBlocked || clearSweep != null || webClear != null || largeRestore) connection else editorUndo.wrap(connection)
+        return if (undoBlocked || committingContent || clearSweep != null || webClear != null || largeRestore) connection else editorUndo.wrap(connection)
     }
 
     private fun refreshUndoAvailability() {
@@ -1874,6 +1884,40 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun pasteClipboard() {
         val system = runCatching { clipboardManager.primaryClip }.getOrNull()
         val item = system?.takeIf { it.itemCount > 0 }?.getItemAt(0)
+        val mime = if (item != null) ClipboardImages.imageMimeType(contentResolver, system, item) else null
+        if (mime != null && item?.uri != null) {
+            if (panelInput.active) { toast(uiString(R.string.clip_image_paste_unsupported)); return }
+            val target = currentInputConnection
+            val targetEditor = currentEditorTarget
+            val start = selStart
+            val end = selEnd
+            if (!keepsCopies()) {
+                clipboardStore.loadImageForInput(contentResolver, item.uri, mime) { result ->
+                    mainHandler.post {
+                        result.fold(onSuccess = { lease ->
+                            val currentClip = runCatching { clipboardManager.primaryClip }.getOrNull()
+                            if (target !== currentInputConnection || targetEditor != currentEditorTarget || panelInput.active ||
+                                start != selStart || end != selEnd || currentClip == null || currentClip.itemCount == 0 ||
+                                currentClip.getItemAt(0).uri != item.uri) { lease.close(); return@fold }
+                            undoImageLeases.put(lease.entry.key, lease)?.close()
+                            requestImageClipboardPaste(lease.entry, publish = false)
+                        }, onFailure = { reportImageFailure(it) })
+                    }
+                }
+                return
+            }
+            clipboardStore.recordImage(contentResolver, item.uri, mime) { result ->
+                mainHandler.post {
+                    if (target !== currentInputConnection || targetEditor != currentEditorTarget || panelInput.active ||
+                        start != selStart || end != selEnd) return@post
+                    result.fold(
+                        onSuccess = { pasteImage(it) },
+                        onFailure = { reportImageFailure(it) },
+                    )
+                }
+            }
+            return
+        }
         val systemText = item?.text?.toString()
         val entry = clipboardStore.latestEntry()
         val localPublication = keepsCopies() && hasUnpublishedClipboard(system, entry)
@@ -1883,6 +1927,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         when {
             entry == null -> toast(uiString(R.string.edit_paste_empty))
+            entry.isImage -> pasteImage(entry)
             else -> pastePlainText(entry.body())
         }
     }
@@ -1905,6 +1950,120 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun reportImageFailure(failure: Throwable) {
         toast(uiString(if (failure is ClipboardImageTooLargeException) R.string.clip_image_too_large else R.string.clip_image_save_failed))
+    }
+
+    private fun publishImageClip(entry: ClipEntry): Boolean {
+        if (LiveUserData.restoreInProgress) return false
+        val clip = ClipboardImages.clipData(this, entry) ?: return false
+        return clipboardStore.retainPublishedImage(entry) {
+            runCatching { clipboardManager.setPrimaryClip(clip) }.isSuccess
+        }
+    }
+
+    private fun imageUndoContent(entry: ClipEntry): EditorUndoHistory.ImageContent? {
+        if (entry.key !in undoImageLeases) {
+            val lease = clipboardStore.retainImageForInput(entry) ?: return null
+            undoImageLeases[entry.key] = lease
+        }
+        return EditorUndoHistory.ImageContent(entry.key) { target ->
+            when (commitImageContent(target, entry, publish = false)) {
+                true -> true
+                false -> when (dispatchImageClipboardPaste(target, entry)) {
+                    ImageClipboardResult.REQUESTED -> true
+                    ImageClipboardResult.UNCERTAIN -> throw IllegalStateException("image paste result is unavailable")
+                    else -> false
+                }
+                null -> throw IllegalStateException("image delivery result is unavailable")
+            }
+        }
+    }
+
+    private fun commitImageContent(ic: InputConnection, entry: ClipEntry, publish: Boolean = true): Boolean? {
+        if (LiveUserData.restoreInProgress) return false
+        val uri = ClipboardImages.uri(this, entry) ?: return false
+        val mime = entry.mimeType ?: return false
+        val pasted = runCatching {
+            committingContent = true
+            try {
+                ic.commitContent(InputContentInfo(uri, ClipDescription(uiString(R.string.clip_image_label), arrayOf(mime)), null),
+                    InputConnection.INPUT_CONTENT_GRANT_READ_URI_PERMISSION, null)
+            } finally {
+                committingContent = false
+            }
+        }.getOrNull()
+        if (publish && pasted != false) publishImageClip(entry)
+        return pasted
+    }
+
+    private fun pasteImage(entry: ClipEntry) {
+        if (editorUndo.hasPendingUndo || editorUndo.hasPendingInsertion) return
+        if (panelInput.active) { toast(uiString(R.string.clip_image_paste_unsupported)); return }
+        if (LiveUserData.restoreInProgress) return
+        val ic = currentInputConnection ?: return
+        if (ClipboardImages.uri(this, entry) == null || entry.mimeType == null) {
+            toast(uiString(R.string.clip_image_unavailable)); return
+        }
+        editorUndo.beginRichContent(ic, imageUndoContent(entry))
+        var pasted: Boolean? = null
+        try {
+            pasted = commitImageContent(ic, entry)
+        } finally {
+            editorUndo.finishRichContent(ic, pasted != false)
+        }
+        if (pasted == true) {
+            toast(uiString(R.string.edit_paste_done))
+            inputView?.showPanel(null)
+        } else if (pasted == false) {
+            requestImageClipboardPaste(entry)
+        } else {
+            toast(uiString(R.string.clip_image_paste_unsupported))
+        }
+    }
+
+    private enum class ImageClipboardResult { REQUESTED, SELECTION, UNAVAILABLE, UNCERTAIN }
+
+    private fun dispatchImageClipboardPaste(ic: InputConnection, entry: ClipEntry?): ImageClipboardResult {
+        if (LiveUserData.restoreInProgress) return ImageClipboardResult.UNAVAILABLE
+        val selection = runCatching { ic.getSurroundingText(0, 0, 0) }.getOrNull()
+            ?.let { it.selectionStart to it.selectionEnd }
+            ?: runCatching { ic.getExtractedText(ExtractedTextRequest(), 0) }.getOrNull()
+                ?.let { it.selectionStart to it.selectionEnd }
+        if (selection != null && selection.first >= 0 && selection.second >= 0 && selection.first != selection.second)
+            return ImageClipboardResult.SELECTION
+        if (selection == null || selection.first < 0 || selection.first != selection.second)
+            return ImageClipboardResult.UNAVAILABLE
+        if (entry != null && !publishImageClip(entry)) return ImageClipboardResult.UNAVAILABLE
+        val requested = runCatching {
+            val now = SystemClock.uptimeMillis()
+            val flags = KeyEvent.FLAG_SOFT_KEYBOARD or KeyEvent.FLAG_KEEP_TOUCH_MODE
+            val down = ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_PASTE, 0,
+                0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, flags))
+            val up = ic.sendKeyEvent(KeyEvent(now, now, KeyEvent.ACTION_UP, KeyEvent.KEYCODE_PASTE, 0,
+                0, KeyCharacterMap.VIRTUAL_KEYBOARD, 0, flags))
+            down && up
+        }.getOrDefault(false)
+        return if (requested) ImageClipboardResult.REQUESTED else ImageClipboardResult.UNCERTAIN
+    }
+
+    private fun requestImageClipboardPaste(entry: ClipEntry, publish: Boolean = true) {
+        if (editorUndo.hasPendingUndo || editorUndo.hasPendingInsertion) return
+        if (LiveUserData.restoreInProgress) return
+        val ic = currentInputConnection ?: return
+        editorUndo.beginRichContent(ic, imageUndoContent(entry))
+        var result = ImageClipboardResult.UNAVAILABLE
+        try {
+            result = dispatchImageClipboardPaste(ic, entry.takeIf { publish })
+        } finally {
+            editorUndo.finishRichContent(ic, result == ImageClipboardResult.REQUESTED || result == ImageClipboardResult.UNCERTAIN)
+        }
+        when (result) {
+            ImageClipboardResult.REQUESTED, ImageClipboardResult.UNCERTAIN -> {
+                toast(uiString(R.string.clip_image_paste_requested))
+                inputView?.showPanel(null)
+            }
+            ImageClipboardResult.SELECTION -> toast(uiString(R.string.clip_image_paste_cursor))
+            ImageClipboardResult.UNAVAILABLE -> toast(uiString(R.string.clip_image_paste_unsupported))
+        }
     }
 
     private fun takeNativeSelection(ic: InputConnection, cut: Boolean, attempt: Int = 0, originalClip: ClipData? = null): Boolean {
@@ -1938,13 +2097,43 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             return true
         }
         val item = clip.getItemAt(0)
-        if (keepsCopies()) captureSystemClip(clip, showText = true)
-        if (cut) {
-            if (!runCatching { editorUndo.cutCopiedSelection(ic, item.text) }.getOrDefault(false)) {
-                toast(uiString(R.string.edit_cut_failed))
-                return true
+        val mime = ClipboardImages.imageMimeType(contentResolver, clip, item)
+        val uri = item.uri
+        if (mime == null || uri == null || !keepsCopies()) {
+            if (keepsCopies()) captureSystemClip(clip, showText = true)
+            if (cut) {
+                if (!runCatching { editorUndo.cutCopiedSelection(ic, item.text) }.getOrDefault(false)) {
+                    toast(uiString(R.string.edit_cut_failed))
+                    return true
+                }
+                resetSelectionAnchor()
             }
-            resetSelectionAnchor()
+            return true
+        }
+        val start = selStart
+        val end = selEnd
+        val target = currentEditorTarget
+        clipboardStore.recordImage(contentResolver, uri, mime) { result ->
+            mainHandler.post {
+                val entry = result.getOrNull() ?: return@post
+                val currentClip = runCatching { clipboardManager.primaryClip }.getOrNull()
+                val sameClip = currentClip != null && currentClip.itemCount > 0 && currentClip.getItemAt(0).uri == uri
+                if (!cut) {
+                    if (sameClip) publishImageClip(entry)
+                    toast(uiString(R.string.edit_copy_done))
+                    return@post
+                }
+                val unchanged = currentInputConnection === ic && currentEditorTarget == target && sameClip &&
+                    selStart == start && selEnd == end && !panelInput.active &&
+                    ic.getSelectedText(0)?.toString() == selectedText
+                if (!unchanged) return@post
+                val removed = runCatching { ic.performContextMenuAction(android.R.id.cut) }.getOrDefault(false)
+                if (removed) {
+                    resetSelectionAnchor()
+                    publishImageClip(entry)
+                }
+                if (removed) toast(uiString(R.string.edit_cut_done))
+            }
         }
         return true
     }
