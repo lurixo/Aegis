@@ -74,6 +74,27 @@ class ClipboardImageStoreTest {
         return result!!
     }
 
+    @Test fun image_survives_source_loss_reload_and_deduplicates_by_bytes() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        store.record("text")
+        val first = record(store).getOrThrow()
+        assertTrue(first.isImage)
+        assertEquals("image/png", first.mimeType)
+        assertNull(first.body())
+        assertEquals(1, ClipboardImages.thumbnail(first, 128)!!.width)
+        assertArrayEquals(png, first.imageFile()!!.readBytes())
+        val second = record(store).getOrThrow()
+        assertEquals(first.key, second.key)
+        assertEquals(2, store.history().size)
+        assertEquals(first.key, store.latestEntry()!!.key)
+        val reloaded = store(dir).latestEntry()!!
+        assertTrue(reloaded.isImage)
+        assertNull(reloaded.body())
+        assertArrayEquals(png, reloaded.imageFile()!!.readBytes())
+        assertEquals(1, File(dir, "clips/images").listFiles()!!.size)
+    }
+
     @Test fun the_image_already_on_top_captured_again_does_not_write_the_history_again() {
         val dir = temp.newFolder()
         val store = store(dir)

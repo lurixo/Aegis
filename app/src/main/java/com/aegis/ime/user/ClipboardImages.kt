@@ -17,6 +17,7 @@ package com.aegis.ime.user
 
 import android.content.ClipData
 import android.content.ContentResolver
+import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import java.io.File
@@ -97,4 +98,18 @@ object ClipboardImages {
             (expectedMime != null && mime != expectedMime)) throw IOException("clipboard image format is unsupported")
         return mime
     }
+
+    fun thumbnail(entry: ClipEntry, maxPixels: Int): Bitmap? = runCatching {
+        val file = entry.imageFile() ?: return null
+        val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(file.path, options)
+        if (options.outWidth <= 0 || options.outHeight <= 0 ||
+            options.outWidth.toLong() * options.outHeight > MAX_IMAGE_PIXELS) return null
+        val limit = maxOf(1, maxPixels)
+        var sample = 1
+        while (options.outWidth / sample > limit || options.outHeight / sample > limit) sample *= 2
+        options.inJustDecodeBounds = false
+        options.inSampleSize = sample
+        BitmapFactory.decodeFile(file.path, options)
+    }.getOrNull()
 }
