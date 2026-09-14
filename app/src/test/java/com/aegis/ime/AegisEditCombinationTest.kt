@@ -495,6 +495,59 @@ class AegisEditCombinationTest {
         report("replacements", cases, failures)
     }
 
+    @Test fun web_navigation_delegates_to_the_model_without_mapping_projected_dom_offsets() {
+        val failures = ArrayList<String>()
+        var cases = 0
+        val text = "prefix two words\nline one\n\nline two suffix\ntail\n"
+        val directions = listOf(EditAction.UP to KeyEvent.KEYCODE_DPAD_UP, EditAction.DOWN to KeyEvent.KEYCODE_DPAD_DOWN,
+            EditAction.LEFT to KeyEvent.KEYCODE_DPAD_LEFT, EditAction.RIGHT to KeyEvent.KEYCODE_DPAD_RIGHT)
+        for (web in listOf(true, false)) for (choice in listOf(LayoutChoice.CN_ALPHA, LayoutChoice.CN_NINE)) {
+            val f = Fixture(choice, true, webEditor = web)
+            try {
+                for (selecting in listOf(false, true)) for ((action, keyCode) in directions) {
+                    cases++
+                    val context = "$choice web=$web selecting=$selecting $action"
+                    try {
+                        f.connection.observeCalls = false
+                        f.reset(text, 4, 4, "paste")
+                        if (selecting) f.edit(EditAction.START_SELECT)
+                        val exposed = requireNotNull(f.connection.getSurroundingText(1024, 1024, 0))
+                        if (web) {
+                            assertNotEquals("$context projection differs from model", text, exposed.text.toString())
+                            assertNotEquals("$context projection caret differs from model", 4, exposed.selectionStart)
+                        }
+                        f.connection.selectionRequests.clear()
+                        f.connection.keyEvents.clear()
+                        f.connection.reads = 0
+                        f.connection.observeCalls = true
+                        f.dispatch(action)
+                        if (web) {
+                            assertEquals("$context has one native key pair", listOf(KeyEvent.ACTION_DOWN, KeyEvent.ACTION_UP),
+                                f.connection.keyEvents.map { it.action })
+                            assertTrue("$context dispatches correct direction", f.connection.keyEvents.all { it.keyCode == keyCode })
+                            val meta = if (selecting) KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON else 0
+                            assertTrue("$context dispatches exact selection modifier", f.connection.keyEvents.all { it.metaState == meta })
+                            assertTrue("$context never maps raw selection", f.connection.selectionRequests.isEmpty())
+                            assertEquals("$context does not read raw text to move", 0, f.connection.reads)
+                        } else {
+                            assertTrue("$context retains direct cursor navigation", f.connection.keyEvents.isEmpty())
+                            assertEquals("$context sets one native selection", 1, f.connection.selectionRequests.size)
+                            assertTrue("$context reads native cursor context", f.connection.reads > 0)
+                        }
+                        f.settle()
+                        assertEquals("$context preserves document", text, f.text())
+                        val next = moved(text, 4, action)
+                        assertSelection(f, if (selecting) 4 to next else next to next, context)
+                        assertEquals("$context retains selection mode", selecting, f.field("selecting"))
+                        if (web) assertTrue("$context never maps raw selection after callbacks", f.connection.selectionRequests.isEmpty())
+                        assertFalse("$context navigation creates no Undo entry", f.undoEnabled())
+                    } catch (error: AssertionError) { failures.add(error.message.orEmpty()) }
+                }
+            } finally { f.service.onFinishInput() }
+        }
+        report("navigation", cases, failures)
+    }
+
     @Test fun web_select_all_uses_one_model_command_and_remains_selected_when_repeated() {
         val text = "prefix words\n\nline two\n".repeat(3000).take(49_152)
         val meta = KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON

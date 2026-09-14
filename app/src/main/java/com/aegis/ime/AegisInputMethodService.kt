@@ -1335,6 +1335,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun nav(keyCode: Int, move: SelectionMath.Move) {
+        if (isWebEditor()) { sendKey(keyCode, selecting); return }
         val ic = currentInputConnection ?: return
         val window = ic.takeIf { trackedSelectionSpan() <= ChunkedRead.DIRECT_MAX }?.let(::caretWindow)
         if (window == null) { sendNativeNavigationKey(ic, keyCode, selecting); return }
