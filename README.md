@@ -29,6 +29,13 @@ type, and nothing you type is ever sent**; the translate bar sends only what you
 <td><img src="docs/screenshots/en/symbols.png" alt="Symbol panel" width="280"></td>
 </tr>
 </table>
+<table>
+<tr>
+<td><img src="docs/screenshots/en/text-editing.png" alt="Text editing controls" width="280"></td>
+<td><img src="docs/screenshots/en/key-sound.png" alt="Mechanical keyboard sounds" width="280"></td>
+<td><img src="docs/screenshots/en/key-vibration.png" alt="Key vibration styles" width="280"></td>
+</tr>
+</table>
 </div>
 
 ## Contents
@@ -121,8 +128,9 @@ unless you ask it to.
 - **Emoji panel:** a *Common* tab plus categories (smileys, gestures, flags, animals, plants, food,
   travel, activities, objects, symbols), with skin-tone and gender variants and a lock toggle for
   picking several in a row.
-- **Clipboard history:** clips you copy are kept for reuse, with per-item and batch delete, select
-  all, and clear. The history can also be switched off entirely.
+- **Clipboard history:** text and image clips are kept for reuse, with previews, per-item and batch
+  delete, select all, and clear. Images can be pasted into supported editors. The history can also
+  be switched off entirely.
 - **Saved phrases (常用语):** the *Phrases* tab of the clipboard panel keeps reusable phrases in
   categories you name, reorder and move between, each with an optional note, importable and
   exportable as a plain text file.
@@ -132,12 +140,11 @@ unless you ask it to.
   close the bar or tap the key again.
 - **Symbol & edit panels:** a symbol board with a *Common* tab plus Chinese, English, currency, web,
   math, Greek, arrows, super/subscript, numbers, IPA and pinyin categories and a lock toggle; and a
-  text-editing panel with cursor movement, line start/end, start/end selection, select-all, copy,
-  cut, paste and delete. Copy and cut there save to the Aegis clipboard and also try to copy to Android's
-  system clipboard. A refused system write is silent and does not interrupt editing or Aegis paste.
-  Clipboard history must be on; otherwise copy and cut are refused with a notice. A very large selection
-  is read in bounded chunks, and if not all of it can be taken a notice says how many characters
-  were copied. Paste inserts the newest Aegis clip.
+  text-editing panel with cursor movement, document start/end, selection controls, undo, Tab,
+  backspace, forward delete, copy, cut and paste. Copy and paste also work through the Android
+  system clipboard when history is off. Cutting retains the selected content before deleting it.
+  Large text edits use bounded reads and replay, while supported web editors use their native
+  editing commands. Undo availability depends on the editor and the operations it accepts.
 - **Custom symbols:** choose which punctuation sits in the 9-key side column and which operators sit
   on the numeric keypad.
 - **Symbol & emoji associations:** typing pinyin can offer matching symbols and emoji directly in
@@ -147,7 +154,8 @@ unless you ask it to.
 - **Copy bar:** text you just copied or cut is offered back above the keyboard, either whole or
   split into pieces you pick from.
 - **Encrypted backup:** export your user dictionary, auto learning, saved phrases, clipboard
-  history, symbol history, emoji history and all settings into a single encrypted file
+  history including images, symbol history, emoji history and all settings into a single encrypted
+  file
   (AES-256-GCM, key derived with PBKDF2-HMAC-SHA256
   at 600,000 iterations), and import it back by overwriting or merging. A default backup password
   can be kept on the device behind biometric or screen-lock authentication. The downloadable
@@ -182,8 +190,8 @@ not depend on our word alone:
   device**: they live in the app's private storage (`filesDir`). The only ways any of it leaves are
   a file *you* export — a backup, your user dictionary, or your phrases — to a location you pick,
   and the text you type into the translate bar, which goes to Google Translate and nowhere else.
-  Copy and cut in the editing panel also make the selected text available through Android's system
-  clipboard when the system accepts the write.
+  Copy and cut in the editing panel also make selected text or images available through Android's
+  system clipboard when the system accepts the write.
 - Aegis is excluded from Android's **cloud backup and device-to-device transfer**, so its data is
   not carried off the device that way either.
 - There is **no analytics, no telemetry, and no account.**

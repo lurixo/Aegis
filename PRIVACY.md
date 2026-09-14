@@ -23,10 +23,13 @@ transmitted anywhere by Aegis:
 - **User dictionary** — words you add and words Aegis has learned for you; you can import/export it
   yourself (`filesDir/userdb.txt`).
 - **Clipboard history and saved phrases (常用语)** — kept locally for the clipboard panel
-  (`filesDir/clipboard.txt` and `filesDir/phrases.txt`). You can delete individual entries, and you
-  can switch the clipboard history off altogether. Copy and cut in the editing panel also try to
-  place the selected text on Android's system clipboard for use in other apps. If Android refuses
-  the write, Aegis keeps its local copy and editing continues without a system-write error notice.
+  (`filesDir/clipboard.txt`, `filesDir/clips/`, and `filesDir/phrases.txt`). Clipboard history can
+  retain text and images. You can delete individual entries or switch history off altogether.
+  Copy and cut can place selected text or images on Android's system clipboard for other apps.
+  Pasting an image gives the receiving app read access to that image; it does not grant access
+  to the rest of your history. When history is off, copy and paste still use the system clipboard.
+  Cut removes selected content only after a usable copy has been retained. Clipboard images are
+  included when you export an encrypted backup containing clipboard history.
 - **Which symbols and emoji you reach for** — used to fill the *Common* tab of those two panels
   (`filesDir/symbol_usage.txt` and `filesDir/emoji/symbol_usage.txt`). Nothing at all is counted in
   a field whose app asks for no personalized learning; elsewhere it records the symbol you picked
