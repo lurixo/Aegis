@@ -40,10 +40,10 @@ class RestoreCaptureGuardPinTest {
     }
 
     @Test fun the_active_capture_path_stands_down_during_a_restore() {
-        assertGuardsBeforeRecording("captureClip", "clipboardStore.record(")
+        assertGuardsBeforeRecording("captureClip", "captureSystemClip(")
     }
 
     @Test fun the_passive_system_clip_listener_stands_down_during_a_restore() {
-        assertGuardsBeforeRecording("onSystemClipChanged", "recordTextClip(")
+        assertGuardsBeforeRecording("onSystemClipChanged", "captureSystemClip(")
     }
 }

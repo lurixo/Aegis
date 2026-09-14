@@ -261,7 +261,7 @@ class SelectionCopyTest {
         )
     }
 
-    @Test fun a_copy_with_the_history_switched_off_stores_nothing_and_says_why() {
+    @Test fun copy_and_cut_with_history_switched_off_use_only_the_system_clipboard() {
         val f = fixture()
         app.getSharedPreferences("aegis", Context.MODE_PRIVATE)
             .edit().putBoolean("clip_history", false).commit()
@@ -270,8 +270,14 @@ class SelectionCopyTest {
         edit(f.service, EditAction.COPY)
 
         assertNull(stored(f.service))
-        assertNull("and least of all in the system clipboard", systemClip())
-        assertEquals(app.getString(R.string.edit_copy_needs_history), f.service.toastTextForTest())
+        assertEquals("不该被记", systemClip())
+        assertEquals(app.getString(R.string.edit_copy_done), f.service.toastTextForTest())
+        edit(f.service, EditAction.CUT)
+        assertEquals("不该被记", systemClip())
+        assertNull(stored(f.service))
+        assertEquals("下的内容", f.editor.held())
+        edit(f.service, EditAction.PASTE)
+        assertEquals("不该被记下的内容", f.editor.held())
         app.getSharedPreferences("aegis", Context.MODE_PRIVATE)
             .edit().putBoolean("clip_history", true).commit()
     }
@@ -455,6 +461,37 @@ class SelectionCopyTest {
         assertEquals("", target.value)
         assertEquals(2, refusedWrites())
         assertNull(systemClip())
+    }
+
+
+    @Test fun panel_copy_and_cut_with_history_off_still_publish_to_the_system() {
+        val (f, target) = panelFixture()
+        app.getSharedPreferences("aegis", Context.MODE_PRIVATE).edit().putBoolean("clip_history", false).commit()
+        edit(f.service, EditAction.COPY)
+        assertEquals("bcd", systemClip())
+        assertNull(stored(f.service))
+        edit(f.service, EditAction.CUT)
+        assertEquals("aef", target.value)
+        assertEquals("bcd", systemClip())
+        assertNull(stored(f.service))
+    }
+
+    @Test
+    @Config(shadows = [RefusingClipboard::class])
+    fun failed_system_cut_with_history_off_is_silent_and_preserves_the_only_copy() {
+        val f = fixture()
+        app.getSharedPreferences("aegis", Context.MODE_PRIVATE).edit().putBoolean("clip_history", false).commit()
+        select(f, "abcdef", 1, 4)
+        edit(f.service, EditAction.CUT)
+        assertEquals("abcdef", f.editor.held())
+        assertNull(stored(f.service))
+        assertNull(systemClip())
+        assertTrue(f.service.toastTextForTest().isNullOrEmpty())
+        val (panel, target) = panelFixture()
+        edit(panel.service, EditAction.CUT)
+        assertEquals("abcdef", target.value)
+        assertNull(stored(panel.service))
+        assertTrue(panel.service.toastTextForTest().isNullOrEmpty())
     }
 
 }

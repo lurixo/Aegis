@@ -606,12 +606,28 @@ class AegisInputMethodServiceLifecycleTest {
         assertEquals(f.service.getString(R.string.edit_paste_done), f.service.toastTextForTest())
     }
 
-    @Test fun edit_paste_does_nothing_when_aegis_history_is_empty() {
+    @Test fun edit_paste_uses_system_text_when_aegis_history_is_empty() {
         val f = fixture()
         val connection = RecordingInputConnection(FrameLayout(f.service))
         installInputConnection(f.service, connection)
         f.service.getSystemService(ClipboardManager::class.java)
             .setPrimaryClip(ClipData.newPlainText("system", "SYSTEM_CLIPBOARD"))
+        clipboardStore(f.service).clearHistory()
+
+        handleEdit(f.service, EditAction.PASTE)
+
+        assertEquals("SYSTEM_CLIPBOARD", connection.editable.toString())
+        assertEquals("SYSTEM_CLIPBOARD", connection.committedChunks.joinToString(""))
+        assertTrue(connection.contextMenuActions.isEmpty())
+        assertEquals(f.service.getString(R.string.edit_paste_done), f.service.toastTextForTest())
+    }
+
+    @Test fun edit_paste_does_nothing_when_both_clipboards_are_empty() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        f.service.getSystemService(ClipboardManager::class.java)
+            .clearPrimaryClip()
         clipboardStore(f.service).clearHistory()
 
         handleEdit(f.service, EditAction.PASTE)

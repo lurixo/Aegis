@@ -409,7 +409,6 @@
     <plurals name="edit_cut_partial">
         <item quantity="other">只剪切了 %1$d 个字</item>
     </plurals>
-    <string name="edit_copy_needs_history">剪贴板记录已关闭，无处存放</string>
     <string name="edit_paste_done">已粘贴</string>
     <string name="edit_paste_failed">粘贴失败</string>
     <string name="edit_paste_empty">Aegis 剪贴板为空</string>

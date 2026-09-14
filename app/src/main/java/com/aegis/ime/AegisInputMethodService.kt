@@ -15,6 +15,7 @@
 
 package com.aegis.ime
 
+import android.content.ClipData
 import android.content.Context
 import android.os.LocaleList
 import android.content.res.Configuration
@@ -66,6 +67,7 @@ import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
 import com.aegis.ime.user.ClearedTextStore
 import com.aegis.ime.user.ClipboardStore
+import com.aegis.ime.user.ClipEntry
 import com.aegis.ime.user.CustomSymbolStore
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.LiveUserDictHost
@@ -1014,13 +1016,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 toast(uiString(R.string.edit_select_all_done))
             }
             EditAction.PASTE -> {
-                val latest = clipboardStore.latest()
-                val message = when {
-                    latest == null -> R.string.edit_paste_empty
-                    commitLargeText(latest) -> R.string.edit_paste_done
-                    else -> R.string.edit_paste_failed
-                }
-                toast(uiString(message))
+                pasteClipboard()
                 resetSelectionAnchor()
             }
             EditAction.BACK -> { stopSelecting(); inputView?.showPanel(null) }
@@ -1073,29 +1069,78 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 else if (copyFromPanel(selected, R.string.edit_cut_done)) panelInput.deleteSelection()
             }
             EditAction.PASTE -> {
-                val latest = clipboardStore.latest()
-                val message = when {
-                    latest == null -> R.string.edit_paste_empty
-                    panelInput.commit(latest) -> R.string.edit_paste_done
-                    else -> R.string.edit_paste_failed
-                }
-                toast(uiString(message))
+                pasteClipboard()
             }
             EditAction.BACK -> Unit
         }
     }
 
     private fun copyFromPanel(text: String, notice: Int): Boolean {
-        if (!keepsCopies()) { toast(uiString(R.string.edit_copy_needs_history)); return false }
-        clipboardStore.record(text)
-        refreshOpenClipboardPanel()
-        syncSystemClipboard(text)
+        val keep = keepsCopies()
+        val previousOrder = if (keep) clipboardStore.latestEntry()?.captureOrder else null
+        val publication = syncSystemClipboard(text)
+        if (keep) {
+            clipboardStore.record(text)
+            rememberUnpublishedClipboard(publication, previousOrder)
+            refreshOpenClipboardPanel()
+        }
+        if (!keep && !publication.published) return false
         toast(uiString(notice))
         return true
     }
 
-    private fun syncSystemClipboard(text: String) {
-        runCatching { clipboardManager.setPrimaryClip(android.content.ClipData.newPlainText("Aegis", text)) }
+    private data class SystemClipboardIdentity(val timestamp: Long, val fingerprint: String)
+    private data class ClipboardPublication(val published: Boolean, val unchangedSystem: SystemClipboardIdentity?)
+    private data class UnpublishedClipboard(val system: SystemClipboardIdentity, val entryOrder: Long)
+    private var unpublishedClipboard: UnpublishedClipboard? = null
+
+    private fun systemClipboardIdentity(clip: ClipData?): SystemClipboardIdentity {
+        if (clip == null) return SystemClipboardIdentity(-1L, "")
+        val digest = java.security.MessageDigest.getInstance("SHA-256")
+        fun include(value: String?) {
+            val bytes = value?.toByteArray(Charsets.UTF_8)
+            digest.update(java.nio.ByteBuffer.allocate(4).putInt(bytes?.size ?: -1).array())
+            if (bytes != null) digest.update(bytes)
+        }
+        include(clip.description.label?.toString())
+        include(clip.description.mimeTypeCount.toString())
+        for (index in 0 until clip.description.mimeTypeCount) include(clip.description.getMimeType(index))
+        include(clip.itemCount.toString())
+        for (index in 0 until clip.itemCount) {
+            val item = clip.getItemAt(index)
+            include(item.text?.toString())
+            include(item.htmlText)
+            include(item.uri?.toString())
+            include(item.intent?.toUri(0))
+        }
+        return SystemClipboardIdentity(clip.description.timestamp, digest.digest().joinToString("") { "%02x".format(it) })
+    }
+
+    private fun readSystemClipboardIdentity(): SystemClipboardIdentity? =
+        runCatching { systemClipboardIdentity(clipboardManager.primaryClip) }.getOrNull()
+
+    private fun syncSystemClipboard(text: String): ClipboardPublication {
+        unpublishedClipboard = null
+        val before = readSystemClipboardIdentity()
+        val published = runCatching { clipboardManager.setPrimaryClip(ClipData.newPlainText("Aegis", text)) }.isSuccess
+        val unchanged = if (!published && before != null && before == readSystemClipboardIdentity()) before else null
+        return ClipboardPublication(published, unchanged)
+    }
+
+    private fun rememberUnpublishedClipboard(publication: ClipboardPublication, previousOrder: Long?) {
+        val system = publication.unchangedSystem ?: return
+        val entry = clipboardStore.latestEntry() ?: return
+        if (!entry.isImage && entry.captureOrder != previousOrder) {
+            unpublishedClipboard = UnpublishedClipboard(system, entry.captureOrder)
+        }
+    }
+
+    private fun hasUnpublishedClipboard(clip: ClipData?, entry: ClipEntry?): Boolean {
+        val pending = unpublishedClipboard ?: return false
+        val matches = entry != null && !entry.isImage && entry.captureOrder == pending.entryOrder &&
+            runCatching { systemClipboardIdentity(clip) }.getOrNull() == pending.system
+        if (!matches) unpublishedClipboard = null
+        return matches
     }
 
     internal fun takesRawKeys(info: EditorInfo?): Boolean =
@@ -1115,7 +1160,6 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             toast(uiString(if (cut) R.string.edit_cut_failed else R.string.edit_copy_failed))
             return
         }
-        if (!keepsCopies()) { toast(uiString(R.string.edit_copy_needs_history)); return }
         val from = minOf(selStart, selEnd)
         val to = maxOf(selStart, selEnd)
         if (trackedSelectionSpan() <= ChunkedRead.DIRECT_MAX) {
@@ -1185,18 +1229,24 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             return
         }
         val body = taken.toString()
+        val keep = keepsCopies()
+        val previousOrder = if (keep) clipboardStore.latestEntry()?.captureOrder else null
+        val publication = syncSystemClipboard(body)
+        if (!keep && !publication.published) return
+        if (keep) {
+            if (body.length <= com.aegis.ime.user.ClipboardStore.BIG_THRESHOLD) {
+                recordTextClip(body)
+            } else {
+                clipboardStore.record(body)
+                refreshOpenClipboardPanel()
+            }
+            rememberUnpublishedClipboard(publication, previousOrder)
+        }
         if (cut) {
             if (from != null) ic.setSelection(from, from + body.length)
             ic.commitText("", 1)
             resetSelectionAnchor()
         }
-        if (body.length <= com.aegis.ime.user.ClipboardStore.BIG_THRESHOLD) {
-            recordTextClip(body)
-        } else {
-            clipboardStore.record(body)
-            refreshOpenClipboardPanel()
-        }
-        syncSystemClipboard(body)
         toast(
             if (whole) uiString(if (cut) R.string.edit_cut_done else R.string.edit_copy_done)
             else imeUiContext().resources.getQuantityString(
@@ -1784,23 +1834,46 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun captureClip() {
         if (LiveUserData.restoreInProgress) return
         if (!com.aegis.ime.user.ClipboardStore.shouldCapture(historyEnabled())) return
-        runCatching {
-            val clip = clipboardManager.primaryClip ?: return
-            val item = clip.getItemAt(0) ?: return
-            if (item.uri != null && item.text == null) return
-            clipboardStore.record(item.coerceToText(this)?.toString())
-        }
+        val clip = runCatching { clipboardManager.primaryClip }.getOrNull() ?: return
+        captureSystemClip(clip, showText = false)
     }
 
     private fun onSystemClipChanged() {
         if (LiveUserData.restoreInProgress) return
         if (!com.aegis.ime.user.ClipboardStore.shouldCapture(historyEnabled())) return
         val clip = runCatching { clipboardManager.primaryClip }.getOrNull() ?: return
+        captureSystemClip(clip, showText = true)
+    }
+
+    private fun captureSystemClip(clip: ClipData, showText: Boolean) {
+        if (hasUnpublishedClipboard(clip, clipboardStore.latestEntry())) return
         if (clip.itemCount == 0) return
         val item = clip.getItemAt(0)
         if (item.uri != null && item.text == null) return
-        val t = runCatching { item.coerceToText(this)?.toString() }.getOrNull().orEmpty()
-        if (t.isNotBlank()) recordTextClip(t)
+        val text = runCatching { item.coerceToText(this)?.toString() }.getOrNull().orEmpty()
+        if (text.isBlank()) return
+        if (showText) recordTextClip(text) else clipboardStore.record(text)
+    }
+
+    private fun pasteClipboard() {
+        val system = runCatching { clipboardManager.primaryClip }.getOrNull()
+        val item = system?.takeIf { it.itemCount > 0 }?.getItemAt(0)
+        val systemText = item?.text?.toString()
+        val entry = clipboardStore.latestEntry()
+        val localPublication = keepsCopies() && hasUnpublishedClipboard(system, entry)
+        if (!systemText.isNullOrEmpty() && (systemText.isBlank() && !localPublication || !keepsCopies() || entry == null)) {
+            pastePlainText(systemText)
+            return
+        }
+        when {
+            entry == null -> toast(uiString(R.string.edit_paste_empty))
+            else -> pastePlainText(entry.body())
+        }
+    }
+
+    private fun pastePlainText(text: CharSequence?) {
+        val inserted = text?.let { commitLargeText(it) } == true
+        toast(uiString(if (inserted) R.string.edit_paste_done else R.string.edit_paste_failed))
     }
 
     private fun recordTextClip(t: String) {

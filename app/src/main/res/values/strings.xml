@@ -413,7 +413,6 @@
         <item quantity="one">Cut %1$d character only</item>
         <item quantity="other">Cut %1$d characters only</item>
     </plurals>
-    <string name="edit_copy_needs_history">Clipboard history is off, so there is nowhere to keep this</string>
     <string name="edit_paste_done">Pasted</string>
     <string name="edit_paste_failed">Could not paste</string>
     <string name="edit_paste_empty">Aegis clipboard is empty</string>
