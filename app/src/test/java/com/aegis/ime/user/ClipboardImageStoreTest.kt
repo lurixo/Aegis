@@ -316,6 +316,150 @@ class ClipboardImageStoreTest {
         assertNull(ClipboardImages.imageMimeType(context.contentResolver, file, file.getItemAt(0)))
     }
 
+    @Test fun successful_image_publication_replaces_the_single_retained_image() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        val first = record(store).getOrThrow()
+        val firstFile = first.imageFile()!!
+        assertTrue(store.retainPublishedImage(first) { true })
+        assertTrue(store.clearHistory())
+        store.flushPendingWrites()
+        val second = record(store, source(png + byteArrayOf(0))).getOrThrow()
+        val secondFile = second.imageFile()!!
+        assertNotEquals(firstFile.name, secondFile.name)
+        assertTrue(store.retainPublishedImage(second) { assertTrue(firstFile.isFile); true })
+        assertTrue(store.clearHistory())
+        store.flushPendingWrites()
+        assertFalse(firstFile.exists())
+        assertEquals(listOf(secondFile.name), File(dir, "clips/images").listFiles()!!.map { it.name })
+    }
+
+    @Test fun rejected_and_throwing_publications_keep_the_previous_retained_image() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        val first = record(store).getOrThrow()
+        val firstFile = first.imageFile()!!
+        assertTrue(store.retainPublishedImage(first) { true })
+        assertTrue(store.clearHistory())
+        store.flushPendingWrites()
+        val second = record(store, source(png + byteArrayOf(0))).getOrThrow()
+        val secondFile = second.imageFile()!!
+        assertFalse(store.retainPublishedImage(second) { false })
+        assertFalse(store.retainPublishedImage(second) { throw IllegalStateException("publication failed") })
+        assertTrue(store.clearHistory())
+        store.flushPendingWrites()
+        val reloaded = store(dir)
+        reloaded.record("after restart")
+        reloaded.flushPendingWrites()
+        assertArrayEquals(png, firstFile.readBytes())
+        assertFalse(secondFile.exists())
+    }
+
+    @Test fun failed_reference_write_does_not_publish_or_replace_the_previous_pin() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        val first = record(store).getOrThrow()
+        val firstFile = first.imageFile()!!
+        assertTrue(store.retainPublishedImage(first) { true })
+        store.flushPendingWrites()
+        val second = record(store, source(png + byteArrayOf(0))).getOrThrow()
+        val blocker = store.tempFileFor(File(dir, "clips/published-image.ref"))
+        assertTrue(blocker.mkdir())
+        var called = false
+        assertFalse(store.retainPublishedImage(second) { called = true; true })
+        assertFalse(called)
+        blocker.delete()
+        assertTrue(store.clearHistory())
+        store.flushPendingWrites()
+        assertArrayEquals(png, firstFile.readBytes())
+        assertNull(second.imageFile())
+    }
+
+    @Test fun publication_supports_reentrant_history_updates_without_nested_publication() {
+        val store = store()
+        val entry = record(store).getOrThrow()
+        assertTrue(store.retainPublishedImage(entry) {
+            assertFalse(store.retainPublishedImage(entry) { fail("nested publication"); true })
+            store.record("listener update")
+            store.clearHistory()
+            true
+        })
+        store.flushPendingWrites()
+        assertTrue(store.history().isEmpty())
+        assertArrayEquals(png, entry.imageFile()!!.readBytes())
+    }
+
+    @Test fun history_restore_preserves_published_image_without_readding_it_to_history() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        val entry = record(store).getOrThrow()
+        assertTrue(store.retainPublishedImage(entry) { true })
+        store.flushPendingWrites()
+        store.stopSaving()
+        val restoring = store(dir)
+        LiveUserData.restoreInProgress = true
+        try {
+            restoring.importHistory(listOf(ClipEntry.of("restored")), merge = false)
+            assertFalse(restoring.retainPublishedImage(entry) { fail("published during restore"); true })
+        } finally {
+            LiveUserData.restoreInProgress = false
+        }
+        assertEquals(listOf("restored"), restoring.history().mapNotNull { it.body() })
+        assertArrayEquals(png, entry.imageFile()!!.readBytes())
+    }
+
+    @Test fun image_publication_rejects_missing_or_foreign_files_before_callback() {
+        val store = store()
+        val foreign = record(store()).getOrThrow()
+        assertFalse(store.retainPublishedImage(foreign) { fail("foreign publication"); true })
+        val missing = record(store).getOrThrow()
+        missing.imageFile()!!.delete()
+        assertFalse(store.retainPublishedImage(missing) { fail("missing publication"); true })
+        assertFalse(store.retainPublishedImage(ClipEntry.of("text")) { fail("text publication"); true })
+    }
+
+    @Test fun rejected_first_publication_does_not_retain_an_image() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        val entry = record(store).getOrThrow()
+        val file = entry.imageFile()!!
+        assertFalse(store.retainPublishedImage(entry) { false })
+        assertTrue(store.clearHistory())
+        store.flushPendingWrites()
+        assertFalse(file.exists())
+        assertFalse(File(dir, "clips/published-image.ref").exists())
+    }
+
+    @Test fun failed_publication_reference_rollback_defers_cleanup_until_recovered() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        val first = record(store).getOrThrow()
+        val firstFile = first.imageFile()!!
+        assertTrue(store.retainPublishedImage(first) { true })
+        store.flushPendingWrites()
+        val second = record(store, source(png + byteArrayOf(0))).getOrThrow()
+        val secondFile = second.imageFile()!!
+        val blocker = store.tempFileFor(File(dir, "clips/published-image.ref"))
+        assertFalse(store.retainPublishedImage(second) {
+            assertTrue(blocker.mkdir())
+            File(blocker, "keep").writeText("keep the staging path blocked")
+            false
+        })
+        assertTrue(store.clearHistory())
+        store.flushPendingWrites()
+        assertTrue(firstFile.isFile)
+        assertTrue(File(blocker, "keep").delete())
+        assertTrue(blocker.delete())
+        store.record("retry after storage recovery")
+        store.flushPendingWrites()
+        assertTrue(firstFile.isFile)
+        assertFalse(secondFile.exists())
+        val reloaded = store(dir)
+        reloaded.clearHistory()
+        reloaded.flushPendingWrites()
+        assertArrayEquals(png, firstFile.readBytes())
+    }
+
     @Test fun paused_history_input_image_load_does_not_modify_history_or_system_clipboard() {
         val dir = temp.newFolder()
         val store = store(dir)
@@ -376,6 +520,22 @@ class ClipboardImageStoreTest {
         store.flushPendingWrites()
         assertEquals(listOf("restored"), store.history().mapNotNull { it.body() })
         assertFalse(file.exists())
+    }
+
+    @Test fun input_image_close_keeps_history_and_published_references() {
+        val store = store()
+        val entry = record(store).getOrThrow()
+        val file = entry.imageFile()!!
+        store.retainImageForInput(entry)!!.close()
+        store.flushPendingWrites()
+        assertArrayEquals(png, file.readBytes())
+        val lease = store.retainImageForInput(entry)!!
+        assertTrue(store.retainPublishedImage(entry) { true })
+        store.clearHistory()
+        store.flushPendingWrites()
+        lease.close()
+        store.flushPendingWrites()
+        assertArrayEquals(png, file.readBytes())
     }
 
     @Test fun input_image_close_does_not_delete_a_reference_left_by_failed_history_write() {

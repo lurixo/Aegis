@@ -160,6 +160,7 @@ class ClipboardStore(private val dir: File) {
     private val phraseFile get() = File(dir, "phrases.txt")
     private fun clipsDir() = File(dir, "clips")
     private fun imagesDir() = File(clipsDir(), "images")
+    private fun publishedImageFile() = File(clipsDir(), "published-image.ref")
 
     private val tmpTag = TMP_TAGS.incrementAndGet()
 
@@ -167,9 +168,15 @@ class ClipboardStore(private val dir: File) {
 
     private val history = ArrayList<ClipEntry>()
     private val inputImageReferences = HashMap<String, Int>()
+    private var publishingImage = false
+    private var publishingImageName: String? = null
     private var persistedImages: Set<String>? = null
     private val sweepingImages = HashSet<String>()
     private val publication = Any()
+    private var publicationRollbackPending = false
+    private var publicationRollbackName: String? = null
+    private var publishedImage: String? = null
+    private var publishedImageKnown = false
 
     private var writer: Thread? = null
     private val io = Executors.newSingleThreadExecutor { r ->
@@ -256,6 +263,10 @@ class ClipboardStore(private val dir: File) {
                 }
             }
         }.isSuccess
+        synchronized(publication) {
+            publishedImageKnown = false
+            runCatching { publishedImageName() }
+        }
         return LoadedHistory(if (readable) entries else emptyList(), readable)
     }
 
@@ -600,9 +611,10 @@ class ClipboardStore(private val dir: File) {
 
     private fun removeUnreferencedImage(name: String) {
         val claimed = synchronized(publication) {
-            if (LiveUserData.restoreInProgress) return
+            if (LiveUserData.restoreInProgress || !finishPublicationRollback()) return
+            val published = runCatching { publishedImageName() }.getOrElse { return }
             synchronized(history) {
-                val kept = name in inputImageReferences ||
+                val kept = name == published || name == publishingImageName || name in inputImageReferences ||
                     persistedImages?.contains(name) != false || name in sweepingImages || history.any { imageName(it) == name }
                 !kept && sweepingImages.add(name)
             }
@@ -618,11 +630,13 @@ class ClipboardStore(private val dir: File) {
     private fun sweepImages(referenced: Set<String>) {
         val files = imagesDir().listFiles() ?: return
         val victims = synchronized(publication) {
+            if (!finishPublicationRollback()) return
+            val published = runCatching { publishedImageName() }.getOrElse { return }
             synchronized(history) {
                 val listed = history.mapNotNullTo(HashSet(), ::imageName)
                 files.map { it.name }.filter { name ->
-                    ClipboardImages.isImageFileName(name) && name !in referenced &&
-                        name !in inputImageReferences && name !in listed && name !in sweepingImages
+                    ClipboardImages.isImageFileName(name) && name !in referenced && name != published &&
+                        name != publishingImageName && name !in inputImageReferences && name !in listed && name !in sweepingImages
                 }.also { sweepingImages.addAll(it) }
             }
         }
@@ -631,6 +645,68 @@ class ClipboardStore(private val dir: File) {
         } finally {
             synchronized(history) { sweepingImages.removeAll(victims.toSet()) }
         }
+    }
+
+    fun retainPublishedImage(entry: ClipEntry, publish: () -> Boolean): Boolean {
+        if (LiveUserData.restoreInProgress) return false
+        val image = ownedImage(entry) ?: return false
+        val name = image.name
+        synchronized(history) {
+            if (publishingImage || LiveUserData.restoreInProgress || name in sweepingImages) return false
+            publishingImage = true
+            publishingImageName = name
+        }
+        try {
+            if (!image.isFile) return false
+            val previous = synchronized(publication) {
+                if (!finishPublicationRollback()) return false
+                val previous = runCatching { publishedImageName() }.getOrElse { return false }
+                if (previous != name && runCatching { atomicWrite(publishedImageFile(), name) }.isFailure) return false
+                previous
+            }
+            val published = runCatching(publish).getOrDefault(false)
+            if (previous != name) synchronized(publication) {
+                if (published) {
+                    publishedImage = name
+                } else {
+                    publicationRollbackName = previous
+                    publicationRollbackPending = true
+                    finishPublicationRollback()
+                }
+            }
+            if (published && previous != name) saveHistoryLater()
+            return published
+        } finally {
+            synchronized(history) {
+                publishingImage = false
+                publishingImageName = null
+            }
+        }
+    }
+
+    private fun publishedImageName(): String? {
+        if (!publishedImageKnown) {
+            val file = publishedImageFile()
+            publishedImage = if (file.exists()) file.readText().takeIf(ClipboardImages::isImageFileName) else null
+            publishedImageKnown = true
+        }
+        return publishedImage
+    }
+
+    private fun finishPublicationRollback(): Boolean {
+        if (!publicationRollbackPending) return true
+        val restored = runCatching {
+            val previous = publicationRollbackName
+            if (previous != null) atomicWrite(publishedImageFile(), previous)
+            else if (publishedImageFile().exists() && !publishedImageFile().delete()) throw IOException("clipboard image reference could not be restored")
+        }.isSuccess
+        if (restored) {
+            publishedImage = publicationRollbackName
+            publishedImageKnown = true
+            publicationRollbackPending = false
+            publicationRollbackName = null
+        }
+        return restored
     }
 
     fun editClip(key: String, newText: String): Boolean {
