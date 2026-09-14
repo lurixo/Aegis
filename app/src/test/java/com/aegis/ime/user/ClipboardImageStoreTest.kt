@@ -232,6 +232,25 @@ class ClipboardImageStoreTest {
         assertTrue(File(dir, "clips/images").listFiles().orEmpty().isEmpty())
     }
 
+    @Test fun image_clipdata_uses_readable_content_uri_and_original_mime_without_text() {
+        val store = store(context.filesDir)
+        val entry = record(store).getOrThrow()
+        val clip = ClipboardImages.clipData(context, entry)!!
+        assertEquals("image/png", clip.description.getMimeType(0))
+        assertNull(clip.getItemAt(0).text)
+        val uri = clip.getItemAt(0).uri!!
+        assertEquals("content", uri.scheme)
+        assertEquals(context.packageName + ".clipboard.images", uri.authority)
+        context.contentResolver.openInputStream(uri).use { assertArrayEquals(png, it!!.readBytes()) }
+        assertTrue(runCatching { context.contentResolver.openOutputStream(uri, "w") }.isFailure)
+        assertEquals(0, context.contentResolver.delete(uri, null, null))
+        assertTrue(entry.imageFile()!!.isFile)
+        assertNull(ClipboardImages.uri(context, ClipEntry.of("text")))
+        assertTrue(runCatching {
+            FileProvider.getUriForFile(context, uri.authority!!, File(context.filesDir, "userdb.txt"))
+        }.isFailure)
+    }
+
 
     @Test fun failed_history_delete_keeps_the_persisted_image_available_after_reload() {
         val dir = temp.newFolder()
@@ -314,6 +333,25 @@ class ClipboardImageStoreTest {
         assertEquals("image/png", ClipboardImages.imageMimeType(context.contentResolver, clip, clip.getItemAt(0)))
         val file = ClipData("file", arrayOf("image/png"), ClipData.Item(Uri.parse("file:///private.png")))
         assertNull(ClipboardImages.imageMimeType(context.contentResolver, file, file.getItemAt(0)))
+    }
+
+    @Test fun published_image_survives_history_clear_and_store_recreation() {
+        val store = store(context.filesDir)
+        val entry = record(store).getOrThrow()
+        val clip = ClipboardImages.clipData(context, entry)!!
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        assertTrue(store.retainPublishedImage(entry) { clipboard.setPrimaryClip(clip); true })
+        assertTrue(store.clearHistory())
+        store.flushPendingWrites()
+        assertTrue(store.history().isEmpty())
+        context.contentResolver.openInputStream(clipboard.primaryClip!!.getItemAt(0).uri).use {
+            assertArrayEquals(png, it!!.readBytes())
+        }
+        val reloaded = store(context.filesDir)
+        reloaded.record("new text")
+        reloaded.flushPendingWrites()
+        assertEquals(listOf("new text"), reloaded.history().mapNotNull { it.body() })
+        assertArrayEquals(png, entry.imageFile()!!.readBytes())
     }
 
     @Test fun successful_image_publication_replaces_the_single_retained_image() {

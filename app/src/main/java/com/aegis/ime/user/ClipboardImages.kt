@@ -17,9 +17,12 @@ package com.aegis.ime.user
 
 import android.content.ClipData
 import android.content.ContentResolver
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import androidx.core.content.FileProvider
+import com.aegis.ime.R
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -51,6 +54,17 @@ object ClipboardImages {
         if (resolved?.startsWith("image/") == true) return resolved
         return (0 until clip.description.mimeTypeCount).asSequence()
             .map { clip.description.getMimeType(it) }.firstOrNull { it.startsWith("image/") }
+    }
+
+    fun uri(context: Context, entry: ClipEntry): Uri? {
+        val image = entry.imageFile() ?: return null
+        return runCatching { FileProvider.getUriForFile(context, context.packageName + ".clipboard.images", image) }.getOrNull()
+    }
+
+    fun clipData(context: Context, entry: ClipEntry): ClipData? {
+        val uri = uri(context, entry) ?: return null
+        val mime = entry.mimeType ?: return null
+        return ClipData(context.getString(R.string.clip_image_label), arrayOf(mime), ClipData.Item(uri))
     }
 
     internal fun importImage(directory: File, resolver: ContentResolver, uri: Uri, declaredType: String?): Imported {
