@@ -18,6 +18,8 @@ package com.aegis.ime.backup
 import android.content.SharedPreferences
 import com.aegis.ime.user.AtomicFileSwap
 import com.aegis.ime.user.ClipboardStore
+import com.aegis.ime.user.ClipEntry
+import com.aegis.ime.user.ClipboardImages
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.SymbolUsageStore
 import com.aegis.ime.user.UserDictEdit
@@ -128,10 +130,9 @@ object BackupManager {
         }
         if (BackupItem.CLIPBOARD in omitted) return paths
         val referencedClips = referencedClipSidecarNames(File(filesDir, CLIPBOARD))
-        File(filesDir, CLIPS_DIR).listFiles()?.sortedBy { it.name }?.forEach { f ->
-            if (f.name !in referencedClips) return@forEach
-            val rel = "$CLIPS_DIR/${f.name}"
-            if (f.isFile && BackupArchive.sanitizedRelativePath(rel) != null) paths.add(rel)
+        for (name in referencedClips.sorted()) {
+            val rel = "$CLIPS_DIR/$name"
+            if (File(filesDir, rel).isFile && BackupArchive.sanitizedRelativePath(rel) != null) paths.add(rel)
         }
         return paths
     }
@@ -141,7 +142,10 @@ object BackupManager {
         val names = LinkedHashSet<String>()
         runCatching {
             index.forEachLine { line ->
-                if (line.startsWith(BIG_CLIP_LINE)) {
+                val image = ClipEntry.imageReference(line)
+                if (image != null) {
+                    names.add("images/${image.first}.${ClipboardImages.extension(image.second)}")
+                } else if (line.startsWith(BIG_CLIP_LINE)) {
                     val name = line.substring(BIG_CLIP_LINE.length) + ".txt"
                     val rel = "$CLIPS_DIR/$name"
                     if (BackupArchive.sanitizedRelativePath(rel) != null) names.add(name)

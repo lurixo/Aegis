@@ -88,6 +88,16 @@
             android:taskAffinity=""
             android:theme="@style/Theme.Aegis.Transparent" />
 
+        <provider
+            android:name=".user.ClipboardImageProvider"
+            android:authorities="${applicationId}.clipboard.images"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/clipboard_image_paths" />
+        </provider>
+
         <service
             android:name=".AegisInputMethodService"
             android:exported="true"

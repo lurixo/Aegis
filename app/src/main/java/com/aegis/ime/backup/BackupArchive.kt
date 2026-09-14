@@ -15,6 +15,8 @@
 
 package com.aegis.ime.backup
 
+import com.aegis.ime.user.ClipboardImages
+
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
@@ -149,6 +151,7 @@ internal object BackupArchive {
         if (name.startsWith("/") || name.contains("\\") || name.contains("..")) return null
         if (name in TOP_LEVEL_FILES) return name
         if (name == "emoji/symbol_usage.txt") return name
+        if (name.startsWith("clips/images/") && ClipboardImages.isImageFileName(name.substring("clips/images/".length))) return name
         if (name.startsWith("clips/")) {
             val token = name.substring("clips/".length)
             if (token.endsWith(".txt")) {

@@ -15,6 +15,8 @@
 
 package com.aegis.ime.user
 
+import android.content.ContentResolver
+import android.net.Uri
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files
@@ -29,25 +31,34 @@ class ClipEntry private constructor(
     private val origin: File?,
     internal val hash: String?,
     @Volatile private var resident: String?,
+    val mimeType: String? = null,
 ) {
 
     @Volatile
     private var head: String? = null
 
+    internal var captureOrder: Long = 0L
+
     val available: Boolean =
         hash == null || resident != null || local?.isFile == true || origin?.isFile == true
 
+    val isImage: Boolean get() = mimeType != null
+
     val key: String = when {
-        hash == null -> resident.orEmpty()
+        isImage -> IMAGE_KEY + hash + "\t" + mimeType
+        hash == null -> resident.orEmpty().let { if (it.startsWith(IMAGE_KEY) || it.startsWith(IMAGE_TEXT_KEY)) IMAGE_TEXT_KEY + it else it }
         available -> BIG_KEY + hash
         else -> LOST_KEY + hash
     }
 
     private fun source(): File? = local?.takeIf { it.isFile } ?: origin?.takeIf { it.isFile }
 
-    fun body(): String? = resident ?: source()?.let { runCatching { it.readText() }.getOrNull() }
+    fun body(): String? = if (isImage) null else resident ?: source()?.let { runCatching { it.readText() }.getOrNull() }
+
+    fun imageFile(): File? = if (isImage) source() else null
 
     fun preview(): String {
+        if (isImage) return ""
         resident?.let { return it }
         val h = hash ?: return ""
         if (!available) return lostLabel(h)
@@ -78,6 +89,8 @@ class ClipEntry private constructor(
 
         const val PREVIEW_CHARS = 2 * 1024
 
+        private const val IMAGE_KEY = "I\t"
+        private const val IMAGE_TEXT_KEY = " I:\t"
         private const val BIG_KEY = "B\t"
         private const val LOST_KEY = " B?\t"
         private const val LOST_MARK = "⚠ "
@@ -87,7 +100,17 @@ class ClipEntry private constructor(
             s.length == SIDECAR_HASH_CHARS && s.all { it in '0'..'9' || it in 'a'..'f' }
 
         internal fun isReferenceKey(key: String): Boolean =
-            key.startsWith(LOST_KEY) || (key.startsWith(BIG_KEY) && isSidecarHash(key.substring(BIG_KEY.length)))
+            key.startsWith(LOST_KEY) || imageReference(key) != null || (key.startsWith(BIG_KEY) && isSidecarHash(key.substring(BIG_KEY.length)))
+
+        internal fun imageReference(line: String): Pair<String, String>? {
+            if (!line.startsWith(IMAGE_KEY)) return null
+            val parts = line.substring(IMAGE_KEY.length).split('\t')
+            if (parts.size != 2 || !isSidecarHash(parts[0]) || ClipboardImages.extension(parts[1]) == null) return null
+            return parts[0] to parts[1]
+        }
+
+        internal fun image(dir: File, hash: String, mimeType: String, origin: File? = null): ClipEntry =
+            ClipEntry(File(dir, "$hash.${ClipboardImages.extension(mimeType)}"), origin, hash, null, mimeType)
 
         fun of(text: String): ClipEntry = ClipEntry(null, null, null, text)
 
@@ -125,9 +148,20 @@ class PhraseChange(val edit: PhraseEdit, val count: Int, val requested: Int, val
 
 class ClipboardStore(private val dir: File) {
 
+    class InputImageLease internal constructor(val entry: ClipEntry, release: () -> Unit) : AutoCloseable {
+        private var release: (() -> Unit)? = release
+
+        override fun close() {
+            val action = synchronized(this) { release.also { release = null } }
+            action?.invoke()
+        }
+    }
+
     private val histFile get() = File(dir, "clipboard.txt")
     private val phraseFile get() = File(dir, "phrases.txt")
     private fun clipsDir() = File(dir, "clips")
+    private fun imagesDir() = File(clipsDir(), "images")
+    private fun publishedImageFile() = File(clipsDir(), "published-image.ref")
 
     private val tmpTag = TMP_TAGS.incrementAndGet()
 
@@ -136,12 +170,19 @@ class ClipboardStore(private val dir: File) {
     internal fun tempFileFor(dest: File): File = AtomicFileSwap.stagingFor(dest, tmpTag)
 
     private val history = ArrayList<ClipEntry>()
+    private val inputImageReferences = HashMap<String, Int>()
+    private var publishingImage = false
+    private var publicationRollbackPending = false
+    private var publicationRollbackName: String? = null
 
     private var writer: Thread? = null
     private val io = Executors.newSingleThreadExecutor { r ->
         Thread(r, "aegis-clip-io").apply { isDaemon = true }.also { writer = it }
     }
+    private val captureOrders = AtomicLong(0)
     private val saveGen = AtomicLong(0)
+    private val imageCaptureGen = AtomicLong(0)
+    private val inputImageGen = AtomicLong(0)
     private val phrasesPending = AtomicLong(0)
 
     private class Phrase(var text: String, var note: String = "")
@@ -190,6 +231,8 @@ class ClipboardStore(private val dir: File) {
     private fun clipWritesAllowed(): Boolean = historyReadable && !LiveUserData.restoreInProgress
 
     fun load() {
+        imageCaptureGen.incrementAndGet()
+        inputImageGen.incrementAndGet()
         flushPendingWrites()
         synchronized(history) {
             history.clear()
@@ -210,6 +253,7 @@ class ClipboardStore(private val dir: File) {
     private fun purgeLegacyImageDir() { runCatching { File(dir, "clipboard_images").deleteRecursively() } }
 
     private fun readEntry(line: String): ClipEntry? {
+        ClipEntry.imageReference(line)?.let { (hash, mime) -> return ClipEntry.image(imagesDir(), hash, mime) }
         if (line.startsWith(BIG_LINE)) {
             val hash = line.substring(BIG_LINE.length)
             if (ClipEntry.isSidecarHash(hash)) return ClipEntry.stored(clipsDir(), hash)
@@ -276,17 +320,64 @@ class ClipboardStore(private val dir: File) {
     fun record(text: String?) {
         if (text.isNullOrBlank()) return
         if (LiveUserData.restoreInProgress || !historyReadable) return
-        val entry = adopt(text)
+        val entry = adopt(text).apply { captureOrder = captureOrders.incrementAndGet() }
         val pending = synchronized(history) {
             history.remove(entry)
-            history.add(0, entry)
+            val at = history.indexOfFirst { it.captureOrder <= entry.captureOrder }.let { if (it < 0) history.size else it }
+            history.add(at, entry)
             PendingWrite(saveGen.incrementAndGet(), ArrayList(history))
         }
         if (!historyReadable) return
         onWriteLane { if (pending.gen == saveGen.get()) runCatching { writeHistory(pending.rows) } }
     }
 
+    fun recordImage(
+        resolver: ContentResolver,
+        uri: Uri,
+        mimeType: String? = null,
+        callback: (Result<ClipEntry>) -> Unit = {},
+    ) {
+        val captureGen = imageCaptureGen.get()
+        val captureOrder = captureOrders.incrementAndGet()
+        fun report(result: Result<ClipEntry>) { clipReportLane.execute { callback(result) } }
+        if (!clipWritesAllowed()) {
+            report(Result.failure(IOException("clipboard history is unavailable")))
+            return
+        }
+        val queued = runCatching {
+            io.execute {
+                val result = runCatching {
+                    if (!clipWritesAllowed() || captureGen != imageCaptureGen.get()) throw IOException("clipboard capture was cancelled")
+                    val imported = ClipboardImages.importImage(imagesDir(), resolver, uri, mimeType)
+                    val entry = ClipEntry.image(imagesDir(), imported.hash, imported.mimeType).apply { this.captureOrder = captureOrder }
+                    try {
+                        if (!clipWritesAllowed() || captureGen != imageCaptureGen.get()) throw IOException("clipboard capture was cancelled")
+                        synchronized(history) {
+                            if (!clipWritesAllowed() || captureGen != imageCaptureGen.get()) throw IOException("clipboard capture was cancelled")
+                            val next = ArrayList(history)
+                            next.remove(entry)
+                            val at = next.indexOfFirst { it.captureOrder <= captureOrder }.let { if (it < 0) next.size else it }
+                            next.add(at, entry)
+                            writeHistory(next)
+                            history.clear()
+                            history.addAll(next)
+                            saveGen.incrementAndGet()
+                        }
+                    } catch (failure: Exception) {
+                        if (imported.created) synchronized(history) { removeUnreferencedInputImage(imported.file.name) }
+                        throw failure
+                    }
+                    entry
+                }
+                report(result)
+            }
+        }
+        queued.exceptionOrNull()?.let { report(Result.failure(it)) }
+    }
+
     fun importHistory(entries: List<ClipEntry>, merge: Boolean) {
+        imageCaptureGen.incrementAndGet()
+        inputImageGen.incrementAndGet()
         flushPendingWrites()
         val incoming = entries.mapNotNull(::adopt)
         val snapshot = synchronized(history) {
@@ -309,6 +400,7 @@ class ClipboardStore(private val dir: File) {
         if (text.length > BIG_THRESHOLD) ClipEntry.pending(clipsDir(), sha256(text), text) else ClipEntry.of(text)
 
     private fun adopt(entry: ClipEntry): ClipEntry? {
+        if (entry.isImage) return ClipEntry.image(imagesDir(), entry.hash!!, entry.mimeType!!, entry.imageFile())
         entry.hash?.let { hash ->
             val pending = entry.pendingBody()
             return if (pending != null) ClipEntry.pending(clipsDir(), hash, pending)
@@ -322,14 +414,142 @@ class ClipboardStore(private val dir: File) {
 
     fun deleteAll(texts: Collection<String>): Boolean {
         if (!clipWritesAllowed()) { reportClipWrite(false); return false }
+        imageCaptureGen.incrementAndGet()
         val keys = texts.toSet()
         if (!synchronized(history) { history.removeAll { it.key in keys } }) return true
         saveHistoryLater()
         return true
     }
 
-    fun clipBody(key: String): String? =
-        synchronized(history) { history.firstOrNull { it.key == key } }?.body()
+    fun clipEntry(key: String): ClipEntry? = synchronized(history) { history.firstOrNull { it.key == key } }
+
+    fun latestEntry(): ClipEntry? = synchronized(history) { history.firstOrNull() }
+
+    fun retainImageForInput(entry: ClipEntry): InputImageLease? = synchronized(history) {
+        if (LiveUserData.restoreInProgress || io.isShutdown) return null
+        val image = ownedImage(entry) ?: return null
+        inputImageReferences[image.name] = (inputImageReferences[image.name] ?: 0) + 1
+        InputImageLease(entry) { releaseInputImage(image.name) }
+    }
+
+    fun loadImageForInput(
+        resolver: ContentResolver,
+        uri: Uri,
+        mimeType: String? = null,
+        callback: (Result<InputImageLease>) -> Unit,
+    ) {
+        val generation = inputImageGen.get()
+        fun allowed() = !LiveUserData.restoreInProgress && !io.isShutdown && generation == inputImageGen.get()
+        fun report(result: Result<InputImageLease>) {
+            runCatching {
+                clipReportLane.execute {
+                    val delivered = if (result.isSuccess && !allowed()) {
+                        result.getOrNull()?.close()
+                        Result.failure<InputImageLease>(IOException("input image loading was cancelled"))
+                    } else result
+                    try { callback(delivered) } catch (failure: Throwable) {
+                        delivered.getOrNull()?.close()
+                        throw failure
+                    }
+                }
+            }.onFailure { result.getOrNull()?.close() }
+        }
+        if (!allowed()) {
+            report(Result.failure(IOException("input image loading is unavailable")))
+            return
+        }
+        runCatching {
+            io.execute {
+                val result = runCatching {
+                    if (!allowed()) throw IOException("input image loading was cancelled")
+                    val imported = ClipboardImages.importImage(imagesDir(), resolver, uri, mimeType)
+                    try {
+                        synchronized(history) {
+                            if (!allowed()) throw IOException("input image loading was cancelled")
+                            retainImageForInput(ClipEntry.image(imagesDir(), imported.hash, imported.mimeType))
+                                ?: throw IOException("input image is unavailable")
+                        }
+                    } catch (failure: Throwable) {
+                        if (imported.created) synchronized(history) { removeUnreferencedInputImage(imported.file.name) }
+                        throw failure
+                    }
+                }
+                report(result)
+            }
+        }.onFailure { report(Result.failure(it)) }
+    }
+
+    private fun ownedImage(entry: ClipEntry): File? {
+        val image = entry.imageFile() ?: return null
+        val name = "${entry.hash}.${ClipboardImages.extension(entry.mimeType ?: return null)}"
+        return image.takeIf {
+            image.name == name && ClipboardImages.isImageFileName(name) &&
+                image.length() in 1L..ClipboardImages.MAX_IMAGE_BYTES &&
+                runCatching { image.canonicalFile.parentFile == imagesDir().canonicalFile }.getOrDefault(false)
+        }
+    }
+
+    private fun releaseInputImage(name: String) {
+        val released = synchronized(history) {
+            val count = inputImageReferences[name] ?: return
+            if (count > 1) { inputImageReferences[name] = count - 1; false }
+            else { inputImageReferences.remove(name); true }
+        }
+        if (released) onWriteLane { synchronized(history) { removeUnreferencedInputImage(name) } }
+    }
+
+    private fun removeUnreferencedInputImage(name: String) {
+        if (LiveUserData.restoreInProgress) return
+        if (name in inputImageReferences || history.any { it.isImage && it.imageFile()?.name == name }) return
+        if (!finishPublicationRollback()) return
+        runCatching {
+            if (publishedImageName() == name) return
+            if (histFile.exists() && Files.readAllLines(histFile.toPath()).any { line ->
+                    ClipEntry.imageReference(line)?.let { "${it.first}.${ClipboardImages.extension(it.second)}" == name } == true
+                }) return
+            File(imagesDir(), name).delete()
+        }
+    }
+
+    fun retainPublishedImage(entry: ClipEntry, publish: () -> Boolean): Boolean = synchronized(history) {
+        if (publishingImage || LiveUserData.restoreInProgress) return false
+        val image = ownedImage(entry) ?: return false
+        val name = image.name
+        if (!finishPublicationRollback()) return false
+        val previous = runCatching { publishedImageName() }.getOrElse { return false }
+        if (previous != name && runCatching { atomicWrite(publishedImageFile(), name) }.isFailure) return false
+        publishingImage = true
+        val published = try { runCatching(publish).getOrDefault(false) } finally { publishingImage = false }
+        if (!published && previous != name) {
+            publicationRollbackName = previous
+            publicationRollbackPending = true
+            finishPublicationRollback()
+        }
+        if (published && previous != name) saveHistoryLater()
+        published
+    }
+
+    private fun publishedImageName(): String? {
+        val file = publishedImageFile()
+        if (!file.exists()) return null
+        return file.readText().takeIf(ClipboardImages::isImageFileName)
+    }
+
+    private fun finishPublicationRollback(): Boolean {
+        if (!publicationRollbackPending) return true
+        val restored = runCatching {
+            val previous = publicationRollbackName
+            if (previous != null) atomicWrite(publishedImageFile(), previous)
+            else if (publishedImageFile().exists() && !publishedImageFile().delete()) throw IOException("clipboard image reference could not be restored")
+        }.isSuccess
+        if (restored) {
+            publicationRollbackPending = false
+            publicationRollbackName = null
+        }
+        return restored
+    }
+
+    fun clipBody(key: String): String? = clipEntry(key)?.body()
 
     fun clipBodySizeHint(key: String): Long =
         synchronized(history) { history.firstOrNull { it.key == key } }?.bodySizeHint() ?: 0L
@@ -341,7 +561,7 @@ class ClipboardStore(private val dir: File) {
         var missing = false
         val changed = synchronized(history) {
             val at = history.indexOfFirst { it.key == key }
-            if (at < 0) { missing = true; false }
+            if (at < 0 || history[at].isImage) { missing = true; false }
             else if (history[at].key == replacement.key) false
             else {
                 val duplicate = history.indexOfFirst { it.key == replacement.key }
@@ -360,6 +580,7 @@ class ClipboardStore(private val dir: File) {
 
     fun clearHistory(): Boolean {
         if (!clipWritesAllowed()) { reportClipWrite(false); return false }
+        imageCaptureGen.incrementAndGet()
         if (!synchronized(history) { history.isNotEmpty().also { history.clear() } }) return true
         saveHistoryLater()
         return true
@@ -616,9 +837,20 @@ class ClipboardStore(private val dir: File) {
     private fun writeHistory(snapshot: List<ClipEntry>) {
         val sb = StringBuilder()
         val referenced = HashSet<String>()
+        val referencedImages = HashSet<String>()
         for (e in snapshot) {
             val hash = e.hash
-            if (hash != null) {
+            if (e.isImage) {
+                val name = "$hash.${ClipboardImages.extension(e.mimeType!!)}"
+                referencedImages.add(name)
+                val dest = File(imagesDir(), name)
+                if (!dest.isFile) e.imageFile()?.let { source ->
+                    if (!imagesDir().isDirectory && !imagesDir().mkdirs()) throw IOException("clipboard image directory creation failed")
+                    ClipboardImages.validateFile(source, e.mimeType)
+                    atomicCopy(source, dest)
+                }
+                sb.append(e.key).append('\n')
+            } else if (hash != null) {
                 referenced.add(hash)
                 persistSidecar(hash, e)
                 sb.append(BIG_LINE).append(hash).append('\n')
@@ -627,6 +859,17 @@ class ClipboardStore(private val dir: File) {
             }
         }
         atomicWrite(histFile, sb.toString())
+        synchronized(history) {
+            if (finishPublicationRollback()) {
+                val retained = runCatching { publishedImageName() }
+                if (retained.isSuccess) {
+                    imagesDir().listFiles()?.forEach { f ->
+                        if (ClipboardImages.isImageFileName(f.name) && f.name !in referencedImages &&
+                            f.name !in inputImageReferences && f.name != retained.getOrNull()) runCatching { f.delete() }
+                    }
+                }
+            }
+        }
         clipsDir().listFiles()?.forEach { f ->
             if (f.name.endsWith(".txt") && f.name.removeSuffix(".txt") !in referenced) runCatching { f.delete() }
         }
@@ -653,7 +896,7 @@ class ClipboardStore(private val dir: File) {
 
     private fun encodeEntry(text: String): String {
         val line = encode(text)
-        return if (line.startsWith(BIG_LINE) && ClipEntry.isSidecarHash(line.substring(BIG_LINE.length))) "\\$line" else line
+        return if (ClipEntry.imageReference(line) != null || (line.startsWith(BIG_LINE) && ClipEntry.isSidecarHash(line.substring(BIG_LINE.length)))) "\\$line" else line
     }
 
     private fun atomicWrite(dest: File, text: String) = AtomicFileSwap.write(dest, tmpTag, text)
@@ -669,6 +912,8 @@ class ClipboardStore(private val dir: File) {
     }
 
     fun stopSaving() {
+        imageCaptureGen.incrementAndGet()
+        inputImageGen.incrementAndGet()
         runCatching { io.shutdown() }
     }
 
