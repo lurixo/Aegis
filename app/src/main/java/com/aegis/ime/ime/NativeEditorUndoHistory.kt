@@ -97,13 +97,22 @@ internal class NativeEditorUndoHistory {
     private var compositionEntry: Entry? = null
     private var compositionCommit: WindowEdit.Commit? = null
     private var compositionExpected: String? = null
+    private var batchDepth = 0
     private var trackingDepth = 0
+    private var batchBefore: EditorTextSnapshot? = null
+    private var batchExpected: String? = null
+    private var batchActions: MutableList<WindowEdit>? = null
+    private var batchReplacing: Entry? = null
+    private var batchChanged = false
+    private var batchSafe = true
+    private var batchFinishesComposition = false
     var onChange: (() -> Unit)? = null
     var onUndoCompleted: ((Boolean) -> Unit)? = null
     var writeSettleMs = 0L
     private var lastWriteAt = Long.MIN_VALUE / 2
     val hasPendingUndo: Boolean get() = undoing != null
     val hasUndo: Boolean get() = pending == null && undoing == null && undoableEntries > 0
+    val hasDeletion: Boolean get() = hasUndo && entries.last().before.text.length > entries.last().after.text.length
 
     private var pollDelay = POLL_MS
     private var unchangedPolls = 0
@@ -143,6 +152,14 @@ internal class NativeEditorUndoHistory {
         discard()
         undoing = null
         target = null
+        batchDepth = 0
+        batchBefore = null
+        batchExpected = null
+        batchActions = null
+        batchReplacing = null
+        batchChanged = false
+        batchSafe = true
+        batchFinishesComposition = false
     }
 
     private fun bind(connection: InputConnection) {
@@ -193,6 +210,13 @@ internal class NativeEditorUndoHistory {
         polled = null
         handler.postDelayed(pump, nextPoll())
         onChange?.invoke()
+    }
+
+    fun selectionUpdated() {
+        val connection = target ?: return
+        if (pending == null || undoing != null || trackingDepth > 0 || batchDepth > 0) return
+        observe(connection)
+        if (pending == null && undoing == null) handler.removeCallbacks(pump)
     }
 
     private fun snapshot(connection: InputConnection): EditorTextSnapshot? {
@@ -570,7 +594,7 @@ internal class NativeEditorUndoHistory {
         if (undoing != null) return false
         val before = observe(connection)
         if (pending != null && !composing && !finishesComposition) discard()
-        if (pending == null) reconcile(before)
+        if (batchDepth == 0 && pending == null) reconcile(before)
         if (composing && compositionBefore == null) compositionBefore = before
         val composingEdit = compositionBefore != null && (composing || finishesComposition)
         val baseline = if (composingEdit) compositionBefore else before
@@ -585,15 +609,28 @@ internal class NativeEditorUndoHistory {
         val accepted = try { trackingDepth++; action() }
             catch (error: RuntimeException) { discard(); throw error }
             finally { trackingDepth--; lastWriteAt = SystemClock.uptimeMillis() }
-        if (expected != null && !composingEdit && !nativeOnly && accepted && baseline != null && prediction != null &&
-            prediction != baseline.text.toString() && !largeInsertion(actions) && !contextCut(actions)) {
-            pending = Pending(baseline, prediction, actions, null, SystemClock.uptimeMillis() + WAIT_MS)
-            schedule()
-        } else if (expected != null || composingEdit || before?.sameText(snapshot(connection) ?: before) == false) {
-            pending = null
-            finishEdit(connection, baseline, prediction, accepted, actions, replacing, nativeOnly, capturedSelection)
+        if (batchDepth > 0) {
+            batchChanged = true
+            batchSafe = batchSafe && accepted && before != null
+            if (composingEdit) {
+                batchBefore = baseline
+                batchActions = actions?.toMutableList()
+                batchReplacing = replacing
+            } else if (saved == null) batchActions = null
+            else batchActions?.add(saved)
+            batchExpected = prediction
+            batchFinishesComposition = batchFinishesComposition || finishesComposition
+        } else {
+            if (expected != null && !composingEdit && !nativeOnly && accepted && baseline != null && prediction != null &&
+                prediction != baseline.text.toString() && !largeInsertion(actions) && !contextCut(actions)) {
+                pending = Pending(baseline, prediction, actions, null, SystemClock.uptimeMillis() + WAIT_MS)
+                schedule()
+            } else if (expected != null || composingEdit || before?.sameText(snapshot(connection) ?: before) == false) {
+                pending = null
+                finishEdit(connection, baseline, prediction, accepted, actions, replacing, nativeOnly, capturedSelection)
+            }
+            if (finishesComposition) clearComposition()
         }
-        if (finishesComposition) clearComposition()
         return accepted
     }
 
@@ -622,7 +659,7 @@ internal class NativeEditorUndoHistory {
 
     fun paste(connection: InputConnection, copiedText: CharSequence): Boolean {
         bind(connection)
-        if (undoing != null) return false
+        if (undoing != null || batchDepth != 0) return false
         val before = observe(connection) ?: return false
         if (pending != null) return false
         val text = copiedText.toString()
@@ -641,7 +678,7 @@ internal class NativeEditorUndoHistory {
     fun navigate(connection: InputConnection, selectAll: Boolean = false, action: () -> Boolean): Boolean {
         bind(connection)
         if (undoing != null) return false
-        if (entries.isEmpty() && pending == null && compositionBefore == null)
+        if (entries.isEmpty() && pending == null && compositionBefore == null && batchDepth == 0)
             return action().also { if (it) selectedAll = if (selectAll) snapshot(connection) else null }
         val before = observe(connection)
         if (pending != null) return false
@@ -655,6 +692,47 @@ internal class NativeEditorUndoHistory {
             navigation = Navigation(entry, after, before.sameText(after), SystemClock.uptimeMillis() + WAIT_MS, verified)
         }
         return accepted
+    }
+
+    fun beginBatch(connection: InputConnection) {
+        bind(connection)
+        if (batchDepth++ == 0) {
+            val current = observe(connection)
+            if (pending != null) discard()
+            reconcile(current)
+            batchBefore = compositionBefore ?: current
+            batchExpected = null
+            batchActions = ArrayList()
+            batchReplacing = null
+            batchChanged = false
+            batchSafe = true
+            batchFinishesComposition = false
+        }
+    }
+
+    fun endBatch(connection: InputConnection) {
+        if (target !== connection || batchDepth == 0 || --batchDepth != 0) return
+        if (batchChanged) {
+            var actions = batchActions?.toList()
+            var expected = batchExpected
+            val before = batchBefore
+            if (before != null && actions != null && actions.size > 1 && actions.all {
+                it is WindowEdit.Commit && it.cursor == 1 && it.replacement == null
+            }) {
+                val text = actions.joinToString("") { (it as WindowEdit.Commit).text }
+                actions = listOf(WindowEdit.Commit(text, 1))
+                expected = before.text.toString().replaceRange(minOf(before.selectionStart, before.selectionEnd),
+                    maxOf(before.selectionStart, before.selectionEnd), text)
+            }
+            finishEdit(connection, before, expected, batchSafe, actions, batchReplacing)
+        }
+        if (batchFinishesComposition) clearComposition()
+        batchBefore = null
+        batchExpected = null
+        batchActions = null
+        batchReplacing = null
+        batchChanged = false
+        batchFinishesComposition = false
     }
 
     private fun sameSelection(before: EditorTextSnapshot, after: EditorTextSnapshot?): Boolean = after != null &&
@@ -695,7 +773,7 @@ internal class NativeEditorUndoHistory {
                 else if (structuralChange(edit.before, edit.expected, edit.actions)) record(edit.before, current, null, edit.actions, edit.replacing)
                 else discard()
             } else if (SystemClock.uptimeMillis() >= edit.deadline) discard()
-        } else reconcile(current)
+        } else if (batchDepth == 0) reconcile(current)
         return current
     }
 

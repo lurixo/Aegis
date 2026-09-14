@@ -23,7 +23,9 @@ import android.view.View
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.ExtractedText
 import android.view.inputmethod.ExtractedTextRequest
+import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputConnectionWrapper
+import android.view.inputmethod.SurroundingText
 import java.time.Duration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -39,6 +41,7 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34])
 class NativeEditorUndoHistoryTest {
     private data class Mutation(val start: Int, val end: Int, val text: String)
+    private enum class MatrixEdit { INPUT, TAB, BACKSPACE, FORWARD_DELETE, CUT, PASTE }
 
     private class Editor(initial: String = "", val web: Boolean = true, val numbered: Boolean = false) :
         BaseInputConnection(View(RuntimeEnvironment.getApplication()), true) {
@@ -106,6 +109,8 @@ class NativeEditorUndoHistoryTest {
             return true
         }
 
+        fun selectAll() { Selection.setSelection(editable, 0, rawOffset(document.length)) }
+
         private fun replace(text: String, compose: Boolean, separateHistory: Boolean = false, origin: String = "+input") {
             val selected = composing ?: (modelOffset(Selection.getSelectionStart(editable)) to
                 modelOffset(Selection.getSelectionEnd(editable)))
@@ -127,6 +132,8 @@ class NativeEditorUndoHistoryTest {
             if (deferEdits) queue.addLast(action) else action()
             return true
         }
+
+        fun flush() { while (queue.isNotEmpty()) queue.removeFirst().invoke() }
 
         override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText = ExtractedText().apply {
             text = raw()
@@ -232,6 +239,7 @@ class NativeEditorUndoHistoryTest {
             windowEnd = state.end
             delayed = null
         }
+        fun flushWindow(start: Int) { delayed = null; windowStart = start }
         fun external(text: String, undoable: Boolean = false) {
             if (undoable) undo.addLast(state())
             document = text; first = text.length; last = first; windowStart = 0; windowEnd = null
@@ -332,6 +340,121 @@ class NativeEditorUndoHistoryTest {
                 if (deferNative) nativeQueue.addLast(apply) else apply()
             }
             return true
+        }
+    }
+
+    @Test fun tab_expanding_the_virtual_window_rebases_only_the_local_inverse_and_retains_cut() {
+        val removed = (1..200).joinToString("\n", prefix = "\n") { "old line $it 中🙂" }
+        val original = ">\nLE" + removed + "\nright\nlast"
+        val editor = ViewportEditor(original).apply {
+            first = 4
+            last = 4 + removed.length
+            windowStart = original.lastIndexOf("old line 190")
+            onEdit = { text -> windowStart = if (text == "\t") 0 else 2 }
+        }
+        val history = history()
+        val connection = history.wrap(editor)
+        assertTrue(history.cutCopiedSelection(connection, removed))
+        val afterCut = editor.document
+        assertEquals(">\nLE\nright\nlast", afterCut)
+        assertTrue(history.canUndo(connection))
+        assertTrue(connection.commitText("\t", 1))
+        assertEquals(">\nLE\t\nright\nlast", editor.document)
+        assertTrue(history.canUndo(connection))
+        editor.writes.clear()
+        undoStep(history, connection, "expanded viewport Tab")
+        assertEquals(afterCut, editor.document)
+        assertEquals(listOf(""), editor.writes)
+        assertEquals(0, editor.undoCalls)
+        undoStep(history, connection, "earlier virtual selection cut")
+        assertEquals(original, editor.document)
+        assertTrue(editor.undoCalls in 1..3)
+        assertEquals(listOf(""), editor.writes)
+    }
+
+    @Test fun the_captured_nodeseek_tab_window_can_expand_after_the_immediate_commit_was_already_recorded() {
+        val quote = "> quoted words: alpha **bold** and `inline code` with two words, omega 中文🙂.\n>\n"
+        val before = quote.repeat(5) + "> quoted words: alga 中文🙂.\n>\n" + quote.repeat(8)
+        assertEquals(1056, before.length)
+        val original = ">\n" + before.dropLast(1)
+        val editor = ViewportEditor(original).apply { windowStart = 2; first = 415; last = 415 }
+        val history = history()
+        val connection = history.wrap(editor)
+        assertEquals(before, editor.getExtractedText(null, 0).text.toString())
+        assertTrue(connection.commitText("\t", 1))
+        assertTrue(history.canUndo(connection))
+        editor.windowStart = 0
+        val visible = editor.getExtractedText(null, 0)
+        assertEquals(1060, visible.text.length)
+        assertEquals(417, visible.selectionEnd)
+        assertTrue(history.canUndo(connection))
+        editor.onEdit = { editor.windowStart = 2 }
+        editor.writes.clear()
+        undoStep(history, connection)
+        assertEquals(original, editor.document)
+        assertEquals(listOf(""), editor.writes)
+        assertEquals(0, editor.undoCalls)
+    }
+
+    @Test fun native_cut_restore_accepts_the_repeated_nodeseek_window_only_at_the_selection_anchored_offset() {
+        for (reversed in listOf(false, true)) for (deferred in listOf(false, true)) for (variant in listOf("valid", "wrong anchor", "changed text")) {
+            val quote = "> quoted words: alpha **bold** and `inline code` with two words, omega 中文🙂.\n>\n"
+            val hidden = "earlier unseen text\n".repeat(220)
+            val restoredWindow = ">\n" + quote.repeat(18)
+            val original = hidden + restoredWindow.dropLast(1)
+            val beforeWindow = quote.repeat(14)
+            val editor = ViewportEditor(original).apply {
+                windowStart = hidden.length + 318
+                first = if (reversed) hidden.length + 781 else 0
+                last = if (reversed) 0 else hidden.length + 781
+                onEdit = { windowStart = 0 }
+            }
+            val history = history()
+            val connection = history.wrap(editor)
+            val before = editor.getExtractedText(null, 0)
+            assertEquals(1106, before.text.length)
+            assertEquals(beforeWindow, before.text.toString())
+            assertEquals(if (reversed) 463 else 0, before.selectionStart)
+            assertEquals(if (reversed) 0 else 463, before.selectionEnd)
+            assertTrue(history.cutCopiedSelection(connection, original.substring(0, hidden.length + 781)))
+            val cut = editor.document
+            assertTrue(history.canUndo(connection))
+            editor.onNative = { redo ->
+                if (!redo) {
+                    if (variant == "changed text") {
+                        editor.external(original.replaceRange(hidden.length + 600, hidden.length + 601, "X"))
+                        editor.first = if (reversed) hidden.length + 781 else 0
+                        editor.last = if (reversed) 0 else hidden.length + 781
+                    }
+                    editor.windowStart = hidden.length
+                    if (variant == "wrong anchor") {
+                        if (reversed) editor.first-- else editor.last--
+                    }
+                }
+            }
+            editor.deferNative = deferred
+            editor.writes.clear()
+            var completed: Boolean? = null
+            history.onUndoCompleted = { completed = it }
+            val immediate = history.undo(connection)
+            repeat(100) {
+                editor.flushNative()
+                shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(32))
+            }
+            val context = "reversed=$reversed deferred=$deferred variant=$variant"
+            assertFalse(context, history.hasPendingUndo)
+            if (variant == "valid") {
+                assertTrue(context, immediate || completed == true)
+                assertEquals(context, original, editor.document)
+                assertEquals(context, restoredWindow, editor.getExtractedText(null, 0).text.toString())
+                assertEquals(context, 0, editor.redoCalls)
+            } else {
+                assertFalse(context, immediate)
+                assertEquals(context, cut, editor.document)
+                assertEquals(context, 1, editor.redoCalls)
+            }
+            assertEquals(context, 1, editor.undoCalls)
+            assertTrue(context, editor.writes.isEmpty())
         }
     }
 
@@ -486,6 +609,104 @@ class NativeEditorUndoHistoryTest {
         }
     }
 
+    @Test fun a_batched_large_paste_waits_for_the_complete_guarded_tail_window_and_restores_both_cut_steps() {
+        for (partial in listOf(false, true)) {
+            val payload = (1..1600).joinToString("\n") { "payload $it 中🙂 with text" } + "\nunique payload ending"
+            val prefix = if (partial) "left\n" else ""
+            val suffix = if (partial) "\nright\nlast" else ""
+            val original = prefix + payload + suffix
+            val editor = ViewportEditor(original).apply {
+                first = prefix.length
+                last = first + payload.length
+                windowStart = original.lastIndexOf("payload 1590")
+                onEdit = { windowStart = 0 }
+            }
+            val history = history()
+            val connection = history.wrap(editor)
+            assertTrue(history.cutCopiedSelection(connection, payload))
+            assertEquals(prefix + suffix, editor.document)
+            assertTrue(history.canUndo(connection))
+            editor.deferBatchWindow = true
+            connection.beginBatchEdit()
+            for (chunk in payload.chunked(16_384)) assertTrue(connection.commitText(chunk, 1))
+            connection.endBatchEdit()
+            assertFalse("partial=$partial staged prefix must remain pending", history.canUndo(connection))
+            editor.deferBatchWindow = false
+            editor.flushWindow(editor.document.lastIndexOf("payload 1590"))
+            assertTrue("partial=$partial completed tail must preserve history", history.canUndo(connection))
+            editor.writes.clear()
+            undoStep(history, connection, "partial=$partial paste")
+            assertEquals(prefix + suffix, editor.document)
+            assertTrue(editor.writes.isEmpty())
+            undoStep(history, connection, "partial=$partial cut")
+            assertEquals(original, editor.document)
+            assertTrue(editor.writes.isEmpty())
+            assertEquals(2, editor.undoCalls)
+        }
+    }
+
+    @Test fun native_paste_binds_one_context_action_and_undo_never_replays_clipboard_or_dom_projection() {
+        for (partial in listOf(false, true)) for (deferred in listOf(false, true)) {
+            val payload = "A\n".repeat(24_575) + "A"
+            val prefix = if (partial) "left\n" else ""
+            val suffix = if (partial) "\nright\nlast" else ""
+            val original = prefix + payload + suffix
+            val editor = ViewportEditor(original).apply {
+                first = prefix.length
+                last = first + payload.length
+                windowStart = original.length - suffix.length - 39
+                onEdit = { windowStart = 0 }
+            }
+            var clipboard = payload
+            var pasteCalls = 0
+            var queued: (() -> Unit)? = null
+            val target = object : InputConnectionWrapper(editor, false) {
+                override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                    throw AssertionError("Native paste must not commit text")
+                }
+                override fun performContextMenuAction(id: Int): Boolean {
+                    if (id != android.R.id.paste) return super.performContextMenuAction(id)
+                    pasteCalls++
+                    val captured = clipboard
+                    val apply = {
+                        editor.commitText(captured, 1)
+                        editor.flushWindow(editor.document.length - suffix.length - 39)
+                        Unit
+                    }
+                    if (deferred) queued = apply else apply()
+                    return true
+                }
+            }
+            val history = history()
+            val connection = history.wrap(target)
+            assertTrue(history.cutCopiedSelection(connection, payload))
+            assertEquals(prefix + suffix, editor.document)
+            val native = NativeEditorUndoHistory()
+            assertTrue(native.paste(target, payload))
+            assertEquals(1, pasteCalls)
+            if (deferred) {
+                assertFalse(native.canUndo(target))
+                assertFalse(native.paste(target, payload))
+                assertEquals(1, pasteCalls)
+                queued!!.invoke()
+            }
+            assertEquals(original, editor.document)
+            assertTrue(native.canUndo(target))
+            clipboard = "CHANGED CLIPBOARD"
+            editor.writes.clear()
+            assertTrue(native.undo(target))
+            assertEquals(prefix + suffix, editor.document)
+            assertEquals(1, editor.undoCalls)
+            assertEquals(0, editor.redoCalls)
+            assertTrue(editor.writes.isEmpty())
+            assertEquals(1, pasteCalls)
+            assertTrue(history.canUndo(connection))
+            undoStep(history, connection)
+            assertEquals(original, editor.document)
+            assertTrue(editor.writes.isEmpty())
+        }
+    }
+
     @Test fun explicit_navigation_retains_history_across_a_changed_virtual_window_but_later_unknown_drift_invalidates_it() {
         for (delayed in listOf(false, true)) for (drift in listOf(false, true)) {
             val original = (1..100).joinToString("\n") { "line $it" }
@@ -508,6 +729,27 @@ class NativeEditorUndoHistoryTest {
             }
             assertEquals(listOf("x"), editor.writes)
         }
+    }
+
+    @Test fun a_repeated_tail_does_not_confirm_a_large_prefix_and_native_undo_shortcuts_remain_available() {
+        val payload = "A\n".repeat(24_575) + "A"
+        val editor = ViewportEditor("")
+        val history = history()
+        val connection = history.wrap(editor)
+        editor.deferBatchWindow = true
+        connection.beginBatchEdit()
+        for (chunk in payload.chunked(16_384)) assertTrue(connection.commitText(chunk, 1))
+        connection.endBatchEdit()
+        editor.deferBatchWindow = false
+        editor.flushWindow(payload.length - 39)
+        assertFalse(history.canUndo(connection))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2_100))
+        assertFalse(history.canUndo(connection))
+        assertFalse(history.undo(connection))
+        assertEquals(payload, editor.document)
+        connection.sendKeyEvent(KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_Z, 0, KeyEvent.META_CTRL_ON))
+        assertEquals("", editor.document)
+        assertEquals(1, editor.undoCalls)
     }
 
     @Test fun a_native_only_large_paste_is_never_used_as_a_local_clear_replacement() {
@@ -539,6 +781,86 @@ class NativeEditorUndoHistoryTest {
         assertTrue(history.undo(target))
         assertEquals("", editor.document)
         assertTrue(editor.writes.isEmpty())
+    }
+
+    @Test fun opposite_clipped_selection_ends_use_captured_cut_text_only_to_confirm_native_restoration() {
+        for (numbered in listOf(false, true)) for (changed in listOf(false, true)) {
+            val quote = "> quoted words: alpha **bold** and `inline code` with two words, omega 中文🙂.\n>\n"
+            val original = quote.repeat(16_384 / quote.length).padEnd(16_384, 'x')
+            val copied = original.substring(4126, 12313)
+            val editor = ViewportEditor(original, numbered).apply {
+                first = 12313; last = 4126; windowStart = 3711; windowEnd = 4816
+                onEdit = { windowStart = 3711; windowEnd = 4768 }
+            }
+            val history = history()
+            val connection = history.wrap(editor)
+            assertTrue(history.cutCopiedSelection(connection, copied))
+            val cut = editor.document
+            editor.onNative = { redo -> if (!redo) {
+                if (changed) {
+                    editor.external(original.replaceRange(12000, 12001, "X"))
+                    editor.first = 12313; editor.last = 4126
+                }
+                editor.windowStart = 11532; editor.windowEnd = 12955
+            } }
+            editor.writes.clear()
+            var completed: Boolean? = null
+            history.onUndoCompleted = { completed = it }
+            val immediate = history.undo(connection)
+            settle()
+            assertEquals(!changed, immediate || completed == true)
+            assertEquals(if (changed) cut else original, editor.document)
+            assertEquals(if (changed) 1 else 0, editor.redoCalls)
+            assertTrue(editor.writes.isEmpty())
+        }
+    }
+
+    @Test fun native_undo_preserves_the_host_range_when_identical_viewports_have_different_raw_endpoints() {
+        for (reversed in listOf(false, true)) {
+            val original = "ab cde\n".repeat(400)
+            val editor = ViewportEditor(original).apply {
+                first = if (reversed) 1500 else 50
+                last = if (reversed) 50 else 1500
+                windowStart = 0
+                windowEnd = 100
+            }
+            var selectionWritesAfterNativeUndo = 0
+            val target = object : InputConnectionWrapper(editor, false) {
+                override fun setSelection(start: Int, end: Int): Boolean {
+                    if (editor.undoCalls > 0) selectionWritesAfterNativeUndo++
+                    return super.setSelection(start, end)
+                }
+            }
+            val history = history()
+            val connection = history.wrap(target)
+            assertTrue(history.cutCopiedSelection(connection, original.substring(50, 1500)))
+            editor.onNative = { redo -> if (!redo) { editor.windowStart = 49; editor.windowEnd = 149 } }
+            editor.writes.clear()
+            undoStep(history, connection)
+            assertEquals(original, editor.document)
+            assertEquals(if (reversed) 1500 else 50, editor.first)
+            assertEquals(if (reversed) 50 else 1500, editor.last)
+            assertEquals(1, editor.undoCalls)
+            assertEquals(0, selectionWritesAfterNativeUndo)
+            assertTrue(editor.writes.isEmpty())
+            assertFalse(history.hasPendingUndo)
+            assertFalse(history.canUndo(connection))
+        }
+    }
+
+    @Test fun cutting_blank_lines_undoes_the_native_transaction_without_writing_newlines() {
+        val original = "prefix line\n\n\n\nsuffix line\ntail\n"
+        val editor = ViewportEditor(original).apply { first = 12; last = 14 }
+        val history = history()
+        val connection = history.wrap(editor)
+        assertTrue(history.cutCopiedSelection(connection, "\n\n"))
+        assertTrue(connection.commitText("\t", 1))
+        undoStep(history, connection)
+        editor.writes.clear()
+        undoStep(history, connection)
+        assertEquals(original, editor.document)
+        assertTrue(editor.writes.isEmpty())
+        assertTrue(editor.undoCalls >= 1)
     }
 
     @Test fun numbered_native_restore_preserves_real_numeric_lines_and_rejects_unbound_pseudo_gutters() {
@@ -624,7 +946,696 @@ class NativeEditorUndoHistoryTest {
         }
     }
 
+    private fun history(): EditorUndoHistory = EditorUndoHistory().apply { preferNativeUndo = true }
+
     private fun settle() { shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(600)) }
+
+    private fun undoStep(history: EditorUndoHistory, connection: InputConnection, label: String = "") {
+        var completed: Boolean? = null
+        history.onUndoCompleted = { completed = it }
+        val immediate = history.undo(connection)
+        repeat(200) {
+            if (history.hasPendingUndo) shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(32))
+        }
+        assertFalse("$label undo remains pending", history.hasPendingUndo)
+        assertTrue("$label undo did not complete successfully", immediate || completed == true)
+    }
+
+    private fun matrixEdit(operation: MatrixEdit, history: EditorUndoHistory, connection: InputConnection, editor: Editor): String {
+        val before = editor.document
+        fun select(start: Int, end: Int = start) {
+            assertTrue(connection.setSelection(editor.rawOffset(start), editor.rawOffset(end)))
+        }
+        val expected = when (operation) {
+            MatrixEdit.INPUT -> {
+                select(before.length)
+                assertTrue(connection.commitText("中🙂", 1))
+                before + "中🙂"
+            }
+            MatrixEdit.TAB -> {
+                select(before.length)
+                assertTrue(connection.commitText("\t", 1))
+                before + "\t"
+            }
+            MatrixEdit.BACKSPACE -> {
+                select(before.length)
+                assertTrue(connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL)))
+                before.substring(0, GraphemeText.previousCluster(before, before.length))
+            }
+            MatrixEdit.FORWARD_DELETE -> {
+                select(0)
+                assertTrue(connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_FORWARD_DEL)))
+                before.substring(GraphemeText.nextCluster(before, 0))
+            }
+            MatrixEdit.CUT -> {
+                val innerStart = GraphemeText.nextCluster(before, 0)
+                val innerEnd = GraphemeText.previousCluster(before, before.length)
+                val from = if (innerStart < innerEnd) innerStart else 0
+                val through = if (innerStart < innerEnd) innerEnd else innerStart
+                select(from, through)
+                assertTrue(history.cutCopiedSelection(connection, before.substring(from, through)))
+                before.removeRange(from, through)
+            }
+            MatrixEdit.PASTE -> {
+                val through = GraphemeText.nextCluster(before, 0)
+                select(0, through)
+                assertTrue(connection.commitText("pasted words🙂", 1))
+                "pasted words🙂" + before.substring(through)
+            }
+        }
+        assertEquals("$operation updates the document", expected, editor.document)
+        return before
+    }
+
+    @Test fun consecutive_local_undo_steps_reselect_after_the_host_reapplies_its_caret_from_the_previous_step() {
+        for (numbered in listOf(false, true)) {
+            val editor = Editor(numbered = numbered).apply { mergeInputs = true }
+            val history = history()
+            val connection = history.wrap(editor)
+            val states = ArrayList<String>()
+            for (part in listOf("ab", "1234567890", "，", "虽然", "但是")) {
+                states.add(editor.document)
+                assertTrue(connection.commitText(part, 1))
+            }
+            editor.selectionDelayMs = 8
+            editor.caretEchoMs = 20
+            for (expected in states.asReversed()) {
+                val label = "numbered=$numbered undo to \"$expected\""
+                assertTrue(label, history.canUndo(connection))
+                undoStep(history, connection, label)
+                assertEquals(label, expected, editor.document)
+            }
+            assertFalse(history.canUndo(connection))
+        }
+    }
+
+    @Test fun a_local_undo_waits_for_the_host_to_settle_its_previous_text_write_before_selecting() {
+        for (numbered in listOf(false, true)) {
+            val editor = Editor(numbered = numbered)
+            val history = history().apply { webWriteSettleMs = 160 }
+            val connection = history.wrap(editor)
+            assertTrue(connection.commitText("ab", 1))
+            assertTrue(connection.commitText("虽然", 1))
+            val mutations = editor.mutations.size
+            assertFalse("numbered=$numbered", history.undo(connection))
+            assertTrue(history.hasPendingUndo)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(128))
+            assertEquals("numbered=$numbered", "ab虽然", editor.document)
+            assertEquals(mutations, editor.mutations.size)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(64))
+            assertEquals("numbered=$numbered", "ab", editor.document)
+            assertFalse(history.hasPendingUndo)
+            assertFalse("numbered=$numbered", history.undo(connection))
+            assertEquals("numbered=$numbered", "ab", editor.document)
+            undoStep(history, connection, "numbered=$numbered")
+            assertEquals("numbered=$numbered", "", editor.document)
+        }
+    }
+
+    @Test fun a_replayed_deletion_that_lands_on_a_collapsed_host_caret_selects_the_range_again() {
+        for (numbered in listOf(false, true)) {
+            val editor = Editor(numbered = numbered)
+            var collapseBeforeCommit = false
+            val target = object : InputConnectionWrapper(editor, false) {
+                override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                    if (collapseBeforeCommit && text.isNullOrEmpty()) {
+                        collapseBeforeCommit = false
+                        Selection.setSelection(editor.editable, Selection.getSelectionEnd(editor.editable))
+                    }
+                    return super.commitText(text, newCursorPosition)
+                }
+            }
+            val history = history()
+            val connection = history.wrap(target)
+            assertTrue(connection.commitText("ab", 1))
+            assertTrue(connection.commitText("虽然", 1))
+            collapseBeforeCommit = true
+            undoStep(history, connection, "numbered=$numbered")
+            assertEquals("numbered=$numbered", "ab", editor.document)
+            assertFalse(collapseBeforeCommit)
+            undoStep(history, connection, "numbered=$numbered")
+            assertEquals("numbered=$numbered", "", editor.document)
+        }
+    }
+
+    @Test fun a_read_that_changes_between_extraction_and_cursor_text_is_read_again_instead_of_discarding_history() {
+        for (numbered in listOf(false, true)) {
+            val editor = Editor(numbered = numbered)
+            var staleReads = 0
+            val target = object : InputConnectionWrapper(editor, false) {
+                override fun getTextBeforeCursor(n: Int, flags: Int): CharSequence? {
+                    val actual = super.getTextBeforeCursor(n, flags)
+                    if (staleReads == 0 || actual.isNullOrEmpty()) return actual
+                    staleReads--
+                    return actual.subSequence(0, actual.length - 1)
+                }
+            }
+            val history = history()
+            val connection = history.wrap(target)
+            assertTrue(connection.commitText("ab", 1))
+            assertTrue(connection.commitText("虽然", 1))
+            staleReads = 1
+            assertTrue("numbered=$numbered", history.canUndo(connection))
+            staleReads = 1
+            undoStep(history, connection, "numbered=$numbered")
+            assertEquals("numbered=$numbered", "ab", editor.document)
+            assertTrue("numbered=$numbered", history.canUndo(connection))
+        }
+    }
+
+    @Test fun all_ordered_pairs_of_six_text_mutations_preserve_both_undo_steps() {
+        val failures = mutableListOf<String>()
+        for (numbered in listOf(false, true)) for (initial in listOf("prefix two words suffix", "prefix line one\n\nline two suffix\ntail")) {
+            for (first in MatrixEdit.entries) for (second in MatrixEdit.entries) {
+                val label = "numbered=$numbered lines=${initial.count { it == '\n' } + 1} $first -> $second"
+                try {
+                    val editor = Editor(initial, numbered = numbered).apply { mergeInputs = true }
+                    val history = history()
+                    val connection = history.wrap(editor)
+                    val before = listOf(matrixEdit(first, history, connection, editor), matrixEdit(second, history, connection, editor))
+                    for (expected in before.asReversed()) {
+                        assertTrue("history is actionable", history.canUndo(connection))
+                        undoStep(history, connection)
+                        assertEquals("undo restores its own before", expected, editor.document)
+                    }
+                    assertFalse(history.canUndo(connection))
+                } catch (failure: AssertionError) {
+                    failures += "$label: ${failure.message}"
+                }
+            }
+        }
+        assertTrue(failures.joinToString("\n"), failures.isEmpty())
+    }
+
+    @Test fun cursor_selection_copy_and_composition_finish_do_not_add_or_remove_text_undo_steps() {
+        for (numbered in listOf(false, true)) {
+            val editor = Editor("prefix\n\ntail", numbered = numbered)
+            val target = object : InputConnectionWrapper(editor, false) {
+                override fun performContextMenuAction(id: Int): Boolean {
+                    assertTrue(id == android.R.id.copy || id == android.R.id.selectAll)
+                    if (id == android.R.id.selectAll) editor.selectAll()
+                    return true
+                }
+            }
+            val history = history()
+            val connection = history.wrap(target)
+            val states = mutableListOf(editor.document)
+            repeat(30) { index ->
+                assertTrue(connection.setSelection(editor.rawOffset(editor.document.length), editor.rawOffset(editor.document.length)))
+                assertTrue(connection.commitText(if (index % 2 == 0) "🙂" else "中", 1))
+                states += editor.document
+                for ((start, end) in listOf(0 to 0, 3 to 3, 0 to 3, 3 to 0, 7 to 7, 0 to editor.document.length)) {
+                    assertTrue(connection.setSelection(editor.rawOffset(start), editor.rawOffset(end)))
+                    assertTrue(connection.finishComposingText())
+                }
+                assertTrue(connection.performContextMenuAction(android.R.id.selectAll))
+                assertTrue(connection.performContextMenuAction(android.R.id.copy))
+            }
+            for (expected in states.dropLast(1).asReversed()) {
+                undoStep(history, connection)
+                assertEquals(expected, editor.document)
+            }
+            assertEquals(0, editor.undoCalls)
+            assertFalse(history.canUndo(connection))
+        }
+    }
+
+    @Test fun partial_selected_deletion_and_replacement_preserve_original_text() {
+        val failures = mutableListOf<String>()
+        for (numbered in listOf(false, true)) for (reverse in listOf(false, true)) {
+            for (removed in listOf("two words", "line one\n\nline two", "\t", "🙂", " ", "\n")) {
+                for (operation in listOf("backspace", "forwardDelete", "emptyCommit", "paste")) {
+                    val label = "numbered=$numbered reverse=$reverse removed=${removed.toList()} $operation"
+                    try {
+                        val initial = "prefix $removed suffix\ntail"
+                        val editor = Editor(initial, numbered = numbered).apply { mergeInputs = true }
+                        val history = history()
+                        val connection = history.wrap(editor)
+                        val start = editor.rawOffset(7)
+                        val end = editor.rawOffset(7 + removed.length)
+                        assertTrue(connection.setSelection(if (reverse) end else start, if (reverse) start else end))
+                        val inserted = if (operation == "paste") "pasted\n\n🙂" else ""
+                        assertTrue(when (operation) {
+                            "backspace" -> connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL))
+                            "forwardDelete" -> connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_FORWARD_DEL))
+                            else -> connection.commitText(inserted, 1)
+                        })
+                        assertEquals("mutation", initial.replaceRange(7, 7 + removed.length, inserted), editor.document)
+                        assertTrue("history is actionable after mutation", history.canUndo(connection))
+                        undoStep(history, connection)
+                        assertEquals("undo restores selected original text", initial, editor.document)
+                        assertFalse(history.canUndo(connection))
+                    } catch (failure: AssertionError) {
+                        failures += "$label: ${failure.message}"
+                    }
+                }
+            }
+        }
+        assertTrue(failures.joinToString("\n"), failures.isEmpty())
+    }
+
+    @Test fun structural_cut_undo_crosses_only_observed_native_states_after_a_mixed_local_undo_chain() {
+        for (deferred in listOf(false, true)) {
+            val initial = "prefix line one\n\nline two suffix\ntail"
+            val editor = Editor(initial, numbered = true).apply { mergeInputs = true }
+            val handler = Handler(Looper.getMainLooper())
+            val target = object : InputConnectionWrapper(editor, false) {
+                override fun sendKeyEvent(event: KeyEvent): Boolean {
+                    if (deferred && event.keyCode == KeyEvent.KEYCODE_Z && event.isCtrlPressed) {
+                        handler.postDelayed({ editor.sendKeyEvent(event) }, 80)
+                        return true
+                    }
+                    return editor.sendKeyEvent(event)
+                }
+            }
+            val history = history()
+            val connection = history.wrap(target)
+            editor.setSelection(editor.rawOffset(7), editor.rawOffset(25))
+            assertTrue(history.cutCopiedSelection(connection, initial.substring(7, 25)))
+            val afterCut = editor.document
+            val states = ArrayList<String>()
+            repeat(3) {
+                for (operation in listOf(MatrixEdit.INPUT, MatrixEdit.BACKSPACE, MatrixEdit.TAB, MatrixEdit.FORWARD_DELETE, MatrixEdit.PASTE)) {
+                    states += matrixEdit(operation, history, connection, editor)
+                }
+            }
+            val known = states + editor.document
+            for (expected in states.asReversed()) {
+                undoStep(history, connection)
+                assertEquals(expected, editor.document)
+            }
+            assertEquals(afterCut, editor.document)
+            editor.observedDocuments.clear()
+            editor.mutations.clear()
+            undoStep(history, connection)
+            assertEquals(initial, editor.document)
+            assertTrue(editor.observedDocuments.toString(), editor.observedDocuments.all { it == initial || it in known })
+            assertTrue(editor.mutations.isEmpty())
+            assertTrue(editor.undoCalls > 1)
+            assertEquals(0, editor.redoCalls)
+            assertFalse(history.canUndo(connection))
+        }
+    }
+
+    @Test fun structural_cut_undo_rolls_back_every_verified_step_when_async_native_history_reaches_unknown_text() {
+        val initial = "prefix line one\n\nline two suffix\ntail"
+        val editor = Editor(initial, numbered = true).apply { mergeInputs = true }
+        val handler = Handler(Looper.getMainLooper())
+        var nativeRequests = 0
+        val target = object : InputConnectionWrapper(editor, false) {
+            override fun sendKeyEvent(event: KeyEvent): Boolean {
+                if (event.keyCode == KeyEvent.KEYCODE_Z && event.isCtrlPressed) {
+                    if (event.action == KeyEvent.ACTION_DOWN) {
+                        val unknown = !event.isShiftPressed && ++nativeRequests == 2
+                        handler.postDelayed({
+                            if (unknown) editor.undoOverride = "unexpected editor history"
+                            editor.sendKeyEvent(event)
+                        }, 80)
+                    }
+                    return true
+                }
+                return editor.sendKeyEvent(event)
+            }
+        }
+        val history = history()
+        val connection = history.wrap(target)
+        editor.setSelection(editor.rawOffset(7), editor.rawOffset(25))
+        assertTrue(history.cutCopiedSelection(connection, initial.substring(7, 25)))
+        val afterCut = editor.document
+        matrixEdit(MatrixEdit.BACKSPACE, history, connection, editor)
+        val afterDelete = editor.document
+        undoStep(history, connection)
+        assertEquals(afterCut, editor.document)
+        editor.observedDocuments.clear()
+        editor.mutations.clear()
+        var completed: Boolean? = null
+        history.onUndoCompleted = { completed = it }
+        assertFalse(history.undo(connection))
+        repeat(200) {
+            if (history.hasPendingUndo) shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(32))
+        }
+        assertFalse(history.hasPendingUndo)
+        assertEquals(false, completed)
+        assertEquals(afterCut, editor.document)
+        assertEquals(listOf(afterDelete, "unexpected editor history", afterDelete, afterCut), editor.observedDocuments)
+        assertTrue(editor.mutations.isEmpty())
+        assertEquals(2, editor.undoCalls)
+        assertEquals(2, editor.redoCalls)
+        assertFalse(history.canUndo(connection))
+    }
+
+    @Test fun merged_replacements_rebuild_only_recorded_input_before_restoring_each_undo_step() {
+        for (numbered in listOf(false, true)) for (deferred in listOf(false, true)) {
+            for (removed in listOf("two words", "line one\n\nline two", "\t", "🙂", " ", "\n")) {
+                val initial = "prefix $removed suffix\ntail"
+                val editor = Editor(initial, numbered = numbered).apply { mergeInputs = true }
+                val handler = Handler(Looper.getMainLooper())
+                var restoring = false
+                val target = object : InputConnectionWrapper(editor, false) {
+                    override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                        if (restoring && deferred) {
+                            handler.postDelayed({ editor.commitText(text, newCursorPosition) }, 80)
+                            return true
+                        }
+                        return editor.commitText(text, newCursorPosition)
+                    }
+
+                    override fun sendKeyEvent(event: KeyEvent): Boolean {
+                        if (restoring && deferred && event.keyCode == KeyEvent.KEYCODE_Z && event.isCtrlPressed) {
+                            handler.postDelayed({ editor.sendKeyEvent(event) }, 80)
+                            return true
+                        }
+                        return editor.sendKeyEvent(event)
+                    }
+                }
+                val history = history()
+                val connection = history.wrap(target)
+                assertTrue(connection.commitText("!", 1))
+                assertTrue(connection.setSelection(editor.rawOffset(7), editor.rawOffset(7 + removed.length)))
+                assertTrue(connection.commitText("replacement\n\n🙂", 1))
+                editor.observedDocuments.clear()
+                editor.mutations.clear()
+                restoring = true
+                undoStep(history, connection, "numbered=$numbered deferred=$deferred removed=${removed.toList()}")
+                assertEquals(initial + "!", editor.document)
+                if (editor.undoCalls == 0) {
+                    assertEquals(listOf(initial + "!"), editor.observedDocuments)
+                    assertEquals(listOf(removed), editor.mutations.map { it.text })
+                } else {
+                    assertEquals(listOf(initial, initial + "!"), editor.observedDocuments)
+                    assertEquals(listOf(Mutation(initial.length, initial.length, "!")), editor.mutations)
+                }
+                undoStep(history, connection, "prior input numbered=$numbered deferred=$deferred removed=${removed.toList()}")
+                assertEquals(initial, editor.document)
+                assertFalse(history.canUndo(connection))
+            }
+        }
+    }
+
+    @Test fun successive_original_space_deletions_undo_individually_when_the_editor_merges_delete_history() {
+        for (numbered in listOf(false, true)) for (forward in listOf(false, true)) {
+            val initial = "a b c d\ne f g h "
+            val editor = Editor(initial, numbered = numbered).apply { mergeInputs = true }
+            val history = history()
+            val connection = history.wrap(editor)
+            val states = ArrayList<String>()
+            repeat(7) {
+                states += editor.document
+                val index = editor.document.lastIndexOf(' ')
+                val caret = if (forward) index else index + 1
+                connection.setSelection(editor.rawOffset(caret), editor.rawOffset(caret))
+                assertTrue(connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN,
+                    if (forward) KeyEvent.KEYCODE_FORWARD_DEL else KeyEvent.KEYCODE_DEL)))
+                assertEquals(states.last().removeRange(index, index + 1), editor.document)
+            }
+            val known = states + editor.document
+            for (expected in states.asReversed()) {
+                editor.observedDocuments.clear()
+                editor.mutations.clear()
+                undoStep(history, connection)
+                assertEquals(expected, editor.document)
+                assertTrue(editor.observedDocuments.toString(), editor.observedDocuments.all { it in known })
+                assertTrue(editor.mutations.all { it.text.isEmpty() })
+            }
+            assertEquals(initial, editor.document)
+            assertFalse(history.canUndo(connection))
+        }
+    }
+
+    @Test fun repeated_text_waits_for_async_native_undo_before_rebuilding_prior_input() {
+        val initial = "A "
+        val editor = Editor(initial).apply { mergeInputs = true }
+        val handler = Handler(Looper.getMainLooper())
+        val target = object : InputConnectionWrapper(editor, false) {
+            override fun sendKeyEvent(event: KeyEvent): Boolean {
+                if (event.keyCode == KeyEvent.KEYCODE_Z && event.isCtrlPressed) {
+                    handler.postDelayed({ editor.sendKeyEvent(event) }, 80)
+                    return true
+                }
+                return editor.sendKeyEvent(event)
+            }
+        }
+        val history = history()
+        val connection = history.wrap(target)
+        assertTrue(connection.commitText("B", 1))
+        editor.selectAll()
+        assertTrue(connection.commitText(initial, 1))
+        editor.observedDocuments.clear()
+        editor.mutations.clear()
+        var completed: Boolean? = null
+        history.onUndoCompleted = { completed = it }
+        assertFalse(history.undo(connection))
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(32))
+        assertTrue(editor.mutations.isEmpty())
+        repeat(200) {
+            if (history.hasPendingUndo) shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(32))
+        }
+        assertEquals(true, completed)
+        assertEquals("A B", editor.document)
+        assertEquals(listOf(initial, "A B"), editor.observedDocuments)
+        assertEquals(listOf(Mutation(initial.length, initial.length, "B")), editor.mutations)
+        undoStep(history, connection)
+        assertEquals(initial, editor.document)
+    }
+
+    @Test fun rejected_rebuild_selection_redoes_native_history_before_any_forward_write() {
+        val initial = "two words"
+        val editor = Editor(initial).apply { mergeInputs = true }
+        var rejectSelection = false
+        val target = object : InputConnectionWrapper(editor, false) {
+            override fun setSelection(start: Int, end: Int): Boolean =
+                if (rejectSelection) false else editor.setSelection(start, end)
+        }
+        val history = history()
+        val connection = history.wrap(target)
+        connection.setSelection(editor.rawOffset(0), editor.rawOffset(0))
+        assertTrue(connection.commitText("prefix ", 1))
+        connection.setSelection(editor.rawOffset(7), editor.rawOffset(editor.document.length))
+        assertTrue(connection.commitText("other", 1))
+        val edited = editor.document
+        editor.observedDocuments.clear()
+        editor.mutations.clear()
+        rejectSelection = true
+        assertFalse(history.undo(connection))
+        settle()
+        assertFalse(history.hasPendingUndo)
+        assertEquals(edited, editor.document)
+        assertEquals(listOf(initial, edited), editor.observedDocuments)
+        assertTrue(editor.mutations.isEmpty())
+        assertEquals(1, editor.undoCalls)
+        assertEquals(1, editor.redoCalls)
+        assertFalse(history.canUndo(connection))
+    }
+
+    @Test fun individual_characters_undo_to_the_original_empty_editor() {
+        for (web in listOf(true, false)) {
+            val editor = Editor(web = web)
+            val history = history()
+            val connection = history.wrap(editor)
+            for (character in "abc") {
+                connection.commitText(character.toString(), 1)
+                assertTrue(history.canUndo(connection))
+            }
+            for (expected in listOf("ab", "a", "")) {
+                assertTrue(history.undo(connection))
+                assertEquals(expected, editor.document)
+            }
+            assertFalse(history.canUndo(connection))
+        }
+    }
+
+    @Test fun a_known_tab_is_removed_locally_when_webview_renders_it_as_spaces() {
+        for (prefix in listOf("", "ab", "中")) {
+            val editor = Editor()
+            val placeholder = if (prefix.isEmpty()) "\u200b" else ""
+            val original = "1\n$prefix$placeholder\n"
+            var document = prefix
+            val states = ArrayList<String>()
+            val writes = ArrayList<Mutation>()
+            editor.renderRaw(original, 2 + prefix.length)
+            val rendering = object : InputConnectionWrapper(editor, false) {
+                override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                    val start = Selection.getSelectionStart(editor.editable)
+                    val end = Selection.getSelectionEnd(editor.editable)
+                    writes.add(Mutation(start, end, text.toString()))
+                    when (text.toString()) {
+                        "\t" -> {
+                            document = prefix + "\t"
+                            editor.renderRaw("1\n$prefix\t$placeholder\n", 3 + prefix.length)
+                        }
+                        "" -> {
+                            assertEquals(2 + prefix.length, start)
+                            assertEquals(editor.raw().lastIndexOf('\n'), end)
+                            document = prefix
+                            editor.renderRaw(original, 2 + prefix.length)
+                        }
+                        else -> error("Unexpected local replacement")
+                    }
+                    states.add(document)
+                    return true
+                }
+
+                override fun sendKeyEvent(event: KeyEvent): Boolean {
+                    assertFalse(event.keyCode == KeyEvent.KEYCODE_Z && event.isCtrlPressed)
+                    return true
+                }
+            }
+            val history = history()
+            val connection = history.wrap(rendering)
+            connection.commitText("\t", 1)
+            assertEquals(prefix + "\t", document)
+            val spaces = " ".repeat(4 - prefix.length % 4)
+            editor.renderRaw("1\n$prefix$spaces\n", 2 + prefix.length + spaces.length)
+            assertTrue(history.canUndo(connection))
+            states.clear()
+            writes.clear()
+            undoStep(history, connection)
+            assertEquals(prefix, document)
+            assertEquals(listOf(prefix), states)
+            assertEquals(listOf(Mutation(2 + prefix.length, 2 + prefix.length + spaces.length, "")), writes)
+            assertEquals(original, editor.raw())
+            assertFalse(history.canUndo(connection))
+        }
+    }
+
+    @Test fun local_undo_restores_the_pre_edit_caret_after_navigation_and_waits_for_delayed_selection() {
+        for (numbered in listOf(false, true)) for (delayed in listOf(false, true)) for (rerender in listOf(false, true)) {
+            val prefix = if (numbered) "1\nprefix line\n2\n\u200b\n3\n\u200b\n4\n" else "prefix line\n\u200b\n\u200b\n"
+            val suffix = if (numbered) "\n5\nsuffix line\n6\ntail\n7\n\u200b\n" else "\nsuffix line\ntail\n\u200b\n"
+            val original = prefix + "\u200b" + suffix
+            val caret = prefix.length
+            val editor = Editor().apply { renderRaw(original, caret) }
+            val writes = ArrayList<String>()
+            var restoredBody = false
+            var selectionRepairs = 0
+            val target = object : InputConnectionWrapper(editor, false) {
+                override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                    writes.add(text.toString())
+                    when (text.toString()) {
+                        "\t" -> editor.renderRaw(prefix + "\t\u200b" + suffix, caret + 1)
+                        "" -> {
+                            assertEquals(caret, Selection.getSelectionStart(editor.editable))
+                            assertEquals(caret + 4, Selection.getSelectionEnd(editor.editable))
+                            editor.renderRaw(original, caret)
+                            Selection.setSelection(editor.editable, caret, original.length - 2)
+                            restoredBody = true
+                            if (rerender) Handler(Looper.getMainLooper()).postDelayed({
+                                Selection.setSelection(editor.editable, caret, original.length - 2)
+                            }, 80)
+                        }
+                        else -> error("Unexpected text replay")
+                    }
+                    return true
+                }
+                override fun setSelection(start: Int, end: Int): Boolean {
+                    if (restoredBody) {
+                        selectionRepairs++
+                        if (delayed) {
+                            Handler(Looper.getMainLooper()).postDelayed({ Selection.setSelection(editor.editable, start, end) }, 80)
+                            return true
+                        }
+                    }
+                    return super.setSelection(start, end)
+                }
+                override fun sendKeyEvent(event: KeyEvent): Boolean {
+                    assertFalse(event.keyCode == KeyEvent.KEYCODE_Z && event.isCtrlPressed)
+                    return true
+                }
+            }
+            val history = history()
+            val connection = history.wrap(target)
+            assertTrue(connection.commitText("\t", 1))
+            val expanded = prefix + "    " + suffix
+            editor.renderRaw(expanded, caret + 4)
+            assertTrue(history.canUndo(connection))
+            assertTrue(connection.setSelection(caret + 4, expanded.length - 2))
+            assertTrue(history.canUndo(connection))
+            writes.clear()
+            var completed: Boolean? = null
+            history.onUndoCompleted = { completed = it }
+            val immediate = history.undo(connection)
+            assertFalse(immediate)
+            assertTrue(history.hasPendingUndo)
+            assertEquals(null, completed)
+            settle()
+            assertEquals(original, editor.raw())
+            assertEquals(caret, Selection.getSelectionStart(editor.editable))
+            assertEquals(caret, Selection.getSelectionEnd(editor.editable))
+            assertEquals(listOf(""), writes)
+            assertEquals(if (rerender && !delayed) 2 else 1, selectionRepairs)
+            assertEquals(true, completed)
+            assertFalse(history.hasPendingUndo)
+            assertFalse(history.canUndo(connection))
+        }
+    }
+
+    @Test fun failed_cursor_repair_never_repeats_a_completed_text_undo_or_overwrites_external_changes() {
+        for (behavior in listOf("reject", "ignore", "external")) {
+            val editor = Editor("abc").apply { hold("abc", 1) }
+            var undoing = false
+            var repair = false
+            val target = object : InputConnectionWrapper(editor, false) {
+                override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                    val accepted = super.commitText(text, newCursorPosition)
+                    if (undoing) {
+                        repair = true
+                        Selection.setSelection(editor.editable, 0, editor.rawOffset(editor.document.length))
+                    }
+                    return accepted
+                }
+                override fun setSelection(start: Int, end: Int): Boolean {
+                    if (!repair) return super.setSelection(start, end)
+                    if (behavior == "external") editor.hold("external")
+                    return behavior != "reject"
+                }
+            }
+            val history = history()
+            val connection = history.wrap(target)
+            connection.commitText("x", 1)
+            connection.commitText("y", 1)
+            assertEquals("axybc", editor.document)
+            editor.mutations.clear()
+            undoing = true
+            val accepted = history.undo(connection)
+            assertTrue(accepted || history.hasPendingUndo)
+            settle()
+            assertEquals(listOf(Mutation(2, 3, "")), editor.mutations)
+            assertEquals(0, editor.undoCalls)
+            assertFalse(history.hasPendingUndo)
+            if (behavior == "external") {
+                assertEquals("external", editor.document)
+                assertFalse(history.canUndo(connection))
+            } else {
+                assertEquals("axbc", editor.document)
+                assertTrue(history.canUndo(connection))
+                undoing = false
+                repair = false
+                undoStep(history, connection)
+                assertEquals("abc", editor.document)
+                assertFalse(history.canUndo(connection))
+            }
+        }
+    }
+
+    @Test fun tab_rendering_does_not_accept_unrelated_text_or_reinterpret_an_inserted_space() {
+        for ((inserted, observed) in listOf("\t" to "    external", " " to "    ")) {
+            val editor = Editor()
+            editor.renderRaw("1\n\u200b\n", 2)
+            val rendering = object : InputConnectionWrapper(editor, false) {
+                override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                    editor.renderRaw("1\n$inserted\u200b\n", 2 + inserted.length)
+                    return true
+                }
+            }
+            val history = history()
+            val connection = history.wrap(rendering)
+            connection.commitText(inserted, 1)
+            editor.renderRaw("1\n$observed\n", 2 + observed.length)
+            assertFalse(history.canUndo(connection))
+            assertFalse(history.undo(connection))
+            assertEquals("1\n$observed\n", editor.raw())
+        }
+    }
 
     @Test fun a_verified_tab_replacement_restores_the_real_tab_in_one_local_write() {
         for (stableInput in listOf(false, true)) for (stableUndo in listOf(false, true)) {
@@ -707,6 +1718,871 @@ class NativeEditorUndoHistoryTest {
             assertEquals(listOf(Mutation(1, 2, "")), writes)
             assertFalse(history.canUndo(target))
         }
+    }
+
+    @Test fun editor_grouping_does_not_remove_prior_input_during_a_local_undo() {
+        val editor = Editor().apply { mergeInputs = true }
+        val history = history()
+        val connection = history.wrap(editor)
+        for (character in "abc") connection.commitText(character.toString(), 1)
+        for (expected in listOf("ab", "a", "")) {
+            val before = editor.document
+            editor.observedDocuments.clear()
+            editor.mutations.clear()
+            undoStep(history, connection)
+            assertEquals(expected, editor.document)
+            assertTrue(editor.observedDocuments.all { it == before || it == expected })
+            assertEquals(listOf(Mutation(expected.length, before.length, "")), editor.mutations)
+        }
+        assertEquals(0, editor.undoCalls)
+        assertFalse(history.canUndo(connection))
+    }
+
+    @Test fun rapid_inputs_keep_placeholder_origins_until_rendering_and_undo_finish() {
+        for (inputStyle in listOf("rapid", "immediate", "paced")) for (replayDelay in listOf(true, false)) {
+            val editor = Editor()
+            var document = ""
+            var delayed = inputStyle != "immediate"
+            val nativeUndo = ArrayDeque<String>()
+            val observed = ArrayList<String>()
+            val mutations = ArrayList<Mutation>()
+            val handler = Handler(Looper.getMainLooper())
+            fun render(placeholder: Boolean) {
+                observed.add(document)
+                val suffix = if (document.isEmpty() || placeholder) "\u200b" else ""
+                editor.renderRaw("1\n$document$suffix\n", 2 + document.length)
+            }
+            val cleanup = Runnable { render(false) }
+            render(false)
+            val target = object : InputConnectionWrapper(editor, false) {
+                override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                    val start = (minOf(Selection.getSelectionStart(editor.editable), Selection.getSelectionEnd(editor.editable)) - 2).coerceIn(0, document.length)
+                    val end = (maxOf(Selection.getSelectionStart(editor.editable), Selection.getSelectionEnd(editor.editable)) - 2).coerceIn(0, document.length)
+                    mutations.add(Mutation(start, end, text.toString()))
+                    val inheritedPlaceholder = editor.raw().endsWith("\u200b\n")
+                    if (nativeUndo.isEmpty()) nativeUndo.addLast(document)
+                    document = document.replaceRange(start, end, text.toString())
+                    handler.removeCallbacks(cleanup)
+                    render(delayed && inheritedPlaceholder)
+                    if (delayed) handler.postDelayed(cleanup, 80)
+                    return true
+                }
+
+                override fun sendKeyEvent(event: KeyEvent): Boolean {
+                    if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_Z && event.isCtrlPressed) {
+                        assertFalse(event.isShiftPressed)
+                        document = nativeUndo.removeLast()
+                        handler.removeCallbacks(cleanup)
+                        render(false)
+                    }
+                    return true
+                }
+            }
+            val history = history()
+            val connection = history.wrap(target)
+            for (character in "abc") {
+                connection.commitText(character.toString(), 1)
+                if (inputStyle == "paced") {
+                    shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(90))
+                    assertTrue(history.canUndo(connection))
+                }
+            }
+            if (inputStyle == "rapid") assertEquals("1\nabc\u200b\n", editor.raw())
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(90))
+            assertEquals("1\nabc\n", editor.raw())
+            assertTrue("inputStyle=$inputStyle replayDelay=$replayDelay", history.canUndo(connection))
+            delayed = replayDelay
+            var refreshing = false
+            val refreshed = ArrayList<Pair<String, Boolean>>()
+            history.onChange = {
+                if (!refreshing) {
+                    refreshing = true
+                    try {
+                        val enabled = history.canUndo(connection)
+                        if (!history.hasPendingUndo) refreshed.add(document to enabled)
+                    } finally { refreshing = false }
+                }
+            }
+            for (expected in listOf("ab", "a", "")) {
+                refreshed.clear()
+                observed.clear()
+                mutations.clear()
+                val before = document
+                undoStep(history, connection)
+                assertTrue(observed.all { it == before || it == expected })
+                assertEquals(listOf(Mutation(expected.length, before.length, "")), mutations)
+                assertEquals("inputStyle=$inputStyle replayDelay=$replayDelay", expected, document)
+                assertTrue("inputStyle=$inputStyle replayDelay=$replayDelay callbacks=$refreshed",
+                    refreshed.contains(expected to expected.isNotEmpty()))
+                assertEquals(expected.isNotEmpty(), history.canUndo(connection))
+                shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(90))
+            }
+            assertFalse(history.canUndo(connection))
+        }
+    }
+
+    @Test fun a_literal_inserted_zero_width_space_is_not_inherited_from_the_blank_placeholder() {
+        val editor = Editor()
+        val history = history()
+        val connection = history.wrap(editor)
+        connection.commitText("A\u200b", 1)
+        connection.commitText("B", 1)
+        assertEquals("A\u200bB", editor.document)
+        editor.hold("AB")
+        assertFalse(history.canUndo(connection))
+        assertFalse(history.undo(connection))
+        assertEquals(0, editor.undoCalls)
+    }
+
+    @Test fun context_cut_keeps_prior_input_undo_steps_when_restored_through_native_history() {
+        for (deferred in listOf(false, true)) {
+            val editor = Editor().apply { mergeInputs = true }
+            val target = object : InputConnectionWrapper(editor, false) {
+                override fun performContextMenuAction(id: Int): Boolean {
+                    assertEquals(android.R.id.cut, id)
+                    return editor.performContextMenuAction(id)
+                }
+            }
+            val history = history()
+            val connection = history.wrap(target)
+            for (letter in listOf("a", "b", "c")) connection.commitText(letter, 1)
+            editor.setSelection(editor.rawOffset(1), editor.rawOffset(2))
+            editor.deferEdits = deferred
+            connection.performContextMenuAction(android.R.id.cut)
+            editor.flush()
+            editor.deferEdits = false
+            assertEquals("ac", editor.document)
+            editor.observedDocuments.clear()
+            undoStep(history, connection)
+            assertEquals("abc", editor.document)
+            assertEquals(listOf("abc"), editor.observedDocuments)
+            undoStep(history, connection)
+            assertEquals("ab", editor.document)
+            assertEquals(1, editor.undoCalls)
+        }
+    }
+
+    @Test fun copied_text_restores_spaces_tabs_and_multiline_selections_through_native_history() {
+        for (deferred in listOf(false, true)) for (removed in listOf("two words", "line one\n\nline two", "\n\n", "\t")) {
+            val original = "prefix " + removed + " suffix"
+            val editor = Editor(original)
+            val target = object : InputConnectionWrapper(editor, false) {
+                override fun performContextMenuAction(id: Int): Boolean = editor.commitText("", 1)
+            }
+            val history = history()
+            val connection = history.wrap(target)
+            editor.setSelection(editor.rawOffset(7), editor.rawOffset(7 + removed.length))
+            editor.deferEdits = deferred
+            assertTrue(history.cutCopiedSelection(connection, removed))
+            if (deferred) assertEquals(original, editor.document)
+            editor.flush()
+            editor.deferEdits = false
+            assertEquals("prefix  suffix", editor.document)
+            editor.observedDocuments.clear()
+            undoStep(history, connection)
+            assertEquals(original, editor.document)
+            assertEquals(listOf(original), editor.observedDocuments)
+            assertEquals(1, editor.undoCalls)
+        }
+    }
+
+    @Test fun a_rewritten_clipboard_is_not_replayed_when_native_cut_undo_restores_the_original_transaction() {
+        val original = "prefix two words suffix"
+        for (copied in listOf("COPIED", "two words attribution", "", "two\u200b words")) {
+            val editor = Editor(original).apply { mergeInputs = true }
+            var cutCalls = 0
+            val target = object : InputConnectionWrapper(editor, false) {
+                override fun performContextMenuAction(id: Int): Boolean {
+                    cutCalls++
+                    return editor.performContextMenuAction(id)
+                }
+            }
+            val history = history()
+            val connection = history.wrap(target)
+            connection.commitText("!", 1)
+            editor.setSelection(editor.rawOffset(7), editor.rawOffset(16))
+            editor.observedDocuments.clear()
+            assertTrue(history.cutCopiedSelection(connection, copied))
+            assertEquals(1, cutCalls)
+            assertEquals("prefix  suffix!", editor.document)
+            assertTrue(history.canUndo(connection))
+            editor.observedDocuments.clear()
+            editor.mutations.clear()
+            undoStep(history, connection)
+            assertEquals(original + "!", editor.document)
+            assertEquals(listOf(original + "!"), editor.observedDocuments)
+            assertTrue(editor.mutations.isEmpty())
+            assertEquals(1, editor.undoCalls)
+            undoStep(history, connection)
+            assertEquals(original, editor.document)
+            assertEquals(1, editor.undoCalls)
+        }
+    }
+
+    @Test fun multiline_cuts_restore_the_native_transaction_across_line_number_reflow_without_replaying_input() {
+        for (tail in listOf("", "\ntail")) for (deferredCut in listOf(false, true)) for (deferredUndo in listOf(false, true)) {
+            val removed = "line one\n\nline two"
+            val original = "prefix " + removed + " suffix" + tail
+            val editor = Editor(original, numbered = true).apply { mergeInputs = true }
+            val history = history()
+            val connection = history.wrap(editor)
+            connection.commitText("x", 1)
+            connection.commitText("y", 1)
+            editor.setSelection(editor.rawOffset(7), editor.rawOffset(7 + removed.length))
+            assertEquals(9, Selection.getSelectionStart(editor.editable))
+            assertEquals(32, Selection.getSelectionEnd(editor.editable))
+            editor.deferEdits = deferredCut
+            assertTrue(history.cutCopiedSelection(connection, removed))
+            if (deferredCut) assertEquals(original + "xy", editor.document)
+            editor.flush()
+            editor.deferEdits = false
+            assertEquals("prefix  suffix" + tail + "xy", editor.document)
+            val expectedAfter = if (tail.isEmpty()) "1\nprefix  suffixxy\n" else "1\nprefix  suffix\n2\ntailxy\n"
+            assertEquals(expectedAfter, editor.raw())
+            assertTrue(history.canUndo(connection))
+            assertTrue(history.hasUndo)
+            editor.observedDocuments.clear()
+            editor.mutations.clear()
+            editor.deferUndo = deferredUndo
+            val immediate = history.undo(connection)
+            if (deferredUndo) {
+                assertFalse(immediate)
+                assertTrue(history.hasPendingUndo)
+                editor.flush()
+                settle()
+            } else assertTrue(immediate)
+            assertFalse(history.hasPendingUndo)
+            assertEquals(original + "xy", editor.document)
+            assertEquals(listOf(original + "xy"), editor.observedDocuments)
+            assertTrue(editor.mutations.isEmpty())
+            assertEquals(1, editor.undoCalls)
+            editor.deferUndo = false
+            undoStep(history, connection)
+            assertEquals(original + "x", editor.document)
+            undoStep(history, connection)
+            assertEquals(original, editor.document)
+            assertEquals(1, editor.undoCalls)
+        }
+    }
+
+    @Test fun a_selection_that_changes_after_copy_validation_is_not_cut() {
+        val editor = Editor("left right")
+        editor.setSelection(editor.rawOffset(0), editor.rawOffset(4))
+        var reads = 0
+        var cutCalls = 0
+        val target = object : InputConnectionWrapper(editor, false) {
+            override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? {
+                if (++reads == 2) editor.setSelection(editor.rawOffset(5), editor.rawOffset(10))
+                return super.getExtractedText(request, flags)
+            }
+            override fun performContextMenuAction(id: Int): Boolean {
+                cutCalls++
+                return editor.commitText("", 1)
+            }
+        }
+        val history = history()
+        val connection = history.wrap(target)
+        assertFalse(history.cutCopiedSelection(connection, "left"))
+        assertEquals(0, cutCalls)
+        assertEquals("left right", editor.document)
+        assertFalse(history.hasUndo)
+    }
+
+    @Test fun repeating_native_edit_before_text_does_not_create_an_ambiguous_undo_step() {
+        for (reverse in listOf(false, true)) for (deferred in listOf(false, true)) for (removal in listOf("cut", "delete", "forward-delete", "paste")) {
+            val editor = Editor("prefix").apply { setSelection(if (reverse) 4 else 2, if (reverse) 2 else 4) }
+            val nativeHistory = ArrayDeque<Triple<String, Int, Int>>()
+            var nativeUndos = 0
+            var restoring = false
+            fun remember() { nativeHistory.addLast(Triple(editor.document,
+                Selection.getSelectionStart(editor.editable), Selection.getSelectionEnd(editor.editable))) }
+            val target = object : InputConnectionWrapper(editor, false) {
+                override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? =
+                    super.getExtractedText(request, flags)?.apply {
+                        val start = minOf(selectionStart, selectionEnd)
+                        selectionEnd = maxOf(selectionStart, selectionEnd)
+                        selectionStart = start
+                    }
+                override fun performContextMenuAction(id: Int): Boolean {
+                    assertEquals(if (removal == "paste") android.R.id.paste else android.R.id.cut, id)
+                    remember()
+                    return if (id == android.R.id.paste) editor.commitText("e", 1) else editor.performContextMenuAction(id)
+                }
+                override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                    assertFalse("Local inverse would collide with the original Cut body", restoring)
+                    remember()
+                    return super.commitText(text, newCursorPosition)
+                }
+                override fun sendKeyEvent(event: KeyEvent): Boolean {
+                    if (event.keyCode == KeyEvent.KEYCODE_Z && event.isCtrlPressed) {
+                        if (event.action == KeyEvent.ACTION_DOWN) {
+                            nativeUndos++
+                            val saved = nativeHistory.removeLast()
+                            val restore = Runnable { editor.hold(saved.first); editor.setSelection(saved.second, saved.third) }
+                            if (deferred) Handler(Looper.getMainLooper()).postDelayed(restore, 80) else restore.run()
+                        }
+                        return true
+                    }
+                    if (event.action == KeyEvent.ACTION_DOWN && event.keyCode in
+                        listOf(KeyEvent.KEYCODE_DEL, KeyEvent.KEYCODE_FORWARD_DEL)) remember()
+                    return super.sendKeyEvent(event)
+                }
+            }
+            val history = history()
+            val connection = history.wrap(target)
+            if (removal == "cut") assertTrue(history.cutCopiedSelection(connection, "ef"))
+            else if (removal == "paste") assertTrue(history.pasteCopiedText(connection, "e"))
+            else connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN,
+                if (removal == "delete") KeyEvent.KEYCODE_DEL else KeyEvent.KEYCODE_FORWARD_DEL))
+            assertEquals(if (removal == "paste") "preix" else "prix", editor.document)
+            connection.commitText(if (removal == "paste") "f" else "ef", 1)
+            assertEquals("prefix", editor.document)
+            restoring = true
+            undoStep(history, connection, "$removal reinsert $reverse/$deferred")
+            assertEquals(if (removal == "paste") "preix" else "prix", editor.document)
+            assertEquals(1, nativeUndos)
+            assertTrue(history.canUndo(connection))
+            undoStep(history, connection, "$removal restore $reverse/$deferred")
+            assertEquals("prefix", editor.document)
+            assertEquals(2, nativeUndos)
+            assertEquals(if (reverse) 4 else 2, Selection.getSelectionStart(editor.editable))
+            assertEquals(if (reverse) 2 else 4, Selection.getSelectionEnd(editor.editable))
+            assertFalse(history.canUndo(connection))
+        }
+    }
+
+    @Test fun selected_web_edits_preserve_native_direction_when_input_connection_sorts_endpoints() {
+        for (reverse in listOf(false, true)) for (action in listOf("cut", "tab", "delete", "forward-delete")) {
+            val editor = Editor("prefix").apply { setSelection(if (reverse) 4 else 2, if (reverse) 2 else 4) }
+            val before = editor.raw()
+            val anchor = if (reverse) 4 else 2
+            val head = if (reverse) 2 else 4
+            var nativeUndos = 0
+            var restoring = false
+            val target = object : InputConnectionWrapper(editor, false) {
+                override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? =
+                    super.getExtractedText(request, flags)?.apply {
+                        val start = minOf(selectionStart, selectionEnd)
+                        selectionEnd = maxOf(selectionStart, selectionEnd)
+                        selectionStart = start
+                    }
+                override fun performContextMenuAction(id: Int): Boolean {
+                    assertEquals(android.R.id.cut, id)
+                    return editor.commitText("", 1)
+                }
+                override fun sendKeyEvent(event: KeyEvent): Boolean {
+                    if (event.keyCode == KeyEvent.KEYCODE_Z && event.isCtrlPressed) {
+                        if (event.action == KeyEvent.ACTION_DOWN) {
+                            nativeUndos++
+                            editor.hold("prefix")
+                            editor.setSelection(anchor, head)
+                        }
+                        return true
+                    }
+                    return super.sendKeyEvent(event)
+                }
+                override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                    assertFalse("A selected Web edit must use its native selection history", restoring)
+                    return super.commitText(text, newCursorPosition)
+                }
+            }
+            val history = history()
+            val connection = history.wrap(target)
+            when (action) {
+                "cut" -> assertTrue(history.cutCopiedSelection(connection, "ef"))
+                "tab" -> assertTrue(connection.commitText("\t", 1))
+                else -> connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN,
+                    if (action == "delete") KeyEvent.KEYCODE_DEL else KeyEvent.KEYCODE_FORWARD_DEL))
+            }
+            assertTrue(history.canUndo(connection))
+            restoring = true
+            undoStep(history, connection, "$reverse/$action")
+            assertEquals(1, nativeUndos)
+            assertEquals(before, editor.raw())
+            assertEquals(anchor, Selection.getSelectionStart(editor.editable))
+            assertEquals(head, Selection.getSelectionEnd(editor.editable))
+            assertFalse(history.canUndo(connection))
+        }
+    }
+
+    @Test fun copied_tabs_match_their_rendered_columns_and_restore_the_real_tab() {
+        for (prefix in listOf("", "a", "ab", "abc")) for (expanded in listOf(false, true)) for (expandedUndo in listOf(false, true)) for (reverse in listOf(false, true)) for (rerender in listOf(false, true)) {
+            val editor = Editor()
+            var document = prefix + "\t suffix"
+            var offsets = intArrayOf()
+            var undoing = false
+            var nativeUndos = 0
+            var savedSelection = 0 to 0
+            val writes = mutableListOf<String>()
+            fun render(caret: Int = document.length, displayExpanded: Boolean = if (undoing) expandedUndo else expanded) {
+                val raw = StringBuilder("1\n")
+                offsets = IntArray(document.length + 1)
+                offsets[0] = raw.length
+                var column = 0
+                for ((index, character) in document.withIndex()) {
+                    if (character == '\t') {
+                        val width = 4 - column % 4
+                        raw.append(if (displayExpanded) " ".repeat(width) else "\t")
+                        column += width
+                    } else { raw.append(character); column++ }
+                    offsets[index + 1] = raw.length
+                }
+                raw.append('\n')
+                editor.renderRaw(raw.toString(), offsets[caret])
+            }
+            render()
+            val target = object : InputConnectionWrapper(editor, false) {
+                override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                    val anchor = offsets.indexOf(Selection.getSelectionStart(editor.editable))
+                    val head = offsets.indexOf(Selection.getSelectionEnd(editor.editable))
+                    savedSelection = anchor to head
+                    val start = minOf(anchor, head)
+                    val end = maxOf(anchor, head)
+                    assertTrue(start >= 0 && end >= start)
+                    document = document.replaceRange(start, end, text.toString())
+                    writes += text.toString()
+                    val caret = start + text.toString().length
+                    render(caret, if (undoing && rerender) false else if (undoing) expandedUndo else expanded)
+                    if (undoing && rerender) Handler(Looper.getMainLooper()).postDelayed({ render(caret) }, 80)
+                    return true
+                }
+                override fun performContextMenuAction(id: Int): Boolean {
+                    assertEquals(android.R.id.cut, id)
+                    return commitText("", 1)
+                }
+                override fun sendKeyEvent(event: KeyEvent): Boolean {
+                    assertTrue(event.keyCode == KeyEvent.KEYCODE_Z && event.isCtrlPressed)
+                    if (event.action == KeyEvent.ACTION_DOWN) {
+                        nativeUndos++
+                        document = prefix + "\t suffix"
+                        fun restore() {
+                            render(savedSelection.second)
+                            editor.setSelection(offsets[savedSelection.first], offsets[savedSelection.second])
+                        }
+                        restore()
+                        if (rerender) Handler(Looper.getMainLooper()).postDelayed({ restore() }, 80)
+                    }
+                    return true
+                }
+            }
+            val history = history()
+            val connection = history.wrap(target)
+            editor.setSelection(offsets[prefix.length + if (reverse) 1 else 0], offsets[prefix.length + if (reverse) 0 else 1])
+            assertTrue(history.cutCopiedSelection(connection, "\t"))
+            assertEquals(prefix + " suffix", document)
+            assertTrue(history.canUndo(connection))
+            undoing = true
+            undoStep(history, connection)
+            settle()
+            assertEquals(prefix + "\t suffix", document)
+            assertEquals(listOf(""), writes)
+            assertEquals(1, nativeUndos)
+            assertEquals(offsets[prefix.length + if (reverse) 1 else 0], Selection.getSelectionStart(editor.editable))
+            assertEquals(offsets[prefix.length + if (reverse) 0 else 1], Selection.getSelectionEnd(editor.editable))
+        }
+    }
+
+    @Test fun copying_a_quote_before_cut_preserves_all_content_and_prior_input_history() {
+        val prefix = "> quote\n\nbody\n\n"
+        val editor = Editor(prefix).apply { mergeInputs = true }
+        val target = object : InputConnectionWrapper(editor, false) {
+            override fun performContextMenuAction(id: Int): Boolean = editor.commitText("", 1)
+        }
+        val history = history()
+        val connection = history.wrap(target)
+        for (letter in listOf("a", "b", "c")) connection.commitText(letter, 1)
+        editor.selectAll()
+        assertTrue(history.cutCopiedSelection(connection, prefix + "abc"))
+        assertEquals("", editor.document)
+        undoStep(history, connection)
+        assertEquals(prefix + "abc", editor.document)
+        undoStep(history, connection)
+        assertEquals(prefix + "ab", editor.document)
+    }
+
+    @Test fun a_prior_context_paste_does_not_prevent_undoing_the_last_known_commit_locally() {
+        val editor = Editor().apply { mergeInputs = true }
+        var pasteCalls = 0
+        val target = object : InputConnectionWrapper(editor, false) {
+            override fun performContextMenuAction(id: Int): Boolean {
+                assertEquals(android.R.id.paste, id)
+                pasteCalls++
+                return editor.commitText("b", 1)
+            }
+        }
+        val history = history()
+        val connection = history.wrap(target)
+        connection.commitText("a", 1)
+        connection.performContextMenuAction(android.R.id.paste)
+        connection.commitText("c", 1)
+        editor.observedDocuments.clear()
+        undoStep(history, connection)
+        assertEquals("ab", editor.document)
+        assertEquals(listOf("ab"), editor.observedDocuments)
+        assertEquals(1, pasteCalls)
+        assertEquals(0, editor.undoCalls)
+        assertFalse(history.canUndo(connection))
+    }
+
+    @Test fun rejected_local_selection_never_changes_the_document() {
+        val editor = Editor().apply { mergeInputs = true }
+        var rejecting = false
+        var selectionCalls = 0
+        val target = object : InputConnectionWrapper(editor, false) {
+            override fun setSelection(start: Int, end: Int): Boolean {
+                selectionCalls++
+                return if (rejecting) false else super.setSelection(start, end)
+            }
+        }
+        val history = history()
+        val connection = history.wrap(target)
+        for (character in "abc") connection.commitText(character.toString(), 1)
+        rejecting = true
+        editor.observedDocuments.clear()
+        editor.mutations.clear()
+        assertFalse(history.undo(connection))
+        assertEquals("abc", editor.document)
+        assertTrue(editor.observedDocuments.isEmpty())
+        assertTrue(editor.mutations.isEmpty())
+        assertEquals(1, selectionCalls)
+        assertEquals(0, editor.undoCalls)
+        assertFalse(history.hasPendingUndo)
+    }
+
+    @Test fun an_accepted_selection_must_be_observed_before_any_local_replacement() {
+        val editor = Editor().apply { mergeInputs = true }
+        val target = object : InputConnectionWrapper(editor, false) {
+            override fun setSelection(start: Int, end: Int): Boolean = true
+        }
+        val history = history()
+        val connection = history.wrap(target)
+        for (character in "abc") connection.commitText(character.toString(), 1)
+        editor.observedDocuments.clear()
+        editor.mutations.clear()
+        var completed: Boolean? = null
+        history.onUndoCompleted = { completed = it }
+        assertFalse(history.undo(connection))
+        assertTrue(history.hasPendingUndo)
+        settle()
+        assertEquals(false, completed)
+        assertEquals("abc", editor.document)
+        assertTrue(editor.observedDocuments.isEmpty())
+        assertTrue(editor.mutations.isEmpty())
+        assertEquals(0, editor.undoCalls)
+        assertFalse(history.hasPendingUndo)
+    }
+
+    @Test fun an_unobservable_current_snapshot_does_not_start_a_local_or_native_undo() {
+        val editor = Editor()
+        var readable = true
+        val target = object : InputConnectionWrapper(editor, false) {
+            override fun getExtractedText(request: ExtractedTextRequest?, flags: Int): ExtractedText? =
+                if (readable) super.getExtractedText(request, flags) else null
+
+            override fun getSurroundingText(beforeLength: Int, afterLength: Int, flags: Int): SurroundingText? =
+                if (readable) super.getSurroundingText(beforeLength, afterLength, flags) else null
+        }
+        val history = history()
+        val connection = history.wrap(target)
+        connection.commitText("a", 1)
+        readable = false
+        editor.observedDocuments.clear()
+        editor.mutations.clear()
+        assertFalse(history.canUndo(connection))
+        assertFalse(history.undo(connection))
+        assertEquals("a", editor.document)
+        assertTrue(editor.observedDocuments.isEmpty())
+        assertTrue(editor.mutations.isEmpty())
+        assertEquals(0, editor.undoCalls)
+    }
+
+    @Test fun replacing_or_deleting_text_in_the_middle_never_touches_its_prefix_or_suffix() {
+        val editor = Editor("LoldR")
+        val history = history()
+        val connection = history.wrap(editor)
+        connection.setSelection(1, 4)
+        connection.commitText("新", 1)
+        editor.observedDocuments.clear()
+        editor.mutations.clear()
+        undoStep(history, connection)
+        assertEquals("LoldR", editor.document)
+        assertEquals(listOf("LoldR"), editor.observedDocuments)
+        assertTrue(editor.mutations.isEmpty())
+        connection.setSelection(4, 4)
+        connection.deleteSurroundingTextInCodePoints(1, 0)
+        assertEquals("LolR", editor.document)
+        editor.observedDocuments.clear()
+        editor.mutations.clear()
+        undoStep(history, connection)
+        assertEquals("LoldR", editor.document)
+        assertEquals(listOf("LoldR"), editor.observedDocuments)
+        assertEquals(listOf(Mutation(3, 3, "d")), editor.mutations)
+        assertEquals(1, editor.undoCalls)
+    }
+
+    @Test fun a_rejected_local_replacement_never_clears_or_replays_prior_input() {
+        val editor = Editor().apply { mergeInputs = true }
+        var rejecting = false
+        val target = object : InputConnectionWrapper(editor, false) {
+            override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean =
+                if (rejecting) false else super.commitText(text, newCursorPosition)
+        }
+        val history = history()
+        val connection = history.wrap(target)
+        for (character in "abc") connection.commitText(character.toString(), 1)
+        rejecting = true
+        editor.observedDocuments.clear()
+        assertFalse(history.undo(connection))
+        assertEquals("abc", editor.document)
+        assertTrue(editor.observedDocuments.isEmpty())
+        assertEquals(0, editor.undoCalls)
+        assertFalse(history.hasPendingUndo)
+    }
+
+    @Test fun more_than_fifty_merged_inputs_are_undone_without_replaying_the_prefix() {
+        for (web in listOf(true, false)) {
+            val editor = Editor(web = web).apply { mergeInputs = true }
+            val history = history()
+            val connection = history.wrap(editor)
+            repeat(60) { connection.commitText("a", 1) }
+            assertEquals("a".repeat(60), editor.document)
+            for (length in listOf(59, 58)) {
+                val before = editor.document
+                editor.observedDocuments.clear()
+                undoStep(history, connection)
+                assertEquals("a".repeat(length), editor.document)
+                assertTrue(editor.observedDocuments.all { it == before || it == editor.document })
+            }
+            assertEquals(0, editor.undoCalls)
+            assertTrue(history.canUndo(connection))
+        }
+    }
+
+    @Test fun returning_to_a_repeated_prefix_keeps_the_intervening_edit_steps() {
+        val editor = Editor("P").apply { mergeInputs = true }
+        val history = history()
+        val connection = history.wrap(editor)
+        connection.commitText("a", 1)
+        connection.setSelection(1, 2)
+        connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL))
+        connection.commitText("b", 1)
+        assertEquals("Pb", editor.document)
+        for (expected in listOf("P", "Pa", "P")) {
+            undoStep(history, connection)
+            assertEquals(expected, editor.document)
+        }
+        assertFalse(history.canUndo(connection))
+    }
+
+    @Test fun separately_batched_preedit_updates_keep_each_committed_candidate_as_one_step() {
+        val editor = Editor().apply { mergeInputs = true }
+        val history = history()
+        val connection = history.wrap(editor)
+        for ((preedit, word) in listOf("ni" to "你", "hao" to "好")) {
+            for (length in 1..preedit.length) {
+                connection.beginBatchEdit()
+                connection.setComposingText(preedit.take(length), 1)
+                connection.endBatchEdit()
+            }
+            connection.beginBatchEdit()
+            connection.commitText(word, 1)
+            connection.endBatchEdit()
+        }
+        assertEquals("你好", editor.document)
+        for (expected in listOf("你", "")) {
+            val before = editor.document
+            editor.observedDocuments.clear()
+            editor.mutations.clear()
+            undoStep(history, connection)
+            assertEquals(expected, editor.document)
+            assertTrue(editor.observedDocuments.all { it == before || it == expected })
+            assertEquals(listOf(Mutation(expected.length, before.length, "")), editor.mutations)
+        }
+        assertEquals(0, editor.undoCalls)
+        assertFalse(history.canUndo(connection))
+    }
+
+    @Test fun an_older_chain_origin_is_invalidated_by_external_changes_clear_and_field_switch() {
+        for (invalidate in listOf("external", "clear", "field")) {
+            val editor = Editor().apply { mergeInputs = true }
+            val history = history()
+            var connection = history.wrap(editor)
+            repeat(60) { connection.commitText("a", 1) }
+            when (invalidate) {
+                "external" -> editor.hold("external")
+                "clear" -> history.clear()
+                "field" -> connection = history.wrap(Editor("other field"))
+            }
+            assertFalse(invalidate, history.canUndo(connection))
+            assertFalse(invalidate, history.undo(connection))
+            assertEquals(invalidate, 0, editor.undoCalls)
+        }
+    }
+
+    @Test fun restoring_a_quote_then_undoing_input_never_replays_the_earlier_prefix() {
+        for (key in listOf(KeyEvent.KEYCODE_DEL, KeyEvent.KEYCODE_FORWARD_DEL)) {
+            val quote = "> quote\nA\u200bB\n\n"
+            val editor = Editor(quote).apply { mergeInputs = true }
+            val history = history()
+            val connection = history.wrap(editor)
+            for (letter in "abc") connection.commitText(letter.toString(), 1)
+            editor.selectAll()
+            connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, key))
+            assertEquals("", editor.document)
+            for (suffix in listOf("abc", "ab", "a", "")) {
+                val before = editor.document
+                editor.observedDocuments.clear()
+                undoStep(history, connection)
+                assertEquals(quote + suffix, editor.document)
+                assertTrue(editor.observedDocuments.all { it == before || it == quote + suffix })
+            }
+            assertEquals(1, editor.undoCalls)
+        }
+    }
+
+    @Test fun quoted_replies_and_real_trailing_lines_restore_after_both_delete_keys() {
+        for (web in listOf(true, false)) for (key in listOf(KeyEvent.KEYCODE_DEL, KeyEvent.KEYCODE_FORWARD_DEL)) {
+            val originals = listOf("> quoted reply\n\n", "A\u200bB\n\n", "一") + if (web) emptyList() else listOf("\u200b")
+            for (original in originals) {
+                val editor = Editor(original, web)
+                val originalRaw = editor.raw()
+                val history = history()
+                val connection = history.wrap(editor)
+                editor.selectAll()
+                connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, key))
+                assertEquals("", editor.document)
+                assertTrue(history.canUndo(connection))
+                undoStep(history, connection)
+                assertEquals(original, editor.document)
+                assertEquals(originalRaw, editor.raw())
+                assertFalse(history.canUndo(connection))
+            }
+        }
+    }
+
+    @Test fun indistinguishable_placeholder_snapshots_do_not_create_unverified_undo() {
+        val editor = Editor("\u200b")
+        val history = history()
+        val connection = history.wrap(editor)
+        val beforeRaw = editor.raw()
+        editor.selectAll()
+        connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL))
+        assertEquals("", editor.document)
+        assertEquals(beforeRaw, editor.raw())
+        settle()
+        assertFalse(history.canUndo(connection))
+        assertFalse(history.undo(connection))
+        assertEquals("", editor.document)
+        assertEquals(0, editor.undoCalls)
+    }
+
+    @Test fun composition_undo_uses_the_empty_baseline_after_all_preedit_updates() {
+        val editor = Editor()
+        val history = history()
+        val connection = history.wrap(editor)
+        connection.setComposingText("a", 1)
+        connection.setComposingText("ab", 1)
+        connection.commitText("abc", 1)
+        assertTrue(history.canUndo(connection))
+        assertTrue(history.undo(connection))
+        assertEquals("", editor.document)
+        assertFalse(history.canUndo(connection))
+    }
+
+    @Test fun batch_commits_keep_previous_history_and_undo_to_empty() {
+        val editor = Editor()
+        val history = history()
+        val connection = history.wrap(editor)
+        for (character in "ab") {
+            connection.beginBatchEdit()
+            connection.commitText(character.toString(), 1)
+            connection.endBatchEdit()
+        }
+        assertTrue(history.undo(connection))
+        assertEquals("a", editor.document)
+        assertTrue(history.undo(connection))
+        assertEquals("", editor.document)
+    }
+
+    @Test fun delayed_input_and_native_undo_require_observed_changes() {
+        val editor = Editor().apply { deferEdits = true; deferUndo = true }
+        val history = history()
+        val connection = history.wrap(editor)
+        connection.commitText("a", 1)
+        assertFalse(history.hasUndo)
+        editor.flush()
+        settle()
+        assertTrue(history.canUndo(connection))
+        var completed: Boolean? = null
+        history.onUndoCompleted = { completed = it }
+        assertFalse(history.undo(connection))
+        assertTrue(history.hasPendingUndo)
+        assertEquals(null, completed)
+        editor.flush()
+        settle()
+        assertEquals(true, completed)
+        assertEquals("", editor.document)
+        assertFalse(history.hasPendingUndo)
+    }
+
+    @Test fun external_changes_do_not_gain_undo_tickets() {
+        val editor = Editor()
+        val history = history()
+        val connection = history.wrap(editor)
+        connection.commitText("a", 1)
+        editor.hold("external")
+        assertFalse(history.canUndo(connection))
+        assertFalse(history.undo(connection))
+        assertEquals(0, editor.undoCalls)
+    }
+
+    @Test fun unrelated_changes_while_input_is_pending_invalidate_history() {
+        val editor = Editor().apply { deferEdits = true }
+        val history = history()
+        val connection = history.wrap(editor)
+        connection.commitText("a", 1)
+        editor.hold("unrelated")
+        settle()
+        assertFalse(history.canUndo(connection))
+        assertEquals(0, editor.undoCalls)
+    }
+
+    @Test fun accepted_but_ignored_local_undo_is_reported_as_failure() {
+        val editor = Editor()
+        var ignoring = false
+        val target = object : InputConnectionWrapper(editor, false) {
+            override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean =
+                if (ignoring) true else super.commitText(text, newCursorPosition)
+        }
+        val history = history()
+        val connection = history.wrap(target)
+        connection.commitText("a", 1)
+        ignoring = true
+        var completed: Boolean? = null
+        history.onUndoCompleted = { completed = it }
+        assertFalse(history.undo(connection))
+        settle()
+        assertEquals(false, completed)
+        assertEquals("a", editor.document)
+        assertEquals(0, editor.undoCalls)
+        assertFalse(history.hasUndo)
+    }
+
+    @Test fun native_clear_restore_that_misses_its_own_before_is_redone_without_replaying() {
+        val editor = Editor("> quote\n\n")
+        val history = history()
+        val connection = history.wrap(editor)
+        editor.selectAll()
+        connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL))
+        editor.undoOverride = "unrelated"
+        var completed: Boolean? = null
+        history.onUndoCompleted = { completed = it }
+        assertFalse(history.undo(connection))
+        settle()
+        assertEquals(false, completed)
+        assertEquals("", editor.document)
+        assertEquals(1, editor.redoCalls)
+        assertFalse(history.hasUndo)
     }
 
 }

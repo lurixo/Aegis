@@ -453,6 +453,27 @@ internal class WindowedEditorUndoHistory {
         return if (entry.documentEnd) after == entry.right else after.startsWith(entry.right)
     }
 
+    fun selectionUpdated(start: Int, end: Int) {
+        // A report is the editor saying it has applied the edit, so an edit still waiting settles now.
+        pending?.let { settle(it.target) }
+        val selection = minOf(start, end) to maxOf(start, end)
+        probe?.let { reportsSelection = reportsSelection || it == selection }
+        probe = null
+        val head = expectations.firstOrNull() ?: return
+        val index = expectations.indexOfFirst { it.selection == selection }
+        if (index >= 0) {
+            repeat(index + 1) { expectations.removeFirst() }
+            contradictions = 0
+            return
+        }
+        if (selection == head.previous) return
+        // A report can lag behind the edit — a drag that selected the range keeps reporting after the
+        // deletion was sent. Stop trusting the reports, but leave the history for a read to judge.
+        expectations.clear()
+        contradicted = true
+        if (++contradictions >= MAX_CONTRADICTIONS) reportsSelection = false
+    }
+
     /** Confirms the newest entry against the editor once a report or a new connection cast doubt on it. */
     private fun verify(target: InputConnection) {
         if (!contradicted) return
@@ -831,5 +852,6 @@ internal class WindowedEditorUndoHistory {
         private const val MAX_RETAINED = 1_048_576
         private const val LOCAL_DELETE = WINDOW
         private const val MAX_EXPECTATIONS = 50
+        private const val MAX_CONTRADICTIONS = 3
     }
 }

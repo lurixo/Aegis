@@ -225,6 +225,120 @@ class EditorUndoHistoryTest {
         assertFalse(history.undo(connection))
     }
 
+    @Test fun native_navigation_waits_for_pending_edits_and_only_wraps_known_moves() {
+        val editor = Editor("base").apply { deferCommit = true }
+        val history = EditorUndoHistory().apply { preferNativeUndo = true }
+        val connection = history.wrap(editor)
+        assertTrue(connection.commitText("!", 1))
+        assertFalse(connection.setSelection(0, 0))
+        assertFalse(connection.performContextMenuAction(android.R.id.selectAll))
+        assertTrue(editor.contextActions.isEmpty())
+        assertTrue(editor.selectedRanges.isEmpty())
+        val moves = listOf(KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_UP,
+            KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_MOVE_HOME, KeyEvent.KEYCODE_MOVE_END)
+        for (key in moves) {
+            assertFalse(connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, key)))
+            assertFalse(connection.sendKeyEvent(KeyEvent(0, 0, KeyEvent.ACTION_DOWN, key, 0, KeyEvent.META_SHIFT_ON)))
+        }
+        for (meta in listOf(KeyEvent.META_CTRL_ON, KeyEvent.META_META_ON)) {
+            assertFalse(connection.sendKeyEvent(KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_A, 0, meta)))
+        }
+        assertTrue(editor.keyEvents.isEmpty())
+        for (key in moves) assertTrue(connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, key)))
+        assertTrue(connection.sendKeyEvent(KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_C, 0, KeyEvent.META_CTRL_ON)))
+        assertEquals(7, editor.keyEvents.size)
+        assertEquals("base", editor.content.toString())
+        editor.deferCommit = false
+        editor.flush()
+        assertTrue(history.canUndo(connection))
+        assertTrue(connection.performContextMenuAction(android.R.id.selectAll))
+        assertEquals(listOf(android.R.id.selectAll), editor.contextActions)
+        for (meta in listOf(KeyEvent.META_CTRL_ON, KeyEvent.META_META_ON)) {
+            assertTrue(connection.sendKeyEvent(KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_A, 0, meta)))
+        }
+        assertEquals(0, Selection.getSelectionStart(editor.content))
+        assertEquals(editor.content.length, Selection.getSelectionEnd(editor.content))
+        assertTrue(connection.setSelection(0, 0))
+        assertEquals(listOf(0 to 0), editor.selectedRanges)
+        assertTrue(history.canUndo(connection))
+        assertTrue(history.undo(connection))
+        assertEquals("base", editor.content.toString())
+    }
+
+    @Test fun plain_navigation_keeps_the_direct_connection_path() {
+        val editor = Editor("base")
+        val history = EditorUndoHistory()
+        val connection = history.wrap(editor)
+        val reads = editor.reads
+        assertTrue(connection.setSelection(0, 0))
+        assertTrue(connection.performContextMenuAction(android.R.id.selectAll))
+        assertTrue(connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MOVE_END)))
+        assertTrue(connection.sendKeyEvent(KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_A, 0, KeyEvent.META_CTRL_ON)))
+        assertEquals(reads, editor.reads)
+        assertEquals(listOf(0 to 0), editor.selectedRanges)
+        assertEquals(listOf(android.R.id.selectAll), editor.contextActions)
+        assertEquals(2, editor.keyEvents.size)
+    }
+
+    @Test fun stale_native_connection_navigation_does_not_rebind_the_current_history() {
+        val history = EditorUndoHistory().apply { preferNativeUndo = true }
+        val previous = Editor("previous")
+        val stale = history.wrap(previous)
+        val current = Editor("current").apply { deferCommit = true }
+        val active = history.wrap(current)
+        assertTrue(active.commitText("!", 1))
+        assertTrue(stale.setSelection(0, 0))
+        assertTrue(stale.performContextMenuAction(android.R.id.selectAll))
+        assertTrue(stale.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MOVE_END)))
+        assertTrue(stale.sendKeyEvent(KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_A, 0, KeyEvent.META_META_ON)))
+        assertEquals(listOf(0 to 0), previous.selectedRanges)
+        assertEquals(listOf(android.R.id.selectAll), previous.contextActions)
+        assertEquals(2, previous.keyEvents.size)
+        current.deferCommit = false
+        current.flush()
+        assertTrue(history.canUndo(active))
+        assertTrue(history.undo(active))
+        assertEquals("current", current.content.toString())
+    }
+
+    @Test fun native_context_paste_binds_the_captured_body_until_acknowledged() {
+        val captured = StringBuilder("captured")
+        val editor = Editor("base").apply { contextPasteText = captured.toString(); deferContextPaste = true }
+        val history = EditorUndoHistory().apply { preferNativeUndo = true }
+        val connection = history.wrap(editor)
+        assertTrue(history.pasteCopiedText(connection, captured))
+        assertEquals(listOf(android.R.id.paste), editor.contextActions)
+        assertEquals("base", editor.content.toString())
+        captured.append(" changed")
+        assertFalse(history.canUndo(connection))
+        editor.flush()
+        assertEquals("basecaptured", editor.content.toString())
+        assertTrue(history.canUndo(connection))
+        assertEquals(listOf(android.R.id.paste), editor.contextActions)
+    }
+
+    @Test fun native_context_paste_does_not_accept_an_unexpected_body_as_the_captured_edit() {
+        val editor = Editor("base").apply { contextPasteText = "different" }
+        val history = EditorUndoHistory().apply { preferNativeUndo = true }
+        val connection = history.wrap(editor)
+        assertTrue(history.pasteCopiedText(connection, "expected"))
+        assertEquals("basedifferent", editor.content.toString())
+        assertEquals(listOf(android.R.id.paste), editor.contextActions)
+        assertFalse(history.canUndo(connection))
+    }
+
+    @Test fun plain_context_paste_retains_the_existing_non_native_undo_path() {
+        val editor = Editor("base")
+        val history = EditorUndoHistory()
+        val connection = history.wrap(editor)
+        assertTrue(history.pasteCopiedText(connection, "native binding is unused"))
+        assertEquals("basepasted", editor.content.toString())
+        assertEquals(listOf(android.R.id.paste), editor.contextActions)
+        assertTrue(history.canUndo(connection))
+        assertTrue(history.undo(connection))
+        assertEquals("base", editor.content.toString())
+    }
+
     @Test fun undo_restores_reversed_selection_after_cursor_navigation_and_only_replaces_the_edit() {
         val editor = Editor("abcdef")
         editor.setSelection(4, 1)
