@@ -265,6 +265,91 @@ class WebEditorClearTest {
         assertEquals(0, f.editor.rejectedTextCommits)
     }
 
+    @Test fun ordinary_input_can_be_undone_through_the_panel_until_the_document_is_empty() {
+        for (merge in listOf(false, true)) for (prefix in listOf("", "P")) {
+            val f = fixture(prefix)
+            f.editor.normalizeInput = true
+            f.editor.mergeInputs = merge
+            for (character in "abc") f.service.commitText(character.toString())
+            for (expected in listOf("ab", "a", "")) {
+                undo(f)
+                assertEquals("merge=$merge prefix=$prefix", prefix + expected, f.editor.document)
+            }
+            assertEquals(0, f.editor.nativeUndoCalls)
+            undo(f)
+            assertEquals(0, f.editor.nativeUndoCalls)
+        }
+    }
+
+    @Test fun restoring_a_deleted_quote_preserves_the_preceding_individual_input_steps() {
+        for (action in listOf(EditAction.DELETE, EditAction.FORWARD_DELETE)) {
+            val prefix = "> quoted reply\n\n"
+            val f = fixture(prefix)
+            f.editor.normalizeInput = true
+            f.editor.mergeInputs = true
+            for (character in "abc") f.service.commitText(character.toString())
+            edit(f, EditAction.SELECT_ALL)
+            edit(f, action)
+            assertEquals("", f.editor.document)
+            for (expected in listOf("abc", "ab", "a", "")) {
+                undo(f)
+                assertEquals(prefix + expected, f.editor.document)
+            }
+        }
+    }
+
+    @Test fun selecting_and_deleting_quoted_text_from_the_panel_retains_ordinary_undo() {
+        for (action in listOf(EditAction.DELETE, EditAction.FORWARD_DELETE)) {
+            for (original in listOf("> quoted reply\n\n", "A\u200bB\n\n", "一")) {
+                val f = fixture(original)
+                f.editor.normalizeInput = true
+                val case = "$action / ${original.replace("\n", "\\n")}"
+                val originalRaw = f.editor.rawText()
+                edit(f, EditAction.SELECT_ALL)
+                edit(f, action)
+                assertEquals(case, "", f.editor.document)
+                val expectedKey = if (action == EditAction.DELETE) KeyEvent.KEYCODE_DEL else KeyEvent.KEYCODE_FORWARD_DEL
+                assertEquals(case, listOf(expectedKey), f.editor.nativeDeletionKeys)
+                undo(f)
+                assertEquals(case, original, f.editor.document)
+                assertEquals(case, originalRaw, f.editor.rawText())
+                assertEquals(case, 1, f.editor.nativeUndoCalls)
+            }
+        }
+    }
+
+    @Test fun a_web_placeholder_that_matches_real_text_does_not_enable_unverified_panel_undo() {
+        val f = fixture("\u200b")
+        val beforeRaw = f.editor.rawText()
+        edit(f, EditAction.SELECT_ALL)
+        edit(f, EditAction.DELETE)
+        assertEquals("", f.editor.document)
+        assertEquals(beforeRaw, f.editor.rawText())
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(600))
+        undo(f)
+        assertEquals("", f.editor.document)
+        assertEquals(0, f.editor.nativeUndoCalls)
+    }
+
+    @Test fun new_input_after_swipe_clear_keeps_its_first_undo_step() {
+        for (batched in listOf(false, true)) {
+            val f = fixture("> quoted reply\n\n")
+            f.editor.normalizeInput = true
+            swipe(f, up = true)
+            assertEquals("", f.editor.document)
+            val connection = requireNotNull(f.service.currentInputConnection)
+            if (batched) connection.beginBatchEdit()
+            connection.commitText("a", 1)
+            if (batched) connection.endBatchEdit()
+            assertEquals("a", f.editor.document)
+            undo(f)
+            assertEquals("", f.editor.document)
+            assertEquals(0, f.editor.nativeUndoCalls)
+            undo(f)
+            assertEquals(0, f.editor.nativeUndoCalls)
+        }
+    }
+
     @Test fun clear_uses_the_editors_document_range_instead_of_the_raw_dom_suffix() {
         for (caret in listOf(0, 3, 7)) {
             val f = fixture("AAA\nBBB", caret)
@@ -301,6 +386,32 @@ class WebEditorClearTest {
         assertEquals(6 to 6, f.editor.caret())
     }
 
+    @Test fun swipe_down_restores_without_the_undo_notice_that_the_panel_undo_shows() {
+        val done = RuntimeEnvironment.getApplication().getString(R.string.edit_undo_done)
+        val unavailable = RuntimeEnvironment.getApplication().getString(R.string.edit_undo_unavailable)
+        val cleared = fixture("AAA\nBBB").apply { service.onCreateInputView() }
+        swipe(cleared, up = true)
+        assertEquals("", cleared.editor.document)
+        swipe(cleared, up = false)
+        assertEquals("AAA\nBBB", cleared.editor.document)
+        assertEquals(1, cleared.editor.nativeUndoCalls)
+        assertTrue(cleared.service.toastTextForTest() !in listOf(done, unavailable))
+
+        val deleted = fixture("> quoted reply\n\n").apply { service.onCreateInputView() }
+        deleted.editor.normalizeInput = true
+        for (character in "abc") deleted.service.commitText(character.toString())
+        edit(deleted, EditAction.SELECT_ALL)
+        edit(deleted, EditAction.FORWARD_DELETE)
+        assertEquals("", deleted.editor.document)
+        assertTrue(canSwipe(deleted, up = false))
+        swipe(deleted, up = false)
+        assertEquals("> quoted reply\n\nabc", deleted.editor.document)
+        assertTrue(deleted.service.toastTextForTest() !in listOf(done, unavailable))
+        undo(deleted)
+        assertEquals("> quoted reply\n\nab", deleted.editor.document)
+        assertEquals(done, deleted.service.toastTextForTest())
+    }
+
     @Test fun swipe_down_restores_real_trailing_newlines_and_a_single_character_exactly() {
         for (original in listOf("AAA\nBBB", "AAA\nBBB\n", "AAA\n\n", "\nAAA\n\n", "一")) {
             for (caret in listOf(0, original.length / 2, original.length).distinct()) {
@@ -324,6 +435,23 @@ class WebEditorClearTest {
         }
     }
 
+    @Test fun editing_undo_restores_the_editor_document_and_collapses_its_selection_at_the_real_end() {
+        for (original in listOf("AAA\n\n", "一")) {
+            val f = fixture(original)
+            val rawBefore = f.editor.rawText()
+            val rawEnd = f.editor.rawOffset(original.length)
+
+            swipe(f, up = true)
+            undo(f)
+
+            assertEquals(original, f.editor.document)
+            assertEquals(rawBefore, f.editor.rawText())
+            assertEquals(rawEnd to rawEnd, f.editor.caret())
+            assertEquals(1, f.editor.nativeUndoCalls)
+            assertTrue(f.editor.invalidSelectionRequests.isEmpty())
+        }
+    }
+
     @Test fun clearing_the_empty_placeholder_does_not_replace_the_previous_restore() {
         val f = fixture("AAA\nBBB\n")
         swipe(f, up = true)
@@ -338,6 +466,34 @@ class WebEditorClearTest {
 
         assertEquals("AAA\nBBB\n", f.editor.document)
         assertEquals(listOf("AAA\nBBB\n"), f.editor.nativeDeletions)
+    }
+
+    @Test fun an_unreadable_nonempty_snapshot_uses_native_undo_once_and_restores_the_real_end() {
+        for (useEditingUndo in listOf(false, true)) {
+            val original = "AAA\n\n"
+            val f = fixture(original, 3)
+            f.editor.exposeNonemptySnapshot = false
+            val rawBefore = f.editor.rawText()
+
+            swipe(f, up = true)
+            assertEquals("", f.editor.document)
+            assertTrue(canSwipe(f, up = false))
+            swipe(f, up = true)
+            assertTrue(canSwipe(f, up = false))
+            if (useEditingUndo) undo(f) else swipe(f, up = false)
+
+            assertEquals(original, f.editor.document)
+            assertEquals(rawBefore, f.editor.rawText())
+            val rawEnd = f.editor.rawOffset(original.length)
+            assertEquals(rawEnd to rawEnd, f.editor.caret())
+            assertEquals(1, f.editor.nativeUndoCalls)
+            assertTrue(f.editor.selectionRequests.isEmpty())
+            assertFalse(canSwipe(f, up = false))
+            swipe(f, up = false)
+            undo(f)
+            assertEquals(1, f.editor.nativeUndoCalls)
+            assertEquals(original, f.editor.document)
+        }
     }
 
     @Test fun a_no_op_clear_does_not_invent_a_restore_or_leave_the_connection_intercepted() {

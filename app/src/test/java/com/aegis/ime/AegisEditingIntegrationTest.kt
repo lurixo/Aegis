@@ -266,6 +266,24 @@ class AegisEditingIntegrationTest {
         }
     }
 
+    @Test fun a_consumed_clear_is_not_replayed_again_after_undoing_its_restoration() {
+        for (layout in listOf(LayoutChoice.CN_ALPHA, LayoutChoice.CN_NINE)) {
+            val f = fixture(layout)
+            val text = "怎么就改不对呢？"
+            f.connection.commitText(text, 1)
+            val swipe = f.service.javaClass.getDeclaredMethod("backspaceSwipe", Boolean::class.javaPrimitiveType)
+                .apply { isAccessible = true }
+            swipe.invoke(f.service, true)
+            assertEquals("", f.connection.editable.toString())
+            swipe.invoke(f.service, false)
+            assertEquals(text, f.connection.editable.toString())
+            edit(f, EditAction.UNDO)
+            assertEquals("", f.connection.editable.toString())
+            swipe.invoke(f.service, false)
+            assertEquals("", f.connection.editable.toString())
+        }
+    }
+
     @Test fun both_keyboard_layouts_undo_insert_tab_delete_cut_paste_and_clear_in_order() {
         for (layout in listOf(LayoutChoice.CN_ALPHA, LayoutChoice.CN_NINE)) {
             val f = fixture(layout)
