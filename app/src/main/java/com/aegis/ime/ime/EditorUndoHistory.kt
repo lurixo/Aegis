@@ -15,10 +15,983 @@
 
 package com.aegis.ime.ime
 
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.SpannedString
+import android.text.style.ReplacementSpan
+import android.view.KeyEvent
+import android.view.inputmethod.BaseInputConnection
+import android.view.inputmethod.CompletionInfo
+import android.view.inputmethod.CorrectionInfo
+import android.view.inputmethod.ExtractedTextRequest
+import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputConnectionWrapper
+
 internal data class EditorTextSnapshot(
     val text: CharSequence,
     val selectionStart: Int,
     val selectionEnd: Int,
+    val images: List<EditorImageRange> = emptyList(),
 ) {
-    fun sameText(other: EditorTextSnapshot): Boolean = text.toString() == other.text.toString()
+    fun logicalText(): CharSequence {
+        if (images.isEmpty()) return text
+        val result = SpannableStringBuilder(text)
+        for (image in images.asReversed()) {
+            result.replace(image.start, image.end, "\uFFFC")
+            result.setSpan(EditorImageToken(image.content, image.instance), image.start, image.start + 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        return SpannedString(result)
+    }
+
+    fun logicalOffset(raw: Int): Int {
+        var removed = 0
+        for (image in images) {
+            if (raw <= image.start) break
+            if (raw < image.end) return image.start - removed + 1
+            removed += image.end - image.start - 1
+        }
+        return raw - removed
+    }
+
+    fun rawOffset(logical: Int): Int {
+        var removed = 0
+        for (image in images) {
+            if (logical <= image.start - removed) break
+            removed += image.end - image.start - 1
+        }
+        return logical + removed
+    }
+
+    fun sameText(other: EditorTextSnapshot): Boolean = logicalText().toString() == other.logicalText().toString() &&
+        images.map { logicalOffset(it.start) to it.instance } == other.images.map { other.logicalOffset(it.start) to it.instance }
+}
+
+internal data class EditorImageRange(val start: Int, val end: Int, val content: EditorUndoHistory.ImageContent, val instance: Long)
+internal data class EditorImageToken(val content: EditorUndoHistory.ImageContent, val instance: Long)
+
+internal class TextUndoHistory(
+    private val maxEntries: Int = 50,
+    private val maxCharacters: Int = 1_048_576,
+) {
+    data class Entry(val before: EditorTextSnapshot, val after: EditorTextSnapshot)
+    data class Replacement(val start: Int, val end: Int, val text: CharSequence)
+
+    private val entries = ArrayDeque<Entry>()
+    private var characters = 0
+    val hasUndo: Boolean get() = entries.isNotEmpty()
+
+    fun retainedImageIds(): Set<String> = entries.flatMap { it.before.images + it.after.images }.mapTo(HashSet()) { it.content.id }
+
+    fun clear() {
+        entries.clear()
+        characters = 0
+    }
+
+    fun reconcile(current: EditorTextSnapshot?) {
+        if (current == null || entries.lastOrNull()?.after?.sameText(current) == false) clear()
+    }
+
+    fun record(before: EditorTextSnapshot?, after: EditorTextSnapshot?) {
+        if (before == null || after == null) { clear(); return }
+        reconcile(before)
+        if (before.sameText(after)) return
+        val size = before.text.length + after.text.length
+        if (size > maxCharacters || maxEntries < 1) { clear(); return }
+        while (entries.isNotEmpty() && (entries.size >= maxEntries || characters + size > maxCharacters)) {
+            val removed = entries.removeFirst()
+            characters -= removed.before.text.length + removed.after.text.length
+        }
+        entries.addLast(Entry(before, after))
+        characters += size
+    }
+
+    fun peek(current: EditorTextSnapshot?): Entry? {
+        reconcile(current)
+        return entries.lastOrNull()
+    }
+
+    fun pop() {
+        val removed = entries.removeLastOrNull() ?: return
+        characters -= removed.before.text.length + removed.after.text.length
+    }
+
+    fun replacement(entry: Entry): Replacement {
+        val before = entry.before.logicalText()
+        val after = entry.after.logicalText()
+        fun sameAt(left: Int, right: Int): Boolean {
+            if (before[left] != after[right]) return false
+            val first = (before as? Spanned)?.getSpans(left, left + 1, EditorImageToken::class.java)?.firstOrNull()
+            val second = (after as? Spanned)?.getSpans(right, right + 1, EditorImageToken::class.java)?.firstOrNull()
+            return first?.instance == second?.instance
+        }
+        var start = 0
+        while (start < before.length && start < after.length && sameAt(start, start)) start++
+        if (start > 0 && start < before.length && Character.isLowSurrogate(before[start])) start--
+        var beforeEnd = before.length
+        var afterEnd = after.length
+        while (beforeEnd > start && afterEnd > start && sameAt(beforeEnd - 1, afterEnd - 1)) {
+            beforeEnd--
+            afterEnd--
+        }
+        if (beforeEnd < before.length && beforeEnd > start && Character.isLowSurrogate(before[beforeEnd])) {
+            beforeEnd++
+            afterEnd++
+        }
+        return Replacement(start, afterEnd, before.subSequence(start, beforeEnd))
+    }
+}
+
+internal class RichTextBoundary {
+    private data class Range(val start: Int, val end: Int)
+    private var text: String? = null
+    private var opaqueRange: Range? = null
+    private var pending: Range? = null
+    private var uncertain = false
+    private var active = false
+
+    fun clear() {
+        text = null
+        opaqueRange = null
+        pending = null
+        uncertain = false
+        active = false
+    }
+
+    fun begin(before: EditorTextSnapshot?) {
+        if (!active) text = before?.text?.toString()
+        active = true
+        if (before == null) { uncertain = true; return }
+        val selection = Range(minOf(before.selectionStart, before.selectionEnd), maxOf(before.selectionStart, before.selectionEnd))
+        pending = union(pending, selection)
+        if (selection.start != selection.end) opaqueRange = union(opaqueRange, selection)
+    }
+
+    fun observe(current: EditorTextSnapshot?): Boolean {
+        if (!active) return true
+        if (current == null) { uncertain = true; return false }
+        val now = current.text.toString()
+        if (now == text) return true
+        if (now.isEmpty()) { clear(); return false }
+        val previous = text
+        val range = pending
+        if (!uncertain && previous != null && range != null) {
+            val prefix = previous.substring(0, range.start)
+            val suffix = previous.substring(range.end)
+            val insertedEnd = now.length - suffix.length
+            if (insertedEnd > range.start && now.startsWith(prefix) && now.endsWith(suffix)) {
+                opaqueRange = union(shift(opaqueRange, range.start, range.end, insertedEnd), Range(range.start, insertedEnd))
+                pending = null
+                text = now
+                return false
+            }
+        }
+        uncertain = true
+        pending = null
+        text = now
+        return false
+    }
+
+    fun advance(before: EditorTextSnapshot?, after: EditorTextSnapshot?, known: Boolean): Boolean {
+        if (!active) return true
+        if (before == null || after == null || text != before.text.toString()) {
+            observe(after)
+            return false
+        }
+        if (before.text.toString() == after.text.toString()) return true
+        if (pending != null && !known) {
+            observe(after)
+            return false
+        }
+        val delta = TextUndoHistory().replacement(TextUndoHistory.Entry(before.copy(images = emptyList()), after.copy(images = emptyList())))
+        var suffix = 0
+        while (suffix < before.text.length && suffix < after.text.length &&
+            before.text[before.text.length - suffix - 1] == after.text[after.text.length - suffix - 1]
+        ) suffix++
+        val start = minOf(delta.start, before.text.length - suffix, after.text.length - suffix)
+        val ambiguous = start != delta.start
+        val oldEnd = delta.start + delta.text.length
+        val newEnd = delta.end
+        val range = opaqueRange
+        val touches = range != null && (start < range.end && oldEnd > range.start ||
+            start == oldEnd && start > range.start && start < range.end)
+        val allowed = !touches && (!uncertain || known && !ambiguous && delta.text.isEmpty())
+        opaqueRange = shift(opaqueRange, start, oldEnd, newEnd, enclose = ambiguous && touches)
+        pending = shift(pending, start, oldEnd, newEnd, enclose = true)
+        text = after.text.toString()
+        if (text!!.isEmpty()) clear()
+        return allowed
+    }
+
+    fun containsSelection(current: EditorTextSnapshot?): Boolean {
+        if (!active) return false
+        current ?: return true
+        val start = minOf(current.selectionStart, current.selectionEnd)
+        val end = maxOf(current.selectionStart, current.selectionEnd)
+        if (start == end) return false
+        return uncertain || listOfNotNull(opaqueRange, pending).any { start < it.end && end > it.start }
+    }
+
+    private fun shift(range: Range?, start: Int, oldEnd: Int, newEnd: Int, enclose: Boolean = false): Range? {
+        range ?: return null
+        val delta = newEnd - oldEnd
+        if (oldEnd < range.start || oldEnd == range.start && !(enclose && start == oldEnd)) {
+            return Range(range.start + delta, range.end + delta)
+        }
+        if (start > range.end || start == range.end && !(enclose && start == oldEnd)) return range
+        if (!enclose && start <= range.start && oldEnd >= range.end) return null
+        val from = minOf(range.start, start)
+        val through = maxOf(newEnd, range.end + delta)
+        return Range(from, maxOf(from, through))
+    }
+
+    private fun union(first: Range?, second: Range): Range =
+        if (first == null) second else Range(minOf(first.start, second.start), maxOf(first.end, second.end))
+}
+
+class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
+    data class ImageContent(val id: String, val paste: (InputConnection) -> Boolean)
+
+    private val history = TextUndoHistory()
+    private val richBoundary = RichTextBoundary()
+    private data class RichDispatch(val target: InputConnection, val before: EditorTextSnapshot?, val image: ImageContent?, val instance: Long,
+        val ambiguous: Boolean = false)
+    private var richDispatch: RichDispatch? = null
+    private var pendingImage: RichDispatch? = null
+    private var anonymousBefore: EditorTextSnapshot? = null
+    private val anonymousImageIds = LinkedHashSet<String>()
+    private var imageRanges = emptyList<EditorImageRange>()
+    private var imageText: String? = null
+    private var imageSequence = 0L
+    private var compositionUnsafe = false
+    private var connection: TrackedConnection? = null
+    private var compositionBefore: EditorTextSnapshot? = null
+    private var compositionAfter: EditorTextSnapshot? = null
+    private var delayed: Pair<EditorTextSnapshot, String>? = null
+    var onChange: (() -> Unit)? = null
+    var onRetainedImagesChanged: ((Set<String>) -> Unit)? = null
+    var onUndoCompleted: ((Boolean) -> Unit)? = null
+    private data class ReplayPart(val text: CharSequence? = null, val image: EditorImageToken? = null)
+    private data class ReplayStep(val before: EditorTextSnapshot, val start: Int, val end: Int, val part: ReplayPart)
+    private class Replay(val target: InputConnection, val entry: TextUndoHistory.Entry, val parts: ArrayDeque<ReplayPart>,
+        var current: EditorTextSnapshot, var start: Int, var end: Int) {
+        var step: ReplayStep? = null
+        var deferred = false
+    }
+    private var replay: Replay? = null
+    private var settlingReplay = false
+    val hasPendingUndo: Boolean get() = replay != null
+    val hasUndo: Boolean get() = richDispatch == null && replay == null &&
+        (history.hasUndo || compositionBefore != null && !compositionUnsafe || delayed != null)
+
+    private fun changed() {
+        val ids = history.retainedImageIds().toMutableSet()
+        ids.addAll(anonymousImageIds)
+        imageRanges.mapTo(ids) { it.content.id }
+        richDispatch?.image?.let { ids.add(it.id) }
+        pendingImage?.image?.let { ids.add(it.id) }
+        compositionBefore?.images?.mapTo(ids) { it.content.id }
+        delayed?.first?.images?.mapTo(ids) { it.content.id }
+        replay?.entry?.let { (it.before.images + it.after.images).mapTo(ids) { image -> image.content.id } }
+        onRetainedImagesChanged?.invoke(ids)
+        onChange?.invoke()
+    }
+
+    fun clear() {
+        richBoundary.clear()
+        richDispatch = null
+        pendingImage = null
+        anonymousBefore = null
+        anonymousImageIds.clear()
+        imageRanges = emptyList()
+        imageText = null
+        replay = null
+        compositionUnsafe = false
+        history.clear()
+        compositionBefore = null
+        compositionAfter = null
+        delayed = null
+        connection = null
+        changed()
+    }
+
+    fun wrap(target: InputConnection): InputConnection {
+        val existing = connection
+        if (target === existing || target === existing?.target) return existing
+        val wrapped = TrackedConnection(target)
+        connection = wrapped
+        history.clear()
+        compositionBefore = null
+        compositionAfter = null
+        compositionUnsafe = false
+        delayed = null
+        return wrapped
+    }
+
+    fun beginRichContent(target: InputConnection, image: ImageContent? = null) {
+        val raw = unwrap(target)
+        val dispatch = RichDispatch(raw, null, image, ++imageSequence)
+        richDispatch = dispatch
+        val before = capture(raw)
+        settleDelayed(before)
+        if (!richBoundary.observe(before)) history.clear()
+        val anonymous = anonymousBefore
+        val conflict = before != null && anonymous != null &&
+            minOf(before.selectionStart, before.selectionEnd) <= maxOf(anonymous.selectionStart, anonymous.selectionEnd) &&
+            maxOf(before.selectionStart, before.selectionEnd) >= minOf(anonymous.selectionStart, anonymous.selectionEnd)
+        richDispatch = dispatch.copy(before = before, ambiguous = pendingImage != null || conflict)
+        changed()
+    }
+
+    fun finishRichContent(target: InputConnection, dispatched: Boolean) {
+        val dispatch = richDispatch ?: return
+        richDispatch = null
+        if (unwrap(target) !== dispatch.target) return
+        val after = readRaw(dispatch.target)
+        if (dispatched) {
+            compositionBefore = null
+            compositionAfter = null
+            compositionUnsafe = false
+            delayed = null
+            if (dispatch.ambiguous) {
+                val previous = pendingImage
+                previous?.image?.let { retainAnonymous(it.id) }
+                dispatch.image?.let { retainAnonymous(it.id) }
+                pendingImage = null
+                val anchors = listOfNotNull(anonymousBefore, previous?.before, dispatch.before)
+                val baseline = dispatch.before ?: anchors.lastOrNull()
+                anonymousBefore = baseline?.let { current ->
+                    val aligned = anchors.all { it.text.toString() == current.text.toString() }
+                    current.copy(
+                        selectionStart = if (aligned) anchors.minOf { minOf(it.selectionStart, it.selectionEnd) } else 0,
+                        selectionEnd = if (aligned) anchors.maxOf { maxOf(it.selectionStart, it.selectionEnd) } else current.text.length,
+                    )
+                }
+                richBoundary.begin(anonymousBefore)
+                observeAnonymous(after)
+            } else if (dispatch.image != null && dispatch.before != null) {
+                pendingImage = dispatch
+                observeImage(after)
+            } else {
+                history.clear()
+                richBoundary.begin(dispatch.before)
+                richBoundary.observe(after)
+            }
+        } else if (dispatch.before == null || after == null || dispatch.before.text.toString() != after.text.toString()) {
+            history.clear()
+            richBoundary.observe(after)
+        }
+        changed()
+    }
+
+    fun canUndo(target: InputConnection): Boolean {
+        if (richDispatch != null) return false
+        val raw = unwrap(target)
+        if (replay != null) {
+            if (replay?.target !== raw) finishReplay(false) else continueReplay()
+            if (replay != null) return false
+        }
+        val current = capture(raw)
+        settleDelayed(current)
+        if (!richBoundary.observe(current)) history.clear()
+        reconcileComposition(current)
+        val available = if (compositionBefore != null) !compositionUnsafe && current != null && !compositionBefore!!.sameText(current)
+            else history.peek(current) != null
+        changed()
+        return available
+    }
+
+    fun selectionContainsRichContent(target: InputConnection): Boolean {
+        if (richDispatch != null) return true
+        val current = capture(unwrap(target))
+        settleDelayed(current)
+        if (!richBoundary.observe(current)) history.clear()
+        val start = current?.let { minOf(it.selectionStart, it.selectionEnd) }
+        val end = current?.let { maxOf(it.selectionStart, it.selectionEnd) }
+        return richBoundary.containsSelection(current) ||
+            (current == null && (imageRanges.isNotEmpty() || pendingImage != null)) ||
+            (start != null && end != null && imageRanges.any { start < it.end && end > it.start })
+    }
+
+    private fun replayParts(value: CharSequence): ArrayDeque<ReplayPart> {
+        val parts = ArrayDeque<ReplayPart>()
+        val styled = value as? Spanned
+        val tokens = if (styled == null) emptyList() else styled.getSpans(0, value.length, EditorImageToken::class.java)
+            .filter { styled.getSpanStart(it) < styled.getSpanEnd(it) }
+            .sortedBy { styled.getSpanStart(it) }
+        var from = 0
+        for (token in tokens) {
+            val start = styled?.getSpanStart(token) ?: continue
+            if (start > from) parts.addLast(ReplayPart(text = value.subSequence(from, start)))
+            parts.addLast(ReplayPart(image = token))
+            from = styled.getSpanEnd(token)
+        }
+        if (from < value.length) parts.addLast(ReplayPart(text = value.subSequence(from, value.length)))
+        if (parts.isEmpty()) parts.addLast(ReplayPart(text = ""))
+        return parts
+    }
+
+    fun undo(target: InputConnection): Boolean {
+        if (richDispatch != null || replay != null) return false
+        val raw = unwrap(target)
+        val current = capture(raw)
+        settleDelayed(current)
+        if (!richBoundary.observe(current)) history.clear()
+        reconcileComposition(current)
+        compositionBefore?.let {
+            if (!compositionUnsafe) history.record(it, current) else history.clear()
+            compositionUnsafe = false
+            compositionBefore = null
+            compositionAfter = null
+        }
+        val entry = history.peek(current) ?: run { changed(); return false }
+        val replacement = history.replacement(entry)
+        val parts = replayParts(replacement.text)
+        val start = current!!.rawOffset(replacement.start)
+        val end = current.rawOffset(replacement.end)
+        if (start != end && parts.first().image != null) parts.addFirst(ReplayPart(text = ""))
+        if (!runCatching { raw.finishComposingText() }.getOrDefault(false)) {
+            history.clear()
+            changed()
+            return false
+        }
+        replay = Replay(raw, entry, parts, current, start, end)
+        val success = continueReplay()
+        replay?.let { it.deferred = true }
+        changed()
+        return success
+    }
+
+    private fun continueReplay(): Boolean {
+        if (settlingReplay) return false
+        val operation = replay ?: return false
+        settlingReplay = true
+        try {
+            while (replay === operation) {
+                val step = operation.step
+                if (step != null) {
+                    val observed = readRaw(operation.target) ?: return false
+                    val token = step.part.image
+                    val after = if (token != null) {
+                        if (observed.text.toString() == step.before.text.toString()) return false
+                        locateImage(step.before, observed, token.content, token.instance)
+                    } else {
+                        val expected = step.before.text.toString().replaceRange(step.start, step.end, step.part.text ?: "")
+                        if (observed.text.toString() != expected && observed.text.toString() == step.before.text.toString()) return false
+                        if (observed.text.toString() != expected) null else acceptEdit(step.before, observed, expected)
+                    }
+                    if (after == null) { finishReplay(false); return false }
+                    moveAnonymous(step.before, after)
+                    operation.current = after
+                    operation.start = if (token != null) imageRanges.first { it.instance == token.instance }.end
+                        else step.start + (step.part.text ?: "").length
+                    operation.end = operation.start
+                    operation.step = null
+                    operation.parts.removeFirst()
+                    continue
+                }
+                if (operation.parts.isEmpty()) {
+                    val desiredStart = operation.current.rawOffset(operation.entry.before.logicalOffset(operation.entry.before.selectionStart))
+                    val desiredEnd = operation.current.rawOffset(operation.entry.before.logicalOffset(operation.entry.before.selectionEnd))
+                    val selected = runCatching { operation.target.setSelection(desiredStart, desiredEnd) }.getOrDefault(false)
+                    val restored = readRaw(operation.target)?.let(::withImages)
+                    val success = selected && restored != null && restored.sameText(operation.entry.before) &&
+                        restored.selectionStart == desiredStart && restored.selectionEnd == desiredEnd
+                    if (success) operation.current = restored
+                    finishReplay(success)
+                    return success
+                }
+                val selected = runCatching { operation.target.setSelection(operation.start, operation.end) }.getOrDefault(false)
+                val before = readRaw(operation.target)?.let(::withImages)
+                if (!selected || before == null || !before.sameText(operation.current) ||
+                    before.selectionStart != operation.start || before.selectionEnd != operation.end) {
+                    finishReplay(false)
+                    return false
+                }
+                val part = operation.parts.first()
+                operation.step = ReplayStep(before, operation.start, operation.end, part)
+                val accepted = runCatching {
+                    part.image?.content?.paste?.invoke(operation.target) ?: operation.target.commitText(part.text, 1)
+                }.getOrNull()
+                if (accepted == false) {
+                    val observed = readRaw(operation.target)
+                    if (observed == null || observed.text.toString() == before.text.toString()) {
+                        finishReplay(false)
+                        return false
+                    }
+                }
+            }
+        } catch (_: RuntimeException) {
+            finishReplay(false)
+        } finally {
+            settlingReplay = false
+        }
+        return false
+    }
+
+    private fun finishReplay(success: Boolean) {
+        val operation = replay ?: return
+        replay = null
+        if (success) {
+            history.pop()
+            richBoundary.advance(operation.entry.after, operation.current, true)
+        } else {
+            history.clear()
+            val raw = readRaw(operation.target)
+            if (raw == null || imageText != raw.text.toString()) {
+                val rich = imageRanges.isNotEmpty() || operation.entry.before.images.isNotEmpty()
+                imageRanges = emptyList()
+                imageText = raw?.text?.toString()
+                if (rich) richBoundary.begin(null)
+            }
+        }
+        delayed = null
+        changed()
+        if (operation.deferred) onUndoCompleted?.invoke(success)
+    }
+
+    private fun unwrap(target: InputConnection): InputConnection =
+        if (target is TrackedConnection) target.target else target
+
+    private fun readRaw(target: InputConnection, retryChanged: Boolean = true): EditorTextSnapshot? = runCatching {
+        val before = target.getTextBeforeCursor(maxTextLength + 1, 0)
+        val after = target.getTextAfterCursor(maxTextLength + 1, 0)
+        if (before == null || after == null) return@runCatching null
+        if (before.length + after.length > maxTextLength) return@runCatching null
+        val extracted = target.getExtractedText(ExtractedTextRequest().apply {
+            flags = InputConnection.GET_TEXT_WITH_STYLES
+            hintMaxChars = maxTextLength + 1
+            hintMaxLines = maxTextLength + 1
+        }, 0) ?: return@runCatching null
+        val text = extracted.text ?: return@runCatching null
+        if (extracted.startOffset != 0 || extracted.partialStartOffset >= 0 ||
+            text.length > maxTextLength ||
+            extracted.selectionStart !in 0..text.length || extracted.selectionEnd !in 0..text.length
+        ) return@runCatching null
+        val low = minOf(extracted.selectionStart, extracted.selectionEnd)
+        val high = maxOf(extracted.selectionStart, extracted.selectionEnd)
+        if (before.toString() != text.subSequence(0, low).toString() ||
+            after.toString() != text.subSequence(high, text.length).toString()
+        ) return@runCatching if (retryChanged) readRaw(target, false) else null
+        val frozen = if (text is Spanned) {
+            val copy = SpannableStringBuilder(text)
+            BaseInputConnection.removeComposingSpans(copy)
+            SpannedString(copy)
+        } else text.toString()
+        EditorTextSnapshot(frozen, extracted.selectionStart, extracted.selectionEnd)
+    }.getOrNull()
+
+    private fun capture(target: InputConnection): EditorTextSnapshot? {
+        val raw = readRaw(target) ?: return null
+        val queued = delayed
+        if (queued != null && raw.text.toString() != queued.first.text.toString()) {
+            return acceptEdit(queued.first, raw, queued.second)
+        }
+        val anonymousChange = observeAnonymous(raw)
+        if (!anonymousChange && pendingImage != null) observeImage(raw)
+        if (imageText != null && imageText != raw.text.toString() && imageRanges.isNotEmpty()) {
+            imageRanges = emptyList()
+            history.clear()
+            richBoundary.begin(null)
+        }
+        imageText = raw.text.toString()
+        return withImages(raw)
+    }
+
+    private fun withImages(raw: EditorTextSnapshot): EditorTextSnapshot? {
+        val value = raw.text
+        for (index in value.indices) {
+            if (value[index] == '\uFFFC' && imageRanges.none { index >= it.start && index < it.end }) return null
+        }
+        if (value is Spanned && value.getSpans(0, value.length, ReplacementSpan::class.java).any { span ->
+                imageRanges.none { value.getSpanStart(span) >= it.start && value.getSpanEnd(span) <= it.end }
+            }) return null
+        return raw.copy(images = imageRanges.toList())
+    }
+
+    private fun locateImage(before: EditorTextSnapshot, raw: EditorTextSnapshot, image: ImageContent, instance: Long): EditorTextSnapshot? {
+        val start = minOf(before.selectionStart, before.selectionEnd)
+        val end = maxOf(before.selectionStart, before.selectionEnd)
+        val prefix = before.text.subSequence(0, start).toString()
+        val suffix = before.text.subSequence(end, before.text.length).toString()
+        val insertedEnd = raw.text.length - suffix.length
+        if (insertedEnd <= start || !raw.text.startsWith(prefix) || !raw.text.endsWith(suffix)) return null
+        val moved = moveImages(before.images, start, end, insertedEnd) ?: return null
+        imageRanges = (moved + EditorImageRange(start, insertedEnd, image, instance)).sortedBy { it.start }
+        imageText = raw.text.toString()
+        return withImages(raw)
+    }
+
+    private fun observeImage(raw: EditorTextSnapshot?) {
+        val pending = pendingImage ?: return
+        val before = pending.before ?: return
+        if (raw == null || raw.text.toString() == before.text.toString()) return
+        val after = locateImage(before, raw, pending.image ?: return, pending.instance)
+        pendingImage = null
+        if (after != null) {
+            if (richBoundary.advance(before, after, true)) history.record(before, after) else history.clear()
+            moveAnonymous(before, after)
+        } else {
+            history.clear()
+            imageRanges = emptyList()
+            imageText = raw.text.toString()
+            richBoundary.begin(null)
+        }
+        changed()
+    }
+
+    private fun retainAnonymous(id: String) {
+        anonymousImageIds.remove(id)
+        anonymousImageIds.add(id)
+        while (anonymousImageIds.size > 50) anonymousImageIds.remove(anonymousImageIds.first())
+    }
+
+    private fun observeAnonymous(raw: EditorTextSnapshot?): Boolean {
+        val before = anonymousBefore ?: return false
+        if (raw == null || raw.text.toString() == before.text.toString()) return false
+        val start = minOf(before.selectionStart, before.selectionEnd)
+        val end = maxOf(before.selectionStart, before.selectionEnd)
+        val suffix = before.text.subSequence(end, before.text.length).toString()
+        val newEnd = raw.text.length - suffix.length
+        if (newEnd < start || !raw.text.startsWith(before.text.subSequence(0, start)) || !raw.text.endsWith(suffix)) return false
+        val moved = moveImages(before.images, start, end, newEnd) ?: return false
+        pendingImage?.image?.let { retainAnonymous(it.id) }
+        pendingImage = null
+        richBoundary.begin(before)
+        richBoundary.observe(raw)
+        imageRanges = moved
+        imageText = raw.text.toString()
+        anonymousBefore = raw.copy(selectionStart = start, selectionEnd = newEnd, images = moved)
+        history.clear()
+        changed()
+        return true
+    }
+
+    private fun moveAnonymous(before: EditorTextSnapshot, after: EditorTextSnapshot) {
+        val anonymous = anonymousBefore ?: return
+        if (anonymous.text.toString() != before.text.toString()) return
+        val delta = history.replacement(TextUndoHistory.Entry(before.copy(images = emptyList()), after.copy(images = emptyList())))
+        val start = delta.start
+        val end = start + delta.text.length
+        val from = minOf(anonymous.selectionStart, anonymous.selectionEnd)
+        val through = maxOf(anonymous.selectionStart, anonymous.selectionEnd)
+        val shift = delta.end - end
+        val moved = when {
+            end < from || end == from && start != end -> from + shift to through + shift
+            start > through || start == through && start != end -> from to through
+            else -> minOf(from, start) to maxOf(delta.end, through + shift)
+        }
+        anonymousBefore = after.copy(selectionStart = moved.first, selectionEnd = moved.second)
+    }
+
+    private fun moveImages(images: List<EditorImageRange>, start: Int, end: Int, newEnd: Int): List<EditorImageRange>? {
+        val moved = ArrayList<EditorImageRange>()
+        for (image in images) {
+            when {
+                image.end <= start -> moved.add(image)
+                image.start >= end -> moved.add(image.copy(start = image.start + newEnd - end, end = image.end + newEnd - end))
+                image.start >= start && image.end <= end -> Unit
+                else -> return null
+            }
+        }
+        return moved
+    }
+
+    private fun matchesExpected(before: EditorTextSnapshot?, after: EditorTextSnapshot?, expected: String?): Boolean {
+        if (expected == null) return true
+        if (after?.text?.toString() == expected) return true
+        if (before == null || after == null || before.images.isEmpty()) return false
+        val predicted = EditorTextSnapshot(expected, 0, 0)
+        val delta = history.replacement(TextUndoHistory.Entry(before.copy(images = emptyList()), predicted))
+        var start = delta.start
+        var end = start + delta.text.length
+        val touched = before.images.filter { start < it.end && end > it.start }
+        if (touched.isEmpty()) return false
+        start = minOf(start, touched.minOf { it.start })
+        end = maxOf(end, touched.maxOf { it.end })
+        val inserted = expected.substring(delta.start, delta.end)
+        return before.text.toString().replaceRange(start, end, inserted) == after.text.toString()
+    }
+
+    private fun acceptEdit(before: EditorTextSnapshot?, raw: EditorTextSnapshot?, expected: String?): EditorTextSnapshot? {
+        if (before == null || raw == null) return null
+        if (before.text.toString() == raw.text.toString()) return raw.copy(images = before.images)
+        if (!matchesExpected(before, raw, expected)) return null
+        val delta = history.replacement(TextUndoHistory.Entry(before.copy(images = emptyList()), raw))
+        var start = delta.start
+        var end = start + delta.text.length
+        var newEnd = delta.end
+        val selectedStart = minOf(before.selectionStart, before.selectionEnd)
+        val selectedEnd = maxOf(before.selectionStart, before.selectionEnd)
+        val selectedSuffix = before.text.subSequence(selectedEnd, before.text.length).toString()
+        val selectedNewEnd = raw.text.length - selectedSuffix.length
+        if (selectedNewEnd >= selectedStart && raw.text.startsWith(before.text.subSequence(0, selectedStart)) &&
+            raw.text.endsWith(selectedSuffix)) {
+            start = selectedStart
+            end = selectedEnd
+            newEnd = selectedNewEnd
+        } else if (selectedStart == selectedEnd && raw.text.length < before.text.length) {
+            val removed = before.text.length - raw.text.length
+            val cursor = minOf(raw.selectionStart, raw.selectionEnd)
+            val from = if (cursor < selectedStart) selectedStart - removed else selectedStart
+            if (from >= 0 && from + removed <= before.text.length &&
+                before.text.toString().removeRange(from, from + removed) == raw.text.toString()) {
+                start = from
+                end = from + removed
+                newEnd = from
+            }
+        }
+        val moved = moveImages(before.images, start, end, newEnd)
+        if (moved == null) {
+            imageRanges = emptyList()
+            imageText = raw.text.toString()
+            richBoundary.begin(null)
+            return null
+        }
+        imageRanges = moved
+        imageText = raw.text.toString()
+        val result = withImages(raw) ?: return null
+        moveAnonymous(before, result)
+        pendingImage?.let { pending ->
+            if (pending.before?.text?.toString() == before.text.toString()) pendingImage = pending.copy(before = result)
+        }
+        return result
+    }
+
+    private fun settleDelayed(current: EditorTextSnapshot?) {
+        val pending = delayed ?: return
+        if (current == null) { delayed = null; history.clear(); return }
+        if (matchesExpected(pending.first, current, pending.second)) {
+            if (richBoundary.advance(pending.first, current, true)) history.record(pending.first, current) else history.clear()
+            delayed = null
+        } else if (!pending.first.sameText(current)) {
+            delayed = null
+            history.clear()
+            richBoundary.observe(current)
+        }
+    }
+
+    private fun reconcileComposition(current: EditorTextSnapshot?) {
+        if (compositionBefore != null && (current == null || compositionAfter?.sameText(current) == false)) {
+            compositionBefore = null
+            compositionAfter = null
+            compositionUnsafe = false
+            history.clear()
+        }
+    }
+
+    private inner class TrackedConnection(val target: InputConnection) : InputConnectionWrapper(target, false) {
+        private var batchDepth = 0
+        private var batchBefore: EditorTextSnapshot? = null
+        private var batchChanged = false
+        private var batchFinishesComposition = false
+        private var batchSafe = true
+
+        private fun tracked(
+            composing: Boolean = false,
+            finishesComposition: Boolean = false,
+            expected: ((EditorTextSnapshot) -> String?)? = null,
+            action: () -> Boolean,
+        ): Boolean {
+            if (connection !== this || richDispatch != null) return action()
+            if (replay != null) finishReplay(false)
+            if (batchDepth > 0) {
+                batchChanged = true
+                if (composing && compositionBefore == null) compositionBefore = batchBefore
+                if (finishesComposition) batchFinishesComposition = true
+                val before = capture(target)
+                val prediction = before?.let { expected?.invoke(it) }
+                val result = action()
+                val after = acceptEdit(before, readRaw(target), prediction)
+                val matches = matchesExpected(before, after, prediction)
+                val safe = matches && richBoundary.advance(before, after, prediction != null)
+                batchSafe = batchSafe && safe
+                return result
+            }
+            val before = capture(target)
+            settleDelayed(before)
+            if (!richBoundary.observe(before)) history.clear()
+            reconcileComposition(before)
+            if (delayed != null) {
+                delayed = null
+                history.clear()
+            }
+            if (compositionBefore == null) history.reconcile(before)
+            if (composing && compositionBefore == null) {
+                compositionBefore = before
+                compositionUnsafe = false
+            }
+            val baseline = compositionBefore ?: before
+            val prediction = before?.let { expected?.invoke(it) }
+            val succeeded = try { action() } catch (error: RuntimeException) {
+                history.clear()
+                compositionBefore = null
+                compositionAfter = null
+                compositionUnsafe = false
+                changed()
+                throw error
+            }
+            val rawAfter = readRaw(target)
+            val after = acceptEdit(before, rawAfter, prediction)
+            val waiting = succeeded && baseline != null && prediction != null &&
+                prediction != baseline.text.toString() && prediction.length <= maxTextLength &&
+                (rawAfter == null || baseline.text.toString() == rawAfter.text.toString())
+            val matches = matchesExpected(before, after, prediction)
+            val safe = matches && richBoundary.advance(before, after, prediction != null)
+            if (compositionBefore == null || finishesComposition) {
+                if (waiting && !compositionUnsafe) delayed = baseline to prediction
+                else if (safe && !compositionUnsafe) history.record(baseline, after)
+                else { history.clear(); richBoundary.observe(after) }
+                compositionBefore = null
+                compositionAfter = null
+                compositionUnsafe = false
+            } else if (after == null) {
+                compositionBefore = null
+                compositionAfter = null
+                compositionUnsafe = false
+                history.clear()
+            } else {
+                compositionUnsafe = compositionUnsafe || !safe
+                if (compositionUnsafe) history.clear()
+                compositionAfter = after
+            }
+            changed()
+            return succeeded
+        }
+
+        override fun beginBatchEdit(): Boolean {
+            if (connection === this && batchDepth++ == 0) {
+                val current = capture(target)
+                settleDelayed(current)
+                if (!richBoundary.observe(current)) history.clear()
+                reconcileComposition(current)
+                batchBefore = compositionBefore ?: current
+                delayed = null
+                batchChanged = false
+                batchFinishesComposition = false
+                batchSafe = true
+            }
+            return target.beginBatchEdit()
+        }
+
+        override fun endBatchEdit(): Boolean {
+            val result = target.endBatchEdit()
+            if (connection === this && batchDepth > 0 && --batchDepth == 0) {
+                if (batchChanged) {
+                    val after = capture(target)
+                    compositionUnsafe = compositionUnsafe || !batchSafe
+                    if (compositionBefore == null || batchFinishesComposition || after == null) {
+                        if (!compositionUnsafe) history.record(batchBefore, after) else history.clear()
+                        compositionBefore = null
+                        compositionAfter = null
+                        compositionUnsafe = false
+                    } else {
+                        compositionAfter = after
+                    }
+                }
+                batchBefore = null
+                changed()
+            }
+            return result
+        }
+
+        override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+            return tracked(
+                finishesComposition = true,
+                expected = { before -> insertedText(compositionBefore ?: before, text) },
+            ) { target.commitText(text, newCursorPosition) }
+        }
+
+        override fun setComposingText(text: CharSequence?, newCursorPosition: Int): Boolean =
+            tracked(composing = true, expected = { before -> insertedText(compositionBefore ?: before, text) }) {
+                target.setComposingText(text, newCursorPosition)
+            }
+
+        override fun finishComposingText(): Boolean {
+            return if (compositionBefore == null) target.finishComposingText()
+            else tracked(finishesComposition = true) { target.finishComposingText() }
+        }
+
+        override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean =
+            tracked(expected = { surroundingDeletion(it, beforeLength, afterLength, false) }) {
+                target.deleteSurroundingText(beforeLength, afterLength)
+            }
+
+        override fun deleteSurroundingTextInCodePoints(beforeLength: Int, afterLength: Int): Boolean =
+            tracked(expected = { surroundingDeletion(it, beforeLength, afterLength, true) }) {
+                target.deleteSurroundingTextInCodePoints(beforeLength, afterLength)
+            }
+
+        override fun sendKeyEvent(event: KeyEvent): Boolean {
+            val printable = event.unicodeChar != 0 && !event.isCtrlPressed && !event.isMetaPressed
+            val shortcutEdit = (event.isCtrlPressed || event.isMetaPressed) && event.keyCode in intArrayOf(
+                KeyEvent.KEYCODE_X, KeyEvent.KEYCODE_V, KeyEvent.KEYCODE_Z, KeyEvent.KEYCODE_Y,
+            )
+            val edits = event.action == KeyEvent.ACTION_DOWN && (printable || shortcutEdit ||
+                event.keyCode in intArrayOf(
+                    KeyEvent.KEYCODE_DEL, KeyEvent.KEYCODE_FORWARD_DEL, KeyEvent.KEYCODE_ENTER,
+                    KeyEvent.KEYCODE_TAB, KeyEvent.KEYCODE_CUT, KeyEvent.KEYCODE_PASTE,
+                ))
+            return if (edits) tracked(expected = { keyResult(it, event) }) { target.sendKeyEvent(event) }
+                else target.sendKeyEvent(event)
+        }
+
+        private fun insertedText(before: EditorTextSnapshot, text: CharSequence?): String {
+            val start = minOf(before.selectionStart, before.selectionEnd)
+            val end = maxOf(before.selectionStart, before.selectionEnd)
+            return before.text.subSequence(0, start).toString() + (text ?: "") + before.text.subSequence(end, before.text.length)
+        }
+
+        private fun surroundingDeletion(
+            before: EditorTextSnapshot,
+            beforeLength: Int,
+            afterLength: Int,
+            codePoints: Boolean,
+        ): String? {
+            if (beforeLength < 0 || afterLength < 0) return null
+            val text = before.text.toString()
+            val start = minOf(before.selectionStart, before.selectionEnd)
+            val end = maxOf(before.selectionStart, before.selectionEnd)
+            val from = if (codePoints) Character.offsetByCodePoints(
+                text, start, -minOf(beforeLength, Character.codePointCount(text, 0, start)),
+            ) else start - minOf(beforeLength, start)
+            val through = if (codePoints) Character.offsetByCodePoints(
+                text, end, minOf(afterLength, Character.codePointCount(text, end, text.length)),
+            ) else end + minOf(afterLength, text.length - end)
+            return text.substring(0, from) + text.substring(start, end) + text.substring(through)
+        }
+
+        private fun keyResult(before: EditorTextSnapshot, event: KeyEvent): String? {
+            if (!event.hasNoModifiers()) return null
+            val text = before.text.toString()
+            val start = minOf(before.selectionStart, before.selectionEnd)
+            val end = maxOf(before.selectionStart, before.selectionEnd)
+            return when (event.keyCode) {
+                KeyEvent.KEYCODE_DEL -> text.removeRange(
+                    if (start == end) GraphemeText.previousCluster(text, start) else start, end,
+                )
+                KeyEvent.KEYCODE_FORWARD_DEL -> text.removeRange(
+                    start, if (start == end) GraphemeText.nextCluster(text, end) else end,
+                )
+                KeyEvent.KEYCODE_ENTER -> text.replaceRange(start, end, "\n")
+                KeyEvent.KEYCODE_TAB -> text.replaceRange(start, end, "\t")
+                else -> event.unicodeChar.takeIf { it in 0x20..0x10ffff }?.let {
+                    text.replaceRange(start, end, String(Character.toChars(it)))
+                }
+            }
+        }
+
+        override fun performContextMenuAction(id: Int): Boolean {
+            return if (id == android.R.id.cut || id == android.R.id.paste || id == android.R.id.pasteAsPlainText)
+                tracked(expected = if (id == android.R.id.cut) { before -> insertedText(before, "") } else null) {
+                    target.performContextMenuAction(id)
+                }
+            else target.performContextMenuAction(id)
+        }
+
+        override fun commitCompletion(text: CompletionInfo?): Boolean =
+            tracked(finishesComposition = true) { target.commitCompletion(text) }
+
+        override fun commitCorrection(correctionInfo: CorrectionInfo?): Boolean =
+            tracked(finishesComposition = true) { target.commitCorrection(correctionInfo) }
+    }
 }
