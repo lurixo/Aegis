@@ -17,6 +17,7 @@ package com.aegis.ime.ime
 
 import android.graphics.Typeface
 import android.graphics.Bitmap
+import android.os.Looper
 import android.os.Parcel
 import android.text.InputFilter
 import android.text.Selection
@@ -33,6 +34,7 @@ import android.view.inputmethod.ExtractedText
 import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnectionWrapper
 import android.view.inputmethod.InputConnection
+import java.time.Duration
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -42,6 +44,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -208,6 +211,39 @@ class EditorUndoHistoryTest {
                     else super.commitText(contextPasteText, 1)
                 else -> false
             }
+        }
+    }
+
+    @Test fun native_selected_tab_reports_pending_deletion_and_insertion_through_the_shared_callbacks() {
+        for (rejected in listOf(false, true)) {
+            val editor = Editor("selected long body ".repeat(8)).apply {
+                Selection.setSelection(content, 0, content.length)
+                deferKeys = true
+                deferCommit = true
+                rejectCommit = rejected
+            }
+            val history = EditorUndoHistory().apply { preferNativeUndo = true }
+            val connection = history.wrap(editor)
+            val completed = ArrayList<Boolean>()
+            history.onInsertionCompleted = { completed.add(it) }
+            assertTrue(connection.commitText("\t", 1))
+            assertTrue(history.hasPendingInsertion)
+            assertFalse(connection.setSelection(0, 0))
+            assertFalse(connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MOVE_HOME)))
+            assertFalse(connection.commitText("unexpected", 1))
+            editor.flush()
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(32))
+            assertEquals("", editor.content.toString())
+            assertEquals(!rejected, history.hasPendingInsertion)
+            if (!rejected) {
+                editor.flush()
+                shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(32))
+            }
+            assertEquals(if (rejected) "" else "\t", editor.content.toString())
+            assertEquals(listOf(!rejected), completed)
+            assertFalse(history.hasPendingInsertion)
+            assertTrue(history.canUndo(connection))
+            assertEquals(1, editor.keyEvents.count { it.action == KeyEvent.ACTION_DOWN && it.keyCode == KeyEvent.KEYCODE_DEL })
         }
     }
 

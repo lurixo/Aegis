@@ -217,6 +217,7 @@ class NativeEditorUndoHistoryTest {
         var ignoreDelete = false
         var rejectCommit = false
         private val editQueue = ArrayDeque<() -> Unit>()
+        fun flushEdits() { while (editQueue.isNotEmpty()) editQueue.removeFirst().invoke() }
         private val nativeQueue = ArrayDeque<() -> Unit>()
         var onEdit: ((String) -> Unit)? = null
         var onNative: ((Boolean) -> Unit)? = null
@@ -750,6 +751,106 @@ class NativeEditorUndoHistoryTest {
         connection.sendKeyEvent(KeyEvent(0, 0, KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_Z, 0, KeyEvent.META_CTRL_ON))
         assertEquals("", editor.document)
         assertEquals(1, editor.undoCalls)
+    }
+
+    @Test fun clipped_selected_tab_uses_observed_native_delete_and_keeps_one_undo_across_a_new_viewport() {
+        for (numbered in listOf(false, true)) for (deferred in listOf(false, true)) for (partial in listOf(false, true)) {
+            val block = "alpha words 中文🙂 " + "middle words ".repeat(10) + "suffix\n\n"
+            val original = block.repeat(49_152 / block.length).padEnd(49_152, 'x')
+            val editor = ViewportEditor(original, numbered).apply {
+                first = if (partial) block.length * 4 + 6 else 0
+                last = if (partial) block.length * 30 + 9 else original.length
+                windowStart = if (partial) block.length * 28 else 0
+                windowEnd = if (partial) block.length * 32 - 1 else block.length * 10 - 1
+                onEdit = { text ->
+                    if (document.isEmpty() || document == "\t") { windowStart = 0; windowEnd = document.length }
+                    else if (text.isEmpty()) { windowStart = block.length * 3; windowEnd = block.length * 7 - 1 }
+                }
+                deferDelete = deferred
+                deferCommit = deferred
+                deferNative = deferred
+            }
+            val first = editor.first
+            val last = editor.last
+            val deleted = original.removeRange(first, last)
+            val expected = original.replaceRange(first, last, "\t")
+            val history = history()
+            val connection = history.wrap(editor)
+            if (!partial && numbered) assertTrue(connection.performContextMenuAction(android.R.id.selectAll))
+            val completions = ArrayList<Boolean>()
+            history.onInsertionCompleted = { completions.add(it) }
+            assertTrue(connection.commitText("\t", 1))
+            if (deferred) {
+                assertTrue(history.hasPendingInsertion)
+                assertFalse(connection.setSelection(0, 0))
+                assertFalse(connection.commitText("unexpected", 1))
+                editor.flushEdits()
+                assertEquals(deleted, editor.document)
+                shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(32))
+                assertTrue(history.hasPendingInsertion)
+                editor.flushEdits()
+                shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(32))
+            }
+            assertEquals("numbered=$numbered partial=$partial deferred=$deferred", expected, editor.document)
+            assertFalse(history.hasPendingInsertion)
+            assertEquals(if (deferred) listOf(true) else emptyList<Boolean>(), completions)
+            assertTrue(history.canUndo(connection))
+            editor.writes.clear()
+            editor.onNative = { redo ->
+                if (!redo && editor.undoCalls == 2 && !partial) editor.windowEnd = block.length * 8 - 1
+            }
+            var completed: Boolean? = null
+            history.onUndoCompleted = { completed = it }
+            val immediate = history.undo(connection)
+            repeat(100) { editor.flushNative(); shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(32)) }
+            assertTrue("numbered=$numbered partial=$partial deferred=$deferred", immediate || completed == true)
+            assertEquals(original, editor.document)
+            assertEquals("numbered=$numbered partial=$partial deferred=$deferred", 2, editor.undoCalls)
+            assertEquals(0, editor.redoCalls)
+            assertTrue(editor.writes.isEmpty())
+            assertFalse(history.canUndo(connection))
+        }
+    }
+
+    @Test fun selected_tab_failure_retains_applied_deletion_and_does_not_accept_a_viewport_change_as_insertion() {
+        for (failure in listOf("ignored delete", "rejected insertion", "viewport only")) {
+            val original = "alpha words\n\n".repeat(80)
+            val editor = ViewportEditor(original).apply {
+                first = 0; last = original.length - if (failure == "viewport only") 26 else 0
+                windowEnd = 300
+                ignoreDelete = failure == "ignored delete"
+                rejectCommit = failure == "rejected insertion"
+                onEdit = { windowStart = 0; windowEnd = document.length }
+            }
+            val target = object : InputConnectionWrapper(editor, false) {
+                override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                    if (failure != "viewport only") return super.commitText(text, newCursorPosition)
+                    editor.windowStart = 13
+                    return true
+                }
+            }
+            val history = history()
+            val connection = history.wrap(target)
+            var completed: Boolean? = null
+            history.onInsertionCompleted = { completed = it }
+            val accepted = connection.commitText("\t", 1)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(2200))
+            assertFalse(history.hasPendingInsertion)
+            assertTrue(!accepted || completed == false)
+            if (failure == "ignored delete") {
+                assertEquals(original, editor.document)
+                assertFalse(history.hasUndo)
+                assertTrue(editor.writes.isEmpty())
+            } else {
+                assertEquals(if (failure == "viewport only") original.takeLast(26) else "", editor.document)
+                assertTrue(history.canUndo(connection))
+                editor.writes.clear()
+                undoStep(history, connection, failure)
+                assertEquals(original, editor.document)
+                assertTrue(editor.writes.isEmpty())
+                assertEquals(1, editor.undoCalls)
+            }
+        }
     }
 
     @Test fun a_native_only_large_paste_is_never_used_as_a_local_clear_replacement() {

@@ -34,9 +34,10 @@ internal class NativeEditorUndoHistory {
         val originalBefore: EditorTextSnapshot? = null,
         val nativeOnly: Boolean = false,
         val capturedSelection: String? = null,
+        val intermediates: List<EditorTextSnapshot> = emptyList(),
         val selectedAll: Boolean = false,
     ) {
-        val size get() = before.text.length + after.text.length + (originalBefore?.text?.length ?: 0) + (capturedSelection?.length ?: 0) +
+        val size get() = before.text.length + after.text.length + (originalBefore?.text?.length ?: 0) + (capturedSelection?.length ?: 0) + intermediates.sumOf { it.text.length } +
             2 * (beforePlaceholders.size + afterPlaceholders.size + expectedPlaceholders.size) + actions.orEmpty().sumOf {
             if (it is WindowEdit.Commit) it.text.length + (it.replacement?.removed?.length ?: 0) else 0
         }
@@ -54,6 +55,15 @@ internal class NativeEditorUndoHistory {
     private data class Expansion(val before: EditorTextSnapshot, val expected: String, val actions: List<WindowEdit>)
     private data class Navigation(val entry: Entry, var after: EditorTextSnapshot, var awaiting: Boolean, val deadline: Long,
         var verified: Boolean)
+    private class SelectionReplacement(val target: InputConnection, val before: EditorTextSnapshot, val text: String,
+        val insert: () -> Boolean) {
+        var deadline = SystemClock.uptimeMillis() + WAIT_MS
+        var deleted: EditorTextSnapshot? = null
+        var entry: Entry? = null
+        var inserting = false
+        var accepted = true
+        var deferred = false
+    }
     private enum class Phase { SELECT, CONFIRM, RESTORE_SELECTION, NATIVE, REDO, REPLAY }
     private class Undo(val target: InputConnection, val before: EditorTextSnapshot, val entry: Entry, native: Boolean,
         val nativeLimit: Int, val singleNative: Boolean = false) {
@@ -91,6 +101,8 @@ internal class NativeEditorUndoHistory {
     private var pending: Pending? = null
     private var navigation: Navigation? = null
     private var selectedAll: EditorTextSnapshot? = null
+    private var selectionReplacement: SelectionReplacement? = null
+    private var settlingReplacement = false
     private var undoing: Undo? = null
     private var settlingUndo = false
     private var compositionBefore: EditorTextSnapshot? = null
@@ -108,10 +120,12 @@ internal class NativeEditorUndoHistory {
     private var batchFinishesComposition = false
     var onChange: (() -> Unit)? = null
     var onUndoCompleted: ((Boolean) -> Unit)? = null
+    var onInsertionCompleted: ((Boolean) -> Unit)? = null
     var writeSettleMs = 0L
     private var lastWriteAt = Long.MIN_VALUE / 2
     val hasPendingUndo: Boolean get() = undoing != null
-    val hasUndo: Boolean get() = pending == null && undoing == null && undoableEntries > 0
+    val hasPendingInsertion: Boolean get() = selectionReplacement != null
+    val hasUndo: Boolean get() = pending == null && selectionReplacement == null && undoing == null && undoableEntries > 0
     val hasDeletion: Boolean get() = hasUndo && entries.last().before.text.length > entries.last().after.text.length
 
     private var pollDelay = POLL_MS
@@ -122,7 +136,7 @@ internal class NativeEditorUndoHistory {
         override fun run() {
             val currentTarget = target ?: return
             val current = observe(currentTarget)
-            if (pending == null && undoing == null) return
+            if (pending == null && selectionReplacement == null && undoing == null) return
             val previous = polled
             polled = current
             if (!confirming()) pollDelay = minOf(maxOf(pollDelay, CONFIRM_POLL_MS) * 2, MAX_CONFIRM_POLL_MS)
@@ -134,13 +148,13 @@ internal class NativeEditorUndoHistory {
         }
     }
 
-    private fun confirming(): Boolean = undoing != null ||
+    private fun confirming(): Boolean = undoing != null || selectionReplacement != null ||
         pending?.let { it.nativeOnly || largeInsertion(it.actions) } == true
 
     private fun nextPoll(): Long {
         val now = SystemClock.uptimeMillis()
         val operation = undoing
-        val deadline = operation?.deadline ?: pending?.deadline ?: return pollDelay
+        val deadline = operation?.deadline ?: selectionReplacement?.deadline ?: pending?.deadline ?: return pollDelay
         var delay = if (confirming()) pollDelay else maxOf(pollDelay, CONFIRM_POLL_MS)
         val settledAt = lastWriteAt + writeSettleMs
         if (operation?.phase == Phase.SELECT && now < settledAt) delay = minOf(delay, settledAt - now)
@@ -184,6 +198,7 @@ internal class NativeEditorUndoHistory {
         pending = null
         navigation = null
         selectedAll = null
+        selectionReplacement = null
         clearComposition()
         onChange?.invoke()
     }
@@ -214,9 +229,9 @@ internal class NativeEditorUndoHistory {
 
     fun selectionUpdated() {
         val connection = target ?: return
-        if (pending == null || undoing != null || trackingDepth > 0 || batchDepth > 0) return
+        if (pending == null || undoing != null || selectionReplacement != null || trackingDepth > 0 || batchDepth > 0) return
         observe(connection)
-        if (pending == null && undoing == null) handler.removeCallbacks(pump)
+        if (pending == null && undoing == null && selectionReplacement == null) handler.removeCallbacks(pump)
     }
 
     private fun snapshot(connection: InputConnection): EditorTextSnapshot? {
@@ -483,6 +498,13 @@ internal class NativeEditorUndoHistory {
             return false
         }
         if (previous.after.sameText(current)) return true
+        if (previous.intermediates.isNotEmpty() && matchesAfter(previous, current)) {
+            val oldSize = previous.size
+            previous.after = current
+            previous.afterPlaceholders = placeholders(current)
+            retainedCharacters += previous.size - oldSize
+            return true
+        }
         if (previous.expected?.let { matches(previous.before, current, it, previous.beforePlaceholders, previous.actions) } == true) {
             val oldSize = previous.size
             previous.afterPlaceholders = placeholders(current)
@@ -502,7 +524,8 @@ internal class NativeEditorUndoHistory {
     }
 
     private fun record(before: EditorTextSnapshot, after: EditorTextSnapshot, expected: String?, actions: List<WindowEdit>?, replacing: Entry?,
-        originalBefore: EditorTextSnapshot? = null, nativeOnly: Boolean = false, capturedSelection: String? = replacing?.capturedSelection) {
+        originalBefore: EditorTextSnapshot? = null, nativeOnly: Boolean = false, capturedSelection: String? = replacing?.capturedSelection,
+        intermediates: List<EditorTextSnapshot> = replacing?.intermediates.orEmpty()) {
         if (before.sameText(after)) return
         val beforePlaceholders = placeholders(before)
         val expectedPlaceholders = expected?.let { mapPlaceholders(before, it, beforePlaceholders, actions) }.orEmpty()
@@ -510,7 +533,7 @@ internal class NativeEditorUndoHistory {
             mapPlaceholders(EditorTextSnapshot(expected, 0, 0), after.text.toString(), expectedPlaceholders)
         } else mapPlaceholders(before, after.text.toString(), beforePlaceholders, actions)
         if (replacing != null && entries.lastOrNull() === replacing) removeLast()
-        val entry = Entry(before, after, expected, actions, beforePlaceholders, afterPlaceholders.distinct().sorted(), expectedPlaceholders, originalBefore, nativeOnly, capturedSelection,
+        val entry = Entry(before, after, expected, actions, beforePlaceholders, afterPlaceholders.distinct().sorted(), expectedPlaceholders, originalBefore, nativeOnly, capturedSelection, intermediates,
             replacing?.selectedAll ?: (selectedAll?.let { sameSelection(it, before) } == true))
         navigation = null
         selectedAll = null
@@ -591,7 +614,7 @@ internal class NativeEditorUndoHistory {
         action: () -> Boolean,
     ): Boolean {
         bind(connection)
-        if (undoing != null) return false
+        if (undoing != null || selectionReplacement != null) return false
         val before = observe(connection)
         if (pending != null && !composing && !finishesComposition) discard()
         if (batchDepth == 0 && pending == null) reconcile(before)
@@ -659,7 +682,7 @@ internal class NativeEditorUndoHistory {
 
     fun paste(connection: InputConnection, copiedText: CharSequence): Boolean {
         bind(connection)
-        if (undoing != null || batchDepth != 0) return false
+        if (undoing != null || selectionReplacement != null || batchDepth != 0) return false
         val before = observe(connection) ?: return false
         if (pending != null) return false
         val text = copiedText.toString()
@@ -675,9 +698,80 @@ internal class NativeEditorUndoHistory {
         }
     }
 
+    fun replaceSelectedTab(connection: InputConnection, insert: () -> Boolean): Boolean? {
+        bind(connection)
+        if (undoing != null || selectionReplacement != null) return false
+        val before = observe(connection) ?: return null
+        if (pending != null) return false
+        val visible = numberedWindow(before)?.visible ?: before
+        if (batchDepth != 0 || compositionBefore != null || before.text.length < MIN_WINDOW ||
+            before.selectionStart == before.selectionEnd ||
+            minOf(visible.selectionStart, visible.selectionEnd) > 0 &&
+                maxOf(visible.selectionStart, visible.selectionEnd) < visible.text.length - 1) return null
+        val operation = SelectionReplacement(connection, before, "\t", insert)
+        selectionReplacement = operation
+        val event = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL)
+        operation.accepted = runCatching {
+            connection.sendKeyEvent(event).also { connection.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DEL)) }
+        }.getOrDefault(false)
+        settleReplacement(operation, snapshot(connection))
+        if (selectionReplacement != null) { operation.deferred = true; schedule() }
+        return operation.accepted
+    }
+
+    private fun settleReplacement(operation: SelectionReplacement, initial: EditorTextSnapshot?) {
+        if (settlingReplacement || selectionReplacement !== operation) return
+        settlingReplacement = true
+        try {
+            var current = initial
+            if (!operation.inserting) {
+                if (current == null || operation.before.sameText(current) || current.selectionStart != current.selectionEnd) {
+                    if (!operation.accepted || SystemClock.uptimeMillis() >= operation.deadline) {
+                        if (current != null && !operation.before.sameText(current)) record(operation.before, current, null,
+                            listOf(WindowEdit.Key(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL))), null, nativeOnly = true)
+                        selectionReplacement = null
+                        operation.accepted = false
+                        onChange?.invoke()
+                        if (operation.deferred) onInsertionCompleted?.invoke(false)
+                    }
+                    return
+                }
+                operation.deleted = current
+                record(operation.before, current, null, listOf(WindowEdit.Key(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DEL))),
+                    null, nativeOnly = true)
+                operation.entry = entries.lastOrNull()
+                operation.inserting = true
+                operation.deadline = SystemClock.uptimeMillis() + INSERT_WAIT_MS
+                operation.accepted = runCatching { operation.insert() }.getOrDefault(false)
+                current = snapshot(operation.target)
+            }
+            val deleted = operation.deleted ?: return
+            val actions = listOf(WindowEdit.Commit(operation.text, 1))
+            val expected = deleted.text.toString().replaceRange(deleted.selectionStart, deleted.selectionEnd, operation.text)
+            val confirmed = current != null && (matches(deleted, current, expected, actions = actions) ||
+                expansion(deleted, current, expected, actions) != null)
+            if (current != null && !deleted.sameText(current) && (confirmed || !operation.accepted ||
+                    SystemClock.uptimeMillis() >= operation.deadline)) {
+                record(operation.before, current, null, actions, operation.entry,
+                    nativeOnly = true, intermediates = listOf(deleted))
+                operation.accepted = confirmed
+                selectionReplacement = null
+                clearComposition()
+                onChange?.invoke()
+                if (operation.deferred) onInsertionCompleted?.invoke(operation.accepted)
+            } else if (!operation.accepted || SystemClock.uptimeMillis() >= operation.deadline) {
+                selectionReplacement = null
+                operation.accepted = false
+                clearComposition()
+                onChange?.invoke()
+                if (operation.deferred) onInsertionCompleted?.invoke(false)
+            }
+        } finally { settlingReplacement = false }
+    }
+
     fun navigate(connection: InputConnection, selectAll: Boolean = false, action: () -> Boolean): Boolean {
         bind(connection)
-        if (undoing != null) return false
+        if (undoing != null || selectionReplacement != null) return false
         if (entries.isEmpty() && pending == null && compositionBefore == null && batchDepth == 0)
             return action().also { if (it) selectedAll = if (selectAll) snapshot(connection) else null }
         val before = observe(connection)
@@ -740,8 +834,12 @@ internal class NativeEditorUndoHistory {
 
     private fun observe(connection: InputConnection): EditorTextSnapshot? {
         val current = snapshot(connection)
-        if (trackingDepth == 0 && pending == null && undoing == null &&
+        if (trackingDepth == 0 && pending == null && selectionReplacement == null && undoing == null &&
             selectedAll?.let { !sameSelection(it, current) } == true) selectedAll = null
+        selectionReplacement?.let { operation ->
+            settleReplacement(operation, current)
+            return if (selectionReplacement == null) snapshot(connection) else current
+        }
         val replay = undoing
         if (replay != null) {
             settleUndo(replay, current)
@@ -900,7 +998,7 @@ internal class NativeEditorUndoHistory {
             val action = previous.actions?.filter { it != WindowEdit.FinishComposition }?.singleOrNull()
             val boundary = action is WindowEdit.Context && action.id == android.R.id.cut ||
                 action is WindowEdit.Commit && (action.text.isEmpty() && action.replacement != null ||
-                    previous.nativeOnly) ||
+                    previous.nativeOnly && previous.intermediates.isEmpty()) ||
                 action is WindowEdit.Key && action.event.keyCode in intArrayOf(KeyEvent.KEYCODE_DEL, KeyEvent.KEYCODE_FORWARD_DEL)
             boundary && requiresNative(previous) && matchingSnapshot(previous.before, current) != null
         }
@@ -908,7 +1006,7 @@ internal class NativeEditorUndoHistory {
         if (native && !nativeClear(entry, current)) return false
         val singleNative = navigation?.let { it.entry === entry && !it.verified } == true
         val operation = Undo(connection, current, entry, native,
-            if (singleNative) 1 else 1 + 2 * (localUndosSinceNative + entries.size - 1), singleNative)
+            if (singleNative) 1 else 1 + entry.intermediates.size + 2 * (localUndosSinceNative + entries.size - 1), singleNative)
         undoing = operation
         if (native) dispatchNativeUndo(operation, current)
         val success = settleUndo(operation, snapshot(connection))
@@ -978,6 +1076,7 @@ internal class NativeEditorUndoHistory {
             }
             val known = current != null && (matchingSnapshot(operation.before, current) != null ||
                 nativeTrail.any { matchingSnapshot(it, current) != null } ||
+                operation.entry.intermediates.any { matchingSnapshot(it, current) != null || restoredAnchoredWindow(it, current) } ||
                 entries.any { matchingSnapshot(it.before, current) != null || matchingSnapshot(it.after, current) != null })
             if (known && (!unchanged || expired) &&
                 operation.nativeSteps.size < operation.nativeLimit) {
@@ -1081,8 +1180,13 @@ internal class NativeEditorUndoHistory {
     }
 
     private fun matchesAfter(entry: Entry, current: EditorTextSnapshot): Boolean {
-        return matchingSnapshot(entry.after, current) != null ||
-            entry.expected?.let { matches(entry.before, current, it, entry.beforePlaceholders, entry.actions) } == true
+        if (matchingSnapshot(entry.after, current) != null ||
+            entry.expected?.let { matches(entry.before, current, it, entry.beforePlaceholders, entry.actions) } == true) return true
+        val deleted = entry.intermediates.singleOrNull() ?: return false
+        val commit = entry.actions?.singleOrNull() as? WindowEdit.Commit ?: return false
+        val expected = deleted.text.toString().replaceRange(minOf(deleted.selectionStart, deleted.selectionEnd),
+            maxOf(deleted.selectionStart, deleted.selectionEnd), commit.text)
+        return matches(deleted, current, expected, actions = entry.actions) || expansion(deleted, current, expected, entry.actions) != null
     }
 
     private fun restoredAnchoredWindow(reference: EditorTextSnapshot, current: EditorTextSnapshot): Boolean {
@@ -1138,7 +1242,8 @@ internal class NativeEditorUndoHistory {
                 intArrayOf(KeyEvent.KEYCODE_DEL, KeyEvent.KEYCODE_FORWARD_DEL)
             else -> false
         }
-        if (!clears || projected(entry.after).text.toString() !in listOf("", "\n")) return false
+        val deleted = entry.intermediates.singleOrNull()?.takeIf { action is WindowEdit.Commit && action.text == "\t" }
+        if (deleted == null && !clears || projected(deleted ?: entry.after).text.toString() !in listOf("", "\n")) return false
         val before = normalized(entry.before, placeholders(entry.before))
         val after = normalized(current, placeholders(current))
         fun covered(value: EditorTextSnapshot): Boolean {
@@ -1260,9 +1365,10 @@ internal class NativeEditorUndoHistory {
             val actual = anchor(restored, to)
             if (known != null && actual != null && known != actual) return false
         }
+        val intermediate = entry.intermediates.map { numberedWindow(it, 1)?.visible ?: return false }
         val candidate = entry.copy(before = before.visible, after = after.visible,
             beforePlaceholders = standalonePlaceholders(before.visible.text),
-            afterPlaceholders = standalonePlaceholders(after.visible.text))
+            afterPlaceholders = standalonePlaceholders(after.visible.text), intermediates = intermediate)
         return if (entry.capturedSelection != null) restoredCapturedSelection(candidate, restored.visible)
         else entry.selectedAll && restoredSelectedWindow(candidate, restored.visible)
     }

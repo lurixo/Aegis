@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import android.text.Selection
+import android.view.KeyEvent
 import android.view.View
 import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.ExtractedText
@@ -246,5 +247,39 @@ class WebEditorTabInputTest {
         editor.render("1\na   \n", 6)
         helper.clear()
         assertNull(helper.prepare(editor, "b", 1))
+    }
+
+    @Test fun external_connection_invalidations_leave_the_next_commit_unchanged() {
+        val invalidations: List<(EditorUndoHistory, android.view.inputmethod.InputConnection) -> Unit> = listOf(
+            { _, ic -> ic.setSelection(6, 6) },
+            { _, ic -> ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_LEFT)) },
+            { _, ic -> ic.finishComposingText() },
+            { _, ic -> ic.setComposingRegion(6, 6) },
+            { history, _ -> history.cancelWebTabInput() },
+        )
+        for (invalidate in invalidations) {
+            val editor = Editor()
+            val history = EditorUndoHistory().apply { preferNativeUndo = true }
+            val ic = history.wrap(editor)
+            assertTrue(ic.commitText("\t", 1))
+            editor.render("1\na   \n", 6)
+            invalidate(history, ic)
+            editor.events.clear()
+            ic.commitText("b", 1)
+            assertEquals(listOf("commit:b"), editor.events.filter { it.startsWith("select:") || it.startsWith("commit:") })
+            history.clear()
+        }
+    }
+
+    @Test fun non_web_connections_keep_the_original_commit_path() {
+        val editor = Editor()
+        val history = EditorUndoHistory()
+        val ic = history.wrap(editor)
+        assertTrue(ic.commitText("\t", 1))
+        editor.render("1\na   \n", 6)
+        editor.events.clear()
+        assertTrue(ic.commitText("b", 1))
+        assertEquals(listOf("commit:b"), editor.events.filter { it.startsWith("select:") || it.startsWith("commit:") })
+        history.clear()
     }
 }
