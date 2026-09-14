@@ -339,7 +339,7 @@ class PanelMotionTest {
         }
     }
 
-    @Test fun edit_panel_select_label_swap_lands_synchronously_when_animated() {
+    @Test fun edit_panel_selection_state_lands_synchronously_when_animated() {
         animationsOn()
         val controller = Robolectric.buildActivity(Activity::class.java).setup()
         try {
@@ -347,13 +347,18 @@ class PanelMotionTest {
             val v = attach(activity, EditPanelView(activity).apply { applyPalette(light) })
             val start = activity.getString(R.string.edit_start_select)
             val end = activity.getString(R.string.edit_end_select)
-            assertEquals(start, v.selectingLabelForTest().toString())
+            val select = requireNotNull(v.actionViewForTest(EditAction.START_SELECT))
+            val label = activity.getString(R.string.edit_select)
+            assertEquals(label, v.selectingLabelForTest().toString())
+            assertEquals(start, select.contentDescription)
             v.setSelecting(true)
-            assertEquals("the label swap lands in the same call", end, v.selectingLabelForTest().toString())
+            assertEquals("selection is announced in the same call", end, select.contentDescription)
+            assertEquals("the short label is stable", label, v.selectingLabelForTest().toString())
             flushMotion()
-            assertEquals(end, v.selectingLabelForTest().toString())
+            assertEquals(end, select.contentDescription)
             v.setSelecting(true)
-            assertEquals("a same-state call re-renders without a fade", end, v.selectingLabelForTest().toString())
+            assertEquals("a same-state call preserves the announcement", end, select.contentDescription)
+            assertEquals(label, v.selectingLabelForTest().toString())
         } finally {
             controller.pause().stop().destroy()
         }

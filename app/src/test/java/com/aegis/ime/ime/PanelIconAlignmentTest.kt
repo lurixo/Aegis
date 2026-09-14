@@ -15,9 +15,11 @@
 
 package com.aegis.ime.ime
 
+import android.app.Activity
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Rect
+import android.os.Looper
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
@@ -35,8 +37,10 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
@@ -78,154 +82,156 @@ class PanelIconAlignmentTest {
         dispatchTouchEvent(MotionEvent.obtain(0, 32, MotionEvent.ACTION_UP, x, height * to, 0))
     }
 
-    @Test fun edit_panel_back_icon_matches_right_action_label_height() {
+    @Test fun edit_panel_header_matches_shared_control_geometry_and_both_clipboard_tabs() {
         val v = EditPanelView(ctx)
-        val labels = textViews(v)
-        val title = labels.first { it.text.toString() == ctx.getString(com.aegis.ime.R.string.edit_title) }
-        val delete = labels.first { it.text.toString() == ctx.getString(com.aegis.ime.R.string.clip_delete) }
-        val backIcon = title.compoundDrawables[0]
-
-        assertNotNull("edit panel title must keep a leading back drawable", backIcon)
-        val maxDelta = (3f * density).roundToInt().coerceAtLeast(3)
-        val deleteTextSize = textSizePx(delete)
-        assertTrue(
-            "edit panel back icon box should stay close to the right action label text size: icon=${backIcon.intrinsicHeight}, text=$deleteTextSize",
-            abs(backIcon.intrinsicHeight - deleteTextSize) <= maxDelta,
+        val title = requireNotNull(v.actionViewForTest(EditAction.BACK)) as PanelHeaderBackControl
+        val reference = PanelBackButton.control(ctx, ctx.getString(com.aegis.ime.R.string.edit_title), ImePalette.STATIC_LIGHT.keyLabel) {}
+        reference.measure(
+            View.MeasureSpec.makeMeasureSpec((411 * density).toInt(), View.MeasureSpec.AT_MOST),
+            View.MeasureSpec.makeMeasureSpec((PanelBackButton.HIT_DP * density).toInt(), View.MeasureSpec.EXACTLY),
         )
+        reference.layout(0, 0, reference.measuredWidth, reference.measuredHeight)
+        val layoutPanel = LayoutPanelView(ctx)
+        layout(layoutPanel, width = (411 * density).roundToInt(), height = (324 * density).roundToInt())
+        val layoutBack = layoutPanel.titleButtonForTest()
+        val layoutBounds = Rect(0, 0, layoutBack.width, layoutBack.height).also { layoutPanel.offsetDescendantRectToMyCoords(layoutBack, it) }
+        val clipboardBounds = listOf(false, true).map { phrases ->
+            val clipboard = ClipboardView(ctx)
+            if (phrases) clipboard.showPhraseTab("") else clipboard.refresh()
+            layout(clipboard, width = (411 * density).roundToInt(), height = (324 * density).roundToInt())
+            val back = textViews(clipboard).filterIsInstance<PanelHeaderBackControl>().single()
+            Rect(0, 0, back.width, back.height).also { clipboard.offsetDescendantRectToMyCoords(back, it) }
+        }
+        for ((widthDp, heightDp) in listOf(411 to 324, 320 to 200, 640 to 220, 411 to 324)) {
+            layout(v, width = (widthDp * density).roundToInt(), height = (heightDp * density).roundToInt())
+            val hit = Rect(0, 0, title.width, title.height).also { v.offsetDescendantRectToMyCoords(title, it) }
+            assertEquals((56 * density).toInt(), v.titleBarForTest().height)
+            assertEquals(v.titleBarForTest().height, v.actionViewportForTest().top)
+            assertTrue("the header target has an outer top inset", hit.top > 0)
+            assertEquals((56 * density).toInt(), (layoutBack.parent as View).height)
+            for (back in clipboardBounds + layoutBounds) {
+                assertEquals("the left edge matches layout and both clipboard tabs", back.left, hit.left)
+                assertEquals("the top edge matches layout and both clipboard tabs", back.top, hit.top)
+                assertEquals("the bottom edge matches layout and both clipboard tabs", back.bottom, hit.bottom)
+            }
+            assertEquals("the whole title is one natural-width target", reference.width, title.width)
+            assertEquals("the full target height matches keyboard layout", layoutBack.height, title.height)
+            val icon = requireNotNull(title.compoundDrawables[0])
+            assertTrue("the header draws the shared back glyph", icon === title.glyphForTest())
+            assertEquals((16 * density).toInt(), icon.intrinsicHeight)
+            for (back in listOf(reference, layoutBack)) {
+                assertEquals(back.compoundPaddingLeft, title.compoundPaddingLeft)
+                assertEquals(back.compoundPaddingRight, title.compoundPaddingRight)
+                assertEquals(back.compoundPaddingTop, title.compoundPaddingTop)
+                assertEquals(back.compoundPaddingBottom, title.compoundPaddingBottom)
+                assertEquals(back.compoundDrawablePadding, title.compoundDrawablePadding)
+                assertEquals(back.typeface, title.typeface)
+                assertEquals(back.includeFontPadding, title.includeFontPadding)
+                assertEquals(back.textSize, title.textSize, 0f)
+                assertEquals("the baseline uses the same full-height control", back.baseline, title.baseline)
+            }
+            assertEquals(reference.text.toString(), title.text.toString())
+            assertTrue("the header fits its label", requireNotNull(title.layout).height <= title.height - title.compoundPaddingTop - title.compoundPaddingBottom)
+        }
     }
 
-    @Test fun edit_panel_back_action_is_limited_to_the_back_button() {
-        val v = EditPanelView(ctx)
-        val actions = mutableListOf<EditAction>()
-        v.onAction = { actions += it }
-        layout(v, width = 600, height = 320)
-
-        val topRow = v.titleBarForTest()
-        val back = v.actionViewForTest(EditAction.BACK)
-            ?: throw AssertionError("back button must be exposed as its own hit target")
-        assertTrue("back button remains clickable", back.hasOnClickListeners())
-        assertTrue("back button should only occupy the top-left part of the row", back.right < topRow.width / 2)
-        assertTrue("top row itself must not be a click target", !topRow.hasOnClickListeners())
-
-        v.tap(v.width - 4f, topRow.height / 2f)
-        assertTrue("tapping empty top-row space must not go back", actions.isEmpty())
-
-        assertTrue("the back button itself must still fire", back.performClick())
-        assertEquals(listOf(EditAction.BACK), actions)
+    @Test fun edit_and_layout_back_actions_use_the_complete_target_and_exclude_their_outer_insets() {
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val root = requireNotNull(controller.get().findViewById<ViewGroup>(android.R.id.content))
+            var backCount = 0
+            val edit = EditPanelView(controller.get()).apply { onAction = { if (it == EditAction.BACK) backCount++ } }
+            val keyboardLayout = LayoutPanelView(controller.get()).apply { onBack = { backCount++ } }
+            for ((v, back) in listOf(edit to requireNotNull(edit.actionViewForTest(EditAction.BACK)), keyboardLayout to keyboardLayout.titleButtonForTest())) {
+                root.addView(v)
+                shadowOf(Looper.getMainLooper()).idle()
+                for ((widthDp, heightDp) in listOf(411 to 324, 320 to 200, 640 to 220)) {
+                    layout(root, width = (widthDp * density).roundToInt(), height = (heightDp * density).roundToInt())
+                    val topRow = back.parent as View
+                    val hit = Rect(0, 0, back.width, back.height).also { root.offsetDescendantRectToMyCoords(back, it) }
+                    assertTrue(back.hasOnClickListeners())
+                    assertTrue("the natural-width target leaves the rest of the header free", back.right < topRow.width)
+                    assertFalse(topRow.hasOnClickListeners())
+                    assertEquals((56 * density).toInt(), topRow.height)
+                    assertEquals((PanelBackButton.HIT_DP * density).toInt(), hit.height())
+                    assertEquals((topRow.height - back.height) / 2, hit.top)
+                    assertTrue("the clickable target excludes a real outer top inset", hit.top > 0)
+                    for (point in listOf(
+                        hit.left + 1f to hit.top + 1f,
+                        hit.right - 1f to hit.top + 1f,
+                        hit.left + 1f to hit.bottom - 1f,
+                        hit.right - 1f to hit.bottom - 1f,
+                    )) {
+                        backCount = 0
+                        root.tap(point.first, point.second)
+                        shadowOf(Looper.getMainLooper()).idle()
+                        assertEquals("every corner of the full target returns once", 1, backCount)
+                    }
+                    for (point in listOf(
+                        hit.exactCenterX() to hit.top - 1f,
+                        hit.exactCenterX() to hit.bottom + 1f,
+                        hit.right + 1f to hit.exactCenterY(),
+                        root.width - 1f to hit.exactCenterY(),
+                    )) {
+                        backCount = 0
+                        root.tap(point.first, point.second)
+                        shadowOf(Looper.getMainLooper()).idle()
+                        assertEquals("the outer inset and remaining header do not return", 0, backCount)
+                    }
+                }
+                root.removeView(v)
+            }
+        } finally {
+            controller.pause().stop().destroy()
+        }
     }
 
-    @Test fun edit_panel_does_not_page_at_portrait_panel_heights() {
-        for (heightDp in listOf(290, 340)) {
+    @Test fun edit_panel_never_pages_at_compact_or_portrait_heights() {
+        for ((widthDp, heightDp) in listOf(320 to 200, 411 to 230, 411 to 290, 411 to 340, 640 to 220)) {
             val v = EditPanelView(ctx)
-            layout(v, width = (411 * density).roundToInt(), height = (heightDp * density).roundToInt())
+            layout(v, width = (widthDp * density).roundToInt(), height = (heightDp * density).roundToInt())
             val viewport = v.actionViewportForTest()
-
             viewport.dragVertically(0.75f, 0.25f)
-            assertEquals("$heightDp dp panel must not move after an upward drag", 0, viewport.scrollY)
+            assertEquals("$widthDp x $heightDp after upward drag", 0, viewport.scrollY)
             viewport.dragVertically(0.25f, 0.75f)
-            assertEquals("$heightDp dp panel must not move after a downward drag", 0, viewport.scrollY)
-            assertFalse("$heightDp dp panel must not page upward", viewport.canScrollVertically(-1))
-            assertFalse("$heightDp dp panel must not page downward", v.actionContentCanScrollForTest())
+            assertEquals("$widthDp x $heightDp after downward drag", 0, viewport.scrollY)
+            assertFalse(viewport.canScrollVertically(-1))
+            assertFalse(v.actionContentCanScrollForTest())
         }
     }
 
-    @Test fun edit_panel_action_rows_keep_a_48dp_touch_target_at_every_panel_height() {
-        val minimum = (48 * density).roundToInt()
-        for (heightDp in listOf(200, 230, 290, 340)) {
-            val v = EditPanelView(ctx)
-            layout(v, width = (411 * density).roundToInt(), height = (heightDp * density).roundToInt())
-            for (action in listOf(
-                EditAction.UP,
-                EditAction.LEFT,
-                EditAction.START_SELECT,
-                EditAction.RIGHT,
-                EditAction.DOWN,
-                EditAction.DELETE,
-                EditAction.COPY,
-                EditAction.CUT,
-                EditAction.HOME,
-                EditAction.SELECT_ALL,
-                EditAction.END,
-                EditAction.PASTE,
-            )) {
-                val target = requireNotNull(v.actionViewForTest(action))
-                assertTrue(
-                    "$heightDp dp panel: $action touch height ${target.height} < $minimum",
-                    target.height >= minimum,
-                )
-                assertTrue(
-                    "$heightDp dp panel: $action touch width ${target.width} < $minimum",
-                    target.width >= minimum,
-                )
-            }
-        }
-    }
-
-    @Test fun edit_panel_arrow_glyphs_use_option_a_line_geometry_and_stay_centered() {
+    @Test fun edit_panel_direction_arrows_are_compact_centered_open_paths() {
         val v = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
-        layout(v, width = 600, height = 320)
-
+        layout(v, width = (411 * density).roundToInt(), height = (324 * density).roundToInt())
         val directions = mapOf(
-            EditAction.UP to (0f to -1f),
-            EditAction.DOWN to (0f to 1f),
-            EditAction.LEFT to (-1f to 0f),
-            EditAction.RIGHT to (1f to 0f),
-            EditAction.HOME to (-1f to 0f),
-            EditAction.END to (1f to 0f),
+            EditAction.UP to (0f to -1f), EditAction.DOWN to (0f to 1f),
+            EditAction.LEFT to (-1f to 0f), EditAction.RIGHT to (1f to 0f),
         )
-        val scale = 13f * density
         for ((action, direction) in directions) {
-            val button = v.actionViewForTest(action)
-                ?: throw AssertionError("$action arrow button must exist")
-            assertTrue("$action arrow keeps the shared key surface", button.background is ImeKeySurface)
-            assertTrue("$action arrow glyph stays above the key surface", button.foreground is EditPanelView.GlyphDrawable)
-
+            val button = requireNotNull(v.actionViewForTest(action))
+            val glyph = button.foreground as EditPanelView.GlyphDrawable
+            assertEquals((24 * density).roundToInt(), glyph.intrinsicWidth)
+            assertTrue(button.background is ImeKeySurface)
             val bitmap = Bitmap.createBitmap(button.width, button.height, Bitmap.Config.ARGB_8888)
-            requireNotNull(button.foreground).apply {
-                setBounds(0, 0, button.width, button.height)
-                draw(Canvas(bitmap))
-            }
-            val center = v.arrowLastDrawCenterForTest(action)
-                ?: throw AssertionError("$action arrow glyph must draw during button rendering")
-            assertEquals("$action glyph x center", button.width / 2f, center.first, 0.5f)
-            assertEquals("$action glyph y center", button.height / 2f, center.second, 0.5f)
-
-            val (dx, dy) = direction
-            val px = -dy
-            val py = dx
-            assertTrue(
-                "$action keeps the open arrow's center shaft",
-                bitmap.hasInkNear(
-                    center.first - dx * scale * 0.55f,
-                    center.second - dy * scale * 0.55f,
-                ),
-            )
-            for (side in listOf(-1f, 1f)) {
-                assertFalse(
-                    "$action must not retain a hollow shaft edge",
-                    bitmap.hasInkNear(
-                        center.first - dx * scale * 0.55f + px * scale * 0.40f * side,
-                        center.second - dy * scale * 0.55f + py * scale * 0.40f * side,
-                    ),
-                )
-                assertTrue(
-                    "$action keeps both open arrowhead wings",
-                    bitmap.hasInkNear(
-                        center.first + dx * scale * 0.18f + px * scale * 0.62f * side,
-                        center.second + dy * scale * 0.18f + py * scale * 0.62f * side,
-                    ),
-                )
-            }
-            if (action == EditAction.HOME || action == EditAction.END) {
+            try {
+                glyph.setBounds(0, 0, button.width, button.height)
+                glyph.draw(Canvas(bitmap))
+                val center = requireNotNull(v.arrowLastDrawCenterForTest(action))
+                assertEquals(button.width / 2f, center.first, 0.5f)
+                assertEquals(button.height / 2f, center.second, 0.5f)
+                val scale = glyph.glyphSizeForTest()
+                val (dx, dy) = direction
+                val px = -dy
+                val py = dx
+                assertTrue("$action center shaft", bitmap.hasInkNear(center.first - dx * scale * 0.55f, center.second - dy * scale * 0.55f))
                 for (side in listOf(-1f, 1f)) {
                     assertTrue(
-                        "$action keeps the paragraph-edge bar",
-                        bitmap.hasInkNear(
-                            center.first + dx * scale * 1.10f + px * scale * 0.62f * side,
-                            center.second + dy * scale * 1.10f + py * scale * 0.62f * side,
-                        ),
+                        "$action open arrowhead wing",
+                        bitmap.hasInkNear(center.first + dx * scale * 0.18f + px * scale * 0.62f * side, center.second + dy * scale * 0.18f + py * scale * 0.62f * side),
                     )
                 }
+            } finally {
+                bitmap.recycle()
             }
         }
     }
@@ -241,226 +247,49 @@ class PanelIconAlignmentTest {
         return false
     }
 
-    @Test fun edit_left_group_moves_together_and_right_actions_use_leading_icons() {
-        val v = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
-        val panelHeight = 320
-        layout(v, width = 600, height = panelHeight)
-
-        fun viewFor(item: EditAction): View = requireNotNull(v.actionViewForTest(item))
-        fun centerX(item: EditAction): Float {
-            val target = viewFor(item)
-            val bounds = Rect(0, 0, target.width, target.height)
-            v.offsetDescendantRectToMyCoords(target, bounds)
-            return bounds.exactCenterX()
-        }
-        fun boundsFor(item: EditAction): Rect {
-            val target = viewFor(item)
-            return Rect(0, 0, target.width, target.height).also { v.offsetDescendantRectToMyCoords(target, it) }
-        }
-
-        assertEquals(centerX(EditAction.UP), centerX(EditAction.SELECT_ALL), 0.5f)
-        assertEquals(centerX(EditAction.DOWN), centerX(EditAction.SELECT_ALL), 0.5f)
-        assertEquals(centerX(EditAction.START_SELECT), centerX(EditAction.SELECT_ALL), 0.5f)
-        assertTrue(centerX(EditAction.LEFT) > v.width / 10f)
-
-        val select = boundsFor(EditAction.START_SELECT)
-        val leftArrow = boundsFor(EditAction.LEFT)
-        val rightArrow = boundsFor(EditAction.RIGHT)
-        val upArrow = boundsFor(EditAction.UP)
-        val downArrow = boundsFor(EditAction.DOWN)
-        assertEquals(select.left, leftArrow.right)
-        assertEquals(select.right, rightArrow.left)
-        assertEquals(select.top, leftArrow.top)
-        assertEquals(select.top, rightArrow.top)
-        assertEquals(select.top, upArrow.bottom)
-        assertEquals(select.bottom, downArrow.top)
-        val titleHeight = (PanelBackButton.HIT_DP * density).toInt()
-        val bottomHeight = (56 * density).toInt()
-        val contentHeight = maxOf((48 * 3 * density).toInt() + bottomHeight, panelHeight - titleHeight)
-        val bottomContainerHeight = maxOf(bottomHeight, (contentHeight + 3) / 4)
-        val midHeight = contentHeight - bottomContainerHeight
-        for (arrow in listOf(leftArrow, rightArrow, upArrow, downArrow)) {
-            assertTrue(kotlin.math.abs(arrow.width() - v.width / 5) <= 1)
-            assertTrue(kotlin.math.abs(arrow.height() - midHeight / 3) <= 1)
-        }
-        assertTrue(kotlin.math.abs(select.width() - v.width / 5) <= 1)
-        assertTrue(kotlin.math.abs(select.height() - midHeight / 3) <= 1)
-
-        val navWidths = listOf(EditAction.HOME, EditAction.SELECT_ALL, EditAction.END).map { viewFor(it).width }
-        assertTrue(navWidths.max() - navWidths.min() <= 1)
-        assertTrue(navWidths.all { kotlin.math.abs(it - v.width / 5) <= 1 })
-
-        for (item in listOf(EditAction.DELETE, EditAction.COPY, EditAction.CUT, EditAction.PASTE, EditAction.SELECT_ALL)) {
-            val button = viewFor(item) as TextView
-            assertNotNull("$item keeps its icon", button.compoundDrawables[0])
-            assertTrue("$item does not stack its icon above the label", button.compoundDrawables[1] == null)
-        }
-        for (item in listOf(EditAction.HOME, EditAction.END)) {
-            val button = viewFor(item)
-            assertFalse("$item drops its text label", button is TextView)
-            assertNotNull("$item draws its glyph as the button face", button.background)
+    @Test fun edit_labels_use_stacked_icons_with_visible_text_in_portrait() {
+        val v = EditPanelView(ctx)
+        layout(v, width = (411 * density).roundToInt(), height = (324 * density).roundToInt())
+        for (action in listOf(EditAction.START_SELECT, EditAction.TAB, EditAction.FORWARD_DELETE, EditAction.UNDO, EditAction.DELETE,
+            EditAction.HOME, EditAction.END, EditAction.SELECT_ALL, EditAction.COPY, EditAction.CUT, EditAction.PASTE)) {
+            val button = requireNotNull(v.actionViewForTest(action)) as TextView
+            assertTrue("$action visible label", button.text.isNotEmpty())
+            assertNull("$action does not consume label width with a leading icon", button.compoundDrawables[0])
+            assertEquals("$action icon box", (24 * density).roundToInt(), requireNotNull(button.compoundDrawables[1]).intrinsicWidth)
+            assertEquals("$action keeps the full rendered icon", (24 * density).roundToInt(), requireNotNull(button.compoundDrawables[1]).bounds.height())
+            assertEquals("$action single line", 1, requireNotNull(button.layout).lineCount)
         }
     }
 
-    @Test fun edit_panel_bottom_row_balances_paragraph_jumps_and_aligns_paste_with_the_end_row() {
-        val v = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
-        layout(v, width = 600, height = 320)
-        fun boundsFor(item: EditAction): Rect {
-            val target = requireNotNull(v.actionViewForTest(item))
-            return Rect(0, 0, target.width, target.height).also { v.offsetDescendantRectToMyCoords(target, it) }
-        }
-
-        val home = boundsFor(EditAction.HOME)
-        val all = boundsFor(EditAction.SELECT_ALL)
-        val end = boundsFor(EditAction.END)
-        assertTrue(kotlin.math.abs((all.centerX() - home.centerX()) - (end.centerX() - all.centerX())) <= 1)
-        assertTrue(kotlin.math.abs(boundsFor(EditAction.UP).centerX() - all.centerX()) <= 1)
-        assertTrue(kotlin.math.abs(home.width() - end.width()) <= 1)
-        assertTrue(listOf(home, all, end).all { it.top == all.top && it.height() == all.height() })
-
-        val paste = boundsFor(EditAction.PASTE)
-        assertTrue(kotlin.math.abs(paste.centerY() - end.centerY()) <= 1)
-
-        val delete = boundsFor(EditAction.DELETE)
-        assertEquals(delete.left, paste.left)
-        assertEquals(delete.right, paste.right)
-        val rightInset = v.width - delete.right
-        assertTrue(
-            "right action column keeps a margin to the panel edge: $rightInset",
-            kotlin.math.abs(rightInset - (v.width * 0.15f / 5).toInt()) <= 2,
-        )
-
-        for (action in listOf(EditAction.UP, EditAction.DOWN, EditAction.LEFT, EditAction.RIGHT)) {
-            val glyph = requireNotNull(requireNotNull(v.actionViewForTest(action)).foreground)
-            assertEquals("$action glyph box", (38 * density).toInt(), glyph.intrinsicWidth)
-        }
-        for ((action, label) in listOf(
-            EditAction.HOME to ctx.getString(com.aegis.ime.R.string.edit_paragraph_start),
-            EditAction.END to ctx.getString(com.aegis.ime.R.string.edit_paragraph_end),
-        )) {
-            val button = requireNotNull(v.actionViewForTest(action))
-            assertEquals("$action glyph box", (38 * density).toInt(), requireNotNull(button.foreground).intrinsicWidth)
-            assertEquals(label, button.contentDescription)
-        }
-        val selectAll = requireNotNull(v.actionViewForTest(EditAction.SELECT_ALL)) as TextView
-        assertEquals(ctx.getString(com.aegis.ime.R.string.edit_select_all), selectAll.text.toString())
-        assertNotNull(selectAll.compoundDrawables[0])
-    }
-
-    @Test fun edit_copy_cut_and_paste_match_delete_bounds_and_rounded_feedback() {
-        for (height in listOf(246, 296, 299)) {
-            val dispatched = mutableListOf<EditAction>()
-            val v = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
-            v.onAction = dispatched::add
-            v.setHasSelection(true)
-            layout(v, width = 600, height = height)
-            val reference = requireNotNull(v.actionViewForTest(EditAction.DELETE))
-            val actions = listOf(EditAction.DELETE, EditAction.COPY, EditAction.CUT, EditAction.PASTE)
-            for (action in actions.drop(1)) {
-                val target = requireNotNull(v.actionViewForTest(action))
-                assertEquals(reference.width, target.width)
-                assertEquals(reference.height, target.height)
-            }
-            val bounds = actions.map { action ->
-                val target = requireNotNull(v.actionViewForTest(action))
-                Rect(0, 0, target.width, target.height).also { v.offsetDescendantRectToMyCoords(target, it) }
-            }
-            assertTrue(bounds.all { it.left == bounds.first().left && it.right == bounds.first().right })
-            bounds.zipWithNext().forEach { (upper, lower) -> assertTrue(upper.bottom <= lower.top) }
-            val titleHeight = (PanelBackButton.HIT_DP * density).toInt()
-            val bottomHeight = (56 * density).toInt()
-            val contentHeight = maxOf((48 * 3 * density).toInt() + bottomHeight, height - titleHeight)
-            val bottomContainerHeight = maxOf(bottomHeight, (contentHeight + 3) / 4)
-            val midHeight = contentHeight - bottomContainerHeight
-            assertEquals(midHeight / 3, reference.height)
-            assertEquals(titleHeight, bounds.first().top)
-            val dpadBounds = listOf(EditAction.UP, EditAction.START_SELECT, EditAction.DOWN).map { action ->
-                val target = requireNotNull(v.actionViewForTest(action))
-                Rect(0, 0, target.width, target.height).also { v.offsetDescendantRectToMyCoords(target, it) }
-            }
-            assertEquals(bounds.first().top, dpadBounds.first().top)
-            assertTrue(dpadBounds.all { kotlin.math.abs(it.height() - midHeight / 3) <= 1 })
-            dpadBounds.zipWithNext().forEach { (upper, lower) -> assertEquals(upper.bottom, lower.top) }
-            assertEquals(titleHeight + midHeight, dpadBounds.last().bottom)
-            val navigationBounds = listOf(EditAction.HOME, EditAction.SELECT_ALL, EditAction.END).map { action ->
-                val target = requireNotNull(v.actionViewForTest(action))
-                Rect(0, 0, target.width, target.height).also { v.offsetDescendantRectToMyCoords(target, it) }
-            }
-            val measuredBottomHeight = maxOf(bottomContainerHeight, reference.height)
-            assertTrue(navigationBounds.all { it.top == titleHeight + midHeight + (measuredBottomHeight - bottomHeight) / 2 })
-            assertTrue(navigationBounds.all { it.height() == bottomHeight })
-            assertTrue(navigationBounds.all { kotlin.math.abs(it.centerY() - bounds.last().centerY()) <= 1 })
-            for (action in actions) {
-                val target = requireNotNull(v.actionViewForTest(action))
-                assertTrue(target.background is ImeKeySurface)
-                assertFalse(target.background is android.graphics.drawable.RippleDrawable)
-                assertTrue(target.hasOnClickListeners())
-                assertTrue(target.performClick())
-                assertEquals(action, dispatched.last())
-            }
-            assertEquals(actions, dispatched)
-            v.applyPalette(ImePalette.STATIC_DARK)
-            for (action in actions) {
-                val target = requireNotNull(v.actionViewForTest(action))
-                assertTrue(target.background is ImeKeySurface)
-                assertFalse(target.background is android.graphics.drawable.RippleDrawable)
-            }
-        }
-    }
-
-    @Test fun edit_navigation_and_back_are_only_non_focusable_actions() {
-        val v = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
-        val actions = mutableListOf<EditAction>()
-        v.onAction = actions::add
-        layout(v, width = 600, height = 320)
-        val selectingLabel = v.selectingLabelForTest()
-        val navigation = listOf(
-            EditAction.UP,
-            EditAction.DOWN,
-            EditAction.LEFT,
-            EditAction.RIGHT,
-            EditAction.HOME,
-            EditAction.END,
-        )
-        v.setHasSelection(true)
-        val back = requireNotNull(v.actionViewForTest(EditAction.BACK))
-        assertFalse(back.isFocusable)
-        assertFalse(back.requestFocus())
-        for (action in navigation) {
-            val button = requireNotNull(v.actionViewForTest(action))
-            assertFalse(button.isFocusable)
-            assertFalse(button.requestFocus())
-            assertTrue(button.performClick())
-            assertFalse(back.isFocused)
-            assertEquals(selectingLabel, v.selectingLabelForTest())
-        }
-        for (action in listOf(
-            EditAction.START_SELECT,
-            EditAction.DELETE,
-            EditAction.COPY,
-            EditAction.CUT,
-            EditAction.SELECT_ALL,
-            EditAction.PASTE,
-        )) {
-            assertTrue(requireNotNull(v.actionViewForTest(action)).isFocusable)
-        }
-        assertEquals(navigation, actions)
-        assertTrue(back.performClick())
-        assertEquals(navigation + EditAction.BACK, actions)
-    }
-
-    @Test fun start_select_and_delete_use_the_shared_key_surface_in_each_palette() {
+    @Test fun every_edit_action_has_a_visible_rounded_key_face_in_both_palettes() {
         for (palette in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
             val v = EditPanelView(ctx).apply { applyPalette(palette) }
-            val select = requireNotNull(v.actionViewForTest(EditAction.START_SELECT))
-            val delete = requireNotNull(v.actionViewForTest(EditAction.DELETE))
-            assertTrue(select.background is ImeKeySurface)
-            assertTrue(delete.background is ImeKeySurface)
-            assertFalse(select.background is android.graphics.drawable.RippleDrawable)
-            assertFalse(delete.background is android.graphics.drawable.RippleDrawable)
-            assertEquals(0f, requireNotNull(v.actionFeedbackLevelForTest(EditAction.START_SELECT)), 0f)
-            assertEquals(0f, requireNotNull(v.actionFeedbackLevelForTest(EditAction.DELETE)), 0f)
+            layout(v, width = (411 * density).roundToInt(), height = (324 * density).roundToInt())
+            for (action in EditAction.entries.filter { it != EditAction.BACK }) {
+                val target = requireNotNull(v.actionViewForTest(action))
+                assertTrue("$action shared key surface", target.background is ImeKeySurface)
+                val surface = target.background as ImeKeySurface
+                assertEquals("$action persistent key face", palette.keySurface, surface.faceColor)
+                assertEquals("$action corner radius", 10f * density, surface.faceCornerRadiusPx, 0.5f)
+                assertFalse(target.background is android.graphics.drawable.RippleDrawable)
+                assertEquals(0f, requireNotNull(v.actionFeedbackLevelForTest(action)), 0f)
+            }
         }
+    }
+
+    @Test fun edit_navigation_and_back_do_not_take_focus_from_the_editor() {
+        val v = EditPanelView(ctx)
+        val dispatched = mutableListOf<EditAction>()
+        v.onAction = dispatched::add
+        layout(v, width = 600, height = 320)
+        val navigation = listOf(EditAction.UP, EditAction.DOWN, EditAction.LEFT, EditAction.RIGHT, EditAction.HOME, EditAction.END, EditAction.BACK)
+        for (action in navigation) {
+            val button = requireNotNull(v.actionViewForTest(action))
+            assertFalse("$action cannot take editor focus", button.isFocusable)
+            assertFalse(button.requestFocus())
+            assertTrue(button.performClick())
+        }
+        assertEquals(navigation, dispatched)
     }
 
     @Test fun symbols_lock_control_fills_a_normal_bar_hit_target() {

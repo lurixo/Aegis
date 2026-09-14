@@ -351,7 +351,7 @@ class LayoutPanelTest {
         )
         panel.layout(0, 0, panel.measuredWidth, panel.measuredHeight)
         assertEquals(
-            (PanelBackButton.HIT_DP * density).toInt() + (18 * density).toInt(),
+            (56 * density).toInt() + (18 * density).toInt(),
             panel.cardRowTopForTest(),
         )
     }

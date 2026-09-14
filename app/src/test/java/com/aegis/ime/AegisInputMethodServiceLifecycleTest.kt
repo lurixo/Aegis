@@ -880,7 +880,9 @@ class AegisInputMethodServiceLifecycleTest {
             "hello",
             clipboardStore(f.service).historyText().firstOrNull(),
         )
-        assertTrue("and it never goes through the host's own menu", connection.contextMenuActions.isEmpty())
+        assertEquals("copy probes the host before using selected text", listOf(android.R.id.copy), connection.contextMenuActions)
+        assertEquals("copy leaves the source text intact", "hello", connection.editable.toString())
+        assertEquals("copy preserves the selected range", 0 to "hello".length, selectionStart(connection) to selectionEnd(connection))
     }
 
     @Test fun edit_panel_uses_the_extracted_selection_when_selected_text_is_hidden() {
@@ -1049,7 +1051,10 @@ class AegisInputMethodServiceLifecycleTest {
     private enum class AnchorEffect { RESYNC, HOST_NEUTRAL, SELECTION_OWNED }
 
     private val editActionAnchorEffect: Map<EditAction, AnchorEffect> = mapOf(
+        EditAction.UNDO to AnchorEffect.SELECTION_OWNED,
         EditAction.DELETE to AnchorEffect.RESYNC,
+        EditAction.TAB to AnchorEffect.RESYNC,
+        EditAction.FORWARD_DELETE to AnchorEffect.RESYNC,
         EditAction.CUT to AnchorEffect.RESYNC,
         EditAction.SELECT_ALL to AnchorEffect.RESYNC,
         EditAction.PASTE to AnchorEffect.RESYNC,
@@ -1117,6 +1122,10 @@ class AegisInputMethodServiceLifecycleTest {
 
             path.run(f, connection)
 
+            if (path.name !in setOf("BACKSPACE_SWIPE_UP", "BACKSPACE_SWIPE_DOWN")) {
+                assertEquals("${path.name}: text actions exit selection mode", false, cachedPanel(f.service, "selecting"))
+                handleEdit(f.service, EditAction.START_SELECT)
+            }
             val text = connection.editable.toString()
             val anchor = selectionStart(connection)
             val moving = selectionEnd(connection)
@@ -1145,7 +1154,7 @@ class AegisInputMethodServiceLifecycleTest {
         handleEdit(f.service, EditAction.DOWN)
         assertEquals("down on the last line parks at the end instead of leaving the field", 5 to 5, selectionStart(connection) to selectionEnd(connection))
         handleEdit(f.service, EditAction.HOME)
-        assertEquals(3 to 3, selectionStart(connection) to selectionEnd(connection))
+        assertEquals(0 to 0, selectionStart(connection) to selectionEnd(connection))
         handleEdit(f.service, EditAction.END)
         assertEquals(5 to 5, selectionStart(connection) to selectionEnd(connection))
         handleEdit(f.service, EditAction.LEFT)
@@ -1178,7 +1187,7 @@ class AegisInputMethodServiceLifecycleTest {
         connection.setSelection(4, 4)
 
         handleEdit(f.service, EditAction.HOME)
-        assertEquals("home reaches the paragraph start through the extracted text", 3 to 3, selectionStart(connection) to selectionEnd(connection))
+        assertEquals("home reaches the document start through the extracted text", 0 to 0, selectionStart(connection) to selectionEnd(connection))
         handleEdit(f.service, EditAction.END)
         assertEquals(5 to 5, selectionStart(connection) to selectionEnd(connection))
         handleEdit(f.service, EditAction.UP)
@@ -1296,7 +1305,9 @@ class AegisInputMethodServiceLifecycleTest {
             shadowOf(Looper.getMainLooper()).idle()
             layoutInput(f.view)
 
-            assertTrue("the copy never goes through the host's own menu", connection.contextMenuActions.isEmpty())
+            assertEquals("the host receives only the copy probe", listOf(android.R.id.copy), connection.contextMenuActions)
+            assertEquals(if (action == EditAction.CUT) "" else copiedText, connection.editable.toString())
+            assertEquals(copiedText, f.service.getSystemService(ClipboardManager::class.java).primaryClip!!.getItemAt(0).text.toString())
             assertTrue(f.view.isPanelShowing(editPanel))
             assertFalse(f.view.copyBarShown)
             assertTrue("the prepared result is already the active bar", f.view.copyBarActiveForTest())
@@ -2014,6 +2025,27 @@ class AegisInputMethodServiceLifecycleTest {
         }
     }
 
+    @Test fun editing_tab_and_forward_delete_preserve_the_other_side_and_whole_emoji() {
+        for (nine in listOf(false, true)) {
+            val f = fixture()
+            f.controller.switchTextLayoutForTest(nine)
+            val connection = RecordingInputConnection(FrameLayout(f.service))
+            installInputConnection(f.service, connection)
+            connection.commitText("前👨‍👩‍👧‍👦后", 1)
+            connection.setSelection(1, 1)
+            handleEdit(f.service, EditAction.FORWARD_DELETE)
+            assertEquals("前后", connection.editable.toString())
+            assertEquals(1, selectionStart(connection))
+            handleEdit(f.service, EditAction.TAB)
+            assertEquals("前\t后", connection.editable.toString())
+            connection.setSelection(1, 3)
+            handleEdit(f.service, EditAction.FORWARD_DELETE)
+            assertEquals("前", connection.editable.toString())
+            handleEdit(f.service, EditAction.FORWARD_DELETE)
+            assertEquals("前", connection.editable.toString())
+        }
+    }
+
     @Test fun editing_home_end_reach_past_the_surrounding_window_and_extend_selection() {
         for (nine in listOf(false, true)) {
             val f = fixture()
@@ -2035,6 +2067,7 @@ class AegisInputMethodServiceLifecycleTest {
             assertEquals(9000 to content.length, selectionStart(connection) to selectionEnd(connection))
         }
     }
+
 
     @Test fun document_navigation_fallback_keeps_control_and_selection_modifiers() {
         val f = fixture()
@@ -2071,6 +2104,21 @@ class AegisInputMethodServiceLifecycleTest {
         assertTrue(connection.sentKeyMetas.all { it and KeyEvent.META_CTRL_ON != 0 })
         assertTrue(connection.sentKeyMetas.last() and KeyEvent.META_SHIFT_ON != 0)
         assertEquals("document commands never place the caret beyond the editable content", 0, selectionEnd(connection))
+    }
+
+    @Test fun raw_editors_receive_tab_and_forward_delete_key_events() {
+        val info = editor(inputType = InputType.TYPE_NULL)
+        val f = fixture(info)
+        requireNotNull(f.service.javaClass.superclass).getDeclaredField("mInputEditorInfo").apply {
+            isAccessible = true
+            set(f.service, info)
+        }
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        handleEdit(f.service, EditAction.TAB)
+        handleEdit(f.service, EditAction.FORWARD_DELETE)
+        assertEquals(listOf(KeyEvent.KEYCODE_TAB, KeyEvent.KEYCODE_FORWARD_DEL), connection.sentKeyCodes)
+        assertTrue(connection.committedChunks.isEmpty())
     }
 
 }

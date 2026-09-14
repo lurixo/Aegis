@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="edit_undo_done">Undone</string>
+    <string name="edit_undo_unavailable">Nothing to undo in this field</string>
+</resources>

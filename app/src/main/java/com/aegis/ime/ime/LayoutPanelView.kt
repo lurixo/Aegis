@@ -75,9 +75,9 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
             orientation = HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             layoutDirection = View.LAYOUT_DIRECTION_LTR
-            addView(titleBtn, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT))
+            addView(titleBtn, LayoutParams(LayoutParams.WRAP_CONTENT, dp(PanelBackButton.HIT_DP)))
         }
-        addView(titleBar, LayoutParams(LayoutParams.MATCH_PARENT, dp(PanelBackButton.HIT_DP)))
+        addView(titleBar, LayoutParams(LayoutParams.MATCH_PARENT, dp(56)))
 
         cards = listOf(
             Card(LayoutChoice.CN_NINE, context.getString(R.string.layout_nine), "拼", CN_CHAR_SP, "9"),

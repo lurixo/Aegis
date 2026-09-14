@@ -31,6 +31,7 @@ import android.widget.FrameLayout
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.ChunkedRead
 import com.aegis.ime.ime.EditAction
+import com.aegis.ime.ime.EditorUndoHistory
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.ime.PanelEditable
@@ -79,10 +80,30 @@ class SelectionCopyTest {
 
         fun held(): String = requireNotNull(editable).toString()
 
+        fun resumeSelectionReports() {
+            reportsLeft = Int.MAX_VALUE
+            val content = requireNotNull(editable)
+            val start = Selection.getSelectionStart(content)
+            val end = Selection.getSelectionEnd(content)
+            main.post { service.onUpdateSelection(0, 0, start, end, -1, -1) }
+        }
+
         override fun setSelection(start: Int, end: Int): Boolean {
             val done = super.setSelection(start, end)
             if (reportsLeft > 0) {
                 reportsLeft--
+                main.post { service.onUpdateSelection(0, 0, start, end, -1, -1) }
+            }
+            return done
+        }
+
+        override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+            val done = super.commitText(text, newCursorPosition)
+            if (done && reportsLeft > 0) {
+                reportsLeft--
+                val content = requireNotNull(editable)
+                val start = Selection.getSelectionStart(content)
+                val end = Selection.getSelectionEnd(content)
                 main.post { service.onUpdateSelection(0, 0, start, end, -1, -1) }
             }
             return done
@@ -148,6 +169,18 @@ class SelectionCopyTest {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1_600))
     }
 
+    private fun waitOutTheEdit(service: AegisInputMethodService) {
+        val undo = service.javaClass.getDeclaredField("editorUndo").run {
+            isAccessible = true
+            get(service) as EditorUndoHistory
+        }
+        repeat(100) {
+            if (!undo.hasPendingInsertion) return
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(32))
+        }
+        assertFalse("the edit must complete or time out", undo.hasPendingInsertion)
+    }
+
     private fun stored(service: AegisInputMethodService): String? {
         val store = service.javaClass.getDeclaredMethod("getClipboardStore").run {
             isAccessible = true
@@ -210,7 +243,9 @@ class SelectionCopyTest {
         edit(f.service, EditAction.CUT)
 
         assertEquals(written, stored(f.service))
+        waitOutTheEdit(f.service)
         assertEquals("", f.editor.held())
+        assertEquals(app.getString(R.string.edit_cut_done), f.service.toastTextForTest())
     }
 
     @Test fun only_the_selected_part_of_a_long_field_is_taken() {
@@ -224,7 +259,9 @@ class SelectionCopyTest {
         edit(f.service, EditAction.CUT)
 
         assertEquals(written.substring(from, to), stored(f.service))
+        waitOutTheEdit(f.service)
         assertEquals(written.substring(0, from) + written.substring(to), f.editor.held())
+        assertEquals(app.getString(R.string.edit_cut_done), f.service.toastTextForTest())
     }
 
     @Test fun an_editor_that_never_reports_the_caret_stores_nothing_and_leaves_the_field_alone() {
@@ -254,11 +291,32 @@ class SelectionCopyTest {
 
         val reached = ChunkedRead.CHUNK * 2
         assertEquals("what was read has to be kept", written.substring(0, reached), stored(f.service))
+        assertEquals("the cut must await fresh selection reports", written, f.editor.held())
+        assertTrue(f.service.toastTextForTest().isNullOrEmpty())
+        f.editor.resumeSelectionReports()
+        waitOutTheEdit(f.service)
         assertEquals("what was not read has to stay in the field", written.substring(reached), f.editor.held())
         assertEquals(
             app.resources.getQuantityString(R.plurals.edit_cut_partial, reached, reached),
             f.service.toastTextForTest(),
         )
+    }
+
+    @Test fun a_partial_cut_without_fresh_selection_reports_keeps_the_entire_field() {
+        val f = fixture()
+        val written = body(ChunkedRead.CHUNK * 3)
+        f.editor.parcel = ChunkedRead.CHUNK
+        select(f, written, 0, written.length)
+        f.editor.reportsLeft = 2
+
+        edit(f.service, EditAction.CUT)
+        waitOutTheRead()
+        waitOutTheEdit(f.service)
+
+        assertEquals(written.substring(0, ChunkedRead.CHUNK * 2), stored(f.service))
+        assertEquals(stored(f.service), systemClip())
+        assertEquals("unverified content must remain in the editor", written, f.editor.held())
+        assertEquals(app.getString(R.string.edit_cut_failed), f.service.toastTextForTest())
     }
 
     @Test fun copy_and_cut_with_history_switched_off_use_only_the_system_clipboard() {

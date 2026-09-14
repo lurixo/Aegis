@@ -157,15 +157,14 @@ class CustomSymbolPanelTest {
 
         val title = p.titleForTest()
         val icon = p.backIconForTest()
-        val panel = EditPanelView(ctx).also { it.applyPalette(ImePalette.STATIC_LIGHT) }
-        val editBack = (panel.getChildAt(0) as ViewGroup).getChildAt(0) as TextView
-        assertEquals("title uses the edit panel title scale", editBack.textSize, title.textSize, 0.01f)
-        assertEquals("icon box matches the edit panel", editBack.compoundDrawables[0]!!.intrinsicWidth, icon.intrinsicWidth)
-        assertEquals("icon gap matches the edit panel", editBack.compoundDrawablePadding, title.compoundDrawablePadding)
+        val sharedBack = PanelBackButton.control(ctx, ctx.getString(R.string.edit_title), ImePalette.STATIC_LIGHT.keyLabel) {}
+        assertEquals("title uses the shared panel header title scale", sharedBack.textSize, title.textSize, 0.01f)
+        assertEquals("icon box matches the shared panel header", sharedBack.compoundDrawables[0]!!.intrinsicWidth, icon.intrinsicWidth)
+        assertEquals("icon gap matches the shared panel header", sharedBack.compoundDrawablePadding, title.compoundDrawablePadding)
         assertEquals("the icon leads the title", icon, title.compoundDrawables[0])
         assertEquals(
-            "the glyph is drawn at the edit panel size",
-            (editBack.compoundDrawables[0] as EditPanelView.GlyphDrawable).glyphSizeForTest(),
+            "the glyph is drawn at the shared panel header size",
+            (sharedBack.compoundDrawables[0] as EditPanelView.GlyphDrawable).glyphSizeForTest(),
             (icon as EditPanelView.GlyphDrawable).glyphSizeForTest(),
             0.01f,
         )

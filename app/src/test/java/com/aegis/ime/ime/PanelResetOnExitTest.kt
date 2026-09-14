@@ -233,11 +233,16 @@ class PanelResetOnExitTest {
         val ep = EditPanelView(ctx)
         ep.applyPalette(light)
         ep.setSelecting(true)
-        assertEquals(ctx.getString(com.aegis.ime.R.string.edit_end_select), ep.selectingLabelForTest())
+        val select = requireNotNull(ep.actionViewForTest(EditAction.START_SELECT))
+        assertEquals(ctx.getString(com.aegis.ime.R.string.edit_select), ep.selectingLabelForTest())
+        assertEquals(ctx.getString(com.aegis.ime.R.string.edit_end_select), select.contentDescription)
+        assertTrue(select.isSelected)
 
         ep.resetToDefault()
 
-        assertEquals(ctx.getString(com.aegis.ime.R.string.edit_start_select), ep.selectingLabelForTest())
+        assertEquals(ctx.getString(com.aegis.ime.R.string.edit_select), ep.selectingLabelForTest())
+        assertEquals(ctx.getString(com.aegis.ime.R.string.edit_start_select), select.contentDescription)
+        assertFalse(select.isSelected)
     }
 
     private fun railOf(tab: TextView): HorizontalScrollView = (tab.parent as View).parent as HorizontalScrollView
@@ -307,22 +312,32 @@ class PanelResetOnExitTest {
         )
     }
 
-    @Test fun a_fling_in_the_edit_panel_does_not_outlive_its_dismissal() = hosted { activity ->
-        val ep = EditPanelView(ctx).apply { applyPalette(light) }
+    @Test fun dragging_the_edit_panel_leaves_no_motion_after_its_dismissal() = hosted { activity ->
+        val ep = EditPanelView(ctx).apply { applyPalette(light); setSelecting(true) }
         host(activity, ep, 480, 160)
-        assertEquals(
-            "the edit actions reopen at the top",
-            0,
-            flingSurvivingDismissal(
-                "edit actions",
-                ep,
-                ep.actionViewportForTest() as ScrollView,
-                480,
-                160,
-                { ep.resetToDefault() },
-                { ep.applyPalette(light); ep.setSelecting(false) },
-            ),
-        )
+        layout(ep, 480, 160)
+        val viewport = ep.actionViewportForTest()
+        fun bounds() = EditAction.entries.associateWith { action ->
+            val target = requireNotNull(ep.actionViewForTest(action))
+            Rect().also { target.getHitRect(it); ep.offsetDescendantRectToMyCoords(target.parent as View, it) }
+        }
+        val before = bounds()
+        for ((action, time, fraction) in listOf(
+            Triple(MotionEvent.ACTION_DOWN, 0L, 0.8f),
+            Triple(MotionEvent.ACTION_MOVE, 16L, 0.2f),
+            Triple(MotionEvent.ACTION_UP, 32L, 0.2f),
+        )) {
+            val event = MotionEvent.obtain(0, time, action, viewport.width / 2f, viewport.height * fraction, 0)
+            try { viewport.dispatchTouchEvent(event) } finally { event.recycle() }
+        }
+        ep.resetToDefault()
+        ep.applyPalette(light)
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(480))
+        layout(ep, 480, 160)
+        assertEquals("the action positions survive dismissal", before, bounds())
+        assertEquals(0, viewport.scrollY)
+        assertTrue("the emergency viewport keeps full-size actions scrollable", ep.actionContentCanScrollForTest())
+        assertFalse(requireNotNull(ep.actionViewForTest(EditAction.START_SELECT)).isSelected)
     }
 
     private val clips = (1..60).map { "剪贴板条目-$it" }

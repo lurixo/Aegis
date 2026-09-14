@@ -23,6 +23,7 @@ import android.view.inputmethod.BaseInputConnection
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedText
 import android.view.inputmethod.ExtractedTextRequest
+import android.view.inputmethod.SurroundingText
 import android.widget.FrameLayout
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.KeyboardController
@@ -66,6 +67,17 @@ class BackspaceSwipeClearTest {
         var acceptsSurroundingDelete = true
         var surroundingDeletesAllowed = Int.MAX_VALUE
         var selectAllCalls = 0
+        var selectionDelayMs = 0L
+        var deletionDelayMs = 0L
+
+        override fun getSurroundingText(beforeLength: Int, afterLength: Int, flags: Int): SurroundingText {
+            val text = requireNotNull(editable)
+            val low = minOf(Selection.getSelectionStart(text), Selection.getSelectionEnd(text))
+            val high = maxOf(Selection.getSelectionStart(text), Selection.getSelectionEnd(text))
+            val from = maxOf(0, low - beforeLength)
+            val end = minOf(text.length, high + afterLength)
+            return SurroundingText(text.subSequence(from, end), low - from, high - from, from)
+        }
 
         fun hold(text: CharSequence) {
             val content = requireNotNull(editable)
@@ -107,7 +119,21 @@ class BackspaceSwipeClearTest {
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
             if (!acceptsSurroundingDelete || surroundingDeletesAllowed <= 0) return false
             surroundingDeletesAllowed--
+            if (deletionDelayMs > 0) {
+                android.os.Handler(Looper.getMainLooper()).postDelayed({
+                    super.deleteSurroundingText(beforeLength, afterLength)
+                }, deletionDelayMs)
+                return true
+            }
             return super.deleteSurroundingText(beforeLength, afterLength)
+        }
+
+        override fun setSelection(start: Int, end: Int): Boolean {
+            if (selectionDelayMs > 0) {
+                android.os.Handler(Looper.getMainLooper()).postDelayed({ super.setSelection(start, end) }, selectionDelayMs)
+                return true
+            }
+            return super.setSelection(start, end)
         }
 
         override fun performContextMenuAction(id: Int): Boolean {
@@ -320,33 +346,52 @@ class BackspaceSwipeClearTest {
 
         assertTrue(
             "no single read may ask for the whole field, was " + f.editor.readSizes,
-            f.editor.readSizes.isNotEmpty() && f.editor.readSizes.all { it <= EditorSweep.CHUNK },
+            f.editor.readSizes.isNotEmpty() && f.editor.readSizes.all { it <= EditorSweep.CHUNK + 1 },
         )
     }
 
-    @Test fun a_field_longer_than_the_walk_can_reach_keeps_what_it_could_not_carry() {
+    @Test fun a_small_editor_window_does_not_limit_a_clear_to_256_reads() {
+        val written = longText(8 * 256 + 952) + "\r\n"
+        for (caret in listOf(0, written.length / 2, written.length)) {
+            val f = fixture()
+            f.editor.hold(written)
+            f.editor.walkWindow = 8
+            f.editor.hidesExtractedText = true
+            Selection.setSelection(requireNotNull(f.editor.editable), caret)
+
+            swipe(f.service, up = true)
+            assertEquals("every position must clear the entire field", "", f.editor.held())
+            assertEquals(written, snapshotFile().readText())
+            swipe(f.service, up = false)
+            assertEquals("small windows must not change the restore order or line endings", written, f.editor.held())
+        }
+    }
+
+    @Test fun clearing_yields_to_the_ui_and_waits_for_delayed_moves_and_deletions() {
         val f = fixture()
-        val reach = 8
-        val written = longText(reach * EditorSweep.MAX_ROUNDS + 952)
+        val written = "甲乙丙\r\n\u0000".repeat(300)
         f.editor.hold(written)
-        f.editor.walkWindow = reach
+        Selection.setSelection(requireNotNull(f.editor.editable), written.length / 2)
+        f.editor.hidesExtractedText = true
+        f.editor.walkWindow = 8
+        f.editor.selectionDelayMs = 40
+        f.editor.deletionDelayMs = 40
 
-        swipe(f.service, up = true)
+        startSwipe(f.service, up = true)
+        var ranBeforeClearCompleted = false
+        android.os.Handler(Looper.getMainLooper()).post {
+            ranBeforeClearCompleted = f.editor.held().isNotEmpty()
+        }
+        assertFalse("a second gesture must not overlap pending edits", canSwipe(f.service, up = true))
+        shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMinutes(10))
+        assertTrue("the clear must let other UI work run", ranBeforeClearCompleted)
+        assertEquals("", f.editor.held())
+        assertEquals(written, snapshotFile().readText())
 
-        val left = written.length - reach * EditorSweep.MAX_ROUNDS
-        assertEquals(
-            "what the walk could not carry has to stay where it is",
-            written.substring(0, left),
-            f.editor.held(),
-        )
-        assertEquals(
-            "and what it did carry has to be the snapshot",
-            written.substring(left),
-            File(RuntimeEnvironment.getApplication().filesDir, "cleared_text.txt").readText(),
-        )
-
+        f.editor.selectionDelayMs = 0
+        f.editor.deletionDelayMs = 0
         swipe(f.service, up = false)
-        assertEquals("the two halves have to add back up", written, f.editor.held())
+        assertEquals(written, f.editor.held())
     }
 
     @Test fun a_restore_the_editor_walked_out_on_can_be_run_again() {
@@ -483,7 +528,7 @@ class BackspaceSwipeClearTest {
     @Test fun a_restore_reaches_as_far_as_a_clear_can_capture() {
         assertEquals(
             "a clear that keeps more than a restore can put back would lose the difference",
-            EditorSweep.CHUNK * EditorSweep.MAX_ROUNDS * 2,
+            EditorSweep.MAX_CHARS,
             ClearedTextRestore.MAX_CHARS,
         )
     }

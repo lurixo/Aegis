@@ -176,6 +176,47 @@ class EditPanelBackspaceGestureTest {
         assertTrue(p.actions.isEmpty())
     }
 
+    @Test fun normal_size_backspace_keeps_repeat_and_vertical_swipes_in_portrait_and_landscape() {
+        for ((width, height) in listOf(320 to 200, 411 to 324, 520 to 220, 720 to 230)) {
+            withPanel(heightDp = height, widthDp = width) { p ->
+                p.view.setUndoAvailable(true)
+                val (x, y) = p.centerOf(EditAction.DELETE)
+                p.send(MotionEvent.ACTION_DOWN, x, y, 0)
+                p.advance(455)
+                assertEquals("$width x $height repeating backspace", listOf(EditAction.DELETE, EditAction.DELETE), p.actions)
+                p.send(MotionEvent.ACTION_UP, x, y, 455)
+                p.advance(100)
+                assertEquals(2, p.actions.size)
+                p.actions.clear()
+                for ((index, up) in listOf(true, false).withIndex()) {
+                    val time = 600L + index * 100
+                    val endY = y + (if (up) -1 else 1) * (swipeThreshold + 15f)
+                    p.send(MotionEvent.ACTION_DOWN, x, y, time)
+                    p.send(MotionEvent.ACTION_MOVE, x, endY, time + 12)
+                    p.send(MotionEvent.ACTION_UP, x, endY, time + 24)
+                    assertTrue("$width x $height swipes do not dispatch undo or backspace", p.actions.isEmpty())
+                }
+                assertEquals(listOf(true, false), p.swipes)
+            }
+        }
+    }
+
+    @Test fun dragging_backspace_onto_undo_does_not_activate_either_key() {
+        for ((width, height) in listOf(320 to 200, 411 to 324, 640 to 220)) {
+            withPanel(heightDp = height, widthDp = width) { p ->
+                p.view.setUndoAvailable(true)
+                val (x, y) = p.centerOf(EditAction.DELETE)
+                val (undoX, undoY) = p.centerOf(EditAction.UNDO)
+                p.send(MotionEvent.ACTION_DOWN, x, y, 0)
+                p.send(MotionEvent.ACTION_MOVE, undoX, undoY, 12)
+                p.send(MotionEvent.ACTION_UP, undoX, undoY, 24)
+                assertTrue("$width x $height drag cancels the backspace tap", p.actions.isEmpty())
+                assertTrue(p.swipes.isEmpty())
+                assertFalse(p.deleteButton().isPressed)
+            }
+        }
+    }
+
     @Test fun a_vertical_drag_under_the_threshold_stays_a_tap() = withPanel { p ->
         val (x, y) = p.centerOf(EditAction.DELETE)
         val drift = swipeThreshold - 2f
@@ -287,8 +328,8 @@ class EditPanelBackspaceGestureTest {
         assertEquals(whileHeld, p.actions.size)
     }
 
-    @Test fun a_vertical_swipe_never_scrolls_the_compact_action_list() = withPanel(heightDp = 200) { p ->
-        assertTrue("precondition: the compact panel scrolls", p.view.actionContentCanScrollForTest())
+    @Test fun a_vertical_swipe_keeps_the_compact_panel_stationary() = withPanel(heightDp = 200) { p ->
+        assertFalse("all compact panel actions fit without scrolling", p.view.actionContentCanScrollForTest())
         val viewport = p.view.actionViewportForTest()
         val (x, y) = p.centerOf(EditAction.DELETE)
         p.send(MotionEvent.ACTION_DOWN, x, y, 0)

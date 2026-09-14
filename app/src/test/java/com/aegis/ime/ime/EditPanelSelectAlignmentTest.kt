@@ -37,21 +37,28 @@ class EditPanelSelectAlignmentTest {
         return Rect(0, 0, target.width, target.height).also { v.offsetDescendantRectToMyCoords(target, it) }
     }
 
-    @Test fun start_select_shares_the_copy_row_center_at_every_panel_height() {
-        for (height in listOf(240, 276, 320, 480)) {
+    @Test fun selection_stays_at_the_center_of_the_direction_pad_when_toggled() {
+        val density = ctx.resources.displayMetrics.density
+        for ((width, height) in listOf(320 to 200, 320 to 290, 411 to 324, 640 to 220)) {
             val v = EditPanelView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
             v.measure(
-                View.MeasureSpec.makeMeasureSpec(600, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec((width * density).toInt(), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec((height * density).toInt(), View.MeasureSpec.EXACTLY),
             )
             v.layout(0, 0, v.measuredWidth, v.measuredHeight)
-
             val select = boundsIn(v, EditAction.START_SELECT)
-            val copy = boundsIn(v, EditAction.COPY)
-            assertTrue(
-                "start-select must share the copy row center at height=$height: select=$select copy=$copy",
-                abs(select.centerY() - copy.centerY()) <= 1,
-            )
+            val before = listOf(EditAction.UP, EditAction.DOWN, EditAction.LEFT, EditAction.RIGHT).associateWith { boundsIn(v, it) }
+            assertTrue(abs(select.centerX() - requireNotNull(before[EditAction.UP]).centerX()) <= 1)
+            assertTrue(abs(select.centerX() - requireNotNull(before[EditAction.DOWN]).centerX()) <= 1)
+            assertTrue(abs(select.centerY() - requireNotNull(before[EditAction.LEFT]).centerY()) <= 1)
+            assertTrue(abs(select.centerY() - requireNotNull(before[EditAction.RIGHT]).centerY()) <= 1)
+            assertTrue(requireNotNull(before[EditAction.LEFT]).right <= select.left)
+            assertTrue(select.right <= requireNotNull(before[EditAction.RIGHT]).left)
+            for (selecting in listOf(true, false)) {
+                v.setSelecting(selecting)
+                org.junit.Assert.assertEquals(select, boundsIn(v, EditAction.START_SELECT))
+                for ((action, bounds) in before) org.junit.Assert.assertEquals(bounds, boundsIn(v, action))
+            }
         }
     }
 }

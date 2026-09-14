@@ -415,12 +415,13 @@ class RenderHarness {
     }
 
     @Test fun edit_panel() {
-        val h = (230 * density).toInt()
+        val h = (324 * density).toInt()
         for ((t, pal) in themes) {
             val idle = EditPanelView(ctx).apply { applyPalette(pal); setHasSelection(false) }
             snap(idle, h, "edit_panel_$t.png")
             assertTrue("$t: header keeps the 文字编辑 label", idle.hasTextLeaf(ctx.getString(com.aegis.ime.R.string.edit_title)))
             assertActionInkCentered(idle, pal, "edit_panel_$t")
+            assertEditPanelIconPositions(idle, "edit_panel_$t")
             assertEditPanelGeometry(idle, h, "edit_panel_$t")
             val active = EditPanelView(ctx).apply { applyPalette(pal); setSelecting(true); setHasSelection(true) }
             snap(active, h, "edit_panel_selecting_$t.png")
@@ -511,10 +512,44 @@ class RenderHarness {
             assertTrue("$name: $action content was not rendered", right >= left)
             val leftMargin = left
             val rightMargin = target.width - 1 - right
+            val centerOffset = kotlin.math.abs(leftMargin - rightMargin) / 2f
             assertTrue(
                 "$name: $action content not centered — leftMargin=$leftMargin rightMargin=$rightMargin",
-                kotlin.math.abs(leftMargin - rightMargin) <= 2,
+                centerOffset <= maxOf(1f, density),
             )
+        }
+    }
+
+    private fun assertEditPanelIconPositions(view: EditPanelView, name: String) {
+        for ((action, centerDp) in listOf(
+            EditAction.TAB to 20f,
+            EditAction.FORWARD_DELETE to 20f,
+            EditAction.DELETE to 20f,
+            EditAction.START_SELECT to 18f,
+        )) {
+            val target = requireNotNull(view.actionViewForTest(action)) as TextView
+            val bitmap = Bitmap.createBitmap(target.width, target.height, Bitmap.Config.ARGB_8888)
+            try {
+                target.draw(Canvas(bitmap))
+                var top = target.height
+                var bottom = -1
+                for (y in 0 until target.height / 2) {
+                    for (x in 0 until target.width) {
+                        if (bitmap.getPixel(x, y) == target.currentTextColor) {
+                            top = minOf(top, y)
+                            bottom = maxOf(bottom, y)
+                        }
+                    }
+                }
+                assertTrue("$name: $action icon is rendered above its label", bottom >= top)
+                val center = (top + bottom) / 2f
+                assertTrue(
+                    "$name: $action icon center is ${center / density}dp from its key top; expected ${centerDp}dp",
+                    kotlin.math.abs(center - centerDp * density) <= 2f * density,
+                )
+            } finally {
+                bitmap.recycle()
+            }
         }
     }
 
@@ -531,7 +566,7 @@ class RenderHarness {
             return hit
         }
 
-        val actions = listOf(EditAction.DELETE, EditAction.COPY, EditAction.CUT, EditAction.PASTE)
+        val actions = EditAction.entries.filter { it != EditAction.BACK }
         val bottomNavigation = listOf(EditAction.HOME, EditAction.SELECT_ALL, EditAction.END)
         var firstGeometry: List<List<Rect>>? = null
         for ((pass, width) in listOf(wPx, (360 * density).toInt(), wPx).withIndex()) {
@@ -555,16 +590,13 @@ class RenderHarness {
                 assertEquals("$name: action geometry after A-B-A layout", firstGeometry, geometry)
             }
 
-            val deleteRect = Rect(geometry.first().first()).apply { offset(0, -top) }
             for ((action, rectangles) in actions.zip(geometry)) {
-                val viewTop = rectangles.first().top
-                val relative = rectangles.map { Rect(it).apply { offset(0, -viewTop) } }
-                assertEquals(
-                    "$name/${width}px: $action View/pressed/hit rectangles relative to Delete",
-                    List(3) { Rect(deleteRect) },
-                    relative,
-                )
+                assertEquals("$name/${width}px: $action surface matches its own view", rectangles[0], rectangles[1])
+                assertEquals("$name/${width}px: $action hit bounds match its own view", rectangles[0], rectangles[2])
+                assertTrue("$name/${width}px: $action stays on screen", Rect(0, 0, width, hPx).contains(rectangles[0]))
             }
+            assertFalse("$name/${width}px: every action fits without scrolling", view.actionContentCanScrollForTest())
+
         }
 
         val navigationClicks = mutableListOf<EditAction>()
@@ -589,19 +621,14 @@ class RenderHarness {
 
             val routedActions = listOf(EditAction.DELETE, EditAction.PASTE)
             val targets = routedActions.map { requireNotNull(view.actionViewForTest(it)) }
-            val viewRects = targets.map { target ->
-                Rect(0, 0, target.width, target.height).also {
-                    root.offsetDescendantRectToMyCoords(target, it)
-                }
-            }
-            val centers = viewRects.map { it.exactCenterX() to it.exactCenterY() }
-            val hitRects = targets.map { target ->
-                Rect().also {
-                    target.getHitRect(it)
-                    root.offsetDescendantRectToMyCoords(target.parent as View, it)
-                }
-            }
             for ((index, action) in routedActions.withIndex()) {
+                val hitRects = targets.map { target ->
+                    Rect().also {
+                        target.getHitRect(it)
+                        root.offsetDescendantRectToMyCoords(target.parent as View, it)
+                    }
+                }
+                val centers = hitRects.map { it.exactCenterX() to it.exactCenterY() }
                 val (x, y) = centers[index]
                 assertEquals(
                     "$name: $action root hit ownership",

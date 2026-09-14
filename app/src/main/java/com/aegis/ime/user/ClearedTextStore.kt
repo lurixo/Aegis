@@ -24,6 +24,8 @@ class ClearedTextStore(dir: File) {
     private val tmpTag = TMP_TAGS.incrementAndGet()
     private var kept: CharSequence? = null
 
+    fun hasContent(): Boolean = kept?.isNotEmpty() == true || file.length() > 0
+
     fun keep(text: CharSequence) {
         if (text.isEmpty()) return
         kept = text
@@ -32,7 +34,7 @@ class ClearedTextStore(dir: File) {
 
     fun held(): CharSequence? = kept ?: runCatching {
         if (file.isFile) file.readText().ifEmpty { null } else null
-    }.getOrNull()
+    }.getOrNull().also { kept = it }
 
     fun forget() {
         kept = null

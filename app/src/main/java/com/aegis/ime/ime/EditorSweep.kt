@@ -20,7 +20,7 @@ import android.view.inputmethod.InputConnection
 object EditorSweep {
 
     const val CHUNK = 65_536
-    const val MAX_ROUNDS = 256
+    const val MAX_CHARS = 33_554_432
 
     fun hasText(ic: InputConnection): Boolean =
         !ic.getTextBeforeCursor(1, 0).isNullOrEmpty() ||
@@ -33,57 +33,134 @@ object EditorSweep {
             (ic.getTextAfterCursor(bound, 0)?.length ?: 0)
 
     fun clearCapturing(ic: InputConnection): CharSequence {
-        val ending = fieldEnding(ic)
-        val body = StringBuilder()
-        ic.getSelectedText(0)?.let {
-            if (it.isNotEmpty()) {
-                body.append(it)
-                ic.commitText("", 1)
+        val capture = Capture(ic)
+        while (true) {
+            when (capture.advance()) {
+                Progress.DONE -> return capture.text()
+                Progress.WAITING -> { capture.cancel(); return capture.text() }
+                Progress.MORE -> Unit
             }
         }
-        val before = sweep(ic, before = true)
-        val after = sweep(ic, before = false)
-        if (!before.unfinished && !after.unfinished) {
-            ic.performContextMenuAction(android.R.id.selectAll)
-            ic.commitText("", 1)
+    }
+
+    enum class Progress { MORE, WAITING, DONE }
+
+    class Capture(private val ic: InputConnection) {
+        private enum class Phase { SELECTED, BEFORE, AFTER, DONE }
+        private data class Pending(val expected: Selection, val accept: () -> Unit)
+        private var phase = Phase.SELECTED
+        private var pending: Pending? = null
+        private val preceding = ArrayDeque<String>()
+        private var selected = ""
+        private val following = StringBuilder()
+        private var captured = 0
+        private var afterChunk: String? = null
+        private var afterOrigin = 0
+
+        fun advance(): Progress {
+            if (phase == Phase.DONE) return Progress.DONE
+            pending?.let { step ->
+                if (selection(ic) != step.expected) return Progress.WAITING
+                pending = null
+                step.accept()
+                return Progress.MORE
+            }
+            if (captured >= MAX_CHARS) return finish()
+            return when (phase) {
+                Phase.SELECTED -> {
+                    val text = ic.getSelectedText(0)?.toString().orEmpty()
+                    if (text.isEmpty()) { phase = Phase.BEFORE; Progress.MORE }
+                    else {
+                        val origin = selection(ic) ?: return finish()
+                        if (text.length > MAX_CHARS) return finish()
+                        dispatch(Selection(origin.start, origin.start), { ic.commitText("", 1) }) {
+                            selected = text
+                            captured += text.length
+                            phase = Phase.BEFORE
+                        }
+                    }
+                }
+                Phase.BEFORE -> {
+                    val got = ic.getTextBeforeCursor(minOf(CHUNK, MAX_CHARS - captured), 0)
+                    if (got.isNullOrEmpty()) { phase = Phase.AFTER; Progress.MORE }
+                    else {
+                        val text = got.toString()
+                        val origin = selection(ic) ?: return finish()
+                        if (origin.start != origin.end || origin.start < text.length) return finish()
+                        dispatch(Selection(origin.start - text.length, origin.start - text.length),
+                            { ic.deleteSurroundingText(text.length, 0) }) {
+                            preceding.addFirst(text)
+                            captured += text.length
+                        }
+                    }
+                }
+                Phase.AFTER -> {
+                    val ready = afterChunk
+                    if (ready != null) {
+                        dispatch(Selection(afterOrigin, afterOrigin), { ic.deleteSurroundingText(ready.length, 0) }) {
+                            following.append(ready)
+                            captured += ready.length
+                            afterChunk = null
+                        }
+                    } else {
+                        val got = ic.getTextAfterCursor(minOf(CHUNK, MAX_CHARS - captured), 0)
+                        if (got.isNullOrEmpty()) {
+                            edit(ic) { ic.performContextMenuAction(android.R.id.selectAll) && ic.commitText("", 1) }
+                            finish()
+                        } else {
+                            val text = got.toString()
+                            val origin = selection(ic) ?: return finish()
+                            if (origin.start != origin.end) return finish()
+                            val end = origin.end + text.length
+                            dispatch(Selection(end, end), { ic.setSelection(end, end) }) {
+                                afterOrigin = origin.start
+                                afterChunk = text
+                            }
+                        }
+                    }
+                }
+                Phase.DONE -> Progress.DONE
+            }
         }
-        val swept = StringBuilder(before.text).append(body).append(after.text)
-        return settleTail(swept, ending)
-    }
 
-    private fun fieldEnding(ic: InputConnection): String? {
-        val after = ic.getTextAfterCursor(CHUNK, 0) ?: return null
-        if (after.length >= CHUNK) return null
-        val ending = StringBuilder()
-            .append(ic.getTextBeforeCursor(CHUNK, 0) ?: "")
-            .append(ic.getSelectedText(0) ?: "")
-            .append(after)
-            .toString()
-        val breaks = ending.takeLastWhile { it == '\n' }
-        return if (breaks.length == ending.length && ending.isNotEmpty()) null else breaks
-    }
-
-    private fun settleTail(swept: CharSequence, ending: String?): CharSequence {
-        if (ending == null) return swept
-        return swept.toString().dropLastWhile { it == '\n' } + ending
-    }
-
-    private class Side(val text: CharSequence, val unfinished: Boolean)
-
-    private fun sweep(ic: InputConnection, before: Boolean): Side {
-        val held = StringBuilder()
-        var rounds = 0
-        while (rounds < MAX_ROUNDS) {
-            rounds++
-            val got = (if (before) ic.getTextBeforeCursor(CHUNK, 0) else ic.getTextAfterCursor(CHUNK, 0))
-                ?: return Side(held, false)
-            if (got.isEmpty()) return Side(held, false)
-            val seen = got.toString()
-            val cut =
-                if (before) ic.deleteSurroundingText(seen.length, 0) else ic.deleteSurroundingText(0, seen.length)
-            if (!cut) return Side(held, true)
-            if (before) held.insert(0, seen) else held.append(seen)
+        private fun dispatch(expected: Selection, action: () -> Boolean, accept: () -> Unit): Progress {
+            pending = Pending(expected, accept)
+            if (!edit(ic, action)) { pending = null; return finish() }
+            return Progress.MORE
         }
-        return Side(held, true)
+
+        fun cancel() {
+            pending?.let { if (selection(ic) == it.expected) it.accept() }
+            if (afterChunk != null) edit(ic) { ic.setSelection(afterOrigin, afterOrigin) }
+            finish()
+        }
+
+        fun text(): CharSequence = StringBuilder(captured).apply {
+            preceding.forEach { append(it) }
+            append(selected)
+            append(following)
+        }
+
+        private fun finish(): Progress {
+            pending = null
+            phase = Phase.DONE
+            return Progress.DONE
+        }
     }
+
+    private data class Selection(val start: Int, val end: Int)
+
+    private fun selection(ic: InputConnection): Selection? = runCatching {
+        val surrounding = ic.getSurroundingText(0, 0, 0) ?: return@runCatching null
+        if (surrounding.offset < 0 || surrounding.selectionStart < 0 || surrounding.selectionEnd < 0) return@runCatching null
+        Selection(
+            surrounding.offset + minOf(surrounding.selectionStart, surrounding.selectionEnd),
+            surrounding.offset + maxOf(surrounding.selectionStart, surrounding.selectionEnd),
+        )
+    }.getOrNull()
+
+    private inline fun edit(ic: InputConnection, action: () -> Boolean): Boolean = try {
+        ic.beginBatchEdit()
+        try { action() } finally { ic.endBatchEdit() }
+    } catch (_: RuntimeException) { false }
 }

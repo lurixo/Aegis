@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="edit_undo_done">已撤销</string>
+    <string name="edit_undo_unavailable">当前输入框没有可撤销的编辑</string>
+</resources>
