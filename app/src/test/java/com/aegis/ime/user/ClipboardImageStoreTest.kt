@@ -36,7 +36,10 @@ import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.attribute.BasicFileAttributes
 import java.util.Base64
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executor
+import java.util.concurrent.RejectedExecutionException
 import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
@@ -71,6 +74,14 @@ class ClipboardImageStoreTest {
         var result: Result<ClipEntry>? = null
         store.recordImage(context.contentResolver, uri, "image/png") { result = it; done.countDown() }
         assertTrue("image capture finished", done.await(10, TimeUnit.SECONDS))
+        return result!!
+    }
+
+    private fun loadForInput(store: ClipboardStore, uri: Uri = source()): Result<ClipboardStore.InputImageLease> {
+        val done = CountDownLatch(1)
+        var result: Result<ClipboardStore.InputImageLease>? = null
+        store.loadImageForInput(context.contentResolver, uri, "image/png") { result = it; done.countDown() }
+        assertTrue("input image loading finished", done.await(10, TimeUnit.SECONDS))
         return result!!
     }
 
@@ -305,6 +316,28 @@ class ClipboardImageStoreTest {
         assertNull(ClipboardImages.imageMimeType(context.contentResolver, file, file.getItemAt(0)))
     }
 
+    @Test fun paused_history_input_image_load_does_not_modify_history_or_system_clipboard() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+        val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        clipboard.setPrimaryClip(ClipData.newPlainText("keep", "unchanged"))
+        prefs.edit().putBoolean("clip_history", false).commit()
+        val lease = loadForInput(store).getOrThrow()
+        val file = lease.entry.imageFile()!!
+        try {
+            assertArrayEquals(png, file.readBytes())
+            assertTrue(store.history().isEmpty())
+            assertFalse(File(dir, "clipboard.txt").exists())
+            assertEquals("unchanged", clipboard.primaryClip!!.getItemAt(0).text.toString())
+        } finally {
+            lease.close()
+            prefs.edit().putBoolean("clip_history", true).commit()
+        }
+        store.flushPendingWrites()
+        assertFalse(file.exists())
+    }
+
     @Test fun two_input_image_leases_survive_clear_until_the_last_idempotent_close() {
         val store = store()
         val entry = record(store).getOrThrow()
@@ -400,6 +433,121 @@ class ClipboardImageStoreTest {
         store.flushPendingWrites()
         assertEquals(listOf("after", "text", image.key), store(dir).history().map { it.key })
         assertArrayEquals(png, image.imageFile()!!.readBytes())
+    }
+
+    @Test fun clearing_history_does_not_cancel_an_input_image_load() {
+        val store = store()
+        val entered = CountDownLatch(1)
+        val proceed = CountDownLatch(1)
+        val done = CountDownLatch(1)
+        val uri = Uri.parse("content://clipboard.test/input-clear")
+        shadowOf(context.contentResolver).registerInputStream(uri, object : ByteArrayInputStream(png) {
+            override fun read(bytes: ByteArray, offset: Int, length: Int): Int {
+                entered.countDown()
+                assertTrue(proceed.await(10, TimeUnit.SECONDS))
+                return super.read(bytes, offset, length)
+            }
+        })
+        var result: Result<ClipboardStore.InputImageLease>? = null
+        store.loadImageForInput(context.contentResolver, uri) { result = it; done.countDown() }
+        assertTrue(entered.await(10, TimeUnit.SECONDS))
+        store.clearHistory()
+        proceed.countDown()
+        assertTrue(done.await(10, TimeUnit.SECONDS))
+        val lease = result!!.getOrThrow()
+        val file = lease.entry.imageFile()!!
+        assertTrue(store.history().isEmpty())
+        assertArrayEquals(png, file.readBytes())
+        lease.close()
+        store.flushPendingWrites()
+        assertFalse(file.exists())
+    }
+
+    @Test fun restore_cancels_an_inflight_input_image_load_and_defers_cleanup() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        val entered = CountDownLatch(1)
+        val proceed = CountDownLatch(1)
+        val done = CountDownLatch(1)
+        val uri = Uri.parse("content://clipboard.test/input-restore")
+        shadowOf(context.contentResolver).registerInputStream(uri, object : ByteArrayInputStream(png) {
+            override fun read(bytes: ByteArray, offset: Int, length: Int): Int {
+                entered.countDown()
+                assertTrue(proceed.await(10, TimeUnit.SECONDS))
+                return super.read(bytes, offset, length)
+            }
+        })
+        var result: Result<ClipboardStore.InputImageLease>? = null
+        store.loadImageForInput(context.contentResolver, uri) { result = it; done.countDown() }
+        assertTrue(entered.await(10, TimeUnit.SECONDS))
+        LiveUserData.restoreInProgress = true
+        proceed.countDown()
+        assertTrue(done.await(10, TimeUnit.SECONDS))
+        assertTrue(result!!.isFailure)
+        assertTrue(store.history().isEmpty())
+        assertEquals(1, File(dir, "clips/images").listFiles()!!.size)
+        LiveUserData.restoreInProgress = false
+        store.record("after restore")
+        store.flushPendingWrites()
+        assertTrue(File(dir, "clips/images").listFiles().orEmpty().isEmpty())
+    }
+
+    @Test fun closing_an_input_image_during_restore_defers_file_cleanup() {
+        val store = store()
+        val lease = loadForInput(store).getOrThrow()
+        val file = lease.entry.imageFile()!!
+        LiveUserData.restoreInProgress = true
+        lease.close()
+        store.flushPendingWrites()
+        assertArrayEquals(png, file.readBytes())
+        LiveUserData.restoreInProgress = false
+        store.record("after restore")
+        store.flushPendingWrites()
+        assertFalse(file.exists())
+    }
+
+    @Test fun stopped_store_rejects_input_image_loads_but_releases_existing_leases() {
+        val store = store()
+        val lease = loadForInput(store).getOrThrow()
+        val file = lease.entry.imageFile()!!
+        store.stopSaving()
+        assertTrue(loadForInput(store).isFailure)
+        assertNull(store.retainImageForInput(lease.entry))
+        lease.close()
+        lease.close()
+        assertFalse(file.exists())
+    }
+
+    @Test fun reload_before_callback_delivery_cancels_and_releases_the_input_image() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        val callbacks = ArrayBlockingQueue<Runnable>(1)
+        store.reportClipWritesTo(Executor { callbacks.add(it) }) { }
+        var result: Result<ClipboardStore.InputImageLease>? = null
+        store.loadImageForInput(context.contentResolver, source()) { result = it }
+        val callback = callbacks.poll(10, TimeUnit.SECONDS)!!
+        assertEquals(1, File(dir, "clips/images").listFiles()!!.size)
+        store.load()
+        callback.run()
+        store.flushPendingWrites()
+        assertTrue(result!!.isFailure)
+        assertTrue(File(dir, "clips/images").listFiles().orEmpty().isEmpty())
+    }
+
+    @Test fun rejected_input_image_callback_releases_its_undelivered_lease() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        val rejected = CountDownLatch(1)
+        store.reportClipWritesTo(Executor {
+            rejected.countDown()
+            throw RejectedExecutionException("callback owner stopped")
+        }) { }
+        store.loadImageForInput(context.contentResolver, source()) { fail("rejected callback delivered") }
+        assertTrue(rejected.await(10, TimeUnit.SECONDS))
+        store.flushPendingWrites()
+        store.flushPendingWrites()
+        assertTrue(store.history().isEmpty())
+        assertTrue(File(dir, "clips/images").listFiles().orEmpty().isEmpty())
     }
 
     @Test fun input_image_retention_rejects_foreign_missing_and_non_image_entries() {

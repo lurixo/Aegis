@@ -178,6 +178,7 @@ class ClipboardStore(private val dir: File) {
     private val captureOrders = AtomicLong(0)
     private val saveGen = AtomicLong(0)
     private val imageCaptureGen = AtomicLong(0)
+    private val inputImageGen = AtomicLong(0)
     private val phrasesPending = AtomicLong(0)
 
     private class Phrase(var text: String, var note: String = "")
@@ -235,6 +236,7 @@ class ClipboardStore(private val dir: File) {
 
     fun load() {
         imageCaptureGen.incrementAndGet()
+        inputImageGen.incrementAndGet()
         val reload = Runnable { adoptHistory(readHistory()) }
         val queued = if (Thread.currentThread() === writer) null else runCatching { io.submit(reload) }.getOrNull()
         if (queued == null) reload.run() else runCatching { queued.get() }
@@ -465,6 +467,7 @@ class ClipboardStore(private val dir: File) {
 
     fun importHistory(entries: List<ClipEntry>, merge: Boolean) {
         imageCaptureGen.incrementAndGet()
+        inputImageGen.incrementAndGet()
         flushPendingWrites()
         val incoming = entries.mapNotNull(::adopt)
         val snapshot = synchronized(history) {
@@ -529,6 +532,51 @@ class ClipboardStore(private val dir: File) {
             return null
         }
         return InputImageLease(entry) { releaseInputImage(name) }
+    }
+
+    fun loadImageForInput(
+        resolver: ContentResolver,
+        uri: Uri,
+        mimeType: String? = null,
+        callback: (Result<InputImageLease>) -> Unit,
+    ) {
+        val generation = inputImageGen.get()
+        fun allowed() = !LiveUserData.restoreInProgress && !io.isShutdown && generation == inputImageGen.get()
+        fun report(result: Result<InputImageLease>) {
+            runCatching {
+                clipReportLane.execute {
+                    val delivered = if (result.isSuccess && !allowed()) {
+                        result.getOrNull()?.close()
+                        Result.failure<InputImageLease>(IOException("input image loading was cancelled"))
+                    } else result
+                    try { callback(delivered) } catch (failure: Throwable) {
+                        delivered.getOrNull()?.close()
+                        throw failure
+                    }
+                }
+            }.onFailure { result.getOrNull()?.close() }
+        }
+        if (!allowed()) {
+            report(Result.failure(IOException("input image loading is unavailable")))
+            return
+        }
+        runCatching {
+            io.execute {
+                val result = runCatching {
+                    if (!allowed()) throw IOException("input image loading was cancelled")
+                    val imported = ClipboardImages.importImage(imagesDir(), resolver, uri, mimeType)
+                    try {
+                        if (!allowed()) throw IOException("input image loading was cancelled")
+                        retainImageForInput(ClipEntry.image(imagesDir(), imported.hash, imported.mimeType))
+                            ?: throw IOException("input image is unavailable")
+                    } catch (failure: Throwable) {
+                        if (imported.created) removeUnreferencedImage(imported.file.name)
+                        throw failure
+                    }
+                }
+                report(result)
+            }
+        }.onFailure { report(Result.failure(it)) }
     }
 
     private fun ownedImage(entry: ClipEntry): File? {
@@ -956,6 +1004,7 @@ class ClipboardStore(private val dir: File) {
 
     fun stopSaving() {
         imageCaptureGen.incrementAndGet()
+        inputImageGen.incrementAndGet()
         runCatching { io.shutdown() }
     }
 
