@@ -17,6 +17,7 @@ package com.aegis.ime.engine
 
 import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.layout.EmojiCatalog
+import com.aegis.ime.layout.EmojiVariants
 import com.aegis.ime.layout.SymbolCatalog
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -72,7 +73,10 @@ class InputAssociationsDataTest {
     }
 
 
-    private fun catalogEmoji(): List<String> = EmojiCatalog.categories.flatMap { it.emoji }.distinct()
+    private fun catalogEmoji(): List<String> = EmojiCatalog.categories.flatMap { it.emoji }
+        .flatMap { EmojiVariants.genderForms(it) }
+        .flatMap { EmojiVariants.skinForms(it) }
+        .distinct()
 
     @Test fun every_association_emoji_is_present_in_the_catalog() {
         val catalog = catalogEmoji().toSet()
@@ -91,12 +95,11 @@ class InputAssociationsDataTest {
         }
     }
 
-    @Test fun every_emoji_surfaces_within_cap_for_its_primary_key() {
+    @Test fun every_emoji_surfaces_for_every_name() {
         for (row in EmojiAssociations.rows()) {
-            assertTrue(
-                "${row.emoji} (${row.names}) must appear in lookup('${row.primaryKey}') within MAX_PER_QUERY",
-                row.emoji in InputAssociations.lookup(row.primaryKey),
-            )
+            for (key in row.keyList) {
+                assertTrue("${row.emoji} (${row.names}) must appear for '$key'", row.emoji in InputAssociations.lookup(key))
+            }
         }
     }
 
@@ -109,56 +112,38 @@ class InputAssociationsDataTest {
         return r
     }
 
-    @Test fun every_catalog_symbol_is_reachable_or_exempted_never_both() {
+    @Test fun every_catalog_symbol_and_emoji_is_reachable() {
         val reachable = reachableGlyphs()
-        val exempt = HashMap<String, String>()
-        for (ex in SymbolAssociations.exemptions) {
-            assertTrue("exemption with blank reason", ex.reason.isNotBlank())
-            for (g in ex.glyphList) {
-                assertTrue("glyph '$g' exempted twice", exempt.put(g, ex.reason) == null)
-            }
-        }
         val catalog = catalogSymbols().toSet()
-        for ((g, reason) in exempt) {
-            assertTrue("exempt glyph '$g' is not in SymbolCatalog (dead exemption)", g in catalog)
-            assertTrue("'$g' is exempted ($reason) but also reachable — resolve to one side", g !in reachable)
-        }
-        val missing = catalog.filter { it !in reachable && it !in exempt }
+        val missing = catalog.filter { it !in reachable }
         assertTrue(
-            "symbols neither reachable nor exempted (silent skip forbidden): $missing",
+            "symbols without a supported pinyin input: $missing",
             missing.isEmpty(),
         )
-        val covered = catalog.count { it in reachable }
-        println("symbol coverage: catalog=${catalog.size} covered=$covered exempt=${exempt.size}")
-        println("emoji coverage: catalog=${catalogEmoji().size} rows=${EmojiAssociations.rows().size}")
+        assertTrue("emoji without a supported pinyin input: ${catalogEmoji().filter { it !in reachable }}", catalogEmoji().all { it in reachable })
+        println("symbol coverage: catalog=${catalog.size} covered=${catalog.count { it in reachable }}")
+        println("emoji coverage: catalog=${catalogEmoji().size} covered=${catalogEmoji().count { it in reachable }}")
     }
 
-    @Test fun every_symbol_row_glyph_surfaces_within_cap_for_its_primary_key() {
+    @Test fun every_symbol_row_glyph_surfaces_for_every_name() {
         for (row in SymbolAssociations.rows()) {
-            val hit = InputAssociations.lookup(row.primaryKey)
-            for (g in row.glyphList) {
-                assertTrue("'$g' (${row.name.ifEmpty { row.keys }}) must appear in lookup('${row.primaryKey}'), got $hit", g in hit)
+            for (key in row.keyList) {
+                val hit = InputAssociations.lookup(key)
+                for (g in row.glyphList) {
+                    assertTrue("'$g' (${row.name.ifEmpty { row.keys }}) must appear for '$key', got $hit", g in hit)
+                }
             }
         }
     }
 
     @Test fun glyphs_carry_no_han_characters_beyond_the_allowlist() {
-        val allowed = setOf("円")
+        val allowed = setOf("円", "元", "圆", "壹", "贰", "叁", "肆", "伍", "陆", "柒", "捌", "玖", "拾", "佰", "仟", "万", "亿", "貳", "參", "陸", "萬", "億")
         for ((key, glyphs) in InputAssociations.entriesForTest()) {
             for (g in glyphs) {
                 if (g in allowed) continue
                 val hasHan = g.codePoints().anyMatch { Character.isIdeographic(it) }
                 assertTrue("key '$key' carries a Han-character glyph '$g' — allowlist it deliberately or drop it", !hasHan)
             }
-        }
-    }
-
-    @Test fun symbol_rows_respect_the_reachability_cap() {
-        for (row in SymbolAssociations.rows()) {
-            assertTrue(
-                "row '${row.keys}' lists ${row.glyphList.size} glyphs > MAX_PER_QUERY — unreachable tail",
-                row.glyphList.size <= InputAssociations.MAX_PER_QUERY,
-            )
         }
     }
 
@@ -191,11 +176,10 @@ class InputAssociationsDataTest {
         }
     }
 
-    @Test fun lookup_is_case_insensitive_and_caps_at_max_per_query() {
+    @Test fun lookup_is_case_insensitive_and_preserves_all_matches() {
         for ((key, glyphs) in InputAssociations.entriesForTest()) {
             val hit = InputAssociations.lookup(key)
-            assertTrue("lookup('$key') exceeds MAX_PER_QUERY", hit.size <= InputAssociations.MAX_PER_QUERY)
-            assertEquals("lookup must be the capped prefix of the merged entry", glyphs.take(InputAssociations.MAX_PER_QUERY), hit)
+            assertEquals("lookup must retain every matching glyph", glyphs, hit)
             assertEquals("uppercase form must hit the same entry", hit, InputAssociations.lookup(key.uppercase()))
         }
     }

@@ -17,8 +17,6 @@ package com.aegis.ime.engine
 
 object InputAssociations {
 
-    const val MAX_PER_QUERY = 3
-
     private val legacy: List<Pair<String, List<String>>> = listOf(
         "haode" to listOf("👌"),
         "hao" to listOf("👍"),
@@ -86,7 +84,7 @@ object InputAssociations {
 
     fun lookup(pinyin: String): List<String> {
         if (pinyin.isEmpty()) return emptyList()
-        return table[normalize(pinyin)].orEmpty().take(MAX_PER_QUERY)
+        return table[normalize(pinyin)].orEmpty()
     }
 
     internal fun entriesForTest(): Map<String, List<String>> = table
