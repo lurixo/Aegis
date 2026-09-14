@@ -52,13 +52,13 @@ class SelectionMathTest {
         assertEquals(3, SelectionMath.step("abc", 3, Move.RIGHT))
     }
 
-    @Test fun homeEndJumpToParagraphEdges() {
+    @Test fun homeEndJumpToDocumentEdges() {
         val t = "abc\ndefgh\nij"
         val mid = 6
-        assertEquals("段首 → start of THIS paragraph", 4, SelectionMath.step(t, mid, Move.HOME))
-        assertEquals("段尾 → end of THIS paragraph", 9, SelectionMath.step(t, mid, Move.END))
-        assertEquals("段首 selects back to 'd'", "de", span(t, mid, Move.HOME))
-        assertEquals("段尾 selects forward through 'h'", "fgh", span(t, mid, Move.END))
+        assertEquals("start of the document", 0, SelectionMath.step(t, mid, Move.HOME))
+        assertEquals("end of the document", t.length, SelectionMath.step(t, mid, Move.END))
+        assertEquals("select to document start", "abc\nde", span(t, mid, Move.HOME))
+        assertEquals("select to document end", "fgh\nij", span(t, mid, Move.END))
     }
 
     @Test fun verticalMovesKeepTheColumnAcrossParagraphs() {
@@ -104,9 +104,9 @@ class SelectionMathTest {
         assertEquals("UP from after the emoji", 2, SelectionMath.step(t, 6, Move.UP))
     }
 
-    @Test fun paragraphEndStopsBeforeACarriageReturnPair() {
+    @Test fun documentEdgesIncludeAllParagraphs() {
         val t = "ab\r\ncd"
-        assertEquals(2, SelectionMath.step(t, 1, Move.END))
-        assertEquals(4, SelectionMath.step(t, 5, Move.HOME))
+        assertEquals(t.length, SelectionMath.step(t, 1, Move.END))
+        assertEquals(0, SelectionMath.step(t, 5, Move.HOME))
     }
 }

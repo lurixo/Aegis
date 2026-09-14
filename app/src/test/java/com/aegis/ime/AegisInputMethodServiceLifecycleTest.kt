@@ -96,6 +96,7 @@ class AegisInputMethodServiceLifecycleTest {
         val committedChunks = ArrayList<String>()
         val contextMenuActions = ArrayList<Int>()
         val sentKeyCodes = ArrayList<Int>()
+        val sentKeyMetas = ArrayList<Int>()
         val sentKeyEvents = ArrayList<Pair<Int, Int>>()
         val surroundingDeletes = ArrayList<Int>()
         var onContextMenuAction: (Int) -> Unit = {}
@@ -118,6 +119,7 @@ class AegisInputMethodServiceLifecycleTest {
             sentKeyEvents.add(event.action to event.keyCode)
             if (event.action != KeyEvent.ACTION_DOWN) return super.sendKeyEvent(event)
             sentKeyCodes.add(event.keyCode)
+            sentKeyMetas.add(event.metaState)
             if (event.keyCode == KeyEvent.KEYCODE_DEL) backspaceEditable()
             return super.sendKeyEvent(event)
         }
@@ -159,6 +161,8 @@ class AegisInputMethodServiceLifecycleTest {
             val content = editable ?: return null
             return ExtractedText().apply {
                 startOffset = 0
+                partialStartOffset = -1
+                partialEndOffset = -1
                 text = content.subSequence(0, content.length)
                 val end = Selection.getSelectionEnd(content)
                 selectionStart = if (hidesExtractedSelection) end else Selection.getSelectionStart(content)
@@ -1992,6 +1996,65 @@ class AegisInputMethodServiceLifecycleTest {
                 }
             }
         }
+    }
+
+    @Test fun editing_home_end_reach_past_the_surrounding_window_and_extend_selection() {
+        for (nine in listOf(false, true)) {
+            val f = fixture()
+            f.controller.switchTextLayoutForTest(nine)
+            val connection = RecordingInputConnection(FrameLayout(f.service))
+            installInputConnection(f.service, connection)
+            val content = "前文\n".repeat(6000) + "末尾"
+            connection.commitText(content, 1)
+            connection.setSelection(9000, 9000)
+            handleEdit(f.service, EditAction.HOME)
+            assertEquals(0, selectionStart(connection))
+            handleEdit(f.service, EditAction.END)
+            assertEquals(content.length, selectionStart(connection))
+            connection.setSelection(9000, 9000)
+            handleEdit(f.service, EditAction.START_SELECT)
+            handleEdit(f.service, EditAction.HOME)
+            assertEquals(0 to 9000, selectionStart(connection) to selectionEnd(connection))
+            handleEdit(f.service, EditAction.END)
+            assertEquals(9000 to content.length, selectionStart(connection) to selectionEnd(connection))
+        }
+    }
+
+    @Test fun document_navigation_fallback_keeps_control_and_selection_modifiers() {
+        val f = fixture()
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.hidesExtractedText = true
+        handleEdit(f.service, EditAction.HOME)
+        handleEdit(f.service, EditAction.START_SELECT)
+        handleEdit(f.service, EditAction.END)
+        assertEquals(listOf(KeyEvent.KEYCODE_MOVE_HOME, KeyEvent.KEYCODE_MOVE_END), connection.sentKeyCodes)
+        assertTrue(connection.sentKeyMetas.all { it and KeyEvent.META_CTRL_ON != 0 })
+        assertEquals(0, connection.sentKeyMetas[0] and KeyEvent.META_SHIFT_ON)
+        assertTrue(connection.sentKeyMetas[1] and KeyEvent.META_SHIFT_ON != 0)
+    }
+
+    @Test fun web_document_navigation_uses_editor_commands_instead_of_extracted_end_offsets() {
+        val info = editor(inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_WEB_EDIT_TEXT)
+        val f = fixture(info)
+        requireNotNull(f.service.javaClass.superclass).getDeclaredField("mInputEditorInfo").apply {
+            isAccessible = true
+            set(f.service, info)
+        }
+        val connection = RecordingInputConnection(FrameLayout(f.service))
+        installInputConnection(f.service, connection)
+        connection.commitText("AAA\nBBB\n", 1)
+        connection.setSelection(0, 0)
+
+        handleEdit(f.service, EditAction.END)
+        handleEdit(f.service, EditAction.HOME)
+        handleEdit(f.service, EditAction.START_SELECT)
+        handleEdit(f.service, EditAction.END)
+
+        assertEquals(listOf(KeyEvent.KEYCODE_MOVE_END, KeyEvent.KEYCODE_MOVE_HOME, KeyEvent.KEYCODE_MOVE_END), connection.sentKeyCodes)
+        assertTrue(connection.sentKeyMetas.all { it and KeyEvent.META_CTRL_ON != 0 })
+        assertTrue(connection.sentKeyMetas.last() and KeyEvent.META_SHIFT_ON != 0)
+        assertEquals("document commands never place the caret beyond the editable content", 0, selectionEnd(connection))
     }
 
 }

@@ -988,8 +988,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             EditAction.DOWN -> nav(KeyEvent.KEYCODE_DPAD_DOWN, SelectionMath.Move.DOWN)
             EditAction.LEFT -> nav(KeyEvent.KEYCODE_DPAD_LEFT, SelectionMath.Move.LEFT)
             EditAction.RIGHT -> nav(KeyEvent.KEYCODE_DPAD_RIGHT, SelectionMath.Move.RIGHT)
-            EditAction.HOME -> nav(KeyEvent.KEYCODE_MOVE_HOME, SelectionMath.Move.HOME)
-            EditAction.END -> nav(KeyEvent.KEYCODE_MOVE_END, SelectionMath.Move.END)
+            EditAction.HOME -> navDocument(toStart = true)
+            EditAction.END -> navDocument(toStart = false)
             EditAction.START_SELECT -> toggleSelecting()
             EditAction.DELETE -> keyAction?.let { key ->
                 controller.onKey(Key(action = key))
@@ -1244,6 +1244,34 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (extracted.startOffset != 0 || extracted.selectionStart < 0 || extracted.selectionEnd < 0) return null
         return CaretWindow(text, 0, extracted.selectionStart.coerceAtMost(text.length), extracted.selectionEnd.coerceAtMost(text.length))
     }
+
+    private fun navDocument(toStart: Boolean) {
+        val ic = currentInputConnection ?: return
+        val extracted = if (takesRawKeys(currentInputEditorInfo) || isWebEditor()) null
+            else ic.getExtractedText(ExtractedTextRequest(), 0)
+        val text = extracted?.text
+        if (extracted == null || text == null || extracted.startOffset != 0 ||
+            extracted.partialStartOffset >= 0 || extracted.selectionStart < 0 || extracted.selectionEnd < 0
+        ) {
+            val shift = if (selecting) KeyEvent.META_SHIFT_ON or KeyEvent.META_SHIFT_LEFT_ON else 0
+            sendKeyWithMeta(
+                if (toStart) KeyEvent.KEYCODE_MOVE_HOME else KeyEvent.KEYCODE_MOVE_END,
+                KeyEvent.META_CTRL_ON or KeyEvent.META_CTRL_LEFT_ON or shift,
+            )
+            return
+        }
+        val next = if (toStart) 0 else text.length
+        if (selecting) {
+            if (selAnchor < 0) selAnchor = extracted.selectionStart.coerceIn(0, text.length)
+            selMoving = next
+            ic.setSelection(minOf(selAnchor, next), maxOf(selAnchor, next))
+        } else ic.setSelection(next, next)
+    }
+
+    private fun isWebEditor(): Boolean = currentInputEditorInfo?.inputType?.let {
+        it and InputType.TYPE_MASK_CLASS == InputType.TYPE_CLASS_TEXT &&
+            it and InputType.TYPE_MASK_VARIATION == InputType.TYPE_TEXT_VARIATION_WEB_EDIT_TEXT
+    } == true
 
     private fun nav(keyCode: Int, move: SelectionMath.Move) {
         val ic = currentInputConnection

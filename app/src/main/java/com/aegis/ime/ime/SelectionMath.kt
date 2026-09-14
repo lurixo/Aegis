@@ -25,8 +25,8 @@ object SelectionMath {
         return when (move) {
             Move.LEFT -> GraphemeText.previousCluster(text, p)
             Move.RIGHT -> GraphemeText.nextCluster(text, p)
-            Move.HOME -> GraphemeText.clusterStart(text, lineStart(text, p))
-            Move.END -> GraphemeText.clusterStart(text, lineEnd(text, p))
+            Move.HOME -> 0
+            Move.END -> n
             Move.UP -> GraphemeText.clusterStart(text, verticalMove(text, p, up = true))
             Move.DOWN -> GraphemeText.clusterStart(text, verticalMove(text, p, up = false))
         }

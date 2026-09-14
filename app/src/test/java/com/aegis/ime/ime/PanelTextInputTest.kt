@@ -170,12 +170,12 @@ class PanelTextInputTest {
         assertEquals(3, t.selectionStart())
     }
 
-    @Test fun home_and_end_stay_on_the_current_line() {
+    @Test fun home_and_end_reach_the_whole_text_edges() {
         val (p, t) = open("one\ntwo\nthree", caret = 5)
         p.move(SelectionMath.Move.HOME, false)
-        assertEquals(4, t.selectionStart())
+        assertEquals(0, t.selectionStart())
         p.move(SelectionMath.Move.END, false)
-        assertEquals(7, t.selectionStart())
+        assertEquals(p.text().length, t.selectionStart())
     }
 
     @Test fun vertical_moves_cross_lines() {
