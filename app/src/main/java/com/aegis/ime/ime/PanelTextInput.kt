@@ -28,16 +28,19 @@ interface PanelEditable {
 class PanelTextInput {
 
     private var target: PanelEditable? = null
+    private val history = TextUndoHistory()
     private var presented: () -> Boolean = { true }
 
     val active: Boolean get() = live() != null
 
     fun begin(editable: PanelEditable, presented: () -> Boolean = { true }) {
+        if (target !== editable) history.clear()
         target = editable
         this.presented = presented
     }
 
     fun end() {
+        history.clear()
         target = null
         presented = { true }
     }
@@ -53,7 +56,7 @@ class PanelTextInput {
 
     fun commit(text: CharSequence): Boolean {
         val t = live() ?: return false
-        t.replace(start(t), end(t), text)
+        edit(t) { t.replace(start(t), end(t), text) }
         return true
     }
 
@@ -64,9 +67,11 @@ class PanelTextInput {
         val s = start(t)
         val e = end(t)
         val insertion = SymbolCatalog.insertionFor(symbol.toString(), t.snapshot().substring(e))
-        t.replace(s, e, insertion.joinToString(""))
-        val caret = s + insertion[0].length
-        t.setSelection(caret, caret)
+        edit(t) {
+            t.replace(s, e, insertion.joinToString(""))
+            val caret = s + insertion[0].length
+            t.setSelection(caret, caret)
+        }
         return true
     }
 
@@ -75,17 +80,17 @@ class PanelTextInput {
         val s = start(t)
         val e = end(t)
         val through = if (s != e) e else GraphemeText.nextCluster(t.snapshot(), s)
-        if (through > s) t.replace(s, through, "")
+        if (through > s) edit(t) { t.replace(s, through, "") }
         return true
     }
 
     fun backspace(): Boolean {
         val t = live() ?: return false
         val s = start(t)
-        if (s != end(t)) { t.replace(s, end(t), ""); return true }
+        if (s != end(t)) { edit(t) { t.replace(s, end(t), "") }; return true }
         if (s <= 0) return true
         val cluster = GraphemeText.lastClusterLength(t.snapshot().substring(0, s))
-        t.replace(s - cluster, s, "")
+        edit(t) { t.replace(s - cluster, s, "") }
         return true
     }
 
@@ -94,7 +99,7 @@ class PanelTextInput {
         val s = start(t)
         val e = end(t)
         if (s == e) return false
-        t.replace(s, e, "")
+        edit(t) { t.replace(s, e, "") }
         return true
     }
 
@@ -107,7 +112,7 @@ class PanelTextInput {
     fun replaceBefore(length: Int, text: CharSequence): Boolean {
         val t = live() ?: return false
         val s = start(t)
-        t.replace(maxOf(0, s - length), s, text)
+        edit(t) { t.replace(maxOf(0, s - length), s, text) }
         return true
     }
 
@@ -144,6 +149,37 @@ class PanelTextInput {
     fun hasSelection(): Boolean {
         val t = live() ?: return false
         return start(t) != end(t)
+    }
+
+    fun canUndo(): Boolean {
+        val t = live() ?: return false
+        return history.peek(snapshot(t)) != null
+    }
+
+    fun undo(): Boolean {
+        val t = live() ?: return false
+        val entry = history.peek(snapshot(t)) ?: return false
+        val replacement = history.replacement(entry)
+        t.replace(replacement.start, replacement.end, replacement.text)
+        t.setSelection(entry.before.selectionStart, entry.before.selectionEnd)
+        history.pop()
+        return true
+    }
+
+    private fun edit(t: PanelEditable, action: () -> Unit) {
+        val before = snapshot(t)
+        action()
+        history.record(before, snapshot(t))
+    }
+
+    private fun snapshot(t: PanelEditable): EditorTextSnapshot? {
+        val text = t.snapshot()
+        if (text.length > 65_536) return null
+        return EditorTextSnapshot(
+            text,
+            t.selectionStart().coerceIn(0, text.length),
+            t.selectionEnd().coerceIn(0, text.length),
+        )
     }
 
     private fun start(t: PanelEditable): Int {
