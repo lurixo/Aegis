@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="clip_image_label">Image</string>
+    <string name="clip_image_copy">Copy image</string>
     <string name="clip_image_unavailable">This image is no longer available</string>
     <string name="clip_image_save_failed">Could not save the image — copy it again and retry</string>
     <string name="clip_image_too_large">Images must be 20 MiB or smaller</string>
