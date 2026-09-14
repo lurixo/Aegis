@@ -401,4 +401,32 @@ class AegisEditingIntegrationTest {
         }
     }
 
+    @Test fun successive_undo_keeps_cursor_navigation_and_stops_at_external_changes() {
+        val f = fixture()
+        f.service.commitText("one")
+        f.service.commitText("two")
+        f.connection.setSelection(0, 0)
+        edit(f, EditAction.UNDO)
+        assertEquals("one", f.connection.editable.toString())
+        edit(f, EditAction.UNDO)
+        assertEquals("", f.connection.editable.toString())
+        f.service.commitText("mine")
+        f.connection.commitText("external", 1)
+        edit(f, EditAction.UNDO)
+        assertEquals("mineexternal", f.connection.editable.toString())
+    }
+
+    @Test fun password_and_field_switch_never_restore_a_previous_field() {
+        val password = fixture(type = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD)
+        password.service.commitText("secret")
+        edit(password, EditAction.UNDO)
+        assertEquals("secret", password.connection.editable.toString())
+        val f = fixture()
+        f.service.commitText("old")
+        f.info.fieldId = 43
+        f.service.onStartInput(f.info, false)
+        edit(f, EditAction.UNDO)
+        assertEquals("old", f.connection.editable.toString())
+    }
+
 }
