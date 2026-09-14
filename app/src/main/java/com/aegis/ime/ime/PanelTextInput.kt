@@ -15,6 +15,8 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.layout.SymbolCatalog
+
 interface PanelEditable {
     fun snapshot(): String
     fun selectionStart(): Int
@@ -56,6 +58,17 @@ class PanelTextInput {
     }
 
     fun newline(): Boolean = commit("\n")
+
+    fun commitSymbol(symbol: CharSequence): Boolean {
+        val t = live() ?: return false
+        val s = start(t)
+        val e = end(t)
+        val insertion = SymbolCatalog.insertionFor(symbol.toString(), t.snapshot().substring(e))
+        t.replace(s, e, insertion.joinToString(""))
+        val caret = s + insertion[0].length
+        t.setSelection(caret, caret)
+        return true
+    }
 
     fun backspace(): Boolean {
         val t = live() ?: return false

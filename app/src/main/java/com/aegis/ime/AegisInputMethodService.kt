@@ -1910,7 +1910,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun commitExternalSymbol(symbol: CharSequence) {
-        if (panelInput.commit(symbol)) {
+        if (panelInput.commitSymbol(symbol)) {
             controller.onEditorContextChanged()
             return
         }
@@ -1919,7 +1919,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     override fun commitSymbol(symbol: CharSequence) {
-        if (panelInput.commit(symbol)) return
+        if (panelInput.commitSymbol(symbol)) return
         commitSymbolToEditor(symbol)
     }
 
@@ -1928,16 +1928,17 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val s = symbol.toString()
         val insertion = SymbolCatalog.insertionFor(
             s,
-            hasTextAfterCursor = !ic.getTextAfterCursor(1, 0).isNullOrEmpty(),
+            textAfterCursor = ic.getTextAfterCursor(1, 0),
         )
         if (insertion.size == 1) {
             return ic.commitText(insertion[0], 1)
         }
         ic.beginBatchEdit()
-        val leftCommitted = ic.commitText(insertion[0], 1)
-        val rightCommitted = ic.commitText(insertion[1], 0)
-        ic.endBatchEdit()
-        return leftCommitted && rightCommitted
+        return try {
+            ic.commitText(insertion[0], 1) && ic.commitText(insertion[1], 0)
+        } finally {
+            ic.endBatchEdit()
+        }
     }
 
     private var streaming: CharSequence? = null

@@ -148,6 +148,13 @@ object SymbolCatalog {
         return if (pair != null && !hasTextAfterCursor) listOf(pair.left, pair.right) else listOf(symbol)
     }
 
+    fun insertionFor(symbol: String, textAfterCursor: CharSequence?): List<String> =
+        insertionFor(
+            symbol,
+            hasTextAfterCursor = textAfterCursor == null ||
+                (textAfterCursor.isNotEmpty() && textAfterCursor[0] !in "\n\r\u2028\u2029"),
+        )
+
     private val symbolToCategory: Map<String, String> by lazy {
         val m = LinkedHashMap<String, String>()
         for (c in categories) for (s in c.symbols) m.putIfAbsent(s, c.id)

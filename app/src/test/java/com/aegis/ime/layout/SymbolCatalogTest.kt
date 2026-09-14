@@ -292,4 +292,17 @@ class SymbolCatalogTest {
         }
     }
 
+
+    @Test fun paragraph_pairing_requires_a_known_empty_suffix_or_a_paragraph_boundary() {
+        for (symbol in SymbolCatalog.categories.flatMap { it.symbols }.distinct()) {
+            val pair = SymbolCatalog.pairingFor(symbol) ?: continue
+            for (after in listOf("", "\nnext", "\r\nnext", "\u2028next", "\u2029next")) {
+                assertEquals(listOf(pair.left, pair.right), SymbolCatalog.insertionFor(symbol, after))
+            }
+            for (after in listOf(null, "next", " ", "\t", "😀")) {
+                assertEquals(listOf(symbol), SymbolCatalog.insertionFor(symbol, after))
+            }
+        }
+    }
+
 }

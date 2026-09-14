@@ -1958,4 +1958,40 @@ class AegisInputMethodServiceLifecycleTest {
 
         activity.pause().stop().destroy()
     }
+
+    @Test fun symbol_panel_and_candidate_pairs_follow_the_current_paragraph_on_both_layouts() {
+        for (nine in listOf(false, true)) {
+            for ((initial, caret, expected) in listOf(
+                Triple("文字", 2, "文字“”"),
+                Triple("文字\n下一段", 2, "文字“”\n下一段"),
+                Triple("文字\r\n下一段", 2, "文字“”\r\n下一段"),
+                Triple("文字后文", 2, "文字“后文"),
+            )) {
+                for (candidate in listOf(false, true)) {
+                    val f = fixture()
+                    val connection = RecordingInputConnection(FrameLayout(f.service))
+                    installInputConnection(f.service, connection)
+                    connection.commitText(initial, 1)
+                    connection.setSelection(caret, caret)
+                    f.controller.switchTextLayoutForTest(nine)
+                    if (candidate) {
+                        val input = if (nine) com.aegis.ime.decoder.T9Pinyin.toT9("yinhao") else "yin'hao"
+                        input.forEach { f.controller.onKey(Key(it.toString(), output = it.toString())) }
+                        if (nine) for (syllable in listOf("yin", "hao")) {
+                            val index = f.controller.expandedReadings().indexOfLast { it == syllable }
+                            assertTrue("$syllable reading available", index >= 0)
+                            f.controller.onPickReadingIndex(index)
+                        }
+                        val index = f.controller.candidateWords().indexOf("“")
+                        assertTrue("quote available on nine=$nine", index >= 0)
+                        f.controller.onPickCandidate(index)
+                    } else f.service.commitSymbol("“")
+                    assertEquals("nine=$nine candidate=$candidate", expected, connection.editable.toString())
+                    assertEquals(caret + 1, selectionStart(connection))
+                    assertEquals(caret + 1, selectionEnd(connection))
+                }
+            }
+        }
+    }
+
 }

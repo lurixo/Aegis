@@ -732,9 +732,9 @@ class KeyboardController(
                 clearComposingState(); lastWord = null
             }
             cand in directCommitCands -> {
-                val text = committedPrefix.toString() + cand.word
                 expirePreeditChoiceUndo()
-                host.commitText(text)
+                if (committedPrefix.isNotEmpty()) host.commitText(committedPrefix.toString())
+                host.commitSymbol(cand.word)
                 applyDeferredLearning()
                 clearComposingState(); lastWord = null
             }
@@ -899,9 +899,9 @@ class KeyboardController(
             pick != null && pick in compositeCands -> commitCompositeCandidate(pick)
             pick != null && pick in literalCands -> commitLiteralCandidate(pick)
             pick != null && pick in directCommitCands -> {
-                val text = committedPrefix.toString() + pick.word
                 expirePreeditChoiceUndo()
-                host.commitText(text)
+                if (committedPrefix.isNotEmpty()) host.commitText(committedPrefix.toString())
+                host.commitSymbol(pick.word)
                 applyDeferredLearning()
                 clearComposingState(); lastWord = null
             }

@@ -30,7 +30,9 @@ class AssociationsReplayTest {
     private class RecordingHost : ImeHost {
         val text = StringBuilder()
         val learned = mutableListOf<String>()
+        val symbols = mutableListOf<String>()
         override fun commitText(text: CharSequence) { this.text.append(text) }
+        override fun commitSymbol(symbol: CharSequence) { symbols.add(symbol.toString()); commitText(symbol) }
         override fun deleteBackward() { if (text.isNotEmpty()) text.deleteCharAt(text.length - 1) }
         override fun performEnter() {}
         override fun textBeforeCursor(n: Int): CharSequence = text.substring(maxOf(0, text.length - n))
@@ -182,4 +184,24 @@ class AssociationsReplayTest {
         assertTrue("？ is offered for wenhao", "？" in c2.candidateWords())
         assertTrue("half-width ? must NOT be offered for wenhao (got ${c2.candidateWords()})", "?" !in c2.candidateWords())
     }
+
+    @Test fun clicking_or_spacing_a_symbol_uses_the_symbol_insertion_path_in_both_layouts() {
+        for (nine in listOf(false, true)) {
+            for (space in listOf(false, true)) {
+                val host = RecordingHost()
+                val c = KeyboardController(host, EmptyEngine())
+                c.switchTextLayoutForTest(nine)
+                val input = if (nine) T9Pinyin.toT9("yinhao") else "yinhao"
+                input.forEach { c.onKey(out(it.toString())) }
+                if (nine) for (syllable in listOf("yin", "hao")) {
+                    c.onPickReadingIndex(c.expandedReadings().indexOfLast { it == syllable })
+                }
+                assertEquals("“", c.candidateWords().first())
+                if (space) c.onKey(act(KeyAction.SPACE)) else c.onPickCandidate(0)
+                assertEquals(listOf("“"), host.symbols)
+                assertTrue(c.candidateWords().isEmpty())
+            }
+        }
+    }
+
 }

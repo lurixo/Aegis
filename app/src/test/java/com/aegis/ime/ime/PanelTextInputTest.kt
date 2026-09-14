@@ -236,4 +236,15 @@ class PanelTextInputTest {
         assertTrue(p.commit("Z"))
         assertEquals("aZef", p.text())
     }
+
+    @Test fun paired_symbols_stop_at_paragraph_boundaries_and_leave_the_caret_inside() {
+        for ((after, paired) in listOf("" to true, "\n下一段" to true, "\r\n下一段" to true, "\u2029下一段" to true, "后文" to false, " " to false)) {
+            val (p, t) = open("前文$after", 2)
+            assertTrue(p.commitSymbol("（"))
+            assertEquals("前文（" + (if (paired) "）" else "") + after, p.text())
+            assertEquals(3, t.selectionStart())
+            assertEquals(3, t.selectionEnd())
+        }
+    }
+
 }
