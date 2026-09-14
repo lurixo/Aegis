@@ -70,6 +70,15 @@ class PanelTextInput {
         return true
     }
 
+    fun deleteForward(): Boolean {
+        val t = live() ?: return false
+        val s = start(t)
+        val e = end(t)
+        val through = if (s != e) e else GraphemeText.nextCluster(t.snapshot(), s)
+        if (through > s) t.replace(s, through, "")
+        return true
+    }
+
     fun backspace(): Boolean {
         val t = live() ?: return false
         val s = start(t)

@@ -247,4 +247,22 @@ class PanelTextInputTest {
         }
     }
 
+    @Test fun forward_delete_removes_selection_or_one_complete_cluster_and_tab_is_literal() {
+        for (cluster in listOf("😀", "🇨🇳", "👨‍👩‍👧‍👦", "é", "\r\n")) {
+            val (p, t) = open("a${cluster}b", 1)
+            assertTrue(p.deleteForward())
+            assertEquals("ab", p.text())
+            assertEquals(1, t.selectionStart())
+            p.commit("\t")
+            assertEquals("a\tb", p.text())
+            t.setSelection(1, 3)
+            p.deleteForward()
+            assertEquals("a", p.text())
+            p.deleteForward()
+            assertEquals("a", p.text())
+        }
+        assertFalse(PanelTextInput().deleteForward())
+        assertFalse(PanelTextInput().commitSymbol("（"))
+    }
+
 }
