@@ -73,12 +73,16 @@ internal class TextUndoHistory(
     private val maxEntries: Int = 50,
     private val maxCharacters: Int = 1_048_576,
 ) {
-    data class Entry(val before: EditorTextSnapshot, val after: EditorTextSnapshot)
+    data class Entry(val before: EditorTextSnapshot, val after: EditorTextSnapshot, val restoresDeletion: Boolean = true)
     data class Replacement(val start: Int, val end: Int, val text: CharSequence)
 
     private val entries = ArrayDeque<Entry>()
     private var characters = 0
     val hasUndo: Boolean get() = entries.isNotEmpty()
+    val hasDeletion: Boolean get() = entries.lastOrNull()?.let {
+        it.restoresDeletion && (it.before.logicalText().length > it.after.logicalText().length ||
+            it.before.images.any { image -> it.after.images.none { after -> after.instance == image.instance } })
+    } == true
 
     fun retainedImageIds(): Set<String> = entries.flatMap { it.before.images + it.after.images }.mapTo(HashSet()) { it.content.id }
 
@@ -91,7 +95,7 @@ internal class TextUndoHistory(
         if (current == null || entries.lastOrNull()?.after?.sameText(current) == false) clear()
     }
 
-    fun record(before: EditorTextSnapshot?, after: EditorTextSnapshot?) {
+    fun record(before: EditorTextSnapshot?, after: EditorTextSnapshot?, restoresDeletion: Boolean = true) {
         if (before == null || after == null) { clear(); return }
         reconcile(before)
         if (before.sameText(after)) return
@@ -101,7 +105,7 @@ internal class TextUndoHistory(
             val removed = entries.removeFirst()
             characters -= removed.before.text.length + removed.after.text.length
         }
-        entries.addLast(Entry(before, after))
+        entries.addLast(Entry(before, after, restoresDeletion))
         characters += size
     }
 
@@ -250,6 +254,7 @@ internal class RichTextBoundary {
 
 class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
     data class ImageContent(val id: String, val paste: (InputConnection) -> Boolean)
+    enum class ClearCapture { PLAIN, RICH, UNSUPPORTED }
 
     private val history = TextUndoHistory()
     private val richBoundary = RichTextBoundary()
@@ -270,18 +275,29 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
     var onChange: (() -> Unit)? = null
     var onRetainedImagesChanged: ((Set<String>) -> Unit)? = null
     var onUndoCompleted: ((Boolean) -> Unit)? = null
+    var onClearedContentRestored: ((Boolean) -> Unit)? = null
+    var onClearCompleted: ((ClearCapture, CharSequence) -> Unit)? = null
+    private data class ClearDraft(val target: InputConnection, val kind: ClearCapture, val before: EditorTextSnapshot?,
+        var swept: CharSequence? = null)
+    private var clearDraft: ClearDraft? = null
+    val hasPendingClear: Boolean get() = clearDraft?.swept != null
+    private var clearedContent: EditorTextSnapshot? = null
+    val hasClearedContent: Boolean get() = clearedContent != null
     private data class ReplayPart(val text: CharSequence? = null, val image: EditorImageToken? = null)
     private data class ReplayStep(val before: EditorTextSnapshot, val start: Int, val end: Int, val part: ReplayPart)
     private class Replay(val target: InputConnection, val entry: TextUndoHistory.Entry, val parts: ArrayDeque<ReplayPart>,
-        var current: EditorTextSnapshot, var start: Int, var end: Int) {
+        var current: EditorTextSnapshot, var start: Int, var end: Int, val restoresClearedContent: Boolean = false) {
         var step: ReplayStep? = null
         var deferred = false
+        var started = false
     }
     private var replay: Replay? = null
     private var settlingReplay = false
     val hasPendingUndo: Boolean get() = replay != null
     val hasUndo: Boolean get() = richDispatch == null && replay == null &&
         (history.hasUndo || compositionBefore != null && !compositionUnsafe || delayed != null)
+    val hasDeletionToRestore: Boolean get() = hasUndo && (
+        history.hasDeletion || delayed?.let { it.first.text.length > it.second.length } == true)
 
     private fun changed() {
         val ids = history.retainedImageIds().toMutableSet()
@@ -291,6 +307,8 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
         pendingImage?.image?.let { ids.add(it.id) }
         compositionBefore?.images?.mapTo(ids) { it.content.id }
         delayed?.first?.images?.mapTo(ids) { it.content.id }
+        clearDraft?.before?.images?.mapTo(ids) { it.content.id }
+        clearedContent?.images?.mapTo(ids) { it.content.id }
         replay?.entry?.let { (it.before.images + it.after.images).mapTo(ids) { image -> image.content.id } }
         onRetainedImagesChanged?.invoke(ids)
         onChange?.invoke()
@@ -304,6 +322,8 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
         anonymousImageIds.clear()
         imageRanges = emptyList()
         imageText = null
+        clearDraft = null
+        clearedContent = null
         replay = null
         compositionUnsafe = false
         history.clear()
@@ -412,6 +432,130 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
             (start != null && end != null && imageRanges.any { start < it.end && end > it.start })
     }
 
+    fun beginClearRestore(target: InputConnection): ClearCapture {
+        val raw = unwrap(target)
+        val before = capture(raw)
+        settleDelayed(before)
+        val whole = before?.copy(selectionStart = 0, selectionEnd = before.text.length)
+        val unread = if (before == null) readRaw(raw)?.text else null
+        val observedRich = unread != null && ('\uFFFC' in unread || unread is Spanned &&
+            unread.getSpans(0, unread.length, ReplacementSpan::class.java).isNotEmpty())
+        val unknown = richDispatch != null || replay != null || pendingImage != null ||
+            richBoundary.containsSelection(whole) || before == null &&
+            (imageRanges.isNotEmpty() || anonymousBefore != null || observedRich)
+        val kind = when {
+            unknown -> ClearCapture.UNSUPPORTED
+            before?.images?.isNotEmpty() == true -> ClearCapture.RICH
+            else -> ClearCapture.PLAIN
+        }
+        clearDraft = ClearDraft(raw, kind, before)
+        changed()
+        return kind
+    }
+
+    fun finishClearRestore(target: InputConnection, swept: CharSequence): Boolean {
+        val draft = clearDraft ?: return false
+        if (unwrap(target) !== draft.target) { clearDraft = null; changed(); return false }
+        val before = draft.before
+        if (before == null || swept.toString() != before.text.toString()) {
+            clearDraft = null
+            if (swept.isNotEmpty()) {
+                clearedContent = null
+                onClearCompleted?.invoke(draft.kind, swept)
+            }
+            changed()
+            return false
+        }
+        draft.swept = swept.toString()
+        return settleClear(readRaw(draft.target))
+    }
+
+    fun clearCaptured(target: InputConnection): Boolean {
+        val draft = clearDraft ?: return false
+        val before = draft.before ?: return false
+        val raw = unwrap(target)
+        if (raw !== draft.target) return false
+        if (before.text.isEmpty()) { clearDraft = null; changed(); return true }
+        val start = minOf(before.selectionStart, before.selectionEnd)
+        val end = maxOf(before.selectionStart, before.selectionEnd)
+        raw.beginBatchEdit()
+        val accepted = try {
+            raw.finishComposingText()
+            val surrounding = raw.deleteSurroundingText(start, before.text.length - end)
+            val selected = if (start != end) raw.commitText("", 1) else true
+            surrounding && selected
+        } finally { raw.endBatchEdit() }
+        if (accepted) finishClearRestore(raw, before.text)
+        else { clearDraft = null; changed() }
+        return true
+    }
+
+    private fun settleClear(after: EditorTextSnapshot?): Boolean {
+        val draft = clearDraft ?: return false
+        val swept = draft.swept ?: return false
+        val before = draft.before ?: return false
+        if (after == null || after.text.toString() == before.text.toString()) return false
+        clearDraft = null
+        val success = after.text.isEmpty() && after.selectionStart == 0 && after.selectionEnd == 0
+        if (success) {
+            val observed = acceptEdit(before, after, "")
+            history.record(compositionBefore ?: before, observed, restoresDeletion = false)
+            compositionBefore = null
+            compositionAfter = null
+            compositionUnsafe = false
+            delayed = null
+            clearedContent = if (draft.kind == ClearCapture.RICH) before else null
+            onClearCompleted?.invoke(draft.kind, swept)
+        }
+        changed()
+        return success && draft.kind == ClearCapture.RICH
+    }
+
+    fun restoreClearedContent(target: InputConnection): Boolean {
+        val held = clearedContent ?: return false
+        if (richDispatch != null || replay != null || clearDraft != null || pendingImage != null) return false
+        val raw = unwrap(target)
+        val current = capture(raw) ?: return false
+        settleDelayed(current)
+        val start = minOf(current.selectionStart, current.selectionEnd)
+        val end = maxOf(current.selectionStart, current.selectionEnd)
+        val anonymous = anonymousBefore
+        if (anonymous != null && start <= maxOf(anonymous.selectionStart, anonymous.selectionEnd) &&
+            end >= minOf(anonymous.selectionStart, anonymous.selectionEnd)) return false
+        if (current.images.any { start > it.start && start < it.end || end > it.start && end < it.end } ||
+            current.text.length - (end - start) + held.text.length > maxTextLength) return false
+        val content = SpannableStringBuilder(held.logicalText())
+        for (token in content.getSpans(0, content.length, EditorImageToken::class.java)) {
+            val from = content.getSpanStart(token)
+            val through = content.getSpanEnd(token)
+            content.removeSpan(token)
+            if (from < through) content.setSpan(EditorImageToken(token.content, ++imageSequence), from, through, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+        }
+        val logicalStart = current.logicalOffset(start)
+        val logicalEnd = current.logicalOffset(end)
+        val desiredText = SpannableStringBuilder(current.logicalText()).replace(logicalStart, logicalEnd, content)
+        val desiredImages = desiredText.getSpans(0, desiredText.length, EditorImageToken::class.java)
+            .filter { desiredText.getSpanStart(it) < desiredText.getSpanEnd(it) }
+            .map { EditorImageRange(desiredText.getSpanStart(it), desiredText.getSpanEnd(it), it.content, it.instance) }
+            .sortedBy { it.start }
+        desiredText.getSpans(0, desiredText.length, EditorImageToken::class.java).forEach(desiredText::removeSpan)
+        val caret = logicalStart + content.length
+        val desired = EditorTextSnapshot(SpannedString(desiredText), caret, caret, desiredImages)
+        val parts = replayParts(content)
+        if (start != end && parts.first().image != null) parts.addFirst(ReplayPart(text = ""))
+        if (!runCatching { raw.finishComposingText() }.getOrDefault(false)) return false
+        reconcileComposition(current)
+        compositionBefore?.let { if (!compositionUnsafe) history.record(it, current) else history.clear() }
+        compositionBefore = null
+        compositionAfter = null
+        compositionUnsafe = false
+        replay = Replay(raw, TextUndoHistory.Entry(desired, current), parts, current, start, end, restoresClearedContent = true)
+        val success = continueReplay()
+        replay?.let { it.deferred = true }
+        changed()
+        return success
+    }
+
     private fun replayParts(value: CharSequence): ArrayDeque<ReplayPart> {
         val parts = ArrayDeque<ReplayPart>()
         val styled = value as? Spanned
@@ -508,6 +652,11 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
                     return false
                 }
                 val part = operation.parts.first()
+                if (!operation.started) {
+                    operation.started = true
+                    if (operation.restoresClearedContent) clearedContent = null
+                    changed()
+                }
                 operation.step = ReplayStep(before, operation.start, operation.end, part)
                 val accepted = runCatching {
                     part.image?.content?.paste?.invoke(operation.target) ?: operation.target.commitText(part.text, 1)
@@ -532,7 +681,7 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
         val operation = replay ?: return
         replay = null
         if (success) {
-            history.pop()
+            if (operation.restoresClearedContent) history.record(operation.entry.after, operation.current) else history.pop()
             richBoundary.advance(operation.entry.after, operation.current, true)
         } else {
             history.clear()
@@ -546,7 +695,9 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
         }
         delayed = null
         changed()
-        if (operation.deferred) onUndoCompleted?.invoke(success)
+        if (operation.deferred) {
+            if (operation.restoresClearedContent) onClearedContentRestored?.invoke(success) else onUndoCompleted?.invoke(success)
+        }
     }
 
     private fun unwrap(target: InputConnection): InputConnection =
@@ -582,6 +733,7 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
 
     private fun capture(target: InputConnection): EditorTextSnapshot? {
         val raw = readRaw(target) ?: return null
+        settleClear(raw)
         val queued = delayed
         if (queued != null && raw.text.toString() != queued.first.text.toString()) {
             return acceptEdit(queued.first, raw, queued.second)

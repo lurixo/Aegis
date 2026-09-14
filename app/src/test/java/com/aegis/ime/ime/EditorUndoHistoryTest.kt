@@ -35,6 +35,7 @@ import android.view.inputmethod.InputConnectionWrapper
 import android.view.inputmethod.InputConnection
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -73,6 +74,12 @@ class EditorUndoHistoryTest {
         }
 
         fun flush() { while (pending.isNotEmpty()) pending.removeFirst().invoke() }
+    }
+
+    private fun clearRich(history: EditorUndoHistory, connection: InputConnection) {
+        assertEquals(EditorUndoHistory.ClearCapture.RICH, history.beginClearRestore(connection))
+        assertTrue(history.clearCaptured(connection))
+        assertTrue(history.hasClearedContent)
     }
 
     private class Editor(initial: String = "") : BaseInputConnection(View(RuntimeEnvironment.getApplication()), true) {
@@ -306,6 +313,19 @@ class EditorUndoHistoryTest {
         assertEquals("externalani", editor.content.toString())
     }
 
+    @Test fun large_documents_are_rejected_before_requesting_an_unbounded_extracted_snapshot() {
+        val text = "text\r\n".repeat(1000)
+        for (caret in listOf(0, text.length / 2, text.length)) {
+            val editor = Editor(text)
+            Selection.setSelection(editor.content, caret)
+            val history = EditorUndoHistory(maxTextLength = 1024)
+            history.beginClearRestore(editor)
+            assertEquals("long fields must not be copied through getExtractedText", 0, editor.extractions)
+            assertFalse(history.clearCaptured(editor))
+            assertEquals(text, editor.content.toString())
+        }
+    }
+
     @Test fun unreadable_partial_truncated_and_oversized_editors_fail_without_writes() {
         for (case in 0..4) {
             val editor = Editor("abcd")
@@ -366,6 +386,35 @@ class EditorUndoHistoryTest {
         assertEquals("ab", editor.content.toString())
         assertEquals(writes, editor.replacements.size)
         assertFalse(history.hasUndo)
+    }
+
+    @Test fun a_delayed_clear_captures_the_short_sentence_once_and_restores_it_once() {
+        val text = "怎么就改不对呢？"
+        val editor = Editor(text)
+        val history = EditorUndoHistory()
+        val connection = history.wrap(editor)
+        var held: String? = null
+        history.onClearCompleted = { _, swept -> held = swept.toString() }
+        editor.deferDeletion = true
+        assertEquals(EditorUndoHistory.ClearCapture.PLAIN, history.beginClearRestore(connection))
+        assertTrue(history.clearCaptured(connection))
+        assertEquals(text, editor.content.toString())
+        assertTrue(history.hasPendingClear)
+        assertNull(held)
+        assertEquals(1, editor.deletionCalls)
+        assertTrue("one clear must not repeatedly query a stale editor: ${editor.reads}", editor.reads <= 6)
+        editor.flush()
+        assertTrue(history.canUndo(connection))
+        assertFalse(history.hasPendingClear)
+        assertEquals(text, held)
+        assertEquals("", editor.content.toString())
+        assertTrue(history.hasUndo)
+        assertFalse(history.hasDeletionToRestore)
+        assertTrue(history.undo(connection))
+        assertEquals(text, editor.content.toString())
+        assertFalse(history.hasDeletionToRestore)
+        assertFalse(history.undo(connection))
+        assertEquals(text, editor.content.toString())
     }
 
     @Test fun queued_backspace_after_tab_undo_is_observed_and_can_be_undone() {
@@ -560,6 +609,192 @@ class EditorUndoHistoryTest {
         assertTrue(history.undo(connection))
         assertEquals("a😀z", editor.content.toString())
         assertEquals("😀", editor.replacements.last())
+    }
+
+    @Test fun cleared_mixed_content_restores_at_the_current_selection_and_that_restore_can_be_undone() {
+        val editor = Editor("L").apply { parcelSnapshots = true }
+        val history = EditorUndoHistory()
+        val connection = history.wrap(editor)
+        val first = ImageSender(editor, "first", listOf("old-1", "new-first-object"))
+        val second = ImageSender(editor, "second", listOf("old-2", "new-second-object-longer"))
+        first.paste(history, connection)
+        connection.commitText("M", 1)
+        second.paste(history, connection)
+        connection.commitText("R", 1)
+        clearRich(history, connection)
+        assertEquals("", editor.content.toString())
+        connection.commitText("before TARGET after", 1)
+        connection.setSelection(7, 13)
+        assertTrue(history.restoreClearedContent(connection))
+        val restored = "Lnew-first-objectMnew-second-object-longerR"
+        assertEquals("before $restored after", editor.content.toString())
+        assertEquals(7 + restored.length, Selection.getSelectionStart(editor.content))
+        assertEquals(7 + restored.length, Selection.getSelectionEnd(editor.content))
+        assertEquals(2, editor.content.getSpans(0, editor.content.length, ImageSpan::class.java).size)
+        assertFalse(history.hasClearedContent)
+        assertTrue(history.undo(connection))
+        assertEquals("before TARGET after", editor.content.toString())
+        assertEquals(7, Selection.getSelectionStart(editor.content))
+        assertEquals(13, Selection.getSelectionEnd(editor.content))
+        assertFalse(history.restoreClearedContent(connection))
+        assertEquals(2, first.calls)
+        assertEquals(2, second.calls)
+    }
+
+    @Test fun undoing_the_clear_does_not_consume_the_independent_rich_restore_snapshot() {
+        val editor = Editor().apply { parcelSnapshots = true }
+        val history = EditorUndoHistory()
+        val connection = history.wrap(editor)
+        val sender = ImageSender(editor, "image", listOf("old", "returned", "duplicate"))
+        sender.paste(history, connection)
+        clearRich(history, connection)
+        assertTrue(history.undo(connection))
+        assertEquals("returned", editor.content.toString())
+        assertTrue(history.hasClearedContent)
+        assertTrue(history.restoreClearedContent(connection))
+        assertEquals("returnedduplicate", editor.content.toString())
+        assertEquals(2, editor.content.getSpans(0, editor.content.length, ImageSpan::class.java).size)
+        assertTrue(history.undo(connection))
+        assertEquals("returned", editor.content.toString())
+        assertEquals(1, editor.content.getSpans(0, editor.content.length, ImageSpan::class.java).size)
+    }
+
+    @Test fun a_cleared_image_stays_retained_after_normal_history_eviction_and_through_async_restore() {
+        val editor = Editor().apply { parcelSnapshots = true }
+        val history = EditorUndoHistory()
+        val connection = history.wrap(editor)
+        val sender = ImageSender(editor, "image", listOf("old", "new-object"))
+        var retained = emptySet<String>()
+        val clearedCompletions = ArrayList<Boolean>()
+        val undoCompletions = ArrayList<Boolean>()
+        history.onRetainedImagesChanged = { retained = it }
+        history.onClearedContentRestored = { clearedCompletions.add(it) }
+        history.onUndoCompleted = { undoCompletions.add(it) }
+        sender.paste(history, connection)
+        clearRich(history, connection)
+        repeat(60) { connection.commitText("x", 1) }
+        assertEquals(setOf("image"), retained)
+        sender.deferred = true
+        assertFalse(history.restoreClearedContent(connection))
+        assertTrue(history.hasPendingUndo)
+        assertFalse(history.hasClearedContent)
+        assertEquals(setOf("image"), retained)
+        assertFalse(history.restoreClearedContent(connection))
+        assertFalse(history.canUndo(connection))
+        assertEquals(2, sender.calls)
+        sender.flush()
+        history.canUndo(connection)
+        assertEquals(listOf(true), clearedCompletions)
+        assertTrue(undoCompletions.isEmpty())
+        assertEquals("x".repeat(60) + "new-object", editor.content.toString())
+        assertEquals(editor.content.length, Selection.getSelectionStart(editor.content))
+        assertTrue(history.undo(connection))
+        assertEquals("x".repeat(60), editor.content.toString())
+        assertEquals(emptySet<String>(), retained)
+    }
+
+    @Test fun failed_partial_or_unconfirmed_clears_do_not_create_a_rich_restore_snapshot() {
+        for (failure in 0..3) {
+            val editor = Editor("L").apply { parcelSnapshots = true }
+            val history = EditorUndoHistory()
+            val connection = history.wrap(editor)
+            val sender = ImageSender(editor, "image", listOf("object"))
+            sender.paste(history, connection)
+            val original = editor.content.toString()
+            assertEquals(EditorUndoHistory.ClearCapture.RICH, history.beginClearRestore(connection))
+            when (failure) {
+                0 -> { editor.rejectCommit = true; connection.setSelection(0, editor.content.length); connection.commitText("", 1) }
+                1 -> { connection.setSelection(0, 1); connection.commitText("", 1) }
+                2 -> { connection.setSelection(0, editor.content.length); connection.commitText("", 1) }
+                3 -> { editor.deferDeletion = true; connection.deleteSurroundingText(editor.content.length, 0) }
+            }
+            assertFalse(history.finishClearRestore(connection, if (failure == 2) "incomplete" else original))
+            assertFalse(history.hasClearedContent)
+            editor.flush()
+            assertFalse(history.hasClearedContent)
+            assertFalse(history.restoreClearedContent(connection))
+            assertEquals(1, sender.calls)
+        }
+    }
+
+    @Test fun rich_restore_keeps_its_snapshot_when_selection_is_rejected_but_consumes_a_partial_attempt() {
+        val editor = Editor("L").apply { parcelSnapshots = true }
+        val history = EditorUndoHistory()
+        val connection = history.wrap(editor)
+        val sender = ImageSender(editor, "image", listOf("object"))
+        sender.paste(history, connection)
+        connection.commitText("R", 1)
+        clearRich(history, connection)
+        editor.rejectSelection = true
+        assertFalse(history.restoreClearedContent(connection))
+        assertTrue(history.hasClearedContent)
+        assertEquals("", editor.content.toString())
+        assertEquals(1, sender.calls)
+        editor.rejectSelection = false
+        sender.rejected = true
+        assertFalse(history.restoreClearedContent(connection))
+        assertEquals("L", editor.content.toString())
+        assertFalse(history.hasClearedContent)
+        assertFalse(history.hasPendingUndo)
+        assertFalse(history.restoreClearedContent(connection))
+        assertEquals("L", editor.content.toString())
+        assertEquals(2, sender.calls)
+    }
+
+    @Test fun unknown_rich_content_is_not_captured_as_text_and_large_plain_clears_keep_the_legacy_path() {
+        val editor = Editor().apply { parcelSnapshots = true }
+        val history = EditorUndoHistory()
+        val connection = history.wrap(editor)
+        history.beginRichContent(connection)
+        editor.commitText("private-object", 1)
+        history.finishRichContent(connection, true)
+        assertEquals(EditorUndoHistory.ClearCapture.UNSUPPORTED, history.beginClearRestore(connection))
+        connection.setSelection(0, editor.content.length)
+        connection.commitText("", 1)
+        assertFalse(history.finishClearRestore(connection, "private-object"))
+        assertFalse(history.hasClearedContent)
+        history.clear()
+        val plain = Editor("p".repeat(70_000))
+        val plainConnection = history.wrap(plain)
+        assertEquals(EditorUndoHistory.ClearCapture.PLAIN, history.beginClearRestore(plainConnection))
+        assertFalse(history.hasClearedContent)
+    }
+
+    @Test fun a_later_plain_clear_replaces_the_rich_backup_and_session_clear_releases_it() {
+        val editor = Editor().apply { parcelSnapshots = true }
+        val history = EditorUndoHistory()
+        val connection = history.wrap(editor)
+        val sender = ImageSender(editor, "image", listOf("object"))
+        sender.paste(history, connection)
+        clearRich(history, connection)
+        connection.commitText("plain", 1)
+        assertEquals(EditorUndoHistory.ClearCapture.PLAIN, history.beginClearRestore(connection))
+        connection.setSelection(0, editor.content.length)
+        connection.commitText("", 1)
+        history.finishClearRestore(connection, "plain")
+        assertFalse(history.hasClearedContent)
+        sender.paste(history, connection)
+        clearRich(history, connection)
+        history.clear()
+        assertFalse(history.hasClearedContent)
+        assertFalse(history.restoreClearedContent(connection))
+    }
+
+    @Test fun restoring_cleared_content_finishes_new_composition_and_remains_independently_undoable() {
+        val editor = Editor().apply { parcelSnapshots = true }
+        val history = EditorUndoHistory()
+        val connection = history.wrap(editor)
+        val sender = ImageSender(editor, "image", listOf("old", "restored"))
+        sender.paste(history, connection)
+        clearRich(history, connection)
+        connection.setComposingText("n", 1)
+        connection.setComposingText("ni", 1)
+        assertTrue(history.restoreClearedContent(connection))
+        assertEquals("nirestored", editor.content.toString())
+        assertTrue(history.undo(connection))
+        assertEquals("ni", editor.content.toString())
+        assertTrue(history.undo(connection))
+        assertEquals("", editor.content.toString())
     }
 
     @Test fun known_image_deletion_replays_the_image_and_keeps_earlier_text_undo_with_new_marker_lengths() {
