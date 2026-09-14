@@ -18,8 +18,11 @@ package com.aegis.ime.user
 import android.content.Context
 import android.net.Uri
 import org.junit.After
+import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Assume.assumeTrue
@@ -76,6 +79,8 @@ class ClipboardImageIndexLockTest {
         return done
     }
 
+    private fun recorded(store: ClipboardStore): ClipEntry = capture(store).poll(10, TimeUnit.SECONDS)!!.getOrThrow()
+
     private fun pipeAt(file: File): File {
         val made = runCatching { ProcessBuilder("mkfifo", file.path).start().waitFor() == 0 }.getOrDefault(false)
         assumeTrue("a named pipe is needed to hold a write in place", made && file.exists() && !file.isFile)
@@ -89,6 +94,9 @@ class ClipboardImageIndexLockTest {
 
     private fun writer(store: ClipboardStore): Thread? =
         ClipboardStore::class.java.getDeclaredField("writer").apply { isAccessible = true }.get(store) as Thread?
+
+    private fun monitor(store: ClipboardStore, name: String): Any =
+        ClipboardStore::class.java.getDeclaredField(name).apply { isAccessible = true }.get(store)!!
 
     private fun waitFor(what: String, condition: () -> Boolean) {
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
@@ -196,5 +204,48 @@ class ClipboardImageIndexLockTest {
         store.record("之后")
         store.flushPendingWrites()
         assertEquals(listOf("之后", "盘上的"), store(dir).historyText())
+    }
+
+    @Test fun a_lease_taken_while_the_sweep_waits_keeps_the_image() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        val entry = recorded(store)
+        store.flushPendingWrites()
+        val file = entry.imageFile()!!
+        val lease = synchronized(monitor(store, "publication")) {
+            assertTrue(store.clearHistory())
+            waitFor("the sweep is waiting its turn") { writer(store)?.state == Thread.State.BLOCKED }
+            promptly("retainImageForInput()") { store.retainImageForInput(entry) }
+        }
+        store.flushPendingWrites()
+
+        assertNotNull(lease)
+        assertArrayEquals(png, file.readBytes())
+        lease!!.close()
+        store.flushPendingWrites()
+        assertFalse(file.exists())
+    }
+
+    @Test fun an_image_deleted_while_a_lease_waits_its_turn_is_refused_and_holds_nothing_back() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        val entry = recorded(store)
+        store.flushPendingWrites()
+        val file = entry.imageFile()!!
+        var lease: ClipboardStore.InputImageLease? = null
+        val taker = Thread { lease = store.retainImageForInput(entry) }
+        synchronized(monitor(store, "history")) {
+            taker.apply { isDaemon = true; start() }
+            waitFor("the lease is waiting for the history") { taker.state == Thread.State.BLOCKED }
+            assertTrue(file.delete())
+        }
+        taker.join(TimeUnit.SECONDS.toMillis(10))
+
+        assertFalse(taker.isAlive)
+        assertNull("a lease on a file that is gone must be refused", lease)
+        assertEquals(entry.key, recorded(store).key)
+        assertTrue(store.clearHistory())
+        store.flushPendingWrites()
+        assertFalse("a refused lease must not keep the image from being swept", file.exists())
     }
 }

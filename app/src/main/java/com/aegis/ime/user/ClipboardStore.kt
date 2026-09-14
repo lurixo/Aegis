@@ -147,6 +147,15 @@ enum class CategoryRemoval { REMOVED, LAST_CATEGORY, NOT_FOUND, WRITE_BLOCKED }
 
 class ClipboardStore(private val dir: File) {
 
+    class InputImageLease internal constructor(val entry: ClipEntry, release: () -> Unit) : AutoCloseable {
+        private var release: (() -> Unit)? = release
+
+        override fun close() {
+            val action = synchronized(this) { release.also { release = null } }
+            action?.invoke()
+        }
+    }
+
     private val histFile get() = File(dir, "clipboard.txt")
     private val phraseFile get() = File(dir, "phrases.txt")
     private fun clipsDir() = File(dir, "clips")
@@ -157,6 +166,7 @@ class ClipboardStore(private val dir: File) {
     internal fun tempFileFor(dest: File): File = AtomicFileSwap.stagingFor(dest, tmpTag)
 
     private val history = ArrayList<ClipEntry>()
+    private val inputImageReferences = HashMap<String, Int>()
     private var persistedImages: Set<String>? = null
     private val sweepingImages = HashSet<String>()
     private val publication = Any()
@@ -506,11 +516,46 @@ class ClipboardStore(private val dir: File) {
 
     fun latestEntry(): ClipEntry? = synchronized(history) { history.firstOrNull() }
 
+    fun retainImageForInput(entry: ClipEntry): InputImageLease? {
+        if (LiveUserData.restoreInProgress || io.isShutdown) return null
+        val image = ownedImage(entry) ?: return null
+        val name = image.name
+        synchronized(history) {
+            if (LiveUserData.restoreInProgress || io.isShutdown || name in sweepingImages) return null
+            inputImageReferences[name] = (inputImageReferences[name] ?: 0) + 1
+        }
+        if (!image.isFile) {
+            releaseInputImage(name)
+            return null
+        }
+        return InputImageLease(entry) { releaseInputImage(name) }
+    }
+
+    private fun ownedImage(entry: ClipEntry): File? {
+        val image = entry.imageFile() ?: return null
+        val name = "${entry.hash}.${ClipboardImages.extension(entry.mimeType ?: return null)}"
+        return image.takeIf {
+            image.name == name && ClipboardImages.isImageFileName(name) &&
+                image.length() in 1L..ClipboardImages.MAX_IMAGE_BYTES &&
+                runCatching { image.canonicalFile.parentFile == imagesDir().canonicalFile }.getOrDefault(false)
+        }
+    }
+
+    private fun releaseInputImage(name: String) {
+        val released = synchronized(history) {
+            val count = inputImageReferences[name] ?: return
+            if (count > 1) { inputImageReferences[name] = count - 1; false }
+            else { inputImageReferences.remove(name); true }
+        }
+        if (released) onWriteLane { removeUnreferencedImage(name) }
+    }
+
     private fun removeUnreferencedImage(name: String) {
         val claimed = synchronized(publication) {
             if (LiveUserData.restoreInProgress) return
             synchronized(history) {
-                val kept = persistedImages?.contains(name) != false || name in sweepingImages || history.any { imageName(it) == name }
+                val kept = name in inputImageReferences ||
+                    persistedImages?.contains(name) != false || name in sweepingImages || history.any { imageName(it) == name }
                 !kept && sweepingImages.add(name)
             }
         }
@@ -529,7 +574,7 @@ class ClipboardStore(private val dir: File) {
                 val listed = history.mapNotNullTo(HashSet(), ::imageName)
                 files.map { it.name }.filter { name ->
                     ClipboardImages.isImageFileName(name) && name !in referenced &&
-                        name !in listed && name !in sweepingImages
+                        name !in inputImageReferences && name !in listed && name !in sweepingImages
                 }.also { sweepingImages.addAll(it) }
             }
         }

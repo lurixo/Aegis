@@ -305,6 +305,83 @@ class ClipboardImageStoreTest {
         assertNull(ClipboardImages.imageMimeType(context.contentResolver, file, file.getItemAt(0)))
     }
 
+    @Test fun two_input_image_leases_survive_clear_until_the_last_idempotent_close() {
+        val store = store()
+        val entry = record(store).getOrThrow()
+        val file = entry.imageFile()!!
+        val first = store.retainImageForInput(entry)!!
+        val second = store.retainImageForInput(entry)!!
+        store.clearHistory()
+        store.flushPendingWrites()
+        assertArrayEquals(png, file.readBytes())
+        first.close()
+        first.close()
+        store.flushPendingWrites()
+        assertArrayEquals(png, file.readBytes())
+        second.close()
+        store.flushPendingWrites()
+        assertFalse(file.exists())
+    }
+
+    @Test fun input_image_lease_survives_history_delete_and_restore_replacement() {
+        val store = store()
+        val entry = record(store).getOrThrow()
+        val file = entry.imageFile()!!
+        val lease = store.retainImageForInput(entry)!!
+        assertTrue(store.delete(entry.key))
+        store.flushPendingWrites()
+        assertArrayEquals(png, file.readBytes())
+        LiveUserData.restoreInProgress = true
+        try {
+            store.importHistory(listOf(ClipEntry.of("restored")), merge = false)
+            assertNull(store.retainImageForInput(entry))
+            assertArrayEquals(png, file.readBytes())
+        } finally {
+            LiveUserData.restoreInProgress = false
+        }
+        lease.close()
+        store.flushPendingWrites()
+        assertEquals(listOf("restored"), store.history().mapNotNull { it.body() })
+        assertFalse(file.exists())
+    }
+
+    @Test fun input_image_close_does_not_delete_a_reference_left_by_failed_history_write() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        val entry = record(store).getOrThrow()
+        val file = entry.imageFile()!!
+        val lease = store.retainImageForInput(entry)!!
+        assertTrue(store.tempFileFor(File(dir, "clipboard.txt")).mkdir())
+        assertTrue(store.clearHistory())
+        store.flushPendingWrites()
+        lease.close()
+        store.flushPendingWrites()
+        assertArrayEquals(png, file.readBytes())
+        val reloaded = store(dir)
+        assertEquals(entry.key, reloaded.latestEntry()!!.key)
+        reloaded.clearHistory()
+        reloaded.flushPendingWrites()
+        assertFalse(file.exists())
+    }
+
+    @Test fun input_image_close_after_reload_keeps_an_image_the_file_still_lists_when_the_clear_failed() {
+        val dir = temp.newFolder()
+        val first = store(dir)
+        val file = record(first).getOrThrow().imageFile()!!
+        first.flushPendingWrites()
+        first.stopSaving()
+        val store = store(dir)
+        val entry = store.latestEntry()!!
+        val lease = store.retainImageForInput(entry)!!
+        assertTrue(store.tempFileFor(File(dir, "clipboard.txt")).mkdir())
+        assertTrue(store.clearHistory())
+        store.flushPendingWrites()
+        lease.close()
+        store.flushPendingWrites()
+        assertArrayEquals(png, file.readBytes())
+        assertEquals(entry.key, store(dir).latestEntry()!!.key)
+    }
+
     @Test fun capturing_an_image_from_further_down_again_keeps_its_row_when_the_index_write_fails() {
         val dir = temp.newFolder()
         val store = store(dir)
@@ -323,5 +400,14 @@ class ClipboardImageStoreTest {
         store.flushPendingWrites()
         assertEquals(listOf("after", "text", image.key), store(dir).history().map { it.key })
         assertArrayEquals(png, image.imageFile()!!.readBytes())
+    }
+
+    @Test fun input_image_retention_rejects_foreign_missing_and_non_image_entries() {
+        val store = store()
+        assertNull(store.retainImageForInput(record(store()).getOrThrow()))
+        assertNull(store.retainImageForInput(ClipEntry.of("text")))
+        val entry = record(store).getOrThrow()
+        entry.imageFile()!!.delete()
+        assertNull(store.retainImageForInput(entry))
     }
 }
