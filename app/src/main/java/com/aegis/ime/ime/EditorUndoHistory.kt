@@ -320,9 +320,8 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
     val hasPendingInsertion: Boolean get() = windowHistory.hasPendingInsertion || nativeHistory.hasPendingInsertion
     val hasUndo: Boolean get() = richDispatch == null && replay == null &&
         (nativeCleared != null || windowHistory.hasUndo || nativeHistory.hasUndo || history.hasUndo || compositionBefore != null && !compositionUnsafe || delayed != null)
-    val hasDeletionToRestore: Boolean get() = hasUndo && (nativeCleared != null || windowHistory.hasDeletion || nativeHistory.hasDeletion || history.hasDeletion || delayed?.let {
-        it.first.text.length > it.second.length
-    } == true)
+    val hasDeletionToRestore: Boolean get() = hasUndo && (nativeCleared != null || windowHistory.hasDeletion || !windowHistory.active &&
+        (nativeHistory.hasDeletion || history.hasDeletion || delayed?.let { it.first.text.length > it.second.length } == true))
 
     private fun changed() {
         val ids = history.retainedImageIds().toMutableSet()
@@ -381,7 +380,7 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
     fun cancelWebTabInput() { webTabInput.clear() }
 
     fun selectionUpdated(start: Int, end: Int) {
-        if (preferNativeUndo) nativeHistory.selectionUpdated()
+        if (preferNativeUndo) nativeHistory.selectionUpdated() else windowHistory.selectionUpdated(start, end)
     }
 
     fun cutCopiedSelection(target: InputConnection, copiedText: CharSequence?): Boolean {
@@ -1089,6 +1088,9 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
         private fun allowsWindow(): Boolean = richDispatch == null && pendingImage == null && anonymousBefore == null &&
             imageRanges.isEmpty() && !richBoundary.isActive && replay == null && nativeCleared == null
 
+        private fun allowsLocal(): Boolean = allowsWindow() && compositionBefore == null && delayed == null &&
+            clearDraft == null && selectionProvider?.invoke() != null
+
         private fun tracked(
             composing: Boolean = false,
             finishesComposition: Boolean = false,
@@ -1103,6 +1105,9 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
                 nativeCleared = null
                 return nativeHistory.track(target, composing = composing,
                     finishesComposition = finishesComposition, expected = expected, operation = windowEdit, action = action)
+            }
+            if (!windowBatch && batchDepth == 0 && !composing && allowsLocal()) {
+                windowHistory.trackLocal(target, windowEdit, action)?.let { return it }
             }
             if (windowBatch || windowHistory.active && allowsWindow()) return windowHistory.track(target, windowEdit, action)
             if (replay != null) finishReplay(false)

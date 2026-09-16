@@ -61,6 +61,7 @@ internal class WindowedEditorUndoHistory {
         var deadline: Long = SystemClock.uptimeMillis() + 2_000L, val insertion: Change? = null,
         var confirmedThrough: Int? = null, var writeDispatched: Boolean = false)
     private data class Recovery(val failed: Replay, var entry: Change)
+    private data class Expectation(val selection: Pair<Int, Int>, val previous: Pair<Int, Int>, val entry: Change?)
 
     var selectionProvider: (() -> Pair<Int, Int>?)? = null
     var onChange: (() -> Unit)? = null
@@ -77,6 +78,11 @@ internal class WindowedEditorUndoHistory {
     private var batchFailed = false
     private var replay: Replay? = null
     private var recovery: Recovery? = null
+    private val expectations = ArrayDeque<Expectation>()
+    private var probe: Pair<Int, Int>? = null
+    private var reportsSelection = false
+    private var contradicted = false
+    private var contradictions = 0
     private var settling = false
     private val handler = Handler(Looper.getMainLooper())
     private val replayPump = object : Runnable {
@@ -105,6 +111,8 @@ internal class WindowedEditorUndoHistory {
         batchDepth = 0
         replay = null
         recovery = null
+        expectations.clear()
+        contradicted = false
         onChange?.invoke()
     }
 
@@ -329,6 +337,8 @@ internal class WindowedEditorUndoHistory {
     }
 
     fun track(target: InputConnection, operation: WindowEdit, action: () -> Boolean): Boolean {
+        expectations.clear()
+        verify(target)
         settle(target)
         if (pending != null || pendingChange != null || replay != null) clear()
         val before = read(target)
@@ -355,8 +365,144 @@ internal class WindowedEditorUndoHistory {
         return accepted
     }
 
+    fun resetSelectionReports() {
+        probe = null
+        reportsSelection = false
+        contradicted = false
+        contradictions = 0
+    }
+
+    fun trackLocal(target: InputConnection, operation: WindowEdit, action: () -> Boolean): Boolean? {
+        if (contradicted || pending != null || pendingChange != null || replay != null || compositionBefore != null ||
+            batchDepth > 0 || expectations.size >= MAX_EXPECTATIONS) return null
+        val (beforeReach, afterReach) = localReach(operation) ?: return null
+        val before = readLocal(target, beforeReach, afterReach) ?: return null
+        expectations.lastOrNull()?.let { tail ->
+            val landed = landed(before, tail)
+            if (landed == false) {
+                val stale = !before.absolute && (expectations.size > 1 || before.low to before.high != tail.previous)
+                clear()
+                if (stale) return null
+            } else if (!before.absolute) return null
+        }
+        val predicted = predict(before, operation) ?: return null
+        val previous = before.low to before.high
+        val selection = predicted.frame.low to predicted.frame.high
+        val removed = before.slice(predicted.start, predicted.beforeEnd)
+        val inserted = predicted.frame.slice(predicted.start, predicted.afterEnd)
+        val changed = removed.toString() != inserted.toString()
+        if (changed && selection == previous) return null
+        if (!reportsSelection) {
+            probe = selection.takeIf { it != previous }
+            return null
+        }
+        val accepted = try { action() } catch (error: RuntimeException) { clear(); throw error }
+        if (!accepted || !changed && selection == previous) return accepted
+        val entry = if (!changed) null else {
+            val right = before.slice(predicted.beforeEnd, minOf(before.limit, predicted.beforeEnd + GUARD)).toString()
+            record(Change(predicted.start, removed, inserted,
+                before.slice(maxOf(before.offset, predicted.start - GUARD), predicted.start).toString(), right,
+                before.start, before.end, right.length < GUARD))
+        }
+        expectations.addLast(Expectation(selection, previous, entry))
+        if (entry != null) onChange?.invoke()
+        return true
+    }
+
+    private fun landed(frame: Frame, expected: Expectation): Boolean? {
+        if (frame.absolute) return frame.low to frame.high == expected.selection
+        val entry = expected.entry ?: return null
+        if (frame.high - frame.low != expected.selection.second - expected.selection.first) return false
+        val high = frame.high - frame.offset
+        val before = entry.left + entry.inserted
+        val count = minOf(high, before.length)
+        if (count < minOf(before.length, GUARD) || frame.text.subSequence(high - count, high).toString() != before.takeLast(count)) return false
+        val after = frame.text.subSequence(high, frame.text.length).toString()
+        return if (entry.documentEnd) after == entry.right else after.startsWith(entry.right)
+    }
+
+    fun selectionUpdated(start: Int, end: Int) {
+        val selection = minOf(start, end) to maxOf(start, end)
+        probe?.let { reportsSelection = reportsSelection || it == selection }
+        probe = null
+        val head = expectations.firstOrNull() ?: return
+        val index = expectations.indexOfFirst { it.selection == selection }
+        if (index >= 0) {
+            repeat(index + 1) { expectations.removeFirst() }
+            contradictions = 0
+            return
+        }
+        if (selection == head.previous) return
+        // A report can lag behind the edit — a drag that selected the range keeps reporting after the
+        // deletion was sent. Stop trusting the reports, but leave the history for a read to judge.
+        expectations.clear()
+        contradicted = true
+        if (++contradictions >= MAX_CONTRADICTIONS) reportsSelection = false
+    }
+
+    /** Confirms the newest entry against the editor once a report or a new connection cast doubt on it. */
+    private fun verify(target: InputConnection) {
+        if (!contradicted) return
+        contradicted = false
+        val entry = entries.lastOrNull() ?: return
+        val frame = read(target, reach = maxOf(WINDOW, entry.inserted.length + GUARD))
+        if (frame == null) return
+        val from = entry.start - entry.left.length
+        val through = entry.afterEnd + entry.right.length
+        if (from < frame.offset || through > frame.limit) return
+        if (!matches(frame, entry, false)) clear()
+    }
+
+    private fun localReach(operation: WindowEdit): Pair<Int, Int>? = when (operation) {
+        is WindowEdit.Commit -> if (operation.composing || operation.cursor != 1 || operation.replacement != null ||
+            operation.text.length > MAX_CHANGE || opaque(operation.text)) null else GUARD to GUARD
+        is WindowEdit.Delete -> {
+            val scale = if (operation.codePoints) 2 else 1
+            if (operation.before !in 0..LOCAL_DELETE || operation.after !in 0..LOCAL_DELETE) null
+            else operation.before * scale + GUARD to operation.after * scale + GUARD
+        }
+        is WindowEdit.Key -> {
+            val event = operation.event
+            if (event.action != KeyEvent.ACTION_DOWN || !event.hasNoModifiers()) null else when (event.keyCode) {
+                KeyEvent.KEYCODE_DEL -> GUARD + GraphemeText.WINDOW to GUARD
+                KeyEvent.KEYCODE_FORWARD_DEL -> GUARD to GUARD + GraphemeText.WINDOW
+                else -> null
+            }
+        }
+        else -> null
+    }
+
+    private fun opaque(text: CharSequence): Boolean =
+        '\uFFFC' in text || text is Spanned && text.getSpans(0, text.length, ReplacementSpan::class.java).isNotEmpty()
+
+    private fun readLocal(target: InputConnection, beforeReach: Int, afterReach: Int): Frame? = runCatching {
+        val supplied = selectionProvider?.invoke()?.takeIf { it.first >= 0 && it.second >= 0 } ?: return@runCatching null
+        val suppliedLow = minOf(supplied.first, supplied.second)
+        val suppliedHigh = maxOf(supplied.first, supplied.second)
+        if (suppliedHigh - suppliedLow > MAX_CHANGE) return@runCatching null
+        val value = target.getSurroundingText(beforeReach, afterReach, InputConnection.GET_TEXT_WITH_STYLES) ?: return@runCatching null
+        val text = value.text
+        if (value.selectionStart !in 0..text.length || value.selectionEnd !in 0..text.length || opaque(text)) return@runCatching null
+        val low = minOf(value.selectionStart, value.selectionEnd)
+        val high = maxOf(value.selectionStart, value.selectionEnd)
+        if (high - low > MAX_CHANGE) return@runCatching null
+        val offset = if (value.offset >= 0) value.offset else {
+            if (suppliedHigh - suppliedLow != high - low) return@runCatching null
+            suppliedLow - low
+        }
+        if (offset < 0 || offset.toLong() + text.length > Int.MAX_VALUE) return@runCatching null
+        val selection = if (value.offset < 0) supplied else offset + value.selectionStart to offset + value.selectionEnd
+        val frozen = if (text is Spanned) {
+            val copy = SpannableStringBuilder(text)
+            BaseInputConnection.removeComposingSpans(copy)
+            SpannedString(copy)
+        } else text.toString()
+        Frame(frozen, offset, selection.first, selection.second, value.offset >= 0)
+    }.getOrNull()
+
     fun trackDeletion(target: InputConnection, start: Int, removed: CharSequence,
         selectionStart: Int, selectionEnd: Int, action: () -> Boolean): Boolean {
+        expectations.clear()
         settle(target)
         if (pending != null || pendingChange != null || replay != null || compositionBefore != null || batchDepth > 0) clear()
         val context = capturedChange(target, start, removed, "", selectionStart, selectionEnd)
@@ -385,6 +531,7 @@ internal class WindowedEditorUndoHistory {
 
     fun replace(target: InputConnection, start: Int, removed: CharSequence, inserted: CharSequence,
         selectionStart: Int, selectionEnd: Int): Boolean {
+        expectations.clear()
         settle(target)
         if (pending != null || pendingChange != null || replay != null) return false
         if (compositionBefore != null || batchDepth > 0) clear()
@@ -395,6 +542,7 @@ internal class WindowedEditorUndoHistory {
     }
 
     fun insert(target: InputConnection, inserted: CharSequence): Boolean {
+        expectations.clear()
         settle(target)
         if (pending != null || pendingChange != null || replay != null) return false
         if (compositionBefore != null || batchDepth > 0) clear()
@@ -428,6 +576,7 @@ internal class WindowedEditorUndoHistory {
 
     fun beginBatch(target: InputConnection) {
         if (batchDepth++ != 0) return
+        expectations.clear()
         settle(target)
         batchBefore = compositionBefore ?: read(target)
         batchAfter = null
@@ -448,6 +597,7 @@ internal class WindowedEditorUndoHistory {
     }
 
     fun canUndo(target: InputConnection): Boolean {
+        verify(target)
         settle(target)
         if (replay != null) continueReplay()
         if (replay == null) settleRecovery(target)
@@ -455,6 +605,8 @@ internal class WindowedEditorUndoHistory {
     }
 
     fun undo(target: InputConnection): Boolean {
+        expectations.clear()
+        verify(target)
         settle(target)
         if (pending != null || pendingChange != null || replay != null) return false
         val composition = compositionBefore
@@ -522,7 +674,8 @@ internal class WindowedEditorUndoHistory {
             }
             if (current.phase == 2) {
                 val caret = entry.start + current.sentThrough
-                val restored = read(current.target, caret to caret, MAX_CHANGE) ?: return false
+                val restored = read(current.target, caret to caret, maxOf(WINDOW, minOf(current.sentThrough, REPLAY_CHUNK) + GUARD,
+                    if (entry.removed.length <= REPLAY_CHUNK) entry.inserted.length + GUARD else 0)) ?: return false
                 if (!matchesRestored(restored, current)) return if (entry.removed.length <= REPLAY_CHUNK &&
                     !matches(restored, entry, false)) failReplay() else false
                 current.confirmedThrough = current.sentThrough
@@ -659,6 +812,9 @@ internal class WindowedEditorUndoHistory {
         private const val MAX_READ = 65_536
         private const val REPLAY_CHUNK = MAX_READ / 2 - GUARD
         private const val MAX_RETAINED = 1_048_576
+        private const val LOCAL_DELETE = WINDOW
+        private const val MAX_EXPECTATIONS = 50
+        private const val MAX_CONTRADICTIONS = 3
         val MAX_INLINE_INSERTION = minOf(REPLAY_CHUNK, LargeCommit.CHUNK)
     }
 }

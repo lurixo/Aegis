@@ -192,6 +192,158 @@ class EditorUndoReadBudgetTest {
         assertTrue("$label issues a bounded number of reads: ${host.reads}", host.reads <= 8)
     }
 
+    @Test fun ordinary_commits_and_deletions_in_a_long_document_read_only_local_windows_in_both_layouts() {
+        for (knownOffset in listOf(true, false)) for (choice in listOf(LayoutChoice.CN_NINE, LayoutChoice.CN_ALPHA)) {
+            val label = "$choice knownOffset=$knownOffset"
+            val f = Fixture(choice, knownOffset, document, caret)
+            f.service.commitText("起")
+            f.settle()
+            val typed = if (choice == LayoutChoice.CN_NINE) listOf("6", "4") else listOf("n", "i")
+            for (digit in typed) f.controller.onKey(Key(digit, output = digit))
+            f.host.reset()
+            f.controller.onKey(Key("", action = KeyAction.SPACE))
+            assertEquals(label, document.substring(0, caret) + "起你好" + document.substring(caret), f.host.text)
+            assertBounded(f.host, "$label space commit")
+            f.settle()
+            f.host.reset()
+            f.service.commitText("，")
+            assertBounded(f.host, "$label host commit")
+            f.settle()
+            f.host.reset()
+            f.controller.onKey(Key("", action = KeyAction.BACKSPACE))
+            assertEquals(label, document.substring(0, caret) + "起你好" + document.substring(caret), f.host.text)
+            assertBounded(f.host, "$label backspace")
+            f.settle()
+            f.host.reset()
+            f.service.deleteBackward()
+            assertEquals(label, document.substring(0, caret) + "起你" + document.substring(caret), f.host.text)
+            assertBounded(f.host, "$label host deletion")
+            f.settle()
+            f.host.reset()
+            repeat(4) { f.edit(EditAction.UNDO) }
+            assertEquals(label, document.substring(0, caret) + "起" + document.substring(caret), f.host.text)
+            assertEquals("$label undo verifies without extracting the document", 0, f.host.extractions)
+            assertTrue("$label undo reads bounded windows: ${f.host.largestRequest}", f.host.largestRequest <= 8_192)
+            f.edit(EditAction.UNDO)
+            assertEquals(label, document, f.host.text)
+            f.service.onFinishInput()
+        }
+    }
+
+    @Test fun recorded_undo_never_rewrites_text_the_host_changed_afterwards() {
+        val far = 1_000
+        val changes = listOf<Pair<String, (StringBuilder) -> Unit>>(
+            "shift before" to { it.insert(caret - far, "外部") },
+            "replaced insertion" to { it.replace(caret + 1, caret + 3, "您好") },
+            "edited guard" to { it.insert(caret + 4, "改") },
+        )
+        for (knownOffset in listOf(true, false)) for (choice in listOf(LayoutChoice.CN_NINE, LayoutChoice.CN_ALPHA)) {
+            for ((name, change) in changes) {
+                val label = "$choice knownOffset=$knownOffset $name"
+                val f = Fixture(choice, knownOffset, document, caret)
+                f.service.commitText("起")
+                f.settle()
+                f.service.commitText("你好")
+                f.settle()
+                val external = StringBuilder(f.host.text).also(change).toString()
+                val content = f.host.editable!!
+                val position = Selection.getSelectionStart(content) + if (name == "shift before") 2 else 0
+                content.replace(0, content.length, external)
+                Selection.setSelection(content, position)
+                f.host.report?.invoke()
+                f.settle()
+                f.edit(EditAction.UNDO)
+                assertEquals(label, external, f.host.text)
+                f.edit(EditAction.UNDO)
+                assertEquals(label, external, f.host.text)
+                assertFalse("$label abandons the stale history", f.undo().hasUndo)
+                f.service.onFinishInput()
+            }
+        }
+    }
+
+    @Test fun recorded_undo_keeps_unrelated_host_edits_outside_the_verified_window() {
+        for (knownOffset in listOf(true, false)) for (choice in listOf(LayoutChoice.CN_NINE, LayoutChoice.CN_ALPHA)) {
+            val label = "$choice knownOffset=$knownOffset"
+            val f = Fixture(choice, knownOffset, document, caret)
+            f.service.commitText("起")
+            f.settle()
+            f.service.commitText("你好")
+            f.settle()
+            val content = f.host.editable!!
+            val selection = Selection.getSelectionStart(content)
+            content.insert(caret + 2_000, "远处的修改")
+            Selection.setSelection(content, selection)
+            val expected = StringBuilder(f.host.text).delete(caret + 1, caret + 3).toString()
+            f.edit(EditAction.UNDO)
+            assertEquals(label, expected, f.host.text)
+            f.service.onFinishInput()
+        }
+    }
+
+    @Test fun a_selection_report_that_contradicts_the_recorded_edit_drops_it_without_touching_the_host() {
+        for (knownOffset in listOf(true, false)) for (choice in listOf(LayoutChoice.CN_NINE, LayoutChoice.CN_ALPHA)) {
+            val label = "$choice knownOffset=$knownOffset"
+            val f = Fixture(choice, knownOffset, document, caret)
+            f.service.commitText("起")
+            f.settle()
+            f.host.rewrite = "。"
+            f.service.commitText("你好")
+            f.host.rewrite = null
+            f.settle()
+            val rewritten = f.host.text
+            assertEquals(label, document.substring(0, caret) + "起你好。" + document.substring(caret), rewritten)
+            val writes = f.host.selections
+            f.edit(EditAction.UNDO)
+            assertEquals(label, rewritten, f.host.text)
+            assertEquals("$label never selects the contradicted range", writes, f.host.selections)
+            f.service.onFinishInput()
+        }
+    }
+
+    @Test fun a_commit_the_host_silently_ignored_is_dropped_before_the_next_local_step() {
+        for (knownOffset in listOf(true, false)) for (choice in listOf(LayoutChoice.CN_NINE, LayoutChoice.CN_ALPHA)) {
+            val label = "$choice knownOffset=$knownOffset"
+            val f = Fixture(choice, knownOffset, document, caret)
+            f.service.commitText("起")
+            f.settle()
+            f.host.ignoreCommits = true
+            f.service.commitText("拒")
+            f.host.ignoreCommits = false
+            f.settle()
+            f.service.commitText("你好")
+            f.settle()
+            f.edit(EditAction.UNDO)
+            assertEquals(label, document.substring(0, caret) + "起" + document.substring(caret), f.host.text)
+            f.edit(EditAction.UNDO)
+            assertEquals(label, document, f.host.text)
+            f.service.onFinishInput()
+        }
+    }
+
+    @Test fun swipe_down_offers_only_the_latest_step_when_local_tracking_follows_a_snapshot_step() {
+        for (knownOffset in listOf(true, false)) for (choice in listOf(LayoutChoice.CN_NINE, LayoutChoice.CN_ALPHA)) {
+            val label = "$choice knownOffset=$knownOffset"
+            val f = Fixture(choice, knownOffset, document, caret)
+            val available = f.service.javaClass.getDeclaredMethod("canBackspaceSwipe", Boolean::class.javaPrimitiveType)
+                .apply { isAccessible = true }
+            val swipe = f.service.javaClass.getDeclaredMethod("backspaceSwipe", Boolean::class.javaPrimitiveType)
+                .apply { isAccessible = true }
+            f.service.deleteBackward()
+            f.settle()
+            f.service.commitText("你好")
+            f.settle()
+            assertFalse("$label typing after the deletion hides the restore gesture", available.invoke(f.service, false) as Boolean)
+            f.service.deleteBackward()
+            f.settle()
+            assertTrue("$label the latest deletion can be restored", available.invoke(f.service, false) as Boolean)
+            swipe.invoke(f.service, false)
+            f.settle()
+            assertEquals(label, document.substring(0, caret - 1) + "你好" + document.substring(caret), f.host.text)
+            f.service.onFinishInput()
+        }
+    }
+
     private class WebHost(view: View) : BaseInputConnection(view, true) {
         var deferred = false
         var extractions = 0
