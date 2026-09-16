@@ -99,6 +99,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private val body = SurfaceContainer(context)
     private val bodySlot = CompactDock(context) { resolveDockWidth(it) }.apply { addDockedView(body) }
     private var lastCandidates: List<String> = emptyList()
+    private val candidateTapGuard = CandidateTapGuard()
     private var lastCandidateProjection: CandidateProjectionPolicy? = null
     private var lastReadings: List<String> = emptyList()
     private var lastSelectedReading = -1
@@ -434,14 +435,16 @@ class InputView(context: Context) : LinearLayout(context) {
 
     init {
         orientation = VERTICAL
-        candidateView.onPick = { index -> onPickCandidate(index) }
+        candidateView.onPick = { index -> pickCandidateIfSeen(index) }
+        candidateView.onCandidatePress = { downTime -> candidateTapGuard.press(downTime) }
         candidateView.onFunction = { f -> onFunction(f) }
         candidateView.onExpand = { showExpandedCandidates() }
         candidateView.onCollapse = { onCollapse() }
         candidateView.onCollapseExpanded = { showPanel(null) }
         candidateView.onDictGate = { DictDownloadWork.start(context); startGateMonitoring() }
         candidateView.onRestoreNotice = { if (barTrouble != null) onRestoreNotice() else showPhraseNotice(null) }
-        gridView.onPick = { index -> onPickCandidate(index) }
+        gridView.onPick = { index -> pickCandidateIfSeen(index) }
+        gridView.onCandidatePress = { downTime -> candidateTapGuard.press(downTime) }
         gridView.onPickReading = { index -> onPickReading(index) }
         gridView.onClose = { showPanel(null) }
         gridView.onBackspace = { onPanelBackspace() }
@@ -736,6 +739,10 @@ class InputView(context: Context) : LinearLayout(context) {
 
     fun isComposing(): Boolean = composingNow
 
+    private fun pickCandidateIfSeen(index: Int) {
+        if (candidateTapGuard.accepts(index, SystemClock.uptimeMillis())) onPickCandidate(index)
+    }
+
     fun showCandidates(
         candidates: List<String>,
         preedit: String,
@@ -745,7 +752,9 @@ class InputView(context: Context) : LinearLayout(context) {
         restoreTrouble: RestoreTrouble? = null,
         candidateProjection: CandidateProjectionPolicy? = null,
         preeditModel: PreeditModel? = null,
+        candidatesPending: Boolean = false,
     ) {
+        candidateTapGuard.show(candidates, candidatesPending, SystemClock.uptimeMillis())
         lastCandidates = candidates
         lastCandidateProjection = candidateProjection
         lastReadings = readings
@@ -830,6 +839,7 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun candidateRestoreNoticeForTest(): String? = candidateView.restoreNoticeLabelForTest()
 
     internal fun candidateBarForTest(): CandidateView = candidateView
+    internal fun candidatesPendingForTest(): Boolean = candidateTapGuard.pendingForTest()
 
     internal fun showExpandedCandidates() {
         if (lastCandidates.isEmpty()) return

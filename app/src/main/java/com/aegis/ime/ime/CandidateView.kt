@@ -41,6 +41,7 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
     override var hapticEnabled = false
 
     var onPick: (Int) -> Unit = {}
+    var onCandidatePress: (Long) -> Unit = {}
     var onFunction: (BarFunction) -> Unit = {}
     var onExpand: () -> Unit = {}
     var onCollapse: () -> Unit = {}
@@ -451,6 +452,7 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
                 dragging = false
                 fling.onDown()
                 gestureTarget = targetAt(event.x, event.y)
+                if (gestureTarget?.kind == PressKind.CANDIDATE) onCandidatePress(event.downTime)
                 barActionGesture = (isGateMode() || isRestoreNoticeMode()) && insideView(event.x, event.y)
                 barActionArmed = barActionGesture
                 setPressedTarget(gestureTarget)

@@ -1782,6 +1782,7 @@ class KeyboardController(
                 mode() == Mode.PINYIN && composing.isNotEmpty()
             },
             preeditModel = preeditModel(preedit),
+            candidatesPending = decodeLane?.pending == true,
         )
     }
 

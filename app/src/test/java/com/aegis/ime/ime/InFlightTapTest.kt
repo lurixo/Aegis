@@ -75,4 +75,25 @@ class InFlightTapTest {
         drain()
         assertTrue("the late decode cannot undo the pick", "你" in c.preeditForTest())
     }
+
+    @Test fun the_candidate_bar_knows_while_the_list_on_screen_is_waiting_for_a_decode() {
+        val workerQ = ArrayDeque<Runnable>()
+        val mainQ = ArrayDeque<Runnable>()
+        val lane = DecodeLane(Executor { workerQ.add(it) }, Executor { mainQ.add(it) })
+        fun drain() {
+            while (workerQ.isNotEmpty() || mainQ.isNotEmpty()) {
+                while (workerQ.isNotEmpty()) workerQ.removeFirst().run()
+                while (mainQ.isNotEmpty()) mainQ.removeFirst().run()
+            }
+        }
+        val engine = DictEngine(EngineFixture.build(listOf(EngineFixture.Row("ni", "你", 900))), null, null)
+        val view = InputView(ctx)
+        val c = KeyboardController(Host(), engine, lane).apply { attachView(view) }
+        c.switchTextLayoutForTest(nine = false)
+        drain()
+        c.onKey(Key("n", output = "n"))
+        assertTrue("the list on screen predates the n that is still decoding", view.candidatesPendingForTest())
+        drain()
+        assertTrue("the decoded list is no longer pending", !view.candidatesPendingForTest())
+    }
 }

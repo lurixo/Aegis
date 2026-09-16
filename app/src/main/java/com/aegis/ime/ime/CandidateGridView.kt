@@ -71,6 +71,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
     }
 
     var onPick: (Int) -> Unit = {}
+    var onCandidatePress: (Long) -> Unit = {}
     var onPickReading: (Int) -> Unit = {}
     var onClose: () -> Unit = {}
     var onBackspace: () -> Unit = {}
@@ -135,6 +136,15 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         if (index >= 0) onPickReading(index)
     }
     private val candidateAdapter = CandidateAdapter()
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (ev.actionMasked == MotionEvent.ACTION_DOWN &&
+            ev.x >= table.left && ev.x < table.right && ev.y >= table.top && ev.y < table.bottom
+        ) {
+            onCandidatePress(ev.downTime)
+        }
+        return super.dispatchTouchEvent(ev)
+    }
     private val returnFeedback: ImeKeyFeedback
     private val backspaceFeedback: ImeKeyFeedback
     private val clearFeedback: ImeKeyFeedback
