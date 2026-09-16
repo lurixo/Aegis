@@ -16,10 +16,17 @@
 package com.aegis.ime.ime
 
 import android.app.Activity
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Paint
 import android.graphics.Rect
+import android.graphics.Typeface
+import android.text.TextPaint
+import android.util.TypedValue
 import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
+import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.layout.Lang
@@ -229,6 +236,34 @@ class BackspaceBubbleTest {
             bubble.height() >= dp(16) * 2 + dp(18),
         )
         iv.send(MotionEvent.ACTION_UP, key.centerX(), key.centerY() - (swipeThreshold + 15f), 32)
+    }
+
+    @Test @Config(qualifiers = "xxhdpi")
+    fun both_bubbles_keep_10dp_side_padding_their_height_and_the_key_corner_radius() {
+        val paint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 14f, ctx.resources.displayMetrics)
+            typeface = Typeface.create("sans-serif-medium", Typeface.NORMAL)
+        }
+        val metrics = paint.fontMetrics
+        for ((up, label) in listOf(true to R.string.backspace_bubble_clear, false to R.string.backspace_bubble_undo)) {
+            val iv = inputView()
+            attachAndLayout(iv)
+            iv.backspaceSwipeAvailable = { true }
+            val key = requireNotNull(iv.keyboardActionBoundsForTest(KeyAction.BACKSPACE))
+            val offset = if (up) -(swipeThreshold + 15f) else swipeThreshold + 15f
+            iv.send(MotionEvent.ACTION_DOWN, key.centerX(), key.centerY(), 0)
+            iv.send(MotionEvent.ACTION_MOVE, key.centerX(), key.centerY() + offset, 16)
+            val bubble = requireNotNull(iv.backspaceBubbleBoundsForTest()) { "up=$up shows a bubble" }
+            assertEquals("up=$up width", dp(10) * 2f + dp(18) + dp(7) + paint.measureText(ctx.getString(label)), bubble.width(), 1f)
+            assertEquals("up=$up height", dp(16) * 2f + maxOf(metrics.descent - metrics.ascent, dp(18).toFloat()), bubble.height(), 1f)
+            val bitmap = Bitmap.createBitmap(iv.width, iv.height, Bitmap.Config.ARGB_8888)
+            iv.draw(Canvas(bitmap))
+            val fill = bitmap.getPixel((bubble.left + 5 * density).toInt(), bubble.centerY().toInt())
+            val corner = bitmap.getPixel((bubble.left + 4 * density).toInt(), (bubble.top + 4 * density).toInt())
+            assertEquals("up=$up a 10dp corner still fills a point 4dp in from the corner", fill, corner)
+            bitmap.recycle()
+            iv.send(MotionEvent.ACTION_UP, key.centerX(), key.centerY() + offset, 32)
+        }
     }
 
     @Test fun a_backspace_repeat_shows_no_bubble() {

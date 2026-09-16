@@ -300,7 +300,7 @@ class InputView(context: Context) : LinearLayout(context) {
     private fun drawBackspaceBubble(canvas: Canvas) {
         val state = backspaceBubbleState() ?: return
         val density = resources.displayMetrics.density
-        val padX = dp(14).toFloat()
+        val padX = dp(10).toFloat()
         val padY = dp(16).toFloat()
         val iconSize = dp(18).toFloat()
         val iconGap = dp(7).toFloat()
@@ -323,7 +323,7 @@ class InputView(context: Context) : LinearLayout(context) {
         val top = (if (up) anchor.top - clearance - bubbleHeight else anchor.bottom + clearance)
             .coerceIn(0f, (height - bubbleHeight).coerceAtLeast(0f))
         bubbleRect.set(left, top, left + bubbleWidth, top + bubbleHeight)
-        val radius = ImeShapes.bubbleRadiusDp * density
+        val radius = ImeShapes.keyRadiusDp * density
         canvas.save()
         canvas.translate(0f, density * 1.5f)
         bubbleBackgroundPaint.color = palette.shadow
