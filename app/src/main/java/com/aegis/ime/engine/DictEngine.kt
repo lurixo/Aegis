@@ -105,6 +105,9 @@ class DictEngine(
     override fun homophonesForReadingAt(letters: String, index: Int, cuts: Set<Int>): List<String> =
         if (letters.isEmpty()) emptyList() else decoder?.homophonesAt(letters, index, cuts) ?: emptyList()
 
+    override fun spelledReading(word: String, reading: String): String =
+        decoder?.spelledReading(word, reading) ?: reading
+
     override fun setFuzzyRules(rules: Set<String>) {
         decoder?.setFuzzyRules(rules)
         t9Decoder?.setFuzzyRules(rules)

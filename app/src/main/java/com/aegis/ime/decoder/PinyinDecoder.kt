@@ -192,6 +192,26 @@ class PinyinDecoder(
         if (input[0] in '2'..'9') readsAs(word, input, cache) { T9_SPELLINGS[it].orEmpty() }
         else readsAs(word, input, cache)
 
+    internal fun spelledReading(word: String, reading: String): String = when {
+        readsAs(word, reading, HashMap()) -> reading
+        else -> guessReading(word, T9Pinyin.toT9(reading), false, ReadingLookup(aliasSource))
+    }
+
+    internal fun storedReadingRepairs(rows: List<Pair<String, String>>): List<UserModel.ReadingRepair> {
+        val singles = HashMap<String, Set<String>>()
+        var lookup = ReadingLookup(aliasSource)
+        return StoredReadingJudge(
+            aliasSource,
+            readsAs = { word, reading ->
+                if (singles.size >= READING_LOOKUP_LIMIT) singles.keys.retainAll(T9Pinyin.SYLLABLES)
+                readsAs(word, reading, singles)
+            },
+            spell = { word, reading ->
+                guessReading(word, T9Pinyin.toT9(reading), false, lookup)
+            },
+        ).repairs(rows)
+    }
+
     private fun userWordsFor(key: String): List<String> {
         if ((userModel == null && userLearning == null) || key.isEmpty()) return emptyList()
         refreshUserIndex()
@@ -1461,6 +1481,7 @@ class PinyinDecoder(
         const val MAX_SYLLABLE_KEY_LEN = 6
         const val EXACT_TIE_LOOKAHEAD = 16
         const val SENTENCE_STATE_CAPACITY = 256
+        const val READING_LOOKUP_LIMIT = 4_096
         const val ORDERING_RARE_FREQ = 100.0
         const val ORDERING_COMMON_FREQ = 1000.0
         const val ORDERING_INJECTED_FREQ = 1.0
