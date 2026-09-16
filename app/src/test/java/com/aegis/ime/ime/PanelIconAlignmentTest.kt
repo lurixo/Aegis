@@ -28,6 +28,7 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.layout.Layouts
+import com.aegis.ime.user.asClipEntries
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import org.junit.Assert.assertEquals
@@ -132,6 +133,53 @@ class PanelIconAlignmentTest {
             }
             assertEquals(reference.text.toString(), title.text.toString())
             assertTrue("the header fits its label", requireNotNull(title.layout).height <= title.height - title.compoundPaddingTop - title.compoundPaddingBottom)
+        }
+    }
+
+    @Test @Config(qualifiers = "420dpi")
+    fun layout_cards_and_edit_keys_start_at_the_clipboard_and_phrase_card_inset() {
+        fun bounds(root: ViewGroup, view: View): Rect = Rect(0, 0, view.width, view.height).also { root.offsetDescendantRectToMyCoords(view, it) }
+        for ((widthDp, heightDp) in listOf(411 to 324, 360 to 290, 320 to 300, 411 to 230, 360 to 222, 520 to 220, 640 to 220, 720 to 230, 900 to 260)) {
+            val width = (widthDp * density).roundToInt()
+            val height = (heightDp * density).roundToInt()
+            val clipboard = ClipboardView(ctx).apply {
+                historyProvider = { listOf("clip").asClipEntries() }
+                refresh()
+            }
+            layout(clipboard, width, height)
+            val phrases = ClipboardView(ctx).apply {
+                categoriesProvider = { listOf("默认") }
+                phrasesInProvider = { if (it == "默认") listOf("phrase") else emptyList() }
+                forcePhrasesStateForTest("默认")
+                refresh()
+            }
+            layout(phrases, width, height)
+            val reference = bounds(clipboard, requireNotNull(clipboard.listRowViewForTest(0)))
+            val message = "$widthDp x $heightDp"
+            assertEquals("$message clipboard card left inset", (8 * density).toInt(), reference.left)
+            assertEquals("$message clipboard card top", (56 * density).toInt() + (8 * density).toInt(), reference.top)
+            assertEquals("$message clipboard card right inset", width - (8 * density).toInt(), reference.right)
+
+            val layoutPanel = LayoutPanelView(ctx)
+            layout(layoutPanel, width, height)
+            val firstCard = bounds(layoutPanel, layoutPanel.cardViewForTest(LayoutChoice.CN_NINE))
+            val lastCard = bounds(layoutPanel, layoutPanel.cardViewForTest(LayoutChoice.EN_ALPHA))
+            val edit = EditPanelView(ctx)
+            layout(edit, width, height)
+            val tray = edit.actionTrayBoundsForTest()
+            val tab = bounds(edit, requireNotNull(edit.actionViewForTest(EditAction.TAB)))
+            val backspace = bounds(edit, requireNotNull(edit.actionViewForTest(EditAction.DELETE)))
+            val phrase = bounds(phrases, requireNotNull(phrases.listRowViewForTest(0)))
+            for ((name, edges, tolerance) in listOf(
+                Triple("phrases", Triple(phrase.left, phrase.top, phrase.right), 0f),
+                Triple("layout cards", Triple(firstCard.left, firstCard.top, lastCard.right), 0f),
+                Triple("edit keys", Triple(tray.left, tab.top, backspace.right), 1f),
+                Triple("edit tray", Triple(tray.left, tray.top, backspace.right), 1f),
+            )) {
+                assertEquals("$message $name left inset", reference.left.toFloat(), edges.first.toFloat(), tolerance)
+                assertEquals("$message $name top", reference.top.toFloat(), edges.second.toFloat(), tolerance)
+                assertEquals("$message $name right inset", reference.right.toFloat(), edges.third.toFloat(), tolerance)
+            }
         }
     }
 

@@ -305,6 +305,9 @@ class EditPanelView(context: Context) :
     internal fun actionViewForTest(action: EditAction): View? = actionViews[action]
     internal fun actionFeedbackLevelForTest(action: EditAction): Float? = actionFeedback[action]?.levelForTest()
     internal fun titleBarForTest(): View = titleBar
+    internal fun actionTrayBoundsForTest(): Rect = actionBody.trayForTest().let {
+        Rect(it.left.roundToInt(), it.top.roundToInt(), it.right.roundToInt(), it.bottom.roundToInt())
+    }.also { offsetDescendantRectToMyCoords(actionBody, it) }
     internal fun actionViewportForTest(): View = actionScroll
     internal fun actionContentCanScrollForTest(): Boolean = actionScroll.canScrollVertically(-1) || actionScroll.canScrollVertically(1)
     internal fun scrollActionIntoViewForTest(action: EditAction) {
@@ -398,6 +401,8 @@ class EditPanelView(context: Context) :
             clipToPadding = false
         }
 
+        fun trayForTest(): RectF = RectF(tray)
+
         private fun target(action: EditAction, x: Float, y: Float, w: Float, h: Float) {
             targets[action] = Rect(px(x), px(y), px(x + w), px(y + h))
         }
@@ -428,14 +433,14 @@ class EditPanelView(context: Context) :
 
         private fun layoutPortrait(w: Float, h: Float) {
             val t = ((w - 320f) / 91f).coerceIn(0f, 1f)
-            val edge = 6f + 2f * t
-            val blockGap = 8f + 4f * t
-            val left = 170f + 31f * t
+            val edge = 8f
+            val blockGap = 6f + 6f * t
+            val left = 168f + 33f * t
             val compact = h < 232f
             val compactSpacing = ((h - 144f) / 18f).coerceIn(0f, 1f)
             val gap = if (compact) 4f * compactSpacing else 6f
-            val top = if (compact) 4f * compactSpacing else 6f
             val bottom = if (compact) 2f * compactSpacing else 4f
+            val top = if (compact) (h - bottom - 3f * gap - 144f).coerceIn(0f, 8f) else 8f
             val row = (h - top - bottom - 3f * gap) / 4f
             val rightX = edge + left + blockGap
             val right = w - edge - rightX
@@ -469,15 +474,14 @@ class EditPanelView(context: Context) :
         }
 
         private fun layoutLandscape(w: Float, h: Float) {
+            val edge = 8f
             val blockGap = 12f
-            val top = 4f
+            val top = (h - 2f - 144f).coerceIn(0f, 8f)
             val contentH = h - top - 2f
             val gap = minOf(6f, ((contentH - 144f) / 3f).coerceAtLeast(0f))
             val row = (contentH - 3f * gap) / 4f
-            val left = minOf(236f, (w - 16f) * 0.4f)
-            val column = minOf(128f, (w - 16f - left - blockGap - gap) / 2f)
-            val total = left + blockGap + 2f * column + gap
-            val edge = (w - total) / 2f
+            val left = (w - 2f * edge) * 0.4f
+            val column = (w - 2f * edge - left - blockGap - gap) / 2f
             val navW = (left - 8f - 2f * gap) / 3f
             val navH = (contentH - 8f - 2f * gap) / 3f
             tray.set(dp(edge), dp(top), dp(edge + left), dp(top + contentH))

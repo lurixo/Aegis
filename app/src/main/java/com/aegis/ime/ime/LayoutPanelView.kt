@@ -86,7 +86,7 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
         )
         cardRow = LinearLayout(context).apply {
             orientation = HORIZONTAL
-            setPadding(dp(8), 0, dp(8), 0)
+            setPadding(dp(8) - dp(4), 0, dp(8) - dp(4), 0)
             for (card in cards) {
                 addView(card.view, LayoutParams(0, LayoutParams.WRAP_CONTENT, 1f).apply {
                     marginStart = dp(4)
@@ -98,7 +98,7 @@ class LayoutPanelView(context: Context) : LinearLayout(context), ResettablePanel
             orientation = VERTICAL
             gravity = Gravity.TOP
             addView(cardRow, LayoutParams(LayoutParams.MATCH_PARENT, LayoutParams.WRAP_CONTENT).apply {
-                topMargin = dp(18)
+                topMargin = dp(8)
             })
         }
         addView(content, LayoutParams(LayoutParams.MATCH_PARENT, 0, 1f))
