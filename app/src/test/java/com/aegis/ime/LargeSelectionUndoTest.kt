@@ -322,4 +322,29 @@ class LargeSelectionUndoTest {
         f.service.onFinishInput()
     }
 
+    @Test fun a_deletion_that_is_the_first_edit_after_a_fresh_start_records_it() {
+        val from = 120_000
+        val span = 4_000
+        val f = Fixture(document, from)
+        f.select(from, from + span)
+        f.backspace()
+        f.showPanel()
+        assertTrue("the first edit of a session records its deletion", f.undoAvailable())
+        f.service.onFinishInput()
+    }
+
+    @Test fun a_first_deletion_the_editor_applies_after_the_key_returns_records_it() {
+        val from = 120_000
+        val span = 4_000
+        val f = Fixture(document, from)
+        f.select(from, from + span)
+        f.host.deferred = true
+        f.controller.onKey(Key("", action = KeyAction.BACKSPACE))
+        f.host.flush()
+        f.settle()
+        assertEquals("the editor removed the selection", document.length - span, f.host.text.length)
+        f.showPanel()
+        assertTrue("a deletion the editor applies late still records", f.undoAvailable())
+        f.service.onFinishInput()
+    }
 }

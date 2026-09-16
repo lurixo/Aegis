@@ -377,6 +377,9 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
         return TrackedConnection(target).also { connection = it }
     }
 
+    /** True while an edit sent to the editor has yet to be confirmed by a read. */
+    val hasPendingEdit get() = windowHistory.hasPendingEdit
+
     fun cancelWebTabInput() { webTabInput.clear() }
 
     fun selectionUpdated(start: Int, end: Int) {

@@ -51,8 +51,9 @@ internal class WindowedEditorUndoHistory {
         val afterEnd get() = start + inserted.length
     }
     private data class Prediction(val frame: Frame, val start: Int, val beforeEnd: Int, val afterEnd: Int)
-    private data class Pending(val before: Frame, val baseline: Frame, val predicted: Prediction?,
-        val composing: Boolean, val finishes: Boolean, val aggregate: Frame? = null)
+    private data class Pending(val target: InputConnection, val before: Frame, val baseline: Frame,
+        val predicted: Prediction?, val composing: Boolean, val finishes: Boolean, val aggregate: Frame? = null,
+        val deadline: Long = SystemClock.uptimeMillis() + 2_000L)
     private data class PendingChange(val target: InputConnection, val entry: Change,
         val deadline: Long = SystemClock.uptimeMillis() + 2_000L)
     private data class Replay(val target: InputConnection, val entry: Change, val original: Pair<Int, Int>?,
@@ -88,8 +89,9 @@ internal class WindowedEditorUndoHistory {
     private val replayPump = object : Runnable {
         override fun run() {
             pendingChange?.let { settle(it.target) }
+            pending?.let { settle(it.target) }
             continueReplay()
-            if (replay != null || pendingChange != null) handler.postDelayed(this, 32L)
+            if (replay != null || pendingChange != null || pending != null) handler.postDelayed(this, 32L)
         }
     }
     val active get() = entries.isNotEmpty() || pending != null || pendingChange != null || compositionBefore != null || batchDepth > 0 || replay != null
@@ -326,10 +328,17 @@ internal class WindowedEditorUndoHistory {
             onChange?.invoke()
         }
         val edit = pending ?: return
+        // An editor applies a key event on its own thread, so a read can still show the old text.
+        // Keep waiting until the edit is either confirmed or too old to be worth holding.
+        val expired = SystemClock.uptimeMillis() >= edit.deadline
         val predicted = edit.predicted
         val after = read(target, predicted?.frame?.let { it.start to it.end },
-            maxOf(WINDOW, predicted?.let { it.afterEnd - it.start + GUARD } ?: WINDOW)) ?: return
-        if (predicted == null && !after.absolute && after.start == edit.before.start && after.end == edit.before.end) return
+            maxOf(WINDOW, predicted?.let { it.afterEnd - it.start + GUARD } ?: WINDOW))
+        if (after == null) { if (expired) clear(); return }
+        if (predicted == null && !after.absolute && after.start == edit.before.start && after.end == edit.before.end) {
+            if (expired) clear()
+            return
+        }
         val matches = if (predicted != null) agrees(predicted.frame, after, predicted.start, predicted.afterEnd)
             else change(edit.before, after) != null
         if (matches) finish(edit, after)
@@ -357,11 +366,12 @@ internal class WindowedEditorUndoHistory {
             replacement(previous, predicted.start, predicted.beforeEnd, predicted.frame.slice(predicted.start, predicted.afterEnd),
                 predicted.frame.start to predicted.frame.end)?.frame else null
         if (previous != null && predicted != null && !composing && compositionBefore == null && aggregate == null) batchFailed = true
-        val edit = Pending(before, baseline, predicted, composing, finishes, aggregate)
+        val edit = Pending(target, before, baseline, predicted, composing, finishes, aggregate)
         val accepted = try { action() } catch (error: RuntimeException) { clear(); throw error }
         pending = edit
         settle(target)
         if (!accepted && pending != null) { pending = null; onChange?.invoke() }
+        else if (pending != null) handler.postDelayed(replayPump, 32L)
         return accepted
     }
 
@@ -370,6 +380,15 @@ internal class WindowedEditorUndoHistory {
         reportsSelection = false
         contradicted = false
         contradictions = 0
+    }
+
+    /** True while an edit sent to the editor has yet to be seen in a read. */
+    val hasPendingEdit get() = pending != null
+
+    /** Confirms an edit the editor applied after the key returned, before the panel reads [hasUndo]. */
+    fun settlePending() {
+        pendingChange?.let { settle(it.target) }
+        pending?.let { settle(it.target) }
     }
 
     fun trackLocal(target: InputConnection, operation: WindowEdit, action: () -> Boolean): Boolean? {
@@ -422,6 +441,8 @@ internal class WindowedEditorUndoHistory {
     }
 
     fun selectionUpdated(start: Int, end: Int) {
+        // A report is the editor saying it has applied the edit, so an edit still waiting settles now.
+        pending?.let { settle(it.target) }
         val selection = minOf(start, end) to maxOf(start, end)
         probe?.let { reportsSelection = reportsSelection || it == selection }
         probe = null
