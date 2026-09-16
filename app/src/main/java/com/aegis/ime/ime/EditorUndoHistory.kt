@@ -272,6 +272,9 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
     private val webTabInput = WebEditorTabInput(maxTextLength)
     var preferNativeUndo = false
         set(value) { if (field != value) webTabInput.clear(); field = value }
+    var webWriteSettleMs: Long
+        get() = nativeHistory.writeSettleMs
+        set(value) { nativeHistory.writeSettleMs = value }
     var selectionProvider: (() -> Pair<Int, Int>?)? = null
         set(value) { field = value; windowHistory.selectionProvider = value }
     private var incompleteRead = false

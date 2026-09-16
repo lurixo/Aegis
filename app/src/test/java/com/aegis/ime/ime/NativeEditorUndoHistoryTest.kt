@@ -1130,6 +1130,29 @@ class NativeEditorUndoHistoryTest {
         }
     }
 
+    @Test fun a_local_undo_waits_for_the_host_to_settle_its_previous_text_write_before_selecting() {
+        for (numbered in listOf(false, true)) {
+            val editor = Editor(numbered = numbered)
+            val history = history().apply { webWriteSettleMs = 160 }
+            val connection = history.wrap(editor)
+            assertTrue(connection.commitText("ab", 1))
+            assertTrue(connection.commitText("虽然", 1))
+            val mutations = editor.mutations.size
+            assertFalse("numbered=$numbered", history.undo(connection))
+            assertTrue(history.hasPendingUndo)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(128))
+            assertEquals("numbered=$numbered", "ab虽然", editor.document)
+            assertEquals(mutations, editor.mutations.size)
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(64))
+            assertEquals("numbered=$numbered", "ab", editor.document)
+            assertFalse(history.hasPendingUndo)
+            assertFalse("numbered=$numbered", history.undo(connection))
+            assertEquals("numbered=$numbered", "ab", editor.document)
+            undoStep(history, connection, "numbered=$numbered")
+            assertEquals("numbered=$numbered", "", editor.document)
+        }
+    }
+
     @Test fun a_replayed_deletion_that_lands_on_a_collapsed_host_caret_selects_the_range_again() {
         for (numbered in listOf(false, true)) {
             val editor = Editor(numbered = numbered)

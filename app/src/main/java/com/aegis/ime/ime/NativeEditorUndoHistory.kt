@@ -121,6 +121,8 @@ internal class NativeEditorUndoHistory {
     var onChange: (() -> Unit)? = null
     var onUndoCompleted: ((Boolean) -> Unit)? = null
     var onInsertionCompleted: ((Boolean) -> Unit)? = null
+    var writeSettleMs = 0L
+    private var lastWriteAt = Long.MIN_VALUE / 2
     val hasPendingUndo: Boolean get() = undoing != null
     val hasPendingInsertion: Boolean get() = selectionReplacement != null
     val hasUndo: Boolean get() = pending == null && selectionReplacement == null && undoing == null && undoableEntries > 0
@@ -154,6 +156,8 @@ internal class NativeEditorUndoHistory {
         val operation = undoing
         val deadline = operation?.deadline ?: selectionReplacement?.deadline ?: pending?.deadline ?: return pollDelay
         var delay = if (confirming()) pollDelay else maxOf(pollDelay, CONFIRM_POLL_MS)
+        val settledAt = lastWriteAt + writeSettleMs
+        if (operation?.phase == Phase.SELECT && now < settledAt) delay = minOf(delay, settledAt - now)
         return minOf(delay, maxOf(1L, deadline - now))
     }
 
@@ -627,7 +631,7 @@ internal class NativeEditorUndoHistory {
         val replacing = compositionEntry.takeIf { composingEdit }
         val accepted = try { trackingDepth++; action() }
             catch (error: RuntimeException) { discard(); throw error }
-            finally { trackingDepth-- }
+            finally { trackingDepth--; lastWriteAt = SystemClock.uptimeMillis() }
         if (batchDepth > 0) {
             batchChanged = true
             batchSafe = batchSafe && accepted && before != null
@@ -1406,8 +1410,12 @@ internal class NativeEditorUndoHistory {
                 }
                 Phase.SELECT -> {
                     val edit = current?.let { localEdit(operation.entry, it) }
+                    val settledAt = lastWriteAt + writeSettleMs
                     if (edit == null) {
                         if (current != null || expired) finishUndo(false)
+                        false
+                    } else if (SystemClock.uptimeMillis() < settledAt) {
+                        operation.deadline = maxOf(operation.deadline, settledAt + WAIT_MS)
                         false
                     } else {
                         if (current!!.selectionStart != edit.start || current!!.selectionEnd != edit.end) {
@@ -1435,7 +1443,8 @@ internal class NativeEditorUndoHistory {
                             operation.dispatchedActions = listOf(WindowEdit.Commit(edit.text, 1))
                             operation.phase = Phase.CONFIRM
                             operation.commits++
-                            operation.deadline = SystemClock.uptimeMillis() + WAIT_MS
+                            lastWriteAt = SystemClock.uptimeMillis()
+                            operation.deadline = lastWriteAt + WAIT_MS
                             val accepted = runCatching {
                                 operation.target.beginBatchEdit()
                                 try { operation.target.commitText(edit.text, 1) }

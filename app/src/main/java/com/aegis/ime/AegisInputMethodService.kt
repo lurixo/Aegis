@@ -173,6 +173,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var cutCompletionNotice: String? = null
     private val undoImageLeases = HashMap<String, com.aegis.ime.user.ClipboardStore.InputImageLease>()
     private val editorUndo = EditorUndoHistory().also {
+        it.webWriteSettleMs = WEB_WRITE_SETTLE_MS
         it.selectionProvider = { if (selStart >= 0 && selEnd >= 0) selStart to selEnd else null }
         it.onChange = { refreshUndoAvailability() }
         it.onRetainedImagesChanged = { retained ->
@@ -2827,6 +2828,7 @@ private const val STREAM_CHUNK = 16_384
 private const val TRIM_WINDOW = 8
 private const val NAV_WINDOW = 16_384
 private const val READ_TIMEOUT_MS = 1_500L
+private const val WEB_WRITE_SETTLE_MS = 160L
 private const val PREF_TRANSLATE_MODE = "translate_mode"
 private const val TRANSLATE_DEBOUNCE_MS = 300L
 
