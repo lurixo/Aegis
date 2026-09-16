@@ -21,6 +21,7 @@ import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.dict.TghGrading
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.exp
 import kotlin.math.ln
@@ -102,7 +103,7 @@ class PinyinDecoder(
         val out = ArrayList<BinaryDict.WordFreq>()
         val seen = HashSet<String>()
         for (alias in inputAliases(input)) {
-            for (wf in aliasSource.exact(alias)) if (seen.add(wf.word)) out.add(wf)
+            for (wf in cachedExact(aliasSource, alias)) if (seen.add(wf.word)) out.add(wf)
         }
         return preferredWordFreqs(out)
     }
@@ -252,12 +253,6 @@ class PinyinDecoder(
         val n = readingKey.length
         val m = cps.size
         if (m == 0) return 1.0
-        val cache = HashMap<String, Map<String, Int>>()
-        fun singleFreqs(key: String): Map<String, Int> = cache.getOrPut(key) {
-            val map = HashMap<String, Int>()
-            for (wf in preferredExact(dict, key)) if (isSingleChar(wf.word)) map.putIfAbsent(wf.word, wf.freq)
-            map
-        }
         val dp = Array(n + 1) { DoubleArray(m + 1) { Double.NEGATIVE_INFINITY } }
         dp[0][0] = Double.MAX_VALUE
         for (p in 0 until n) for (i in 0 until m) {
@@ -274,6 +269,14 @@ class PinyinDecoder(
         }
         val best = dp[n][m]
         return if (best == Double.NEGATIVE_INFINITY || best == Double.MAX_VALUE) 1.0 else best.coerceAtLeast(1.0)
+    }
+
+    private val singleFreqResults = BoundedLru<String, Map<String, Int>>(SINGLE_FREQ_CACHE_WEIGHT) { it.size + 1 }
+
+    private fun singleFreqs(key: String): Map<String, Int> = singleFreqResults.getOrPut(key) {
+        val map = HashMap<String, Int>()
+        for (wf in preferredExact(dict, key)) if (isSingleChar(wf.word)) map.putIfAbsent(wf.word, wf.freq)
+        map
     }
 
     private fun edgesFor(sub: String): List<Edge> {
@@ -296,8 +299,9 @@ class PinyinDecoder(
             }
         }
         if (exactFull || out.size >= edgeN) return out
-        if (fuzzyRules.isNotEmpty()) {
-            for (variant in fuzzyVariants(sub, fuzzyRules)) {
+        val rules = fuzzyRules
+        if (rules.isNotEmpty()) {
+            for (variant in cachedFuzzyVariants(sub, rules)) {
                 for (wf in preferredExact(dict, variant, edgeN + seen.size)) {
                     if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, fuzzyPenalty))
                     if (out.size >= edgeN) return out
@@ -420,17 +424,41 @@ class PinyinDecoder(
     private fun wordModelScore(word: String, freq: Int, ctxId: Int, ctx: Ctx, condMemo: CondMemo): Double =
         wordModelScore(word, freq.toDouble(), ctxId, ctx, condMemo)
 
-    private fun wordModelScore(word: String, freq: Double, ctxId: Int, ctx: Ctx, condMemo: CondMemo): Double =
-        (ln(freq) - lnTotal) +
+    private fun wordModelScore(word: String, freq: Double, ctxId: Int, ctx: Ctx, condMemo: CondMemo): Double {
+        val terms = contextTerms(word, ctxId, ctx, condMemo)
+        return (ln(freq) - lnTotal) +
             (userModel?.wordBoost(word) ?: 0.0) +
             userLearningScore(ctx.tail, word) +
-            (octagram?.let { octagramWeight * (it.rawScore(word) ?: 0.0) } ?: 0.0) +
-            (lm?.let {
+            terms[0] +
+            terms[1] +
+            terms[2]
+    }
+
+    private class WordTerms(val ctx: Ctx) {
+        val terms = ConcurrentHashMap<String, DoubleArray>()
+    }
+
+    @Volatile private var wordTerms: WordTerms? = null
+
+    private fun contextTerms(word: String, ctxId: Int, ctx: Ctx, condMemo: CondMemo): DoubleArray {
+        var cache = wordTerms
+        if (cache == null || cache.ctx != ctx || cache.terms.size >= WORD_TERMS_LIMIT) {
+            cache = WordTerms(ctx)
+            wordTerms = cache
+        }
+        cache.terms[word]?.let { return it }
+        val computed = doubleArrayOf(
+            octagram?.let { octagramWeight * (it.rawScore(word) ?: 0.0) } ?: 0.0,
+            lm?.let {
                 val lam = activeLambda(ctx)
                 (if (lam == 0.0) 0.0 else lam * internalBigramScore(word, it, condMemo)) +
                     if (ctxId != NO_CTX) contextWeight * logCondMemo(condMemo, it, ctxId, it.charId(word.codePointAt(0))) else 0.0
-            } ?: 0.0) +
-            octagramWeight * contextArm(ctx.tail, word)
+            } ?: 0.0,
+            octagramWeight * contextArm(ctx.tail, word),
+        )
+        cache.terms[word] = computed
+        return computed
+    }
 
     internal data class Ctx(val cp: Int, val tail: String) {
         companion object {
@@ -502,11 +530,67 @@ class PinyinDecoder(
     private fun preferredWordFreqs(words: List<BinaryDict.WordFreq>): List<BinaryDict.WordFreq> =
         words.sortedWith(compareByDescending<BinaryDict.WordFreq> { it.freq }.thenBy { supplementarySingleTieRank(it.word) })
 
+    private class BoundedLru<K : Any, V : Any>(private val budget: Int, private val weigh: (V) -> Int) {
+        private val entries = LinkedHashMap<K, V>(16, 0.75f, true)
+        private var weight = 0
+
+        @Synchronized
+        fun get(key: K): V? = entries[key]
+
+        @Synchronized
+        fun put(key: K, value: V) {
+            entries.put(key, value)?.let { weight -= weigh(it) }
+            weight += weigh(value)
+            val eldest = entries.values.iterator()
+            while (weight > budget && entries.size > 1) {
+                weight -= weigh(eldest.next())
+                eldest.remove()
+            }
+        }
+
+        inline fun getOrPut(key: K, compute: () -> V): V = get(key) ?: compute().also { put(key, it) }
+    }
+
+    private val initialSingleSets = ConcurrentHashMap<String, Set<String>>()
+
+    private enum class DictLookup { EXACT, PREFERRED, PREFIX }
+
+    private data class DictQuery(val lookup: DictLookup, val source: BinaryDict, val key: String, val limit: Int)
+
+    private val dictResults = BoundedLru<DictQuery, List<BinaryDict.WordFreq>>(DICT_CACHE_WEIGHT) { it.size + 1 }
+
+    private fun cachedExact(source: BinaryDict, key: String): List<BinaryDict.WordFreq> =
+        dictResults.getOrPut(DictQuery(DictLookup.EXACT, source, key, Int.MAX_VALUE)) { source.exact(key) }
+
+    private fun cachedPrefix(source: BinaryDict, prefix: String, limit: Int): List<BinaryDict.WordFreq> =
+        dictResults.getOrPut(DictQuery(DictLookup.PREFIX, source, prefix, limit)) { source.prefixByFreq(prefix, limit) }
+
     private fun preferredExact(source: BinaryDict, key: String, limit: Int = Int.MAX_VALUE): List<BinaryDict.WordFreq> {
         if (limit <= 0) return emptyList()
+        return dictResults.getOrPut(DictQuery(DictLookup.PREFERRED, source, key, limit)) {
+            lookupPreferredExact(source, key, limit)
+        }
+    }
+
+    private fun lookupPreferredExact(source: BinaryDict, key: String, limit: Int): List<BinaryDict.WordFreq> {
         val scanLimit = if (limit == Int.MAX_VALUE) limit else limit + EXACT_TIE_LOOKAHEAD
         val preferred = preferredWordFreqs(source.exact(key, scanLimit))
-        return if (preferred.size <= limit) preferred else preferred.subList(0, limit)
+        return if (preferred.size <= limit) preferred else preferred.subList(0, limit).toList()
+    }
+
+    private class VariantCache(val rules: Set<String>) {
+        val variants = BoundedLru<String, List<String>>(VARIANT_CACHE_WEIGHT) { it.size + 1 }
+    }
+
+    @Volatile private var variantCache: VariantCache? = null
+
+    private fun cachedFuzzyVariants(key: String, rules: Set<String>): List<String> {
+        var cache = variantCache
+        if (cache == null || cache.rules !== rules) {
+            cache = VariantCache(rules)
+            variantCache = cache
+        }
+        return cache.variants.getOrPut(key) { fuzzyVariants(key, rules) }
     }
 
     private class Norm(val clean: String, val cuts: Set<Int>, val origLen: IntArray, private val cleanLenAtOrig: IntArray) {
@@ -581,15 +665,15 @@ class PinyinDecoder(
         if (rules.isEmpty()) return candidates
         val exact = HashMap<String, Set<String>>()
         val targets = HashMap<String, Map<String, String>>()
-        val readings = ReadingLookup(aliasDict ?: dict)
+        val readings = fuzzyReadingLookup()
         return candidates.map { candidate ->
             if (candidate.correctedReading != null) return@map candidate
             val source = input.take(candidate.coveredLen).replace("'", "")
-            if (candidate.word in exact.getOrPut(source) { dict.exact(source).mapTo(HashSet()) { it.word } }) return@map candidate
+            if (candidate.word in exact.getOrPut(source) { preferredExact(dict, source).mapTo(HashSet()) { it.word } }) return@map candidate
             val target = targets.getOrPut(source) {
                 buildMap {
-                    for (variant in fuzzyVariants(source, rules)) {
-                        for (wf in dict.exact(variant)) putIfAbsent(wf.word, variant)
+                    for (variant in cachedFuzzyVariants(source, rules)) {
+                        for (wf in preferredExact(dict, variant)) putIfAbsent(wf.word, variant)
                     }
                 }
             }[candidate.word] ?: return@map candidate
@@ -628,21 +712,22 @@ class PinyinDecoder(
             return true
         }
         val exactWords = HashSet<String>()
-        for (wf in dict.exact(input)) {
+        for (wf in cachedExact(dict, input)) {
             if (!isSingleChar(wf.word)) exactWords.add(wf.word)
             offer(wf, 0.0)
         }
         inputAliasWordFreqs(input).forEach { offer(it, ALIAS_PENALTY) }
-        dict.prefixByFreq(input, completionCap).forEach { offer(it, 0.0) }
+        cachedPrefix(dict, input, completionCap).forEach { offer(it, 0.0) }
         for (uw in userWordsFor(input)) offer(BinaryDict.WordFreq(uw, userWordFreq(uw, input).toInt().coerceAtLeast(1)), 0.0)
         val fuzzyExactWords = HashSet<String>()
-        if (fuzzyRules.isNotEmpty()) {
-            for (variant in fuzzyVariants(input, fuzzyRules)) {
-                for (wf in dict.exact(variant)) {
+        val rules = fuzzyRules
+        if (rules.isNotEmpty()) {
+            for (variant in cachedFuzzyVariants(input, rules)) {
+                for (wf in cachedExact(dict, variant)) {
                     fuzzyExactWords.add(wf.word)
                     offer(wf, fuzzyPenalty)
                 }
-                dict.prefixByFreq(variant, completionCap).forEach { offer(it, fuzzyPenalty) }
+                cachedPrefix(dict, variant, completionCap).forEach { offer(it, fuzzyPenalty) }
             }
         }
         val reservedInitials = HashSet<String>()
@@ -657,7 +742,7 @@ class PinyinDecoder(
                     }
                 }
             }
-            id.prefixByFreq(input, completionCap).forEach { if (offer(it, INITIALS_PENALTY)) initialsOnly.add(it.word) }
+            cachedPrefix(id, input, completionCap).forEach { if (offer(it, INITIALS_PENALTY)) initialsOnly.add(it.word) }
         }
         pool.sortWith(
             compareByDescending<RankedWord> { it.score }
@@ -713,13 +798,13 @@ class PinyinDecoder(
     }
 
     private fun closeWithRareSingles(input: String, out: MutableList<Cand>) {
-        val heads = HashMap<String, Map<String, Double>>()
+        val heads = HashMap<Int, Map<String, Double>>()
         val rare = ArrayList<Cand>()
         var write = 0
         for (c in out) {
-            val key = input.substring(0, c.coveredLen.coerceIn(1, input.length))
+            val len = c.coveredLen.coerceIn(1, input.length)
             val closing = isSingleChar(c.word) &&
-                rareSingle(c.word, heads.getOrPut(key) { homophoneFreqs(key).toMap() })
+                rareSingle(c.word, heads.getOrPut(len) { homophoneFreqMap(input.substring(0, len)) })
             if (closing) rare.add(c) else out[write++] = c
         }
         for (c in rare) out[write++] = c
@@ -887,7 +972,7 @@ class PinyinDecoder(
         val m = cps.size
         fun singles(k: String): Set<String> = singlesCache.getOrPut(k) {
             val out = HashSet<String>()
-            for (wf in dict.exact(k)) if (isSingleChar(wf.word)) out.add(wf.word)
+            for (wf in cachedExact(dict, k)) if (isSingleChar(wf.word)) out.add(wf.word)
             out
         }
         fun parses(respectCuts: Boolean): Boolean {
@@ -1212,7 +1297,17 @@ class PinyinDecoder(
         return if (rank <= GENERAL_USE_CARDINALITY) band - 1 else band
     }
 
-    internal fun homophoneFreqs(key: String): List<Pair<String, Double>> {
+    private val homophoneResults = BoundedLru<String, List<Pair<String, Double>>>(HOMOPHONE_CACHE_WEIGHT) { it.size + 1 }
+
+    internal fun homophoneFreqs(key: String): List<Pair<String, Double>> =
+        homophoneResults.getOrPut(key) { lookupHomophoneFreqs(key) }
+
+    private val homophoneMaps = BoundedLru<String, Map<String, Double>>(HOMOPHONE_CACHE_WEIGHT) { it.size + 1 }
+
+    private fun homophoneFreqMap(key: String): Map<String, Double> =
+        homophoneMaps.getOrPut(key) { homophoneFreqs(key).toMap() }
+
+    private fun lookupHomophoneFreqs(key: String): List<Pair<String, Double>> {
         val out = ArrayList<Pair<String, Double>>()
         val seen = HashSet<String>()
         for (wf in preferredExact(dict, key)) {
@@ -1391,7 +1486,7 @@ class PinyinDecoder(
             }
             if (!includePartial) continue
             val letters = toLetters(v.input)
-            val completion = dict.prefixByFreq(letters, 1).firstOrNull() ?: continue
+            val completion = cachedPrefix(dict, letters, 1).firstOrNull() ?: continue
             val syllables = PinyinCorrection.syllableCount(split.prefix) ?: 0
             val score = ln(completion.freq.toDouble()) - lnTotal + GUESS_SYLLABLE_BONUS * syllables - v.edit.penalty
             scored.add(GuessVariant(v.input, letters, split.prefix, null, score))
@@ -1400,11 +1495,21 @@ class PinyinDecoder(
         return if (scored.size <= GUESS_VARIANTS) scored else scored.subList(0, GUESS_VARIANTS)
     }
 
+    @Volatile private var fuzzyReadings: ReadingLookup? = null
+
+    private fun fuzzyReadingLookup(): ReadingLookup {
+        val current = fuzzyReadings
+        if (current != null && current.size() < READING_LOOKUP_LIMIT) return current
+        return ReadingLookup(aliasDict ?: dict).also { fuzzyReadings = it }
+    }
+
     private class ReadingLookup(private val source: BinaryDict) {
         private data class Query(val remaining: String, val t9: Boolean, val prefix: Boolean)
 
-        private val matches = HashMap<Query, List<Pair<String, String>>>()
-        private val frequencies = HashMap<String, Map<String, Int>>()
+        private val matches = ConcurrentHashMap<Query, List<Pair<String, String>>>()
+        private val frequencies = ConcurrentHashMap<String, Map<String, Int>>()
+
+        fun size(): Int = matches.size
 
         fun matching(remaining: String, t9: Boolean, prefix: Boolean): List<Pair<String, String>> =
             matches.getOrPut(Query(remaining, t9, prefix)) {
@@ -1471,7 +1576,7 @@ class PinyinDecoder(
         for (gv in variants) {
             gv.sentence?.let { if (add(it, gv, GuessSource.SENTENCE)) return out.values.toList() }
             val count = if (gv.prefix == null) GUESS_PREFIX_WORDS else GUESS_PARTIAL_WORDS
-            for (wf in dict.prefixByFreq(gv.input, count)) {
+            for (wf in cachedPrefix(dict, gv.input, count)) {
                 if (add(wf.word, gv, GuessSource.PREFIX)) return out.values.toList()
             }
         }
@@ -1540,6 +1645,10 @@ class PinyinDecoder(
         const val CTX_WORD_MAX = 4
         const val MAX_SYLLABLE_KEY_LEN = 6
         const val EXACT_TIE_LOOKAHEAD = 16
+        const val DICT_CACHE_WEIGHT = 8_192
+        const val SINGLE_FREQ_CACHE_WEIGHT = 8_192
+        const val HOMOPHONE_CACHE_WEIGHT = 4_096
+        const val VARIANT_CACHE_WEIGHT = 4_096
         const val COND_MEMO_CAPACITY = 256
         const val COND_MEMO_MAX_CAPACITY = 1 shl 13
         const val SENTENCE_STATE_CAPACITY = 256
@@ -1550,6 +1659,8 @@ class PinyinDecoder(
         const val HAN_YES: Byte = 1
         const val HAN_NO: Byte = 2
         private val HAN_TABLE = ByteArray(HAN_TABLE_SIZE)
+        const val WORD_TERMS_LIMIT = 20_000
+        const val READING_LOOKUP_LIMIT = 4_096
         const val ORDERING_RARE_FREQ = 100.0
         const val ORDERING_COMMON_FREQ = 1000.0
         const val ORDERING_INJECTED_FREQ = 1.0
