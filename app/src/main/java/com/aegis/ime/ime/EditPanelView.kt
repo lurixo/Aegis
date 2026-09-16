@@ -139,6 +139,7 @@ class EditPanelView(context: Context) :
             Triple(EditAction.END, R.string.edit_text_end, false),
         )) addKey(action, context.getString(label), glyph(8f) { c, p, x, y, s ->
             c.save()
+            c.translate(0f, if (start) s * 0.14f else -s * 0.14f)
             c.rotate(90f, x, y)
             Glyphs.drawArrowToEdge(c, p, x, y, s, start)
             c.restore()

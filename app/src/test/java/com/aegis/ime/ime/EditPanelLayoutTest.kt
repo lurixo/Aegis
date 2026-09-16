@@ -18,6 +18,8 @@ package com.aegis.ime.ime
 import android.app.Activity
 import android.content.Context
 import android.content.res.Configuration
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Rect
 import android.os.Looper
 import android.util.TypedValue
@@ -96,6 +98,29 @@ class EditPanelLayoutTest {
                 assertEquals("$width x $height $action keeps the ordinary font", reference.typeface, target.typeface)
                 assertEquals("$width x $height $action keeps the ordinary weight", reference.paint.isFakeBoldText, target.paint.isFakeBoldText)
             }
+        }
+    }
+
+    @Test @Config(qualifiers = "xxhdpi")
+    fun text_start_and_end_glyphs_occupy_the_same_vertical_span() {
+        for ((width, height) in sizes) {
+            val panel = EditPanelView(localizedContext("zh"))
+            layout(panel, width, height)
+            val spans = listOf(EditAction.HOME, EditAction.END).map { action ->
+                val target = requireNotNull(panel.actionViewForTest(action)) as TextView
+                val icon = requireNotNull(target.compoundDrawables.firstOrNull { it != null })
+                val bitmap = Bitmap.createBitmap(icon.bounds.width(), icon.bounds.height(), Bitmap.Config.ARGB_8888)
+                val canvas = Canvas(bitmap)
+                canvas.translate(-icon.bounds.left.toFloat(), -icon.bounds.top.toFloat())
+                icon.draw(canvas)
+                val rows = (0 until bitmap.height).filter { y -> (0 until bitmap.width).any { x -> bitmap.getPixel(x, y) ushr 24 != 0 } }
+                assertTrue("$width x $height $action draws ink", rows.isNotEmpty())
+                Triple(rows.first(), rows.last(), bitmap.height)
+            }
+            val (home, end) = spans
+            assertEquals("$width x $height start and end glyph tops", home.first, end.first)
+            assertEquals("$width x $height start and end glyph bottoms", home.second, end.second)
+            assertEquals("$width x $height start glyph is centred in its box", home.third - 1f, (home.first + home.second).toFloat(), 2f)
         }
     }
 
