@@ -51,7 +51,7 @@ class AppVersionCardTest {
     @Test fun release_version_code_matches_the_beta_candidate() {
         val gradle = File("build.gradle.kts").readText()
 
-        assertTrue("release version code should be the beta candidate", gradle.contains("versionCode = 9149"))
+        assertTrue("release version code should be the beta candidate", gradle.contains("versionCode = 9165"))
     }
 
     @Test fun app_release_label_resource_is_not_a_stale_hard_coded_version() {
