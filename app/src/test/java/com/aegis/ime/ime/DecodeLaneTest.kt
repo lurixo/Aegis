@@ -232,4 +232,25 @@ class DecodeLaneTest {
         }
     }
 
+    @Test fun worker_tasks_run_in_submission_order_and_are_never_skipped() {
+        val order = ArrayList<String>()
+        lane.submit(compute = { order.add("decode 1") }, apply = { })
+        lane.execute { order.add("task a") }
+        lane.submit(compute = { order.add("decode 2") }, apply = { })
+        lane.execute { order.add("task b") }
+        runWorker(); runMain()
+        assertEquals(listOf("task a", "decode 2", "task b"), order)
+    }
+
+    @Test fun a_failing_worker_task_is_logged_and_the_next_one_still_runs() {
+        val logged = ArrayList<Throwable>()
+        val logging = DecodeLane(worker, main, logError = { logged.add(it) })
+        var ran = false
+        logging.execute { error("boom") }
+        logging.execute { ran = true }
+        runWorker()
+        assertEquals(1, logged.size)
+        assertTrue(ran)
+    }
+
 }

@@ -63,6 +63,10 @@ class DecodeLane(
         }
     }
 
+    fun execute(task: () -> Unit) {
+        worker.execute { runCatching(task).exceptionOrNull()?.let(logError) }
+    }
+
     fun settle(): Boolean {
         val gen = lastRequested
         if (gen <= lastApplied) return true

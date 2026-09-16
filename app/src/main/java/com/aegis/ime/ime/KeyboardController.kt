@@ -65,6 +65,8 @@ class KeyboardController(
 ) {
     private data class LearnEvent(val prevWord: String?, val word: String, val prefixEnd: Int, val reading: String)
 
+    private val pendingLearning = java.util.concurrent.ConcurrentLinkedQueue<() -> Unit>()
+
     private var lang = Lang.CN
     private var shiftState = ShiftState.OFF
     private val shifted get() = shiftState != ShiftState.OFF
@@ -281,6 +283,7 @@ class KeyboardController(
     fun reset(preserveLayout: Boolean = false) {
         userLearning?.observeBreak()
         decodeLane?.markSatisfiedSynchronously()
+        drainLearning()
         composing.setLength(0)
         literalIndices.clear()
         candidates = emptyList()
@@ -1019,8 +1022,28 @@ class KeyboardController(
             if (!Character.isIdeographic(cp)) return
             i += Character.charCount(cp)
         }
-        val spelled = engine.spelledReading(word, reading)
-        if (spelled.isNotEmpty()) engine.learnWord(spelled, word, assembled)
+        val target = engine
+        learnOnWorker {
+            val spelled = target.spelledReading(word, reading)
+            if (spelled.isNotEmpty()) target.learnWord(spelled, word, assembled)
+        }
+    }
+
+    private fun learnOnWorker(job: () -> Unit) {
+        val lane = decodeLane
+        if (lane == null) {
+            job()
+            return
+        }
+        pendingLearning.add(job)
+        lane.execute(::drainLearning)
+    }
+
+    private fun drainLearning() = synchronized(pendingLearning) {
+        while (true) {
+            val job = pendingLearning.poll() ?: break
+            job()
+        }
     }
 
     private fun candidateStaysInPreedit(cand: Cand): Boolean =
@@ -1190,6 +1213,7 @@ class KeyboardController(
         }
         if (settled) return
         lane.markSatisfiedSynchronously()
+        drainLearning()
         applyDecodeResult(computeDecode(buildDecodeRequest()))
     }
 
