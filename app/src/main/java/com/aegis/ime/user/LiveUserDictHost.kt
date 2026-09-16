@@ -30,6 +30,7 @@ class LiveUserDictHost(
     private val userLearning: UserLearning? = null,
     private val userLearnFile: File? = null,
     private val onSaved: (userDbMtime: Long?, userLearnMtime: Long?) -> Unit = { _, _ -> },
+    private val onWordsReplaced: () -> Unit = {},
 ) : UserDictHot.Host {
 
     @Volatile
@@ -77,11 +78,12 @@ class LiveUserDictHost(
         } catch (_: IOException) {
             return false
         }
+        onWordsReplaced()
         return save().dictionary
     }
 
     override fun reloadDictionary(): Boolean =
-        onWriterThread(false) { runCatching { model.replaceWordsFrom(userDb) }.isSuccess }
+        onWriterThread(false) { runCatching { model.replaceWordsFrom(userDb) }.isSuccess }.also { if (it) onWordsReplaced() }
 
     override fun entries(): List<UserModel.Entry> = model.userWordEntries()
 
@@ -158,6 +160,10 @@ class LiveUserDictHost(
     }
 
     fun handOff(work: () -> Unit): Boolean = runCatching { io.execute(work) }.isSuccess
+
+    fun repairReadings(repairs: List<UserModel.ReadingRepair>): Boolean = handOff {
+        if (!LiveUserData.restoreInProgress && model.readable && model.repairReadings(repairs)) scheduleSave()
+    }
 
     fun stopSaving() {
         runCatching { io.shutdown() }

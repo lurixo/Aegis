@@ -216,6 +216,40 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         return out
     }
 
+    data class ReadingRepair(val reading: String, val word: String, val spelled: String?)
+
+    @Synchronized
+    fun unmarkedReadings(): List<Pair<String, String>> {
+        if (!readable) return emptyList()
+        val out = ArrayList<Pair<String, String>>()
+        for ((r, ws) in readings) {
+            val kept = manual[r]
+            for (w in ws) if (kept == null || w !in kept) out.add(r to w)
+        }
+        return out
+    }
+
+    @Synchronized
+    fun repairReadings(repairs: Collection<ReadingRepair>): Boolean {
+        if (!readable) return false
+        var changed = false
+        for (repair in repairs) {
+            val spelled = repair.spelled
+            if (spelled != null && (spelled == repair.reading || !isStoredReading(spelled))) continue
+            if (manual[repair.reading]?.contains(repair.word) == true) continue
+            val set = readings[repair.reading] ?: continue
+            if (!set.remove(repair.word)) continue
+            if (set.isEmpty()) readings.remove(repair.reading)
+            if (spelled != null) readings.getOrPut(spelled) { LinkedHashSet() }.add(repair.word)
+            changed = true
+        }
+        if (!changed) return false
+        dirty = true
+        version++
+        readingsVersion++
+        return true
+    }
+
     @Synchronized
     fun wordBoost(word: String): Double {
         val c = count[word] ?: return 0.0
@@ -596,6 +630,9 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         }
 
         internal fun normalizeReading(reading: String): String = sanitizeReading(reading)
+
+        private fun isStoredReading(reading: String): Boolean =
+            reading.isNotEmpty() && reading.length <= MAX_READING_LENGTH && reading == sanitizeReading(reading)
 
         private fun sanitizeReading(reading: String): String {
             val sb = StringBuilder(reading.length)
