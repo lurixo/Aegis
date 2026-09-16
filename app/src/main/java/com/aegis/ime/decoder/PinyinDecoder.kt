@@ -405,16 +405,39 @@ class PinyinDecoder(
         wordModelScore(word, freq.toDouble(), ctxId, ctx)
 
     private fun wordModelScore(word: String, freq: Double, ctxId: Int, ctx: Ctx): Double {
+        val terms = contextTerms(word, ctxId, ctx)
         return (ln(freq) - lnTotal) +
             (userModel?.wordBoost(word) ?: 0.0) +
             userLearningScore(ctx.tail, word) +
-            (octagram?.let { octagramWeight * (it.rawScore(word) ?: 0.0) } ?: 0.0) +
-            (lm?.let {
+            terms[0] +
+            terms[1] +
+            terms[2]
+    }
+
+    private class WordTerms(val ctx: Ctx) {
+        val terms = ConcurrentHashMap<String, DoubleArray>()
+    }
+
+    @Volatile private var wordTerms: WordTerms? = null
+
+    private fun contextTerms(word: String, ctxId: Int, ctx: Ctx): DoubleArray {
+        var cache = wordTerms
+        if (cache == null || cache.ctx != ctx || cache.terms.size >= WORD_TERMS_LIMIT) {
+            cache = WordTerms(ctx)
+            wordTerms = cache
+        }
+        cache.terms[word]?.let { return it }
+        val computed = doubleArrayOf(
+            octagram?.let { octagramWeight * (it.rawScore(word) ?: 0.0) } ?: 0.0,
+            lm?.let {
                 val lam = activeLambda(ctx)
                 (if (lam == 0.0) 0.0 else lam * internalBigramScore(word, it)) +
                     if (ctxId != NO_CTX) contextWeight * logCondMemo(it, ctxId, it.charId(word.codePointAt(0))) else 0.0
-            } ?: 0.0) +
-            octagramWeight * contextArm(ctx.tail, word)
+            } ?: 0.0,
+            octagramWeight * contextArm(ctx.tail, word),
+        )
+        cache.terms[word] = computed
+        return computed
     }
 
     internal data class Ctx(val cp: Int, val tail: String) {
@@ -1686,6 +1709,7 @@ class PinyinDecoder(
         const val HOMOPHONE_CACHE_WEIGHT = 4_096
         const val VARIANT_CACHE_WEIGHT = 4_096
         const val SENTENCE_STATE_CAPACITY = 256
+        const val WORD_TERMS_LIMIT = 20_000
         const val READING_LOOKUP_LIMIT = 4_096
         const val ORDERING_RARE_FREQ = 100.0
         const val ORDERING_COMMON_FREQ = 1000.0
