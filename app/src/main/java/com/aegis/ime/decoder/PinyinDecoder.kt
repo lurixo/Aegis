@@ -17,6 +17,7 @@ package com.aegis.ime.decoder
 
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.dict.DecodeCancellation
 import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.dict.TghGrading
 import com.aegis.ime.user.UserLearning
@@ -691,6 +692,7 @@ class PinyinDecoder(
         val targets = HashMap<String, Map<String, String>>()
         val readings = fuzzyReadingLookup()
         return candidates.map { candidate ->
+            DecodeCancellation.checkpoint()
             if (candidate.correctedReading != null) return@map candidate
             val source = input.take(candidate.coveredLen).replace("'", "")
             if (candidate.word in exact.getOrPut(source) { preferredExact(dict, source).mapTo(HashSet()) { it.word } }) return@map candidate
@@ -723,6 +725,7 @@ class PinyinDecoder(
         val cover = LinkedHashMap<String, Int>()
         val completionCap = completionCap(limit)
         val sentence = bestSentence(input, ctx)?.also { cover[it] = input.length }
+        DecodeCancellation.checkpoint()
         val pool = ArrayList<RankedWord>()
         val offered = HashSet<String>()
         fun offer(wf: BinaryDict.WordFreq, penalty: Double): Boolean {
@@ -747,6 +750,7 @@ class PinyinDecoder(
         val rules = fuzzyRules
         if (rules.isNotEmpty()) {
             for (variant in cachedFuzzyVariants(input, rules)) {
+                DecodeCancellation.checkpoint()
                 for (wf in cachedExact(dict, variant)) {
                     fuzzyExactWords.add(wf.word)
                     offer(wf, fuzzyPenalty)
@@ -768,6 +772,7 @@ class PinyinDecoder(
             }
             cachedPrefix(id, input, completionCap).forEach { if (offer(it, INITIALS_PENALTY)) initialsOnly.add(it.word) }
         }
+        DecodeCancellation.checkpoint()
         pool.sortWith(
             compareByDescending<RankedWord> { it.score }
                 .thenBy { supplementarySingleTieRank(it.wordFreq.word) },
@@ -784,6 +789,7 @@ class PinyinDecoder(
             if (cover.putIfAbsent(wf.word, input.length) == null && reserved) pendingInitials--
         }
         val guesses = guessCorrections(input, ctx, GUESS_LIMIT)
+        DecodeCancellation.checkpoint()
         guessSink?.addAll(guesses.map { it.word })
         val out = ArrayList<Cand>(cover.size + guesses.size + 20)
         val assembled = assembledWordsFor(input, cover.keys.firstOrNull())
@@ -815,6 +821,7 @@ class PinyinDecoder(
         }
         val covered = out.mapTo(HashSet<String>(out.size * 2)) { it.word }
         appendLeadingSingles(input, input.length, out, ctx, condMemo)
+        DecodeCancellation.checkpoint()
         closeWithRareSingles(input, out)
         var remainderStart = 0
         while (remainderStart < out.size && out[remainderStart].word in covered) remainderStart++
@@ -842,6 +849,7 @@ class PinyinDecoder(
 
         val singlesCache = HashMap<String, Set<String>>()
         val sentences = atomicSentences(input, B, interior, ctx, singlesCache)
+        DecodeCancellation.checkpoint()
 
         val best = sentences.firstOrNull()?.text
 
@@ -922,6 +930,7 @@ class PinyinDecoder(
         }
         for (sentence in sentences) offerTail(sentence.text, input.length, nSyl, 1.0)
         for ((w, _) in segmentSingleFreqs(input.substring(0, B[1]))) offerTail(w, B[1], 1, 0.0)
+        DecodeCancellation.checkpoint()
         val tailRanked = tailCand.values.sortedWith(
             compareBy<Cand> { isSingleChar(it.word) }
                 .thenByDescending { tailScore[it.word] ?: Double.NEGATIVE_INFINITY }
@@ -1123,6 +1132,7 @@ class PinyinDecoder(
         dp[0].add(APath("", ctx.cp, if (octagram == null && userLearning == null) "" else ctx.tail, 0.0))
         val initial = initialSegments(input, B)
         for (i in 0 until nSyl) {
+            DecodeCancellation.checkpoint()
             if (dp[i].isEmpty()) continue
             val src = dp[i].sortedByDescending { it.score }.take(BEAM_W)
             for (j in i + 1..nSyl) {
@@ -1202,6 +1212,7 @@ class PinyinDecoder(
             entries.add(Entry(word, cov, wordModelScore(word, frequency, ctxId, ctx, condMemo), frequency))
         }
         for (q in span downTo 1) {
+            DecodeCancellation.checkpoint()
             for (wf in preferredExact(dict, input.substring(0, q))) {
                 if (isSingleChar(wf.word) || !seen.add(wf.word)) continue
                 record(wf.word, q, wf.freq.toDouble())
@@ -1496,6 +1507,7 @@ class PinyinDecoder(
         dp[0][initial] = Cell(0.0, -1, null, "")
 
         for (q in 1..n) {
+            DecodeCancellation.checkpoint()
             for (p in 0 until q) {
                 val from = dp[p]
                 if (from.isEmpty()) continue
@@ -1580,6 +1592,7 @@ class PinyinDecoder(
         val edgeMemo = HashMap<String, List<Edge>>()
         val condMemo = CondMemo()
         for (v in variants) {
+            DecodeCancellation.checkpoint()
             val split = v.partial
             if (split == null) {
                 val letters = toLetters(v.input)
@@ -1673,12 +1686,14 @@ class PinyinDecoder(
         }
         val variants = scoreGuessVariants(PinyinCorrection.variants(input), ctx, includePartial = true) { it }
         for (gv in variants) {
+            DecodeCancellation.checkpoint()
             if (gv.prefix != null) continue
             for (wf in preferredExact(dict, gv.input, GUESS_EXACT_WORDS)) {
                 if (add(wf.word, gv, GuessSource.EXACT)) return out.values.toList()
             }
         }
         for (gv in variants) {
+            DecodeCancellation.checkpoint()
             gv.sentence?.let { if (add(it, gv, GuessSource.SENTENCE)) return out.values.toList() }
             val count = if (gv.prefix == null) GUESS_PREFIX_WORDS else GUESS_PARTIAL_WORDS
             for (wf in cachedPrefix(dict, gv.input, count)) {
@@ -1710,6 +1725,7 @@ class PinyinDecoder(
             if (t9Active) { v -> T9Pinyin.preedit(v).replace(SEP.toString(), "") } else { v -> v }
         val out = LinkedHashMap<String, String>()
         for (gv in scoreGuessVariants(PinyinCorrection.variants(active), ctx, includePartial = false, toLetters)) {
+            DecodeCancellation.checkpoint()
             val full = locked + gv.letters
             if (full.isEmpty() || gv.letters.any { it !in 'a'..'z' }) continue
             val interior = lockedCuts.filter { it in 1 until full.length }.toSet()

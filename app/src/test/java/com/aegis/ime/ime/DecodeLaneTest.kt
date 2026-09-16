@@ -15,11 +15,17 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.dict.DecodeCancellation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.ConcurrentLinkedQueue
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 
 class DecodeLaneTest {
 
@@ -123,4 +129,64 @@ class DecodeLaneTest {
             exec.shutdownNow()
         }
     }
+
+    @Test fun a_superseded_compute_stops_at_its_next_checkpoint_without_reporting_an_error() {
+        val exec = Executors.newSingleThreadExecutor()
+        try {
+            val logged = ConcurrentLinkedQueue<Throwable>()
+            val posted = ConcurrentLinkedQueue<Runnable>()
+            val realLane = DecodeLane(exec, Executor { posted.add(it) }, logError = { logged.add(it) })
+            val running = CountDownLatch(1)
+            val finishedFirst = AtomicInteger(0)
+            val checkpoints = AtomicInteger(0)
+            val applied = ConcurrentLinkedQueue<String>()
+            realLane.submit(
+                compute = {
+                    running.countDown()
+                    repeat(10_000_000) { checkpoints.incrementAndGet(); DecodeCancellation.checkpoint(); Thread.sleep(0, 1) }
+                    finishedFirst.incrementAndGet()
+                    "stale"
+                },
+                apply = { applied.add(it) },
+            )
+            assertTrue(running.await(5, TimeUnit.SECONDS))
+            val done = CountDownLatch(1)
+            realLane.submit(compute = { done.countDown(); "fresh" }, apply = { applied.add(it) })
+            assertTrue("the newer request runs as soon as the stale one yields", done.await(5, TimeUnit.SECONDS))
+            exec.submit {}.get(5, TimeUnit.SECONDS)
+            while (posted.isNotEmpty()) posted.poll().run()
+            assertEquals("the stale compute never ran to completion", 0, finishedFirst.get())
+            assertTrue("it stopped long before its end", checkpoints.get() < 10_000_000)
+            assertEquals(listOf("fresh"), applied.toList())
+            assertTrue("cancellation is not an error", logged.isEmpty())
+        } finally {
+            exec.shutdownNow()
+        }
+    }
+
+    @Test fun marking_satisfied_cancels_the_in_flight_compute() {
+        val exec = Executors.newSingleThreadExecutor()
+        try {
+            val posted = ConcurrentLinkedQueue<Runnable>()
+            val realLane = DecodeLane(exec, Executor { posted.add(it) })
+            val running = CountDownLatch(1)
+            val completed = AtomicInteger(0)
+            realLane.submit(
+                compute = {
+                    running.countDown()
+                    repeat(10_000_000) { DecodeCancellation.checkpoint(); Thread.sleep(0, 1) }
+                    completed.incrementAndGet()
+                },
+                apply = { },
+            )
+            assertTrue(running.await(5, TimeUnit.SECONDS))
+            realLane.markSatisfiedSynchronously()
+            exec.submit {}.get(5, TimeUnit.SECONDS)
+            assertEquals(0, completed.get())
+            assertTrue("a cancelled compute delivers nothing", posted.isEmpty())
+        } finally {
+            exec.shutdownNow()
+        }
+    }
+
 }

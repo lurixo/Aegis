@@ -136,6 +136,7 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         var order = 0
         var i = lowerBound(q)
         while (i < numKeys && startsWith(i, q)) {
+            if ((i and CHECKPOINT_MASK) == 0) DecodeCancellation.checkpoint()
             val es = entryStart(i)
             val ee = if (i + 1 < numKeys) entryStart(i + 1) else numEntries
             var j = es
@@ -350,6 +351,7 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
 
         private const val SHORT_PREFIX_TOP_N = 128
         private const val SHORT_PREFIX_BUCKETS = 128
+        private const val CHECKPOINT_MASK = 0xFF
 
         fun fromFile(file: File): BinaryDict =
             RandomAccessFile(file, "r").use { raf ->

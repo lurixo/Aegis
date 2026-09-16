@@ -15,6 +15,7 @@
 
 package com.aegis.ime.ime
 
+import com.aegis.ime.dict.DecodeCancellation
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicLong
 
@@ -29,12 +30,15 @@ class DecodeLane(
 
     val pending: Boolean get() = lastApplied < lastRequested
 
+    private fun stale(gen: Long): Boolean = gen != lastRequested || gen <= lastApplied
+
     fun <R> submit(compute: () -> R, apply: (R) -> Unit, onError: () -> Unit = {}) {
         val gen = seq.incrementAndGet()
         lastRequested = gen
         worker.execute {
-            if (gen < lastRequested) return@execute
-            val result = runCatching { compute() }
+            if (stale(gen)) return@execute
+            val result = DecodeCancellation.attempt({ stale(gen) }, compute)
+            if (result == null) return@execute
             result.exceptionOrNull()?.let(logError)
             main.execute {
                 if (gen == lastRequested && gen > lastApplied) {
