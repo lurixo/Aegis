@@ -223,7 +223,7 @@ class ImeSplitLabelTest {
             val view = keyboard(lang)
             val label = view.langLabelForTest()
             assertEquals("$lang: the active word is set at 20sp", 20f * density, label.activePaint.textSize, 0.01f)
-            assertEquals("$lang: the grey idle word is set at 18sp", 18f * density, label.idlePaint.textSize, 0.01f)
+            assertEquals("$lang: the grey idle word is set at 17sp", 17f * density, label.idlePaint.textSize, 0.01f)
             assertEquals("$lang: the active word takes the secondary label colour", ImePalette.STATIC_LIGHT.keyLabelSecondary, label.activePaint.color)
             assertEquals("$lang: the idle word takes the hint colour", ImePalette.STATIC_LIGHT.keyHint, label.idlePaint.color)
             assertEquals("$lang: 中 leads only while Chinese is active", lang == Lang.CN, view.langLeadingActiveForTest())

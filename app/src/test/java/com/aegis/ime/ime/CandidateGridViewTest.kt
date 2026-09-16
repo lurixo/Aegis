@@ -697,7 +697,7 @@ class CandidateGridViewTest {
         val (all, singles) = v.singlesWordsForTest()
 
         assertEquals("the active word is set at the body size", ImeType.body * density, label.activePaint.textSize, 0.01f)
-        assertEquals("the idle word is one size down at the label size", ImeType.label * density, label.idlePaint.textSize, 0.01f)
+        assertEquals("the idle word is set at 13sp", 13f * density, label.idlePaint.textSize, 0.01f)
         assertEquals(ImePalette.STATIC_LIGHT.keyLabelSecondary, label.activePaint.color)
         assertEquals(ImePalette.STATIC_LIGHT.keyHint, label.idlePaint.color)
         val placed = label.layout(face, all, singles, leadingActive = true)

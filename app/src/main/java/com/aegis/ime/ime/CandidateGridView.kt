@@ -811,7 +811,7 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         (readingColumn.getChildAt(index) as? TextView)?.background
 
     private inner class SplitLabelKey(context: Context) : View(context) {
-        val label = ImeSplitLabel(density, spPx(ImeType.body), spPx(ImeType.label))
+        val label = ImeSplitLabel(density, spPx(ImeType.body), spPx(13f))
         val leading: String = context.getString(R.string.panel_all)
         val trailing: String = context.getString(R.string.panel_singles)
         private val face = RectF()

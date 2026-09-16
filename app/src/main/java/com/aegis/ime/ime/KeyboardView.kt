@@ -232,7 +232,7 @@ class KeyboardView(context: Context) : View(context) {
     private val shiftActivePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentBottom; textAlign = Paint.Align.CENTER; textSize = sp(20f) }
     private val accentLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.accentLabel; textAlign = Paint.Align.CENTER; textSize = sp(20f); typeface = android.graphics.Typeface.DEFAULT }
     private val subPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySub; textAlign = Paint.Align.CENTER; textSize = sp(11f); typeface = android.graphics.Typeface.DEFAULT }
-    private val langLabel = ImeSplitLabel(density, sp(20f), sp(18f)).apply { applyColors(palette.keyLabelSecondary, palette.keyHint) }
+    private val langLabel = ImeSplitLabel(density, sp(20f), sp(17f)).apply { applyColors(palette.keyLabelSecondary, palette.keyHint) }
 
     private val fillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keySurface }
     private val keyEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.shadow }
