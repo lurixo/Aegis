@@ -102,13 +102,14 @@ object Motion {
 
     private val coverAnimators = WeakHashMap<View, ValueAnimator>()
     private val coverResidues = WeakHashMap<View, BitmapDrawable>()
+    private var spareSnapshot: Bitmap? = null
 
     fun snapshot(view: View, backdrop: Int): Bitmap? {
         if (!view.isAttachedToWindow || !enabled()) return null
         val w = view.width
         val h = view.height
         if (w <= 0 || h <= 0) return null
-        val bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        val bitmap = takeSnapshotBitmap(w, h)
         bitmap.eraseColor(backdrop)
         val canvas = Canvas(bitmap)
         canvas.translate(-view.scrollX.toFloat(), -view.scrollY.toFloat())
@@ -116,11 +117,25 @@ object Motion {
         return bitmap
     }
 
+    private fun takeSnapshotBitmap(w: Int, h: Int): Bitmap {
+        val spare = spareSnapshot
+        spareSnapshot = null
+        if (spare != null && spare.width == w && spare.height == h) return spare
+        spare?.recycle()
+        return Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+    }
+
+    private fun releaseSnapshot(bitmap: Bitmap) {
+        val previous = spareSnapshot
+        spareSnapshot = bitmap
+        if (previous != null && previous !== bitmap) previous.recycle()
+    }
+
     fun coverWith(host: View, snapshot: Bitmap?, offsetX: Int = 0, offsetY: Int = 0) {
         cancelCover(host)
         if (snapshot == null) return
         if (!host.isAttachedToWindow || !enabled()) {
-            snapshot.recycle()
+            releaseSnapshot(snapshot)
             return
         }
         val left = host.scrollX + offsetX
@@ -143,7 +158,7 @@ object Motion {
                     host.overlay.remove(drawable)
                     if (coverAnimators[host] === animation) coverAnimators.remove(host)
                     if (coverResidues[host] === drawable) coverResidues.remove(host)
-                    snapshot.recycle()
+                    releaseSnapshot(snapshot)
                 }
             })
             start()
@@ -178,6 +193,8 @@ object Motion {
     internal fun coverAnimatorForTest(view: View): ValueAnimator? = coverAnimators[view]
 
     internal fun coverResidueAlphaForTest(view: View): Int? = coverResidues[view]?.alpha
+
+    internal fun coverBitmapForTest(view: View): Bitmap? = coverResidues[view]?.bitmap
 
     fun crossfadeColor(view: View, from: Int, to: Int, duration: Long = STATE_CHANGE, apply: (Int) -> Unit): ValueAnimator? {
         if (from == to) { apply(to); return null }

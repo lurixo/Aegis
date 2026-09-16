@@ -38,7 +38,9 @@ import java.util.concurrent.TimeUnit
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -239,6 +241,121 @@ class Md3MotionSystemTest {
             assertEquals(1f, v.alpha, 0f)
         } finally {
             controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun a_settled_cover_hands_its_bitmap_to_the_next_snapshot_of_the_same_size() {
+        animationsOn()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val v = attach(controller.get(), View(ctx).apply { setBackgroundColor(Color.GREEN) }, 80, 80)
+            Motion.coverThrough(v, Color.WHITE) { v.setBackgroundColor(Color.RED) }
+            val first = requireNotNull(Motion.coverBitmapForTest(v))
+            shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS)
+            assertFalse(Motion.coverActiveForTest(v))
+
+            Motion.coverThrough(v, Color.WHITE) { v.setBackgroundColor(Color.BLUE) }
+
+            val second = requireNotNull(Motion.coverBitmapForTest(v))
+            assertSame("the settled cover's bitmap is drawn into again instead of allocating", first, second)
+            assertFalse(second.isRecycled)
+            assertEquals("the reused bitmap holds the face that was on screen", Color.RED, second.getPixel(40, 40))
+            assertEquals("the residue starts on the old face at full strength", Color.RED, drawnPixel(v))
+            shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS)
+            assertFalse(Motion.coverActiveForTest(v))
+            assertEquals("the settled view shows the new face", Color.BLUE, drawnPixel(v))
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun rapid_covers_alternate_between_two_bitmaps() {
+        animationsOn()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val v = attach(controller.get(), View(ctx).apply { setBackgroundColor(Color.GREEN) }, 80, 80)
+            Motion.coverThrough(v, Color.WHITE) { v.setBackgroundColor(Color.RED) }
+            val first = requireNotNull(Motion.coverBitmapForTest(v))
+
+            Motion.coverThrough(v, Color.WHITE) { v.setBackgroundColor(Color.BLUE) }
+            val second = requireNotNull(Motion.coverBitmapForTest(v))
+            assertNotSame("a residue still on screen is never drawn into", first, second)
+            assertFalse("the cancelled residue is kept for the next switch", first.isRecycled)
+
+            Motion.coverThrough(v, Color.WHITE) { v.setBackgroundColor(Color.RED) }
+            val third = requireNotNull(Motion.coverBitmapForTest(v))
+            assertSame("the third quick switch reuses the first bitmap", first, third)
+            assertFalse(second.isRecycled)
+            assertEquals("the new face underneath keeps combined opacity full", 0xFF, Color.alpha(drawnPixel(v)))
+            shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS)
+            assertFalse(Motion.coverActiveForTest(v))
+            assertEquals(Color.RED, drawnPixel(v))
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun a_resized_view_gets_a_fresh_snapshot_and_the_stale_spare_is_recycled() {
+        animationsOn()
+        val controller = Robolectric.buildActivity(Activity::class.java).setup()
+        try {
+            val v = attach(controller.get(), View(ctx).apply { setBackgroundColor(Color.GREEN) }, 80, 80)
+            Motion.coverThrough(v, Color.WHITE) { v.setBackgroundColor(Color.RED) }
+            val first = requireNotNull(Motion.coverBitmapForTest(v))
+            shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS)
+
+            v.layout(0, 0, 60, 60)
+            Motion.coverThrough(v, Color.WHITE) { v.setBackgroundColor(Color.BLUE) }
+
+            val second = requireNotNull(Motion.coverBitmapForTest(v))
+            assertNotSame(first, second)
+            assertEquals(60, second.width)
+            assertEquals(60, second.height)
+            assertTrue("the mismatched spare is released", first.isRecycled)
+            assertEquals(Color.RED, drawnPixel(v))
+        } finally {
+            controller.pause().stop().destroy()
+        }
+    }
+
+    @Test fun candidate_strip_role_changes_reuse_the_snapshot_bitmap_on_both_keyboards() {
+        animationsOn()
+        for (nine in listOf(true, false)) {
+            val controller = Robolectric.buildActivity(Activity::class.java).setup()
+            try {
+                val activity = controller.get()
+                val density = activity.resources.displayMetrics.density
+                val iv = InputView(activity).apply {
+                    showKeyboard(Layouts.forId(if (nine) LayoutId.NINE else LayoutId.ALPHA, Lang.CN), false, false, Lang.CN)
+                }
+                val width = (360 * density).toInt()
+                iv.measure(
+                    View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                )
+                attach(activity, iv, width, iv.measuredHeight)
+                shadowOf(Looper.getMainLooper()).idle()
+                val bar = iv.candidateBarForTest()
+
+                iv.showCandidates(listOf("你", "泥"), "ni", listOf("ni"))
+                val first = requireNotNull(Motion.coverBitmapForTest(bar)) { "nine=$nine toolbar→candidates covers" }
+                shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS)
+                assertFalse(Motion.coverActiveForTest(bar))
+                val candidateFace = Bitmap.createBitmap(bar.width, bar.height, Bitmap.Config.ARGB_8888).also {
+                    it.eraseColor(iv.palette().keyboardBg)
+                    bar.draw(Canvas(it))
+                }
+
+                iv.showCandidates(emptyList(), "", emptyList())
+
+                val second = requireNotNull(Motion.coverBitmapForTest(bar)) { "nine=$nine candidates→toolbar covers" }
+                assertSame("nine=$nine the strip reuses its released snapshot", first, second)
+                assertTrue("nine=$nine the reused snapshot is exactly the candidate face", second.sameAs(candidateFace))
+                shadowOf(Looper.getMainLooper()).idleFor(100, TimeUnit.MILLISECONDS)
+                assertFalse(Motion.coverActiveForTest(bar))
+            } finally {
+                controller.pause().stop().destroy()
+            }
         }
     }
 
