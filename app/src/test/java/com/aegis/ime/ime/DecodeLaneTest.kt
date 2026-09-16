@@ -253,4 +253,12 @@ class DecodeLaneTest {
         assertTrue(ran)
     }
 
+    @Test fun work_done_is_reported_once_for_each_compute_that_ran() {
+        val reports = ArrayList<Long>()
+        val reporting = DecodeLane(worker, main, workDone = { reports.add(it) })
+        repeat(3) { i -> reporting.submit(compute = { i }, apply = { }) }
+        runWorker(); runMain()
+        assertEquals("skipped requests do not count as work", 1, reports.size)
+        assertTrue(reports.single() >= 0L)
+    }
 }

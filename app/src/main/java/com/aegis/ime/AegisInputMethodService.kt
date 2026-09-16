@@ -25,6 +25,8 @@ import android.inputmethodservice.InputMethodService
 import android.inputmethodservice.InputMethodService.Insets
 import android.os.Handler
 import android.os.Looper
+import android.os.PerformanceHintManager
+import android.os.Process
 import android.os.SystemClock
 import android.text.InputType
 import android.text.Spanned
@@ -97,14 +99,22 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private lateinit var controller: KeyboardController
     private val mainHandler = Handler(Looper.getMainLooper())
     private val mainLane = java.util.concurrent.Executor { r -> mainHandler.post(r) }
+    private val decodeResults = Handler.createAsync(Looper.getMainLooper())
     private val decodeWorker: java.util.concurrent.ExecutorService =
         java.util.concurrent.Executors.newSingleThreadExecutor { r ->
-            Thread(r, "aegis-decode").apply { isDaemon = true }
+            Thread({
+                runCatching { Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY) }
+                r.run()
+            }, "aegis-decode").apply { isDaemon = true }
         }
+    private val decodeHintLock = Any()
+    private var decodeHintOpened = false
+    private var decodeHint: PerformanceHintManager.Session? = null
     private val decodeLane = DecodeLane(
         worker = decodeWorker,
-        main = mainLane,
+        main = java.util.concurrent.Executor { r -> decodeResults.post(r) },
         logError = { Log.e("Aegis", "decode failed", it) },
+        workDone = ::reportDecodeWork,
     )
     private val translateWorker: java.util.concurrent.ExecutorService =
         java.util.concurrent.Executors.newSingleThreadExecutor { r ->
@@ -2539,6 +2549,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         personalizationBlocked = false
         unregisterBackCallback()
         runCatching { decodeWorker.shutdownNow() }
+        synchronized(decodeHintLock) {
+            decodeHintOpened = true
+            decodeHint?.let { session -> runCatching { session.close() } }
+            decodeHint = null
+        }
         runCatching { clipboardManager.removePrimaryClipChangedListener(clipChangedListener) }
         if (UserDictHot.host === liveUserDictHost) UserDictHot.host = null
         runCatching { liveUserDictHost.flush() }
@@ -2729,6 +2744,17 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (hasSelection()) deleteSelection() else deleteGraphemeBackward()
     }
 
+    private fun reportDecodeWork(nanos: Long) = synchronized(decodeHintLock) {
+        if (!decodeHintOpened) {
+            decodeHintOpened = true
+            decodeHint = runCatching {
+                getSystemService(PerformanceHintManager::class.java)
+                    ?.createHintSession(intArrayOf(Process.myTid()), DECODE_TARGET_NANOS)
+            }.getOrNull()
+        }
+        decodeHint?.let { session -> runCatching { session.reportActualWorkDuration(nanos) } }
+    }
+
     override fun textBeforeCursor(n: Int): CharSequence {
         panelInput.textBefore(n)?.let { return it }
         return runCatching { currentInputConnection?.getTextBeforeCursor(n, 0) }.getOrNull() ?: ""
@@ -2777,6 +2803,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 }
 
 private const val EDITABLE_CLIP_CHARS = 4096L
+private const val DECODE_TARGET_NANOS = 16_666_667L
 private const val STREAM_GAP_MS = 16L
 private const val STREAM_CHUNK = 16_384
 private const val TRIM_WINDOW = 8

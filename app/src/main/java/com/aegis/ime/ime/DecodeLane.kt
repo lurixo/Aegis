@@ -27,6 +27,7 @@ class DecodeLane(
     private val main: Executor,
     private val logError: (Throwable) -> Unit = {},
     private val settleMillis: Long = SETTLE_MILLIS,
+    private val workDone: (Long) -> Unit = {},
 ) {
     private class Delivery(val gen: Long, val run: () -> Unit)
 
@@ -46,7 +47,9 @@ class DecodeLane(
         lastRequested = gen
         worker.execute {
             if (stale(gen)) return@execute
+            val started = System.nanoTime()
             val result = DecodeCancellation.attempt({ stale(gen) }, compute)
+            workDone(System.nanoTime() - started)
             if (result == null) return@execute
             result.exceptionOrNull()?.let(logError)
             val delivery = Delivery(gen) {
