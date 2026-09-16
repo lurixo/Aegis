@@ -1239,6 +1239,41 @@ class ClipboardStoreTest {
         assertEquals(listOf(ClipboardStore.DEFAULT_CATEGORY_ID), s.categories())
     }
 
+    @Test fun a_note_looked_up_before_an_edit_is_never_served_stale_after_it() {
+        val dir = newDir()
+        val s = ClipboardStore(dir).apply {
+            load(); addCategory("甲"); addCategory("乙")
+            addPhrasesTo("甲", listOf("p", "q"))
+            setPhraseNote("甲", "p", "旧注")
+        }
+        assertEquals("旧注", s.noteFor("甲", "p"))
+
+        s.setPhraseNote("甲", "p", "新注")
+        assertEquals("新注", s.noteFor("甲", "p"))
+
+        assertTrue(s.editPhrase("甲", "p", "p2"))
+        assertEquals("", s.noteFor("甲", "p"))
+        assertEquals("新注", s.noteFor("甲", "p2"))
+
+        assertTrue(s.movePhrase("甲", "p2", "乙"))
+        assertEquals("", s.noteFor("甲", "p2"))
+        assertEquals("新注", s.noteFor("乙", "p2"))
+
+        assertTrue(s.renameCategory("乙", "丙"))
+        assertEquals("新注", s.noteFor("丙", "p2"))
+
+        s.deletePhrase("p2")
+        assertEquals("", s.noteFor("丙", "p2"))
+
+        assertTrue(s.importPhrasesText("C\t甲\nP\tq\nN\t导入的注\n", merge = true))
+        assertEquals("导入的注", s.noteFor("甲", "q"))
+
+        s.flushPendingWrites()
+        File(dir, "phrases.txt").writeText("C\t甲\nP\tq\nN\t外面的注\n")
+        s.reloadPhrases()
+        assertEquals("外面的注", s.noteFor("甲", "q"))
+    }
+
     private class RefPhrase(val text: String, var note: String = "")
     private class RefCategory(var name: String, val phrases: ArrayList<RefPhrase> = ArrayList())
 
@@ -1329,4 +1364,40 @@ class ClipboardStoreTest {
         return sb.toString()
     }
 
+    @Test fun five_thousand_phrases_in_same_name_categories_load_exactly_as_the_linear_merge_did() {
+        val dir = newDir()
+        val blocks = listOf("工作", "默认", "生活", "工作", "", "购物", "工作", "生活", "默认", "工作")
+        val saved = bigPhraseLibrary(1, blocks, 720)
+        File(dir, "phrases.txt").writeText(saved)
+        val expected = refCanonical(refParse(saved.lines()))
+        assertTrue("precondition: the library holds 5000 phrases", expected.sumOf { it.phrases.size } >= 5_000)
+
+        val s = ClipboardStore(dir).apply { load() }
+
+        assertEquals(expected.map { it.name }, s.categories())
+        for (c in expected) {
+            assertEquals("phrases of ${c.name}", c.phrases.map { it.text }, s.phrasesIn(c.name))
+            for (p in c.phrases) assertEquals("note of ${c.name}/${p.text}", p.note, s.noteFor(c.name, p.text))
+        }
+        assertEquals(refSerialize(expected), s.exportPhrasesText())
+    }
+
+    @Test fun five_thousand_phrases_merged_into_a_big_library_match_the_linear_merge() {
+        val dir = newDir()
+        val local = bigPhraseLibrary(2, listOf("工作", "default", "生活", "工作"), 800)
+        File(dir, "phrases.txt").writeText(local)
+        val incoming = bigPhraseLibrary(2, listOf("生活", "工作", "新组", "default", "工作", "默认"), 1050)
+        val s = ClipboardStore(dir).apply { load() }
+
+        assertTrue(s.importPhrasesText(incoming, merge = true))
+
+        val expected = refCanonical(refParse(local.lines()))
+        for (pc in refCanonical(refParse(incoming.lines()))) {
+            val c = expected.firstOrNull { it.name == pc.name } ?: RefCategory(pc.name).also { expected.add(it) }
+            for (p in pc.phrases) refMergeInto(c, p)
+        }
+        assertEquals(refSerialize(expected), s.exportPhrasesText())
+        s.flushPendingWrites()
+        assertEquals(refSerialize(expected), ClipboardStore(dir).apply { load() }.exportPhrasesText())
+    }
 }

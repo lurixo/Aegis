@@ -199,6 +199,7 @@ class ClipboardStore(private val dir: File) {
     private val phraseCats = ArrayList<Category>()
     private var phraseRevision = 0L
     private var syncedPhraseFile: PhraseFileState? = null
+    private var phraseIndexes: HashMap<Category, HashMap<String, Phrase>>? = null
 
     private data class PhraseFileState(val modified: FileTime?, val size: Long, val key: Any?)
     private class LoadedPhrases(val categories: ArrayList<Category>, val readable: Boolean, val file: PhraseFileState?)
@@ -348,6 +349,7 @@ class ClipboardStore(private val dir: File) {
     private fun phraseEdited() {
         phraseRevision++
         syncedPhraseFile = null
+        phraseIndexes = null
     }
 
     private fun phraseSnapshot(): PhraseWrite {
@@ -378,13 +380,15 @@ class ClipboardStore(private val dir: File) {
     private fun mergeSameNameCategories(categories: List<Category>): ArrayList<Category> {
         val out = ArrayList<Category>()
         val byName = LinkedHashMap<String, Category>()
+        val indexes = HashMap<String, HashMap<String, Phrase>>()
         for (source in categories) {
             if (source.name.isBlank()) continue
             val dest = byName[source.name] ?: Category(source.name).also {
                 byName[source.name] = it
                 out.add(it)
             }
-            for (p in source.phrases) mergePhraseInto(dest, p)
+            val index = indexes.getOrPut(source.name) { HashMap() }
+            for (p in source.phrases) mergePhraseInto(dest, p, index)
         }
         return out
     }
@@ -783,7 +787,11 @@ class ClipboardStore(private val dir: File) {
         synchronized(phraseCats) { phraseCats.flatMap { c -> c.phrases.map { it.text } } }
 
     fun noteFor(category: String, text: String): String =
-        synchronized(phraseCats) { findPhrase(find(category), text)?.note.orEmpty() }
+        synchronized(phraseCats) {
+            val c = find(category) ?: return ""
+            val indexes = phraseIndexes ?: HashMap<Category, HashMap<String, Phrase>>().also { phraseIndexes = it }
+            indexes.getOrPut(c) { phraseIndex(c) }[text]?.note.orEmpty()
+        }
 
     fun setPhraseNote(category: String, text: String, note: String): Boolean {
         if (!phraseWritesAllowed()) { refusePhraseWrite(PhraseEdit.TEXT, 1); return false }
@@ -931,12 +939,12 @@ class ClipboardStore(private val dir: File) {
         return true
     }
 
-    private fun carryInto(to: Category, p: Phrase) = mergePhraseInto(to, p)
+    private fun carryInto(to: Category, p: Phrase) = mergePhraseInto(to, p, null)
 
-    private fun mergePhraseInto(to: Category, p: Phrase) {
+    private fun mergePhraseInto(to: Category, p: Phrase, index: HashMap<String, Phrase>?) {
         if (p.text.isBlank()) return
-        val existing = findPhrase(to, p.text)
-        if (existing == null) to.phrases.add(Phrase(p.text, p.note))
+        val existing = if (index == null) findPhrase(to, p.text) else index[p.text]
+        if (existing == null) Phrase(p.text, p.note).also { to.phrases.add(it); index?.put(it.text, it) }
         else if (existing.note.isEmpty() && p.note.isNotEmpty()) existing.note = p.note
     }
 
@@ -990,6 +998,9 @@ class ClipboardStore(private val dir: File) {
         phraseCats.firstOrNull { it.name == name }
             ?: sanitizePhraseText(name).let { n -> phraseCats.firstOrNull { sanitizePhraseText(it.name) == n } }
     private fun findPhrase(c: Category?, text: String): Phrase? = c?.phrases?.firstOrNull { it.text == text }
+
+    private fun phraseIndex(c: Category): HashMap<String, Phrase> =
+        HashMap<String, Phrase>(c.phrases.size * 2).also { index -> for (p in c.phrases) index.putIfAbsent(p.text, p) }
 
     private class PendingWrite(val gen: Long, val rows: List<ClipEntry>)
 
@@ -1162,9 +1173,11 @@ class ClipboardStore(private val dir: File) {
             if (merge) {
                 if (!phrasesReadable) throw UnreadablePhrasesException()
                 val out = canonicalCategories(phraseCats)
+                val indexes = HashMap<Category, HashMap<String, Phrase>>()
                 for (pc in parsed) {
                     val c = out.firstOrNull { it.name == pc.name } ?: Category(pc.name).also { out.add(it) }
-                    for (p in pc.phrases) mergePhraseInto(c, p)
+                    val index = indexes.getOrPut(c) { phraseIndex(c) }
+                    for (p in pc.phrases) mergePhraseInto(c, p, index)
                 }
                 out
             } else {
