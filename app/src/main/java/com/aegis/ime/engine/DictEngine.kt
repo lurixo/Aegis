@@ -160,6 +160,11 @@ class DictEngine(
     override fun spelledReading(word: String, reading: String): String =
         decoder?.spelledReading(word, reading) ?: reading
 
+    override fun prepareUserWords() {
+        decoder?.prepareUserIndex()
+        t9Decoder?.prepareUserIndex()
+    }
+
     override fun setFuzzyRules(rules: Set<String>) {
         decoder?.setFuzzyRules(rules)
         t9Decoder?.setFuzzyRules(rules)

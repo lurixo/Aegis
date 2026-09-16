@@ -190,6 +190,8 @@ class PinyinDecoder(
         return dp[n][m]
     }
 
+    internal fun prepareUserIndex() = refreshUserIndex()
+
     private fun readsAsInput(word: String, input: String, cache: HashMap<String, Set<String>>): Boolean =
         if (input[0] in '2'..'9') readsAs(word, input, cache) { T9_SPELLINGS[it].orEmpty() }
         else readsAs(word, input, cache)
