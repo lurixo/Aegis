@@ -123,12 +123,35 @@ internal class NativeEditorUndoHistory {
     val hasUndo: Boolean get() = pending == null && selectionReplacement == null && undoing == null && undoableEntries > 0
     val hasDeletion: Boolean get() = hasUndo && entries.last().before.text.length > entries.last().after.text.length
 
+    private var pollDelay = POLL_MS
+    private var unchangedPolls = 0
+    private var polled: EditorTextSnapshot? = null
+
     private val pump = object : Runnable {
         override fun run() {
             val currentTarget = target ?: return
-            observe(currentTarget)
-            if (pending != null || selectionReplacement != null || undoing != null) handler.postDelayed(this, POLL_MS)
+            val current = observe(currentTarget)
+            if (pending == null && selectionReplacement == null && undoing == null) return
+            val previous = polled
+            polled = current
+            if (!confirming()) pollDelay = minOf(maxOf(pollDelay, CONFIRM_POLL_MS) * 2, MAX_CONFIRM_POLL_MS)
+            else if (current == null || previous == null || !sameSelection(previous, current)) {
+                unchangedPolls = 0
+                pollDelay = POLL_MS
+            } else if (++unchangedPolls >= IDLE_POLLS) pollDelay = minOf(pollDelay * 2, MAX_POLL_MS)
+            handler.postDelayed(this, nextPoll())
         }
+    }
+
+    private fun confirming(): Boolean = undoing != null || selectionReplacement != null ||
+        pending?.let { it.nativeOnly || largeInsertion(it.actions) } == true
+
+    private fun nextPoll(): Long {
+        val now = SystemClock.uptimeMillis()
+        val operation = undoing
+        val deadline = operation?.deadline ?: selectionReplacement?.deadline ?: pending?.deadline ?: return pollDelay
+        var delay = if (confirming()) pollDelay else maxOf(pollDelay, CONFIRM_POLL_MS)
+        return minOf(delay, maxOf(1L, deadline - now))
     }
 
     fun clear() {
@@ -190,8 +213,18 @@ internal class NativeEditorUndoHistory {
 
     private fun schedule() {
         handler.removeCallbacks(pump)
-        handler.postDelayed(pump, POLL_MS)
+        pollDelay = POLL_MS
+        unchangedPolls = 0
+        polled = null
+        handler.postDelayed(pump, nextPoll())
         onChange?.invoke()
+    }
+
+    fun selectionUpdated() {
+        val connection = target ?: return
+        if (pending == null || undoing != null || selectionReplacement != null || trackingDepth > 0 || batchDepth > 0) return
+        observe(connection)
+        if (pending == null && undoing == null && selectionReplacement == null) handler.removeCallbacks(pump)
     }
 
     private fun snapshot(connection: InputConnection): EditorTextSnapshot? {
@@ -604,7 +637,11 @@ internal class NativeEditorUndoHistory {
             batchExpected = prediction
             batchFinishesComposition = batchFinishesComposition || finishesComposition
         } else {
-            if (expected != null || composingEdit || before?.sameText(snapshot(connection) ?: before) == false) {
+            if (expected != null && !composingEdit && !nativeOnly && accepted && baseline != null && prediction != null &&
+                prediction != baseline.text.toString() && !largeInsertion(actions) && !contextCut(actions)) {
+                pending = Pending(baseline, prediction, actions, null, SystemClock.uptimeMillis() + WAIT_MS)
+                schedule()
+            } else if (expected != null || composingEdit || before?.sameText(snapshot(connection) ?: before) == false) {
                 pending = null
                 finishEdit(connection, baseline, prediction, accepted, actions, replacing, nativeOnly, capturedSelection)
             }
@@ -1528,6 +1565,10 @@ internal class NativeEditorUndoHistory {
         const val MAX_ENTRIES = 50
         const val MAX_RETAINED = 1_048_576
         const val POLL_MS = 32L
+        const val MAX_POLL_MS = 128L
+        const val CONFIRM_POLL_MS = 96L
+        const val MAX_CONFIRM_POLL_MS = 384L
+        const val IDLE_POLLS = 4
         const val CONSISTENCY_WINDOW = 256
         const val SELECTION_SETTLE_MS = 160L
         const val WAIT_MS = 480L

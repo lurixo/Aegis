@@ -377,6 +377,10 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
 
     fun cancelWebTabInput() { webTabInput.clear() }
 
+    fun selectionUpdated(start: Int, end: Int) {
+        if (preferNativeUndo) nativeHistory.selectionUpdated()
+    }
+
     fun cutCopiedSelection(target: InputConnection, copiedText: CharSequence?): Boolean {
         if (!preferNativeUndo || copiedText == null) return target.performContextMenuAction(android.R.id.cut)
         webTabInput.clear()

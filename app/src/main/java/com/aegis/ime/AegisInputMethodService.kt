@@ -1044,6 +1044,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         selStart = newSelStart
         selEnd = newSelEnd
+        if (!undoBlocked) editorUndo.selectionUpdated(newSelStart, newSelEnd)
         if (clearSweep != null || webClear != null || largeRestore) return
         if ((editorUndo.hasPendingClear || editorUndo.hasPendingUndo || inputView?.isPanelShowing(editPanelView) == true) && !panelInput.active && !undoBlocked) {
             currentInputConnection?.let { editorUndo.canUndo(it) }
