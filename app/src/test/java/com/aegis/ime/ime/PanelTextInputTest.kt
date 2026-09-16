@@ -265,4 +265,27 @@ class PanelTextInputTest {
         assertFalse(PanelTextInput().commitSymbol("（"))
     }
 
+    @Test fun the_target_callback_fires_only_when_the_text_source_changes() {
+        val input = PanelTextInput()
+        var changes = 0
+        input.onTargetChanged = { changes++ }
+        val first = FakeEditable("甲")
+        val second = FakeEditable("乙")
+        input.begin(first)
+        assertEquals(1, changes)
+        input.begin(first)
+        assertEquals("rebinding the same field is not a change", 1, changes)
+        input.begin(second)
+        assertEquals(2, changes)
+        input.end()
+        assertEquals(3, changes)
+        input.end()
+        assertEquals("ending an idle input changes nothing", 3, changes)
+        var shown = true
+        input.begin(first) { shown }
+        assertEquals(4, changes)
+        shown = false
+        assertNull(input.textBefore(1))
+        assertEquals("a field that is no longer presented counts as closed", 5, changes)
+    }
 }

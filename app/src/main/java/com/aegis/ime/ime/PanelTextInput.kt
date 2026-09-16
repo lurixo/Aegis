@@ -31,18 +31,24 @@ class PanelTextInput {
     private val history = TextUndoHistory()
     private var presented: () -> Boolean = { true }
 
+    var onTargetChanged: () -> Unit = {}
+
     val active: Boolean get() = live() != null
 
     fun begin(editable: PanelEditable, presented: () -> Boolean = { true }) {
-        if (target !== editable) history.clear()
+        val changed = target !== editable
+        if (changed) history.clear()
         target = editable
         this.presented = presented
+        if (changed) onTargetChanged()
     }
 
     fun end() {
+        val changed = target != null
         history.clear()
         target = null
         presented = { true }
+        if (changed) onTargetChanged()
     }
 
     private fun live(): PanelEditable? {

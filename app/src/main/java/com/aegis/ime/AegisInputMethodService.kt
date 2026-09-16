@@ -226,7 +226,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private val clearedText by lazy { ClearedTextStore(filesDir) }
-    private val panelInput = com.aegis.ime.ime.PanelTextInput()
+    private val panelInput = com.aegis.ime.ime.PanelTextInput().also {
+        it.onTargetChanged = { if (::controller.isInitialized) controller.onInputTargetChanged() }
+    }
     private enum class InputPurpose { EDIT_PHRASE, EDIT_CLIP, ADD_PHRASE, EDIT_NOTE, ADD_CATEGORY, RENAME_CATEGORY }
     private var inputPurpose: InputPurpose? = null
     private var inputCat = ""
@@ -664,6 +666,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
         personalizationBlocked = info != null && com.aegis.ime.user.ClipboardPolicy.blocksLearning(info.imeOptions)
         controller.setLearningBlocked(personalizationBlocked)
+        controller.onInputTargetChanged()
         val quiet = userStoresLoaded && !liveUserDictHost.writing && !LiveUserData.restoreInProgress
         if (quiet && (!userModel.dirty || !userModel.readable) && userDbFile.lastModified() > userDbMtime) {
             val readAt = userDbFile.lastModified()

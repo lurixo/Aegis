@@ -58,12 +58,41 @@ private fun mixedParts(raw: String, literals: Set<Int>): List<MixedPart> {
 }
 
 class KeyboardController(
-    private val host: ImeHost,
+    editor: ImeHost,
     private var engine: CandidateEngine,
     private val decodeLane: DecodeLane? = null,
     private val emailDomains: EmailDomains = EmailDomains(),
 ) {
     private data class LearnEvent(val prevWord: String?, val word: String, val prefixEnd: Int, val reading: String)
+
+    private var beforeCursor: String? = null
+
+    private val host: ImeHost = object : ImeHost by editor {
+        override fun commitText(text: CharSequence) {
+            beforeCursor = null
+            editor.commitText(text)
+        }
+
+        override fun commitSymbol(symbol: CharSequence) {
+            beforeCursor = null
+            editor.commitSymbol(symbol)
+        }
+
+        override fun deleteBackward() {
+            beforeCursor = null
+            editor.deleteBackward()
+        }
+
+        override fun deleteSelection() {
+            beforeCursor = null
+            editor.deleteSelection()
+        }
+
+        override fun performEnter() {
+            beforeCursor = null
+            editor.performEnter()
+        }
+    }
 
     private val pendingLearning = java.util.concurrent.ConcurrentLinkedQueue<() -> Unit>()
 
@@ -258,11 +287,16 @@ class KeyboardController(
     }
 
     fun onEditorContextChanged() {
+        beforeCursor = null
         if (!emailAssociationsEnabled || hasComposingToClear()) return
         val context = currentEmailContext()
         if (context == emailContext) return
         refreshCandidates()
         render()
+    }
+
+    fun onInputTargetChanged() {
+        beforeCursor = null
     }
 
     fun onUserLexiconChanged() {
@@ -284,6 +318,7 @@ class KeyboardController(
         userLearning?.observeBreak()
         decodeLane?.markSatisfiedSynchronously()
         drainLearning()
+        beforeCursor = null
         composing.setLength(0)
         literalIndices.clear()
         candidates = emptyList()
@@ -730,7 +765,7 @@ class KeyboardController(
                 lastWord = null
             }
             cand === calcCand -> {
-                val live = if (learningBlocked) null else calcMatch(host)
+                val live = if (learningBlocked) null else calcMatch(host.textBeforeCursor(CALC_SCAN_LEN + 1))
                 if (live != null && live.expr == calcExpr && live.result == calcResult && !host.hasSelection()) {
                     host.commitText(live.append)
                 }
@@ -1219,7 +1254,7 @@ class KeyboardController(
 
     private class DecodeRequest(
         val engine: CandidateEngine,
-        val host: ImeHost,
+        val beforeCursor: String,
         val composingEmpty: Boolean,
         val committedPrefixEmpty: Boolean,
         val mode: Mode,
@@ -1245,7 +1280,10 @@ class KeyboardController(
         val englishTyped: String,
         val emailContext: String?,
         val emailDomains: List<String>,
-    )
+    ) {
+        val idle: Boolean
+            get() = emailContext == null && composingEmpty && committedPrefixEmpty && englishTyped.isEmpty()
+    }
 
     private class DecodeResult(
         val candidates: List<Cand>,
@@ -1280,9 +1318,15 @@ class KeyboardController(
             emptySet()
         }
         val emailContext = if (hasComposingToClear()) null else currentEmailContext()
+        val englishTyped = if (englishPreeditActive()) englishWord.toString() else ""
+        val readsContext = if (composing.isNotEmpty()) {
+            mode() == Mode.PINYIN
+        } else {
+            committedPrefix.isEmpty() && englishTyped.isEmpty() && emailContext == null && !learningBlocked && !calcDismissed
+        }
         return DecodeRequest(
             engine = engine,
-            host = host,
+            beforeCursor = if (readsContext) cursorContext() else "",
             composingEmpty = composing.isEmpty(),
             committedPrefixEmpty = committedPrefix.isEmpty(),
             mode = mode(),
@@ -1305,11 +1349,14 @@ class KeyboardController(
             learningBlocked = learningBlocked,
             calcDismissed = calcDismissed,
             lastWord = lastWord,
-            englishTyped = if (englishPreeditActive()) englishWord.toString() else "",
+            englishTyped = englishTyped,
             emailContext = emailContext,
             emailDomains = if (emailContext == null) emptyList() else emailDomains.suggestions(),
         )
     }
+
+    private fun cursorContext(): String =
+        beforeCursor ?: host.textBeforeCursor(CALC_SCAN_LEN + 1).toString().also { beforeCursor = it }
 
     private fun applyDecodeResult(r: DecodeResult) {
         candidatesSuperseded = false
@@ -1365,7 +1412,7 @@ class KeyboardController(
                 words
             }
             req.composingEmpty && req.committedPrefixEmpty -> {
-                val match = if (req.learningBlocked || req.calcDismissed) null else calcMatch(req.host)
+                val match = if (req.learningBlocked || req.calcDismissed) null else calcMatch(req.beforeCursor)
                 when {
                     match != null -> {
                         val cand = Cand(match.append, 0)
@@ -1395,7 +1442,7 @@ class KeyboardController(
     private fun computeMixed(req: DecodeRequest): MixedCandidates {
         val parts = mixedParts(req.raw, req.literalIndices)
         if (parts.isEmpty()) return MixedCandidates(emptyList(), emptySet(), emptySet())
-        val context = req.host.textBeforeCursor(CTX_SCAN_LEN)
+        val context = req.beforeCursor.takeLast(CTX_SCAN_LEN)
         val assembled = buildString {
             for (part in parts) {
                 val text = req.raw.substring(part.start, part.end)
@@ -1467,7 +1514,7 @@ class KeyboardController(
 
     private fun computeBase(req: DecodeRequest): List<Cand> {
         if (req.composingEmpty || req.mode != Mode.PINYIN || req.literalIndices.isNotEmpty()) return emptyList()
-        val context = req.host.textBeforeCursor(CTX_SCAN_LEN)
+        val context = req.beforeCursor.takeLast(CTX_SCAN_LEN)
         return if (req.lockedNonEmpty) {
             val c = req.engine.candidatesForLockedReadingCovered(req.full, req.readingCuts, context)
                 .map {
@@ -1900,10 +1947,8 @@ class KeyboardController(
         render()
     }
 
-    private fun calcMatch(host: ImeHost): Calculator.Match? {
-        val window = host.textBeforeCursor(CALC_SCAN_LEN + 1)
-        return Calculator.detect(window, moreTextMayPrecede = window.length > CALC_SCAN_LEN)
-    }
+    private fun calcMatch(window: CharSequence): Calculator.Match? =
+        Calculator.detect(window, moreTextMayPrecede = window.length > CALC_SCAN_LEN)
 
     private companion object {
         const val NINE_LEFT_MAX = 24

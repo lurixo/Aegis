@@ -92,4 +92,35 @@ class DecodeWorkerWiringTest {
         assertFalse(lane.pending)
     }
 
+    @Test fun switching_the_text_source_forgets_the_cached_cursor_context() {
+        val service = start()
+        val controller = field<KeyboardController>(service, "controller")
+        val cache = KeyboardController::class.java.getDeclaredField("beforeCursor").apply { isAccessible = true }
+        val panel = field<PanelTextInput>(service, "panelInput")
+        val editable = object : PanelEditable {
+            override fun snapshot(): String = "面板"
+            override fun selectionStart(): Int = 2
+            override fun selectionEnd(): Int = 2
+            override fun setSelection(start: Int, end: Int) {}
+            override fun replace(start: Int, end: Int, text: CharSequence) {}
+        }
+        cache.set(controller, "编辑框")
+        panel.begin(editable)
+        assertNull("opening a panel field drops the editor's context", cache.get(controller))
+        cache.set(controller, "面板")
+        panel.end()
+        assertNull("closing it drops the panel's context", cache.get(controller))
+        val chat = EditorInfo().apply {
+            packageName = "com.example.chat"
+            fieldId = 7
+            inputType = InputType.TYPE_CLASS_TEXT
+        }
+        service.onStartInput(chat, false)
+        cache.set(controller, "旧内容")
+        service.onStartInput(chat, true)
+        assertNull("the same editor restarting its input is read again", cache.get(controller))
+        cache.set(controller, "光标前")
+        service.onUpdateSelection(0, 0, 3, 3, -1, -1)
+        assertNull("a moved cursor is read again", cache.get(controller))
+    }
 }
