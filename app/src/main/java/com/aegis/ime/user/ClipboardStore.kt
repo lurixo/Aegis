@@ -194,6 +194,8 @@ class ClipboardStore(private val dir: File) {
     private class Phrase(var text: String, var note: String = "")
     private class Category(var name: String, val phrases: ArrayList<Phrase> = ArrayList())
     private val phraseCats = ArrayList<Category>()
+    @Volatile
+    private var historyWriteFailed = false
 
     @Volatile
     var historyReadable: Boolean = true
@@ -270,6 +272,7 @@ class ClipboardStore(private val dir: File) {
             history.clear()
             history.addAll(loaded.entries)
             historyReadable = loaded.readable
+            historyWriteFailed = false
             persistedImages = if (loaded.readable) loaded.entries.mapNotNullTo(HashSet(), ::imageName) else null
             saveGen.incrementAndGet()
         }
@@ -350,13 +353,21 @@ class ClipboardStore(private val dir: File) {
         if (LiveUserData.restoreInProgress || !historyReadable) return
         val entry = adopt(text).apply { captureOrder = captureOrders.incrementAndGet() }
         val pending = synchronized(history) {
+            val previous = history.firstOrNull()
             history.remove(entry)
             val at = history.indexOfFirst { it.captureOrder <= entry.captureOrder }.let { if (it < 0) history.size else it }
-            history.add(at, entry)
-            PendingWrite(saveGen.incrementAndGet(), ArrayList(history))
+            if (at == 0 && previous != null && previous == entry && !historyWriteFailed &&
+                (previous.hash == null || previous.pendingBody() != null || previous.importSource() != null)) {
+                previous.captureOrder = entry.captureOrder
+                history.add(0, previous)
+                null
+            } else {
+                history.add(at, entry)
+                PendingWrite(saveGen.incrementAndGet(), ArrayList(history))
+            }
         }
-        if (!historyReadable) return
-        onWriteLane { if (pending.gen == saveGen.get()) runCatching { writeHistory(pending.rows) } }
+        if (pending == null || !historyReadable) return
+        onWriteLane { if (pending.gen == saveGen.get()) historyWriteFailed = runCatching { writeHistory(pending.rows) }.isFailure }
     }
 
     fun recordImage(
@@ -382,11 +393,13 @@ class ClipboardStore(private val dir: File) {
                         if (!clipWritesAllowed() || captureGen != imageCaptureGen.get()) throw IOException("clipboard capture was cancelled")
                         synchronized(history) {
                             if (!clipWritesAllowed() || captureGen != imageCaptureGen.get()) throw IOException("clipboard capture was cancelled")
+                            val previous = history.firstOrNull()
                             val displaced = history.firstOrNull { it == entry }
                             history.remove(entry)
                             val at = history.indexOfFirst { it.captureOrder <= captureOrder }.let { if (it < 0) history.size else it }
                             history.add(at, entry)
-                            ImageCapture(PendingWrite(saveGen.incrementAndGet(), ArrayList(history)), displaced)
+                            if (at == 0 && previous == entry && !historyWriteFailed) null
+                            else ImageCapture(PendingWrite(saveGen.incrementAndGet(), ArrayList(history)), displaced)
                         }
                     } catch (failure: Exception) {
                         if (imported.created) removeUnreferencedImage(imported.file.name)
@@ -410,6 +423,7 @@ class ClipboardStore(private val dir: File) {
         }
         val failure = runCatching { writeHistory(capture.write.rows) }.exceptionOrNull()
         if (failure == null) {
+            historyWriteFailed = false
             return
         }
         val retry = synchronized(history) {
@@ -421,7 +435,7 @@ class ClipboardStore(private val dir: File) {
             PendingWrite(saveGen.incrementAndGet(), ArrayList(history))
         }
         if (imported.created) removeUnreferencedImage(imported.file.name)
-        onWriteLane { if (retry.gen == saveGen.get()) runCatching { writeHistory(retry.rows) } }
+        onWriteLane { if (retry.gen == saveGen.get()) historyWriteFailed = runCatching { writeHistory(retry.rows) }.isFailure }
         throw failure
     }
 
@@ -442,7 +456,13 @@ class ClipboardStore(private val dir: File) {
             }
             ArrayList(history)
         }
-        onWriteLaneNow { writeHistory(snapshot) }
+        try {
+            onWriteLaneNow { writeHistory(snapshot) }
+        } catch (failure: Throwable) {
+            historyWriteFailed = true
+            throw failure
+        }
+        historyWriteFailed = false
         if (!merge) historyReadable = true
     }
 
@@ -932,11 +952,14 @@ class ClipboardStore(private val dir: File) {
         val queued = runCatching {
             io.execute {
                 val landed = pending.gen != saveGen.get() ||
-                    runCatching { writeHistory(pending.rows) }.isSuccess
+                    runCatching { writeHistory(pending.rows) }.isSuccess.also { historyWriteFailed = !it }
                 reportClipWrite(landed)
             }
         }.isSuccess
-        if (!queued) reportClipWrite(false)
+        if (!queued) {
+            historyWriteFailed = true
+            reportClipWrite(false)
+        }
     }
 
     private fun writeHistory(snapshot: List<ClipEntry>) {

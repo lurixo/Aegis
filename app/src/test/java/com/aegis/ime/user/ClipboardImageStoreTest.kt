@@ -33,6 +33,8 @@ import org.robolectric.annotation.Config
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.InputStream
+import java.nio.file.Files
+import java.nio.file.attribute.BasicFileAttributes
 import java.util.Base64
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.CountDownLatch
@@ -102,6 +104,47 @@ class ClipboardImageStoreTest {
         assertNull(reloaded.body())
         assertArrayEquals(png, reloaded.imageFile()!!.readBytes())
         assertEquals(1, File(dir, "clips/images").listFiles()!!.size)
+    }
+
+    @Test fun the_image_already_on_top_captured_again_does_not_write_the_history_again() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        store.record("text")
+        val first = record(store).getOrThrow()
+        store.flushPendingWrites()
+        val index = Files.readAttributes(File(dir, "clipboard.txt").toPath(), BasicFileAttributes::class.java)
+
+        val again = record(store).getOrThrow()
+        store.flushPendingWrites()
+
+        val after = Files.readAttributes(File(dir, "clipboard.txt").toPath(), BasicFileAttributes::class.java)
+        assertEquals(first.key, again.key)
+        assertEquals(first.key, store.latestEntry()!!.key)
+        assertEquals(listOf(first.key, "text"), store.history().map { it.key })
+        assertEquals("the history file must not be written again", index.fileKey(), after.fileKey())
+        assertEquals(index.lastModifiedTime(), after.lastModifiedTime())
+        assertEquals(listOf(first.key, "text"), store(dir).history().map { it.key })
+    }
+
+    @Test fun the_image_on_top_captured_again_after_a_history_write_failed_still_writes_the_history() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        store.record("要删的")
+        val image = record(store).getOrThrow()
+        store.flushPendingWrites()
+        val blocker = store.tempFileFor(File(dir, "clipboard.txt"))
+        assertTrue("precondition: the history write is blocked", blocker.mkdirs())
+        assertTrue(File(blocker, "occupied").createNewFile())
+        assertTrue(store.delete("要删的"))
+        store.flushPendingWrites()
+        assertEquals("precondition: the delete never reached the file", listOf(image.key, "要删的"), store(dir).history().map { it.key })
+        assertTrue(File(blocker, "occupied").delete())
+        assertTrue(blocker.delete())
+
+        assertEquals(image.key, record(store).getOrThrow().key)
+        store.flushPendingWrites()
+
+        assertEquals(listOf(image.key), store(dir).history().map { it.key })
     }
 
     @Test fun image_reference_looking_text_stays_text_and_images_cannot_be_edited_as_text() {
@@ -550,6 +593,44 @@ class ClipboardImageStoreTest {
         reloaded.clearHistory()
         reloaded.flushPendingWrites()
         assertFalse(file.exists())
+    }
+
+    @Test fun input_image_close_after_reload_keeps_an_image_the_file_still_lists_when_the_clear_failed() {
+        val dir = temp.newFolder()
+        val first = store(dir)
+        val file = record(first).getOrThrow().imageFile()!!
+        first.flushPendingWrites()
+        first.stopSaving()
+        val store = store(dir)
+        val entry = store.latestEntry()!!
+        val lease = store.retainImageForInput(entry)!!
+        assertTrue(store.tempFileFor(File(dir, "clipboard.txt")).mkdir())
+        assertTrue(store.clearHistory())
+        store.flushPendingWrites()
+        lease.close()
+        store.flushPendingWrites()
+        assertArrayEquals(png, file.readBytes())
+        assertEquals(entry.key, store(dir).latestEntry()!!.key)
+    }
+
+    @Test fun capturing_an_image_from_further_down_again_keeps_its_row_when_the_index_write_fails() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        val image = record(store).getOrThrow()
+        store.record("text")
+        store.flushPendingWrites()
+        val blocker = store.tempFileFor(File(dir, "clipboard.txt"))
+        assertTrue(blocker.mkdir())
+        assertTrue(File(blocker, "occupied").createNewFile())
+        assertTrue(record(store).isFailure)
+        store.flushPendingWrites()
+        assertEquals(listOf("text", image.key), store.history().map { it.key })
+        assertTrue(File(blocker, "occupied").delete())
+        assertTrue(blocker.delete())
+        store.record("after")
+        store.flushPendingWrites()
+        assertEquals(listOf("after", "text", image.key), store(dir).history().map { it.key })
+        assertArrayEquals(png, image.imageFile()!!.readBytes())
     }
 
     @Test fun clearing_history_does_not_cancel_an_input_image_load() {
