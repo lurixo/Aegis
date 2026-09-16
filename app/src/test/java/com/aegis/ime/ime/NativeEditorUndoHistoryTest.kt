@@ -52,6 +52,9 @@ class NativeEditorUndoHistoryTest {
         var deferUndo = false
         var ignoreUndo = false
         var undoOverride: String? = null
+        var selectionDelayMs = 0L
+        var caretEchoMs = 0L
+        private val handler = Handler(Looper.getMainLooper())
         val observedDocuments = ArrayList<String>()
         val mutations = ArrayList<Mutation>()
         var undoCalls = 0
@@ -94,6 +97,16 @@ class NativeEditorUndoHistoryTest {
             }.joinToString("\n") + "\n" else text
             requireNotNull(editable).replace(0, requireNotNull(editable).length, raw)
             Selection.setSelection(editable, rawOffset(caret))
+            if (caretEchoMs > 0) {
+                val echoed = rawOffset(caret)
+                handler.postDelayed({ Selection.setSelection(editable, minOf(echoed, raw().length)) }, caretEchoMs)
+            }
+        }
+
+        override fun setSelection(start: Int, end: Int): Boolean {
+            if (selectionDelayMs <= 0) return super.setSelection(start, end)
+            handler.postDelayed({ Selection.setSelection(editable, start, end) }, selectionDelayMs)
+            return true
         }
 
         fun selectAll() { Selection.setSelection(editable, 0, rawOffset(document.length)) }
@@ -1093,6 +1106,31 @@ class NativeEditorUndoHistoryTest {
         }
         assertEquals("$operation updates the document", expected, editor.document)
         return before
+    }
+
+    @Test fun a_read_that_changes_between_extraction_and_cursor_text_is_read_again_instead_of_discarding_history() {
+        for (numbered in listOf(false, true)) {
+            val editor = Editor(numbered = numbered)
+            var staleReads = 0
+            val target = object : InputConnectionWrapper(editor, false) {
+                override fun getTextBeforeCursor(n: Int, flags: Int): CharSequence? {
+                    val actual = super.getTextBeforeCursor(n, flags)
+                    if (staleReads == 0 || actual.isNullOrEmpty()) return actual
+                    staleReads--
+                    return actual.subSequence(0, actual.length - 1)
+                }
+            }
+            val history = history()
+            val connection = history.wrap(target)
+            assertTrue(connection.commitText("ab", 1))
+            assertTrue(connection.commitText("虽然", 1))
+            staleReads = 1
+            assertTrue("numbered=$numbered", history.canUndo(connection))
+            staleReads = 1
+            undoStep(history, connection, "numbered=$numbered")
+            assertEquals("numbered=$numbered", "ab", editor.document)
+            assertTrue("numbered=$numbered", history.canUndo(connection))
+        }
     }
 
     @Test fun all_ordered_pairs_of_six_text_mutations_preserve_both_undo_steps() {

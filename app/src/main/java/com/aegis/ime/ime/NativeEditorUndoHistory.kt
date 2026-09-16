@@ -194,29 +194,46 @@ internal class NativeEditorUndoHistory {
         onChange?.invoke()
     }
 
-    private fun snapshot(connection: InputConnection): EditorTextSnapshot? = runCatching {
+    private fun snapshot(connection: InputConnection): EditorTextSnapshot? {
+        repeat(SNAPSHOT_READS) {
+            when (val read = read(connection)) {
+                is Read.Consistent -> return read.snapshot
+                Read.Unavailable -> return null
+                Read.Changed -> Unit
+            }
+        }
+        return null
+    }
+
+    private sealed interface Read {
+        data class Consistent(val snapshot: EditorTextSnapshot) : Read
+        data object Changed : Read
+        data object Unavailable : Read
+    }
+
+    private fun read(connection: InputConnection): Read = runCatching {
         val extracted = connection.getExtractedText(ExtractedTextRequest().apply {
             hintMaxChars = MAX_TEXT + 1
             hintMaxLines = MAX_TEXT + 1
         }, 0)
         val candidate = if (extracted != null) {
-            if (extracted.startOffset != 0 || extracted.partialStartOffset >= 0) return@runCatching null
-            EditorTextSnapshot(extracted.text?.toString() ?: return@runCatching null, extracted.selectionStart, extracted.selectionEnd)
+            if (extracted.startOffset != 0 || extracted.partialStartOffset >= 0) return@runCatching Read.Unavailable
+            EditorTextSnapshot(extracted.text?.toString() ?: return@runCatching Read.Unavailable, extracted.selectionStart, extracted.selectionEnd)
         } else {
-            val around = connection.getSurroundingText(MAX_TEXT + 1, MAX_TEXT + 1, 0) ?: return@runCatching null
-            if (around.offset != 0) return@runCatching null
+            val around = connection.getSurroundingText(MAX_TEXT + 1, MAX_TEXT + 1, 0) ?: return@runCatching Read.Unavailable
+            if (around.offset != 0) return@runCatching Read.Unavailable
             EditorTextSnapshot(around.text.toString(), around.selectionStart, around.selectionEnd)
         }
         if (candidate.text.length > MAX_TEXT || candidate.selectionStart !in 0..candidate.text.length ||
-            candidate.selectionEnd !in 0..candidate.text.length) return@runCatching null
+            candidate.selectionEnd !in 0..candidate.text.length) return@runCatching Read.Unavailable
         val start = minOf(candidate.selectionStart, candidate.selectionEnd)
         val end = maxOf(candidate.selectionStart, candidate.selectionEnd)
-        val before = connection.getTextBeforeCursor(MAX_TEXT + 1, 0)?.toString() ?: return@runCatching null
-        val after = connection.getTextAfterCursor(MAX_TEXT + 1, 0)?.toString() ?: return@runCatching null
-        if (before != candidate.text.subSequence(0, start).toString() ||
-            after != candidate.text.subSequence(end, candidate.text.length).toString()) return@runCatching null
-        candidate
-    }.getOrNull()
+        val before = connection.getTextBeforeCursor(CONSISTENCY_WINDOW, 0)?.toString() ?: return@runCatching Read.Unavailable
+        val after = connection.getTextAfterCursor(CONSISTENCY_WINDOW, 0)?.toString() ?: return@runCatching Read.Unavailable
+        if (before != candidate.text.subSequence(maxOf(0, start - CONSISTENCY_WINDOW), start).toString() ||
+            after != candidate.text.subSequence(end, minOf(candidate.text.length, end + CONSISTENCY_WINDOW)).toString()) return@runCatching Read.Changed
+        Read.Consistent(candidate)
+    }.getOrDefault(Read.Unavailable)
 
     private fun standalonePlaceholders(text: CharSequence): List<Int> = if (!text.endsWith('\n')) emptyList()
         else text.indices.filter { text[it] == '\u200b' && (it == 0 || text[it - 1] == '\n') &&
@@ -1511,9 +1528,11 @@ internal class NativeEditorUndoHistory {
         const val MAX_ENTRIES = 50
         const val MAX_RETAINED = 1_048_576
         const val POLL_MS = 32L
+        const val CONSISTENCY_WINDOW = 256
         const val SELECTION_SETTLE_MS = 160L
         const val WAIT_MS = 480L
         const val INSERT_WAIT_MS = 2_000L
         const val MIN_WINDOW = 32
+        const val SNAPSHOT_READS = 3
     }
 }
