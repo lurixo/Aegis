@@ -125,6 +125,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private val charActionIcons = resources.getBoolean(R.bool.clip_char_action_icons)
 
     fun applyPalette(p: ImePalette) {
+        val changed = p != palette
         palette = p
         ACCENT = p.candidateFirst; RED = p.onErrorContainer
         GREY_PILL = p.chipBg; SPLIT_BLOCK_BG = p.accentBottom; SPLIT_BLOCK_TEXT = p.accentLabel
@@ -132,8 +133,10 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         TEXT_DARK = p.keyLabel; TEXT_SECONDARY = p.keyLabelSecondary; HINT = p.keyHint; CARD = p.keySurface
         BG = p.keyboardBg
         main.setBackgroundColor(BG)
-        selectRowPool.clear(); sortRowPool.clear(); catSortRowPool.clear()
-        forceNextRebuild = true
+        if (changed) {
+            selectRowPool.clear(); sortRowPool.clear(); catSortRowPool.clear()
+            forceNextRebuild = true
+        }
         refresh(animate = false)
     }
 
@@ -167,6 +170,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     private var renderedEntriesSig: List<String> = emptyList()
     private var renderedCategoriesSig: List<String> = emptyList()
     private var renderedCategorySig = ""
+    private var renderedHistoryEnabled = true
     private var applySelectionState: (() -> Unit)? = null
 
     fun showPhraseTab(category: String) {
@@ -808,7 +812,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         pendingCategoryFade = false
         val transition = tabChanged || modeChanged || categoryChanged
         val forced = forceNextRebuild
-        val skip = hasRenderedOnce && !forced && !transition && renderedContentMatchesCurrent()
+        val skip = hasRenderedOnce && !forced && !transition && pagedRow != null && renderedContentMatchesCurrent()
         forceNextRebuild = false
         if (skip) {
             renderedTab = st.tab
@@ -853,6 +857,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         if (st.expanded != renderedExpanded) return false
         if (swipeRevealed != renderedSwipe) return false
         if (st.selected.toList() != renderedSelectedSig) return false
+        if (historyToggleStale()) return false
         val categories = if (st.tab == Tab.PHRASE) categoriesProvider() else emptyList()
         if (categories != renderedCategoriesSig) return false
         val category = if (st.tab == Tab.PHRASE) currentCategory(categories) else ""
@@ -864,6 +869,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         }
         return entries == renderedEntriesSig
     }
+
+    private fun historyToggleStale(): Boolean =
+        st.tab == Tab.CLIPBOARD && currentRenderMode() == 0 && historyEnabledProvider() != renderedHistoryEnabled
 
     private fun recordRenderSignature(categories: List<String>, category: String, entries: List<String>) {
         renderedCategoriesSig = categories.toList()
@@ -919,6 +927,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         if (!hasRenderedOnce || st.selectMode || sortMode || categorySortMode || isDragging) return false
         if (st.expanded != renderedExpanded || swipeRevealed != renderedSwipe) return false
         if (st.selected.toList() != renderedSelectedSig) return false
+        if (historyToggleStale()) return false
         val categories = if (st.tab == Tab.PHRASE) categoriesProvider() else emptyList()
         if (categories != renderedCategoriesSig) return false
         val category = if (st.tab == Tab.PHRASE) currentCategory(categories) else ""
@@ -1085,6 +1094,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             if (st.tab == Tab.PHRASE) addView(glyphToolbarBtn(desc = context.getString(R.string.clip_add_phrase), onClick = { onAddPhrase(category) }) { c, p, x, y, s -> Glyphs.drawPlus(c, p, x, y, s) }, iconLp(true))
             else {
                 val recording = historyEnabledProvider()
+                renderedHistoryEnabled = recording
                 addView(
                     glyphToolbarBtn(
                         desc = historyToggleTitle(recording),

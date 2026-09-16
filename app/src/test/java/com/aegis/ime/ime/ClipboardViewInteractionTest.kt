@@ -1303,7 +1303,7 @@ class ClipboardViewInteractionTest {
             val target = maxScroll / 2
             viewport.scrollTo(0, target)
             assertEquals(target, v.listScrollYForTest())
-            v.applyPalette(pal)
+            v.applyPalette(ImePalette.STATIC_DARK)
             layout(v, h = 220)
             assertTrue("the intermediate short list cannot reach the old offset", v.listScrollYForTest() < target)
             while (v.runPendingListAppendForTest()) {}

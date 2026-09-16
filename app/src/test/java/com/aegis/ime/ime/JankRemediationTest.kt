@@ -215,6 +215,21 @@ class JankRemediationTest {
         )
     }
 
+    @Test fun recycled_select_rows_are_kept_when_the_same_palette_is_applied_again() {
+        val clips = (1..5).map { "clip-$it" }
+        val v = clip(clips)
+        v.enterSelectForTest()
+        v.exitSelectForTest()
+        val pooled = v.selectRowsAllocatedForTest()
+        assertEquals(clips.size, pooled)
+
+        v.applyPalette(light)
+
+        assertEquals("reapplying the palette in use must not throw the recycled rows away", pooled, v.selectRowsAllocatedForTest())
+        v.enterSelectForTest()
+        assertEquals("and a later sweep still allocates nothing new", pooled, v.selectRowsAllocatedForTest())
+    }
+
     private fun rowText(row: View): String {
         fun first(v: View): String? {
             if (v is android.widget.TextView) return v.text?.toString()
