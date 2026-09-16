@@ -172,8 +172,14 @@ class ClipboardStore(private val dir: File) {
     private val history = ArrayList<ClipEntry>()
     private val inputImageReferences = HashMap<String, Int>()
     private var publishingImage = false
+    private var publishingImageName: String? = null
+    private var persistedImages: Set<String>? = null
+    private val sweepingImages = HashSet<String>()
+    private val publication = Any()
     private var publicationRollbackPending = false
     private var publicationRollbackName: String? = null
+    private var publishedImage: String? = null
+    private var publishedImageKnown = false
 
     private var writer: Thread? = null
     private val io = Executors.newSingleThreadExecutor { r ->
@@ -252,6 +258,10 @@ class ClipboardStore(private val dir: File) {
                 }
             }
         }.isSuccess
+        synchronized(publication) {
+            publishedImageKnown = false
+            runCatching { publishedImageName() }
+        }
         return LoadedHistory(if (readable) entries else emptyList(), readable)
     }
 
@@ -260,9 +270,13 @@ class ClipboardStore(private val dir: File) {
             history.clear()
             history.addAll(loaded.entries)
             historyReadable = loaded.readable
+            persistedImages = if (loaded.readable) loaded.entries.mapNotNullTo(HashSet(), ::imageName) else null
             saveGen.incrementAndGet()
         }
     }
+
+    private fun imageName(entry: ClipEntry): String? =
+        entry.mimeType?.let { "${entry.hash}.${ClipboardImages.extension(it)}" }
 
     private fun purgeLegacyImageDir() { runCatching { File(dir, "clipboard_images").deleteRecursively() } }
 
@@ -378,7 +392,7 @@ class ClipboardStore(private val dir: File) {
                             saveGen.incrementAndGet()
                         }
                     } catch (failure: Exception) {
-                        if (imported.created) synchronized(history) { removeUnreferencedInputImage(imported.file.name) }
+                        if (imported.created) removeUnreferencedImage(imported.file.name)
                         throw failure
                     }
                     entry
@@ -439,11 +453,19 @@ class ClipboardStore(private val dir: File) {
 
     fun latestEntry(): ClipEntry? = synchronized(history) { history.firstOrNull() }
 
-    fun retainImageForInput(entry: ClipEntry): InputImageLease? = synchronized(history) {
+    fun retainImageForInput(entry: ClipEntry): InputImageLease? {
         if (LiveUserData.restoreInProgress || io.isShutdown) return null
         val image = ownedImage(entry) ?: return null
-        inputImageReferences[image.name] = (inputImageReferences[image.name] ?: 0) + 1
-        InputImageLease(entry) { releaseInputImage(image.name) }
+        val name = image.name
+        synchronized(history) {
+            if (LiveUserData.restoreInProgress || io.isShutdown || name in sweepingImages) return null
+            inputImageReferences[name] = (inputImageReferences[name] ?: 0) + 1
+        }
+        if (!image.isFile) {
+            releaseInputImage(name)
+            return null
+        }
+        return InputImageLease(entry) { releaseInputImage(name) }
     }
 
     fun loadImageForInput(
@@ -478,13 +500,11 @@ class ClipboardStore(private val dir: File) {
                     if (!allowed()) throw IOException("input image loading was cancelled")
                     val imported = ClipboardImages.importImage(imagesDir(), resolver, uri, mimeType)
                     try {
-                        synchronized(history) {
-                            if (!allowed()) throw IOException("input image loading was cancelled")
-                            retainImageForInput(ClipEntry.image(imagesDir(), imported.hash, imported.mimeType))
-                                ?: throw IOException("input image is unavailable")
-                        }
+                        if (!allowed()) throw IOException("input image loading was cancelled")
+                        retainImageForInput(ClipEntry.image(imagesDir(), imported.hash, imported.mimeType))
+                            ?: throw IOException("input image is unavailable")
                     } catch (failure: Throwable) {
-                        if (imported.created) synchronized(history) { removeUnreferencedInputImage(imported.file.name) }
+                        if (imported.created) removeUnreferencedImage(imported.file.name)
                         throw failure
                     }
                 }
@@ -509,44 +529,91 @@ class ClipboardStore(private val dir: File) {
             if (count > 1) { inputImageReferences[name] = count - 1; false }
             else { inputImageReferences.remove(name); true }
         }
-        if (released) onWriteLane { synchronized(history) { removeUnreferencedInputImage(name) } }
+        if (released) onWriteLane { removeUnreferencedImage(name) }
     }
 
-    private fun removeUnreferencedInputImage(name: String) {
-        if (LiveUserData.restoreInProgress) return
-        if (name in inputImageReferences || history.any { it.isImage && it.imageFile()?.name == name }) return
-        if (!finishPublicationRollback()) return
-        runCatching {
-            if (publishedImageName() == name) return
-            if (histFile.exists() && Files.readAllLines(histFile.toPath()).any { line ->
-                    ClipEntry.imageReference(line)?.let { "${it.first}.${ClipboardImages.extension(it.second)}" == name } == true
-                }) return
-            File(imagesDir(), name).delete()
+    private fun removeUnreferencedImage(name: String) {
+        val claimed = synchronized(publication) {
+            if (LiveUserData.restoreInProgress || !finishPublicationRollback()) return
+            val published = runCatching { publishedImageName() }.getOrElse { return }
+            synchronized(history) {
+                val kept = name == published || name == publishingImageName || name in inputImageReferences ||
+                    persistedImages?.contains(name) != false || name in sweepingImages || history.any { imageName(it) == name }
+                !kept && sweepingImages.add(name)
+            }
+        }
+        if (!claimed) return
+        try {
+            runCatching { File(imagesDir(), name).delete() }
+        } finally {
+            synchronized(history) { sweepingImages.remove(name) }
         }
     }
 
-    fun retainPublishedImage(entry: ClipEntry, publish: () -> Boolean): Boolean = synchronized(history) {
-        if (publishingImage || LiveUserData.restoreInProgress) return false
+    private fun sweepImages(referenced: Set<String>) {
+        val files = imagesDir().listFiles() ?: return
+        val victims = synchronized(publication) {
+            if (!finishPublicationRollback()) return
+            val published = runCatching { publishedImageName() }.getOrElse { return }
+            synchronized(history) {
+                val listed = history.mapNotNullTo(HashSet(), ::imageName)
+                files.map { it.name }.filter { name ->
+                    ClipboardImages.isImageFileName(name) && name !in referenced && name != published &&
+                        name != publishingImageName && name !in inputImageReferences && name !in listed && name !in sweepingImages
+                }.also { sweepingImages.addAll(it) }
+            }
+        }
+        try {
+            victims.forEach { runCatching { File(imagesDir(), it).delete() } }
+        } finally {
+            synchronized(history) { sweepingImages.removeAll(victims.toSet()) }
+        }
+    }
+
+    fun retainPublishedImage(entry: ClipEntry, publish: () -> Boolean): Boolean {
+        if (LiveUserData.restoreInProgress) return false
         val image = ownedImage(entry) ?: return false
         val name = image.name
-        if (!finishPublicationRollback()) return false
-        val previous = runCatching { publishedImageName() }.getOrElse { return false }
-        if (previous != name && runCatching { atomicWrite(publishedImageFile(), name) }.isFailure) return false
-        publishingImage = true
-        val published = try { runCatching(publish).getOrDefault(false) } finally { publishingImage = false }
-        if (!published && previous != name) {
-            publicationRollbackName = previous
-            publicationRollbackPending = true
-            finishPublicationRollback()
+        synchronized(history) {
+            if (publishingImage || LiveUserData.restoreInProgress || name in sweepingImages) return false
+            publishingImage = true
+            publishingImageName = name
         }
-        if (published && previous != name) saveHistoryLater()
-        published
+        try {
+            if (!image.isFile) return false
+            val previous = synchronized(publication) {
+                if (!finishPublicationRollback()) return false
+                val previous = runCatching { publishedImageName() }.getOrElse { return false }
+                if (previous != name && runCatching { atomicWrite(publishedImageFile(), name) }.isFailure) return false
+                previous
+            }
+            val published = runCatching(publish).getOrDefault(false)
+            if (previous != name) synchronized(publication) {
+                if (published) {
+                    publishedImage = name
+                } else {
+                    publicationRollbackName = previous
+                    publicationRollbackPending = true
+                    finishPublicationRollback()
+                }
+            }
+            if (published && previous != name) saveHistoryLater()
+            return published
+        } finally {
+            synchronized(history) {
+                publishingImage = false
+                publishingImageName = null
+            }
+        }
     }
 
     private fun publishedImageName(): String? {
-        val file = publishedImageFile()
-        if (!file.exists()) return null
-        return file.readText().takeIf(ClipboardImages::isImageFileName)
+        if (!publishedImageKnown) {
+            val file = publishedImageFile()
+            publishedImage = if (file.exists()) file.readText().takeIf(ClipboardImages::isImageFileName) else null
+            publishedImageKnown = true
+        }
+        return publishedImage
     }
 
     private fun finishPublicationRollback(): Boolean {
@@ -557,6 +624,8 @@ class ClipboardStore(private val dir: File) {
             else if (publishedImageFile().exists() && !publishedImageFile().delete()) throw IOException("clipboard image reference could not be restored")
         }.isSuccess
         if (restored) {
+            publishedImage = publicationRollbackName
+            publishedImageKnown = true
             publicationRollbackPending = false
             publicationRollbackName = null
         }
@@ -873,17 +942,8 @@ class ClipboardStore(private val dir: File) {
             }
         }
         atomicWrite(histFile, sb.toString())
-        synchronized(history) {
-            if (finishPublicationRollback()) {
-                val retained = runCatching { publishedImageName() }
-                if (retained.isSuccess) {
-                    imagesDir().listFiles()?.forEach { f ->
-                        if (ClipboardImages.isImageFileName(f.name) && f.name !in referencedImages &&
-                            f.name !in inputImageReferences && f.name != retained.getOrNull()) runCatching { f.delete() }
-                    }
-                }
-            }
-        }
+        synchronized(history) { persistedImages = referencedImages }
+        sweepImages(referencedImages)
         clipsDir().listFiles()?.forEach { f ->
             if (f.name.endsWith(".txt") && f.name.removeSuffix(".txt") !in referenced) runCatching { f.delete() }
         }

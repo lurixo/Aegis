@@ -119,6 +119,53 @@ class ClipboardImageIndexLockTest {
         return outcome!!.getOrThrow()
     }
 
+    @Test fun publishing_an_image_does_not_hold_the_history_during_the_system_call() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        val entry = recorded(store)
+        store.flushPendingWrites()
+        var inside: Throwable? = null
+
+        val published = store.retainPublishedImage(entry) {
+            inside = runCatching {
+                assertEquals(entry.key, promptly("latestEntry()") { store.latestEntry()?.key })
+                promptly("record()") { store.record("系统剪贴板回调里复制的") }
+            }.exceptionOrNull()
+            inside == null
+        }
+        inside?.let { throw it }
+        store.flushPendingWrites()
+
+        assertTrue(published)
+        assertEquals(entry.imageFile()!!.name, File(dir, "clips/published-image.ref").readText())
+        assertEquals(listOf("系统剪贴板回调里复制的", entry.key), store(dir).historyKeys())
+    }
+
+    @Test fun writing_the_published_image_reference_does_not_hold_the_history() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        val entry = recorded(store)
+        store.flushPendingWrites()
+        val pipe = pipeAt(store.tempFileFor(File(dir, "clips/published-image.ref")))
+        var called = false
+        var published: Boolean? = null
+        val publisher = Thread { published = store.retainPublishedImage(entry) { called = true; true } }.apply { isDaemon = true; start() }
+        waitFor("the reference write reached the paused file") { opening("atomicWrite", publisher) }
+
+        assertEquals(entry.key, promptly("latestEntry()") { store.latestEntry()?.key })
+        promptly("record()") { store.record("写引用时复制的") }
+
+        release(pipe)
+        publisher.join(TimeUnit.SECONDS.toMillis(10))
+        store.flushPendingWrites()
+
+        assertFalse(publisher.isAlive)
+        assertEquals(false, published)
+        assertFalse("nothing may be published when its reference never reached the disk", called)
+        assertFalse(File(dir, "clips/published-image.ref").exists())
+        assertEquals(listOf("写引用时复制的", entry.key), store(dir).historyKeys())
+    }
+
     @Test fun loading_does_not_hold_the_history_while_reading_the_index() {
         val dir = temp.newFolder()
         val store = store(dir)
@@ -163,4 +210,93 @@ class ClipboardImageIndexLockTest {
         assertEquals(listOf("之后", "盘上的"), store(dir).historyText())
     }
 
+    @Test fun an_image_published_while_its_last_lease_closes_and_the_sweep_runs_is_kept() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        val entry = recorded(store)
+        val lease = store.retainImageForInput(entry)!!
+        assertTrue(store.delete(entry.key))
+        store.flushPendingWrites()
+        val file = entry.imageFile()!!
+        var inside: Throwable? = null
+
+        val published = store.retainPublishedImage(entry) {
+            inside = runCatching {
+                lease.close()
+                store.record("发布时复制的")
+                promptly("flushPendingWrites()") { store.flushPendingWrites() }
+                assertTrue("the image being published was deleted under the system call", file.isFile)
+            }.exceptionOrNull()
+            inside == null
+        }
+        inside?.let { throw it }
+        store.flushPendingWrites()
+
+        assertTrue(published)
+        assertArrayEquals(png, file.readBytes())
+        assertEquals(file.name, File(dir, "clips/published-image.ref").readText())
+    }
+
+    @Test fun a_lease_taken_while_the_sweep_waits_keeps_the_image() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        val entry = recorded(store)
+        store.flushPendingWrites()
+        val file = entry.imageFile()!!
+        val lease = synchronized(monitor(store, "publication")) {
+            assertTrue(store.clearHistory())
+            waitFor("the sweep is waiting its turn") { writer(store)?.state == Thread.State.BLOCKED }
+            promptly("retainImageForInput()") { store.retainImageForInput(entry) }
+        }
+        store.flushPendingWrites()
+
+        assertNotNull(lease)
+        assertArrayEquals(png, file.readBytes())
+        lease!!.close()
+        store.flushPendingWrites()
+        assertFalse(file.exists())
+    }
+
+    @Test fun an_image_the_sweep_has_picked_is_neither_leased_nor_published() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        val entry = recorded(store)
+        store.flushPendingWrites()
+        val name = entry.imageFile()!!.name
+        val history = monitor(store, "history")
+        @Suppress("UNCHECKED_CAST")
+        val sweeping = monitor(store, "sweepingImages") as MutableSet<String>
+        synchronized(history) { sweeping.add(name) }
+
+        assertNull(store.retainImageForInput(entry))
+        assertFalse(store.retainPublishedImage(entry) { fail("published an image being deleted"); true })
+
+        synchronized(history) { sweeping.remove(name) }
+        store.retainImageForInput(entry)!!.close()
+        store.flushPendingWrites()
+        assertArrayEquals(png, entry.imageFile()!!.readBytes())
+    }
+
+    @Test fun an_image_deleted_while_a_lease_waits_its_turn_is_refused_and_holds_nothing_back() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        val entry = recorded(store)
+        store.flushPendingWrites()
+        val file = entry.imageFile()!!
+        var lease: ClipboardStore.InputImageLease? = null
+        val taker = Thread { lease = store.retainImageForInput(entry) }
+        synchronized(monitor(store, "history")) {
+            taker.apply { isDaemon = true; start() }
+            waitFor("the lease is waiting for the history") { taker.state == Thread.State.BLOCKED }
+            assertTrue(file.delete())
+        }
+        taker.join(TimeUnit.SECONDS.toMillis(10))
+
+        assertFalse(taker.isAlive)
+        assertNull("a lease on a file that is gone must be refused", lease)
+        assertEquals(entry.key, recorded(store).key)
+        assertTrue(store.clearHistory())
+        store.flushPendingWrites()
+        assertFalse("a refused lease must not keep the image from being swept", file.exists())
+    }
 }
