@@ -334,6 +334,46 @@ class LargeSelectionUndoTest {
         }
     }
 
+    @Test fun undo_stays_offered_while_a_large_deletion_is_still_being_written() {
+        val f = Fixture(document, 100_000)
+        f.warmUp()
+        val from = 100_000
+        val span = 40_000
+        f.select(from, from + span)
+        val whole = f.host.text
+        f.showPanel()
+        f.host.deferred = true
+        f.controller.onKey(Key("", action = KeyAction.BACKSPACE))
+        assertTrue("undo is offered while the deletion is still being written", f.undoAvailable())
+        f.host.deferred = false
+        f.host.flush()
+        f.settle()
+        assertEquals("the selection is gone", whole.removeRange(from, from + span), f.host.text)
+        assertTrue("the finished deletion can be undone", f.undoAvailable())
+        f.edit(EditAction.UNDO)
+        assertEquals("undo restores the deleted text", whole, f.host.text)
+        f.service.onFinishInput()
+    }
+
+    @Test fun an_undo_tapped_during_a_large_deletion_runs_once_it_finishes() {
+        val f = Fixture(document, 100_000)
+        f.warmUp()
+        val from = 100_000
+        val span = 40_000
+        f.select(from, from + span)
+        val whole = f.host.text
+        f.showPanel()
+        f.host.deferred = true
+        f.controller.onKey(Key("", action = KeyAction.BACKSPACE))
+        f.editNow(EditAction.UNDO)
+        f.host.deferred = false
+        f.host.flush()
+        f.settle()
+        f.settle()
+        assertEquals("the queued undo restores the text", whole, f.host.text)
+        f.service.onFinishInput()
+    }
+
     @Test fun a_deletion_the_editor_ignored_is_dropped_once_a_report_contradicts_it() {
         val f = Fixture(document, 100_000)
         f.warmUp()
