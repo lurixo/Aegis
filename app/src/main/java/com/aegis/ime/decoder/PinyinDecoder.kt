@@ -821,22 +821,32 @@ class PinyinDecoder(
 
         val best = sentences.firstOrNull()?.text
 
-        val leadFreq = LinkedHashMap<String, Int>()
+        val initial = initialSegments(input, B)
+        val firstInitial = initial.indexOf(true)
+        val leadFreq = LinkedHashMap<String, Double>()
         val leadCov = HashMap<String, Int>()
-        for (j in 2..nSyl) for (wf in preferredExact(dict, input.substring(0, B[j]))) if (!isSingleChar(wf.word)) {
-            if (!admissibleUnderCuts(wf.word, 0, B[j], interior, input, singlesCache)) continue
-            if (leadFreq.put(wf.word, wf.freq) == null) leadCov[wf.word] = B[j]
+        for (j in 2..nSyl) {
+            if (firstInitial in 0 until j) {
+                for (wf in initialSpanWords(input, B, 0, j, initial, singlesCache)) {
+                    if (leadFreq.put(wf.word, wf.freq * INITIALS_FREQ_DISCOUNT) == null) leadCov[wf.word] = B[j]
+                }
+                continue
+            }
+            for (wf in preferredExact(dict, input.substring(0, B[j]))) if (!isSingleChar(wf.word)) {
+                if (!admissibleUnderCuts(wf.word, 0, B[j], interior, input, singlesCache)) continue
+                if (leadFreq.put(wf.word, wf.freq.toDouble()) == null) leadCov[wf.word] = B[j]
+            }
         }
         for (uw in userWordsFor(input)) {
             if (uw in leadFreq || uw.codePointCount(0, uw.length) < 2) continue
             if (!admissibleUnderCuts(uw, 0, input.length, interior, input, singlesCache)) continue
             val f = userWordFreq(uw, input).toInt().coerceAtLeast(1)
-            if (leadFreq.put(uw, f) == null) leadCov[uw] = input.length
+            if (leadFreq.put(uw, f.toDouble()) == null) leadCov[uw] = input.length
         }
 
         val sylCharFreq = Array(nSyl) { i ->
             val m = HashMap<String, Double>()
-            for ((w, f) in homophoneFreqs(input.substring(B[i], B[i + 1]))) m.putIfAbsent(w, f)
+            for ((w, f) in segmentSingleFreqs(input.substring(B[i], B[i + 1]))) m.putIfAbsent(w, f)
             m
         }
         fun commonnessFreq(word: String, coveredSyls: Int, carried: Double): Double {
@@ -866,10 +876,11 @@ class PinyinDecoder(
         for (f in sylCharFreq[0].values) readingMass += f
         fun tailFrequency(word: String, coveredSyls: Int, carried: Double): Double {
             val plain = commonnessFreq(word, coveredSyls, carried)
-            if (isSingleChar(word)) return plain
+            val discount = if (firstInitial in 0 until coveredSyls) INITIALS_FREQ_DISCOUNT else 1.0
+            if (isSingleChar(word)) return plain * discount
             val head = sylCharFreq[0][String(Character.toChars(word.codePointAt(0)))] ?: plain
             val cov = if (coveredSyls <= 0) input.length else B[coveredSyls.coerceAtMost(nSyl)]
-            return assemblyFrequency(word, head, readingMass, measuredMass[cov] ?: 0.0)
+            return assemblyFrequency(word, head, readingMass, measuredMass[cov] ?: 0.0) * discount
         }
         fun offerTail(word: String, coveredLen: Int, coveredSyls: Int, carried: Double) {
             if (word == best || word in leadFreq) return
@@ -883,7 +894,7 @@ class PinyinDecoder(
             }
         }
         for (sentence in sentences) offerTail(sentence.text, input.length, nSyl, 1.0)
-        for ((w, _) in homophoneFreqs(input.substring(0, B[1]))) offerTail(w, B[1], 1, 0.0)
+        for ((w, _) in segmentSingleFreqs(input.substring(0, B[1]))) offerTail(w, B[1], 1, 0.0)
         val tailRanked = tailCand.values.sortedWith(
             compareBy<Cand> { isSingleChar(it.word) }
                 .thenByDescending { tailScore[it.word] ?: Double.NEGATIVE_INFINITY }
@@ -996,6 +1007,53 @@ class PinyinDecoder(
         return !parses(respectCuts = false)
     }
 
+    private fun initialSegments(input: String, B: List<Int>): BooleanArray =
+        BooleanArray(B.size - 1) { B[it + 1] - B[it] == 1 && isInitialOnly(input.substring(B[it], B[it + 1])) }
+
+    private fun initialSpanWords(
+        input: String,
+        B: List<Int>,
+        from: Int,
+        to: Int,
+        initial: BooleanArray,
+        singlesCache: HashMap<String, Set<String>>,
+        limit: Int = Int.MAX_VALUE,
+    ): List<BinaryDict.WordFreq> {
+        val source = initialsDict ?: return emptyList()
+        val span = to - from
+        val key = StringBuilder(span)
+        for (k in from until to) key.append(input[B[k]])
+        val allowed = Array(span) { k ->
+            val segment = input.substring(B[from + k], B[from + k + 1])
+            if (initial[from + k]) {
+                initialSingleSets.getOrPut(segment) { singlesOf(source, segment) }
+            } else {
+                singlesCache.getOrPut(segment) { singlesOf(dict, segment) }
+            }
+        }
+        val out = ArrayList<BinaryDict.WordFreq>()
+        for (wf in preferredExact(source, key.toString(), if (span == 1) limit else Int.MAX_VALUE)) {
+            if (wf.word.codePointCount(0, wf.word.length) != span) continue
+            var offset = 0
+            var k = 0
+            while (k < span) {
+                val cp = wf.word.codePointAt(offset)
+                if (String(Character.toChars(cp)) !in allowed[k]) break
+                offset += Character.charCount(cp)
+                k++
+            }
+            if (k == span) out.add(wf)
+            if (out.size >= limit) break
+        }
+        return out
+    }
+
+    private fun singlesOf(source: BinaryDict, key: String): Set<String> {
+        val out = HashSet<String>()
+        for (wf in source.exact(key)) if (isSingleChar(wf.word)) out.add(wf.word)
+        return out
+    }
+
     private class APath(val text: String, val lastCp: Int, val tail: String, val score: Double) {
         private var lastId = UNRESOLVED_CHAR_ID
 
@@ -1036,13 +1094,17 @@ class PinyinDecoder(
         val learn = activeLearning
         val dp = Array(B.size) { ArrayList<APath>() }
         dp[0].add(APath("", ctx.cp, if (octagram == null && userLearning == null) "" else ctx.tail, 0.0))
+        val initial = initialSegments(input, B)
         for (i in 0 until nSyl) {
             if (dp[i].isEmpty()) continue
             val src = dp[i].sortedByDescending { it.score }.take(BEAM_W)
             for (j in i + 1..nSyl) {
                 val seg = input.substring(B[i], B[j])
+                val initialSpan = (i until j).any { initial[it] }
+                val penalty = if (initialSpan) INITIALS_PENALTY else 0.0
                 val raw = preferredExact(dict, seg)
-                val eligible = if (j == i + 1) raw.filter { isSingleChar(it.word) }
+                val eligible = if (initialSpan) initialSpanWords(input, B, i, j, initial, singlesCache, SENTENCE_EDGE_N)
+                else if (j == i + 1) raw.filter { isSingleChar(it.word) }
                 else raw.filterNot { isSingleChar(it.word) }
                     .filter { admissibleUnderCuts(it.word, B[i], B[j], interior, input, singlesCache) }
                 val edges = eligible.take(SENTENCE_EDGE_N).toMutableList()
@@ -1059,7 +1121,7 @@ class PinyinDecoder(
                     val firstCp = w.codePointAt(0)
                     val idFirst = model?.charId(firstCp) ?: -1
                     val lastCp = w.codePointBefore(w.length)
-                    val uni = ln(wf.freq.toDouble()) - lnTotal
+                    val uni = ln(wf.freq.toDouble()) - lnTotal - penalty
                     val boost = (userModel?.wordBoost(w) ?: 0.0) +
                         (learn?.formedWeight(w) ?: 0.0)
                     val inner = if (model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model, condMemo)
@@ -1223,7 +1285,7 @@ class PinyinDecoder(
 
     private fun wholeSegmentReading(segment: String): String? =
         if (segment[0] in '2'..'9') T9Pinyin.syllableReading(segment).takeIf { it.isNotEmpty() }
-        else segment.takeIf { T9Pinyin.firstSyllableLetters(it) == it }
+        else segment.takeIf { T9Pinyin.firstSyllableLetters(it) == it || isInitialOnly(it) }
 
     private fun atomicSyllables(clean: String, interior: Set<Int>): List<Syllable> {
         val bounds = listOf(0) + interior.filter { it in 1 until clean.length }.sorted() + listOf(clean.length)
@@ -1262,7 +1324,7 @@ class PinyinDecoder(
     private class Homophone(val word: String, val layer: Int, val band: Int)
 
     internal fun homophonesOf(key: String): List<String> =
-        homophoneFreqs(key)
+        segmentSingleFreqs(key)
             .map { Homophone(it.first, homophoneLayer(it.first, it.second), corpusBand(it.first)) }
             .sortedWith(compareBy<Homophone> { it.layer }.thenBy { it.band })
             .map { it.word }
@@ -1322,6 +1384,22 @@ class PinyinDecoder(
         )
         return out
     }
+
+    private fun isInitialOnly(segment: String): Boolean =
+        segment.length == 1 && segment[0] in 'a'..'z' && segment !in T9Pinyin.SYLLABLES &&
+            initialsDict?.exact(segment, 1)?.isNotEmpty() == true
+
+    private fun initialSingleFreqs(segment: String): List<Pair<String, Double>> {
+        val source = initialsDict ?: return emptyList()
+        val out = ArrayList<Pair<String, Double>>()
+        for (wf in preferredExact(source, segment, INITIALS_SINGLES)) {
+            if (isSingleChar(wf.word)) out.add(wf.word to wf.freq.toDouble())
+        }
+        return out
+    }
+
+    private fun segmentSingleFreqs(segment: String): List<Pair<String, Double>> =
+        if (isInitialOnly(segment)) initialSingleFreqs(segment) else homophoneFreqs(segment)
 
     private fun letterSyllables(input: String): List<Syllable> {
         val out = ArrayList<Syllable>()
@@ -1629,6 +1707,7 @@ class PinyinDecoder(
         const val INITIALS_PENALTY = 5.0
         const val INITIALS_RESERVE = 1
         const val INITIALS_RESERVE_MIN_LEN = 2
+        const val INITIALS_SINGLES = 1024
         const val GUESS_LIMIT = 3
         const val GUESS_VARIANTS = 3
         const val GUESS_EXACT_WORDS = 3
@@ -1674,6 +1753,7 @@ class PinyinDecoder(
         const val GENERAL_USE_CARDINALITY = TghGrading.LEVEL1_COUNT + TghGrading.LEVEL2_COUNT
         const val CORPUS_BAND_OUT = 3
         val ALIAS_FREQ_DISCOUNT = exp(-ALIAS_PENALTY)
+        val INITIALS_FREQ_DISCOUNT = exp(-INITIALS_PENALTY)
         const val DEFAULT_CONTEXT_WEIGHT = 1.0
         fun completionCap(limit: Int): Int = maxOf(1, (limit.toLong() * 2 / 3).toInt())
         val INPUT_ALIASES = mapOf("en" to listOf("ng"))
