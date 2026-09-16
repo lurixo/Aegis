@@ -289,6 +289,8 @@ class KeyboardView(context: Context) : View(context) {
         if (accentIndex >= 0 && (!sameColumn || accentIndex != scrollAccentIndex)) pendingAccentReveal = true
         scrollAccentIndex = accentIndex
         val modeChanged = newLayout.id != layout.id
+        val sizingChanged = newLayout.rowCount != layout.rowCount ||
+            usesFractionalCells(newLayout) != usesFractionalCells(layout)
         layout = newLayout
         shifted = isShifted
         shiftLocked = isLocked
@@ -296,7 +298,7 @@ class KeyboardView(context: Context) : View(context) {
         scrollColumn = newLayout.scrollColumn
         if (!sameColumn) { fling.forceFinish(); scrollY = 0f; scrollbarFade.hide() }
         if (width > 0) relayout()
-        requestLayout()
+        if (sizingChanged || width <= 0) requestLayout()
         invalidate()
         if (modeChanged && width > 0) { modeSwitches++ }
         if (snap != null) Motion.coverWith(this, snap)
@@ -307,7 +309,9 @@ class KeyboardView(context: Context) : View(context) {
     internal fun layoutAppliesForTest(): Int = layoutApplies
 
     internal fun rowCountForSizing(): Int = layout.rowCount
-    internal fun usesFractionalCellsForSizing(): Boolean = layout.cells != null && layout.id != LayoutId.ALPHA
+    internal fun usesFractionalCellsForSizing(): Boolean = usesFractionalCells(layout)
+
+    private fun usesFractionalCells(l: KeyboardLayout): Boolean = l.cells != null && l.id != LayoutId.ALPHA
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         val width = MeasureSpec.getSize(widthMeasureSpec)
