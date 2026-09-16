@@ -119,6 +119,49 @@ class ClipboardImageIndexLockTest {
         return outcome!!.getOrThrow()
     }
 
+    @Test fun reading_and_recording_do_not_wait_for_an_image_index_write_and_a_failed_one_keeps_the_later_record() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        store.record("text")
+        store.flushPendingWrites()
+        val pipe = pipeAt(store.tempFileFor(File(dir, "clipboard.txt")))
+        val done = capture(store)
+        waitFor("the image index write reached the paused file") { opening("atomicWrite", writer(store)) }
+
+        assertEquals(listOf(true, false), promptly("history()") { store.history().map { it.isImage } })
+        assertTrue(promptly("latestEntry()") { store.latestEntry()!!.isImage })
+        promptly("record()") { store.record("并发文本") }
+
+        release(pipe)
+        val result = done.poll(10, TimeUnit.SECONDS)
+        store.flushPendingWrites()
+
+        assertTrue("an image whose index write failed must not be reported as kept", result!!.isFailure)
+        assertEquals(listOf("并发文本", "text"), store.historyText())
+        assertEquals(listOf("并发文本", "text"), store(dir).historyText())
+        assertTrue(File(dir, "clips/images").listFiles().orEmpty().isEmpty())
+    }
+
+    @Test fun clearing_while_an_image_index_write_is_held_leaves_no_row_and_no_image() {
+        val dir = temp.newFolder()
+        val store = store(dir)
+        store.record("text")
+        store.flushPendingWrites()
+        val pipe = pipeAt(store.tempFileFor(File(dir, "clipboard.txt")))
+        val done = capture(store)
+        waitFor("the image index write reached the paused file") { opening("atomicWrite", writer(store)) }
+
+        assertTrue(promptly("clearHistory()") { store.clearHistory() })
+
+        release(pipe)
+        assertTrue(done.poll(10, TimeUnit.SECONDS)!!.isFailure)
+        store.flushPendingWrites()
+
+        assertEquals(emptyList<String>(), store.historyText())
+        assertEquals(emptyList<String>(), store(dir).historyText())
+        assertTrue(File(dir, "clips/images").listFiles().orEmpty().isEmpty())
+    }
+
     @Test fun publishing_an_image_does_not_hold_the_history_during_the_system_call() {
         val dir = temp.newFolder()
         val store = store(dir)

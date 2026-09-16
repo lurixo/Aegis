@@ -378,29 +378,51 @@ class ClipboardStore(private val dir: File) {
                     if (!clipWritesAllowed() || captureGen != imageCaptureGen.get()) throw IOException("clipboard capture was cancelled")
                     val imported = ClipboardImages.importImage(imagesDir(), resolver, uri, mimeType)
                     val entry = ClipEntry.image(imagesDir(), imported.hash, imported.mimeType).apply { this.captureOrder = captureOrder }
-                    try {
+                    val capture = try {
                         if (!clipWritesAllowed() || captureGen != imageCaptureGen.get()) throw IOException("clipboard capture was cancelled")
                         synchronized(history) {
                             if (!clipWritesAllowed() || captureGen != imageCaptureGen.get()) throw IOException("clipboard capture was cancelled")
-                            val next = ArrayList(history)
-                            next.remove(entry)
-                            val at = next.indexOfFirst { it.captureOrder <= captureOrder }.let { if (it < 0) next.size else it }
-                            next.add(at, entry)
-                            writeHistory(next)
-                            history.clear()
-                            history.addAll(next)
-                            saveGen.incrementAndGet()
+                            val displaced = history.firstOrNull { it == entry }
+                            history.remove(entry)
+                            val at = history.indexOfFirst { it.captureOrder <= captureOrder }.let { if (it < 0) history.size else it }
+                            history.add(at, entry)
+                            ImageCapture(PendingWrite(saveGen.incrementAndGet(), ArrayList(history)), displaced)
                         }
                     } catch (failure: Exception) {
                         if (imported.created) removeUnreferencedImage(imported.file.name)
                         throw failure
                     }
+                    if (capture != null) landImageCapture(entry, capture, imported)
                     entry
                 }
                 report(result)
             }
         }
         queued.exceptionOrNull()?.let { report(Result.failure(it)) }
+    }
+
+    private class ImageCapture(val write: PendingWrite, val displaced: ClipEntry?)
+
+    private fun landImageCapture(entry: ClipEntry, capture: ImageCapture, imported: ClipboardImages.Imported) {
+        if (capture.write.gen != saveGen.get()) {
+            if (!synchronized(history) { entry in history }) throw IOException("clipboard capture was cancelled")
+            return
+        }
+        val failure = runCatching { writeHistory(capture.write.rows) }.exceptionOrNull()
+        if (failure == null) {
+            return
+        }
+        val retry = synchronized(history) {
+            val displaced = capture.displaced
+            if (history.removeIf { it === entry } && displaced != null && displaced !in history) {
+                val at = history.indexOfFirst { it.captureOrder <= displaced.captureOrder }
+                history.add(if (at < 0) history.size else at, displaced)
+            }
+            PendingWrite(saveGen.incrementAndGet(), ArrayList(history))
+        }
+        if (imported.created) removeUnreferencedImage(imported.file.name)
+        onWriteLane { if (retry.gen == saveGen.get()) runCatching { writeHistory(retry.rows) } }
+        throw failure
     }
 
     fun importHistory(entries: List<ClipEntry>, merge: Boolean) {
