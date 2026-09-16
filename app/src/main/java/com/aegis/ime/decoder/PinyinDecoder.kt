@@ -146,7 +146,15 @@ class PinyinDecoder(
         learnIndexVersion = learnVersion
     }
 
-    private fun readsAs(word: String, reading: String, cache: HashMap<String, Set<String>>): Boolean {
+    private fun readsAs(word: String, reading: String, cache: HashMap<String, Set<String>>): Boolean =
+        readsAs(word, reading, cache) { listOf(it) }
+
+    private fun readsAs(
+        word: String,
+        reading: String,
+        cache: HashMap<String, Set<String>>,
+        spellings: (String) -> List<String>,
+    ): Boolean {
         if (reading.isEmpty() || word.isEmpty()) return false
         val cps = ArrayList<String>(4)
         var ci = 0
@@ -170,14 +178,20 @@ class PinyinDecoder(
             if (!dp[p][i]) continue
             var q = p + 1
             while (q <= n && q - p <= MAX_SYLLABLE_KEY_LEN) {
-                val key = reading.substring(p, q)
-                val known = singles(key)
-                if (cps[i] in known || (known.isEmpty() && key in T9Pinyin.SYLLABLES)) dp[q][i + 1] = true
+                val readable = spellings(reading.substring(p, q)).any { key ->
+                    val known = singles(key)
+                    cps[i] in known || (known.isEmpty() && key in T9Pinyin.SYLLABLES)
+                }
+                if (readable) dp[q][i + 1] = true
                 q++
             }
         }
         return dp[n][m]
     }
+
+    private fun readsAsInput(word: String, input: String, cache: HashMap<String, Set<String>>): Boolean =
+        if (input[0] in '2'..'9') readsAs(word, input, cache) { T9_SPELLINGS[it].orEmpty() }
+        else readsAs(word, input, cache)
 
     private fun userWordsFor(key: String): List<String> {
         if ((userModel == null && userLearning == null) || key.isEmpty()) return emptyList()
@@ -522,6 +536,16 @@ class PinyinDecoder(
         return han
     }
 
+    private fun allHan(word: String): Boolean {
+        var i = 0
+        while (i < word.length) {
+            val cp = word.codePointAt(i)
+            if (!isHan(cp)) return false
+            i += Character.charCount(cp)
+        }
+        return true
+    }
+
     private fun isSingleChar(w: String): Boolean = w.codePointCount(0, w.length) == 1
 
     private fun supplementarySingleTieRank(word: String): Int =
@@ -837,8 +861,11 @@ class PinyinDecoder(
                 if (leadFreq.put(wf.word, wf.freq.toDouble()) == null) leadCov[wf.word] = B[j]
             }
         }
+        val handAdded = manualWordsFor(input)
+        val spelledSingles = HashMap<String, Set<String>>()
         for (uw in userWordsFor(input)) {
             if (uw in leadFreq || uw.codePointCount(0, uw.length) < 2) continue
+            if (uw !in handAdded && allHan(uw) && !readsAsInput(uw, input, spelledSingles)) continue
             if (!admissibleUnderCuts(uw, 0, input.length, interior, input, singlesCache)) continue
             val f = userWordFreq(uw, input).toInt().coerceAtLeast(1)
             if (leadFreq.put(uw, f.toDouble()) == null) leadCov[uw] = input.length
@@ -1697,6 +1724,7 @@ class PinyinDecoder(
 
     internal companion object {
         private val READING_KEYS = T9Pinyin.SYLLABLES.map { it to T9Pinyin.toT9(it) }
+        private val T9_SPELLINGS: Map<String, List<String>> = READING_KEYS.groupBy({ it.second }, { it.first })
         const val SEP = '\''
         const val BOS = -1
         const val NO_CTX = Int.MIN_VALUE
