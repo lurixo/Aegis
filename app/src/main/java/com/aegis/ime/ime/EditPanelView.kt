@@ -169,11 +169,11 @@ class EditPanelView(context: Context) :
         addKey(EditAction.SELECT_ALL, context.getString(R.string.edit_select_all), glyph(10.8f) { c, p, x, y, s ->
             Glyphs.drawSelectAll(c, p, x, y, s)
         })
-        addKey(EditAction.COPY, context.getString(R.string.edit_copy), glyph(9f) { c, p, x, y, s ->
-            Glyphs.drawCopy(c, p, x, y, s)
-        })
         addKey(EditAction.CUT, context.getString(R.string.edit_cut), glyph(11f) { c, p, x, y, s ->
             Glyphs.drawCut(c, p, x, y, s)
+        })
+        addKey(EditAction.COPY, context.getString(R.string.edit_copy), glyph(9f) { c, p, x, y, s ->
+            Glyphs.drawCopy(c, p, x, y, s)
         })
         addKey(EditAction.PASTE, context.getString(R.string.edit_paste), glyph(10.5f) { c, p, x, y, s ->
             Glyphs.drawClipboard(c, p, x, y, s)
@@ -463,8 +463,8 @@ class EditPanelView(context: Context) :
             target(EditAction.UNDO, rightX, top + row + gap, column, row)
             target(EditAction.FORWARD_DELETE, rightX + column + columnGap, top + row + gap, column, row)
             target(EditAction.SELECT_ALL, rightX, top + 2f * (row + gap), column, row)
-            target(EditAction.COPY, rightX + column + columnGap, top + 2f * (row + gap), column, row)
-            target(EditAction.CUT, rightX, lastY, column, row)
+            target(EditAction.CUT, rightX + column + columnGap, top + 2f * (row + gap), column, row)
+            target(EditAction.COPY, rightX, lastY, column, row)
             target(EditAction.PASTE, rightX + column + columnGap, lastY, column, row)
         }
 
@@ -494,8 +494,8 @@ class EditPanelView(context: Context) :
             for ((index, pair) in listOf(
                 EditAction.TAB to EditAction.DELETE,
                 EditAction.UNDO to EditAction.FORWARD_DELETE,
-                EditAction.SELECT_ALL to EditAction.COPY,
-                EditAction.CUT to EditAction.PASTE,
+                EditAction.SELECT_ALL to EditAction.CUT,
+                EditAction.COPY to EditAction.PASTE,
             ).withIndex()) {
                 target(pair.first, rightX, top + index * (row + gap), column, row)
                 target(pair.second, rightX + column + gap, top + index * (row + gap), column, row)

@@ -195,9 +195,11 @@ class EditPanelLayoutTest {
         assertTrue(undo.right < forward.left)
         assertTrue(forward.top >= backspace.bottom)
         assertTrue(rect(EditAction.SELECT_ALL).top >= forward.bottom)
-        assertEquals(rect(EditAction.SELECT_ALL).top, rect(EditAction.COPY).top)
-        assertEquals(rect(EditAction.CUT).top, rect(EditAction.PASTE).top)
-        assertTrue(rect(EditAction.CUT).top >= rect(EditAction.SELECT_ALL).bottom)
+        assertEquals(rect(EditAction.SELECT_ALL).top, rect(EditAction.CUT).top)
+        assertEquals(rect(EditAction.COPY).top, rect(EditAction.PASTE).top)
+        assertTrue(rect(EditAction.COPY).top >= rect(EditAction.SELECT_ALL).bottom)
+        assertEquals(rect(EditAction.SELECT_ALL).left, rect(EditAction.COPY).left)
+        assertEquals(forward.left, rect(EditAction.CUT).left)
         assertTrue(home.top >= rect(EditAction.DOWN).bottom)
         assertEquals(home.top, end.top)
         assertTrue(home.right < end.left)
@@ -228,8 +230,11 @@ class EditPanelLayoutTest {
         assertEquals(forward.width(), backspace.width())
         assertTrue(forward.top > backspace.bottom)
         assertTrue(rect(EditAction.SELECT_ALL).top > forward.bottom)
-        assertEquals(rect(EditAction.SELECT_ALL).top, rect(EditAction.COPY).top)
-        assertEquals(rect(EditAction.CUT).top, rect(EditAction.PASTE).top)
+        assertEquals(rect(EditAction.SELECT_ALL).top, rect(EditAction.CUT).top)
+        assertEquals(rect(EditAction.COPY).top, rect(EditAction.PASTE).top)
+        assertTrue(rect(EditAction.COPY).top > rect(EditAction.SELECT_ALL).bottom)
+        assertEquals(rect(EditAction.SELECT_ALL).left, rect(EditAction.COPY).left)
+        assertEquals(forward.left, rect(EditAction.CUT).left)
     }
 
     @Test fun all_actions_dispatch_from_their_visible_targets_in_both_languages_and_all_panel_shapes() {
