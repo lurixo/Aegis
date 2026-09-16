@@ -233,21 +233,35 @@ class ClipboardStore(private val dir: File) {
     fun load() {
         imageCaptureGen.incrementAndGet()
         inputImageGen.incrementAndGet()
-        flushPendingWrites()
+        val reload = Runnable { adoptHistory(readHistory()) }
+        val queued = if (Thread.currentThread() === writer) null else runCatching { io.submit(reload) }.getOrNull()
+        if (queued == null) reload.run() else runCatching { queued.get() }
+        loadPhrases()
+    }
+
+    private class LoadedHistory(val entries: List<ClipEntry>, val readable: Boolean)
+
+    private fun readHistory(): LoadedHistory {
+        purgeLegacyImageDir()
+        val entries = ArrayList<ClipEntry>()
+        val seen = HashSet<String>()
+        val readable = runCatching {
+            if (histFile.exists()) Files.readAllLines(histFile.toPath()).forEach { line ->
+                readEntry(line)?.let { e ->
+                    if (e.key.isNotBlank() && !isLegacyImageEntry(e.key) && seen.add(e.key)) entries.add(e)
+                }
+            }
+        }.isSuccess
+        return LoadedHistory(if (readable) entries else emptyList(), readable)
+    }
+
+    private fun adoptHistory(loaded: LoadedHistory) {
         synchronized(history) {
             history.clear()
-            purgeLegacyImageDir()
-            val seen = HashSet<String>()
-            historyReadable = runCatching {
-                if (histFile.exists()) Files.readAllLines(histFile.toPath()).forEach { line ->
-                    readEntry(line)?.let { e ->
-                        if (e.key.isNotBlank() && !isLegacyImageEntry(e.key) && seen.add(e.key)) history.add(e)
-                    }
-                }
-            }.isSuccess
-            if (!historyReadable) history.clear()
+            history.addAll(loaded.entries)
+            historyReadable = loaded.readable
+            saveGen.incrementAndGet()
         }
-        loadPhrases()
     }
 
     private fun purgeLegacyImageDir() { runCatching { File(dir, "clipboard_images").deleteRecursively() } }

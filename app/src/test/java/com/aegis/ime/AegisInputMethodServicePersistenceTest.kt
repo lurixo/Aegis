@@ -19,6 +19,7 @@ import android.content.Context
 import android.os.Looper
 import android.view.inputmethod.EditorInfo
 import com.aegis.ime.backup.RestoreJournal
+import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.RestoreTrouble
@@ -30,6 +31,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -67,6 +69,7 @@ class AegisInputMethodServicePersistenceTest {
 
     @After fun letGo() {
         release?.countDown()
+        LiveUserData.clipboardHost = null
         UserDictHot.host = null
         LiveUserData.onBeforeExport = null
         LiveUserData.onBeforeRestore = null
@@ -151,6 +154,25 @@ class AegisInputMethodServicePersistenceTest {
         val service = started()
         assertTrue("the cold start finished, so the reload gate must be open", userStoresLoaded(service))
         assertTrue("the live host must be serving once the cold start finished", UserDictHot.host === liveHost(service))
+    }
+
+    @Test fun the_cold_start_loads_the_clipboard_store_before_the_panel_asks_for_it() {
+        val history = File(filesDir, "clipboard.txt").apply { writeText("冷启动前复制的\n") }
+        try {
+            val service = started()
+            val delegate = service.javaClass.getDeclaredField("clipboardStore\$delegate").run {
+                isAccessible = true
+                get(service) as Lazy<*>
+            }
+
+            assertTrue("the loader thread must have opened the clipboard store, not the first panel open", delegate.isInitialized())
+            val store = delegate.value as ClipboardStore
+            assertEquals(listOf("冷启动前复制的"), store.history().map { it.body() })
+            assertSame("the store it opened is the one backup and restore reach for", store, LiveUserData.clipboardHost)
+            service.onDestroy()
+        } finally {
+            history.delete()
+        }
     }
 
     private fun prefs() =

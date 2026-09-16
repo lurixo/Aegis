@@ -544,6 +544,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 controller.setEngine(engine)
                 maybeReloadEngine()
             }
+            runCatching { clipboardStore }
         }.apply { name = "aegis-dict-load"; isDaemon = true }.start()
     }
 
