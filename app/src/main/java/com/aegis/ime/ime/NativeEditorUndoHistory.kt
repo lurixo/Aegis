@@ -71,6 +71,9 @@ internal class NativeEditorUndoHistory {
         var deadline = SystemClock.uptimeMillis() + WAIT_MS
         var deferred = false
         var selectionSent = false
+        var selectionSentAt = 0L
+        var rangeWrites = 0
+        var commits = 0
         var completed: Boolean? = null
         var restoredBody: EditorTextSnapshot? = null
         var restoredSelection: EditorTextSnapshot? = null
@@ -1396,19 +1399,25 @@ internal class NativeEditorUndoHistory {
                     if (restoredMatches(operation.entry, current)) {
                         completeUndo(operation, requireNotNull(current))
                     } else {
-                        if (expired) finishUndo(false)
+                        if (missedDeletion(operation, current)) reselect(operation)
+                        else if (expired) finishUndo(false)
                         false
                     }
                 }
                 Phase.SELECT -> {
                     val edit = current?.let { localEdit(operation.entry, it) }
                     if (edit == null) {
-                        finishUndo(false)
+                        if (current != null || expired) finishUndo(false)
                         false
                     } else {
                         if (current!!.selectionStart != edit.start || current!!.selectionEnd != edit.end) {
-                            if (!operation.selectionSent) {
+                            val now = SystemClock.uptimeMillis()
+                            if (!operation.selectionSent || operation.rangeWrites < MAX_RANGE_WRITES &&
+                                now - operation.selectionSentAt >= POLL_MS) {
                                 operation.selectionSent = true
+                                operation.rangeWrites++
+                                operation.selectionSentAt = now
+                                operation.deadline = maxOf(operation.deadline, now + WAIT_MS)
                                 if (!operation.target.setSelection(edit.start, edit.end)) {
                                     finishUndo(false)
                                     return false
@@ -1425,6 +1434,7 @@ internal class NativeEditorUndoHistory {
                             operation.dispatchedPlaceholders = placeholders(current!!)
                             operation.dispatchedActions = listOf(WindowEdit.Commit(edit.text, 1))
                             operation.phase = Phase.CONFIRM
+                            operation.commits++
                             operation.deadline = SystemClock.uptimeMillis() + WAIT_MS
                             val accepted = runCatching {
                                 operation.target.beginBatchEdit()
@@ -1435,7 +1445,8 @@ internal class NativeEditorUndoHistory {
                             if (restoredMatches(operation.entry, current)) {
                                 completeUndo(operation, requireNotNull(current))
                             } else {
-                                if (!accepted) finishUndo(false)
+                                if (missedDeletion(operation, current)) reselect(operation)
+                                else if (!accepted) finishUndo(false)
                                 false
                             }
                         }
@@ -1443,6 +1454,22 @@ internal class NativeEditorUndoHistory {
                 }
             }
         } finally { settlingUndo = false }
+    }
+
+    private fun missedDeletion(operation: Undo, current: EditorTextSnapshot?): Boolean {
+        val dispatched = operation.dispatchedBefore ?: return false
+        val commit = operation.dispatchedActions?.singleOrNull() as? WindowEdit.Commit ?: return false
+        return current != null && commit.text.isEmpty() && operation.commits < MAX_COMMITS && current.sameText(dispatched) &&
+            (current.selectionStart != dispatched.selectionStart || current.selectionEnd != dispatched.selectionEnd)
+    }
+
+    private fun reselect(operation: Undo) {
+        operation.phase = Phase.SELECT
+        operation.selectionSent = false
+        operation.dispatchedBefore = null
+        operation.dispatchedPlaceholders = emptyList()
+        operation.dispatchedActions = null
+        operation.deadline = SystemClock.uptimeMillis() + WAIT_MS
     }
 
     private fun restoredSelection(entry: Entry, current: EditorTextSnapshot?): EditorTextSnapshot? {
@@ -1575,5 +1602,7 @@ internal class NativeEditorUndoHistory {
         const val INSERT_WAIT_MS = 2_000L
         const val MIN_WINDOW = 32
         const val SNAPSHOT_READS = 3
+        const val MAX_RANGE_WRITES = 3
+        const val MAX_COMMITS = 3
     }
 }

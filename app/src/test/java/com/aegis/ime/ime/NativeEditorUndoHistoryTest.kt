@@ -1108,6 +1108,54 @@ class NativeEditorUndoHistoryTest {
         return before
     }
 
+    @Test fun consecutive_local_undo_steps_reselect_after_the_host_reapplies_its_caret_from_the_previous_step() {
+        for (numbered in listOf(false, true)) {
+            val editor = Editor(numbered = numbered).apply { mergeInputs = true }
+            val history = history()
+            val connection = history.wrap(editor)
+            val states = ArrayList<String>()
+            for (part in listOf("ab", "1234567890", "，", "虽然", "但是")) {
+                states.add(editor.document)
+                assertTrue(connection.commitText(part, 1))
+            }
+            editor.selectionDelayMs = 8
+            editor.caretEchoMs = 20
+            for (expected in states.asReversed()) {
+                val label = "numbered=$numbered undo to \"$expected\""
+                assertTrue(label, history.canUndo(connection))
+                undoStep(history, connection, label)
+                assertEquals(label, expected, editor.document)
+            }
+            assertFalse(history.canUndo(connection))
+        }
+    }
+
+    @Test fun a_replayed_deletion_that_lands_on_a_collapsed_host_caret_selects_the_range_again() {
+        for (numbered in listOf(false, true)) {
+            val editor = Editor(numbered = numbered)
+            var collapseBeforeCommit = false
+            val target = object : InputConnectionWrapper(editor, false) {
+                override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                    if (collapseBeforeCommit && text.isNullOrEmpty()) {
+                        collapseBeforeCommit = false
+                        Selection.setSelection(editor.editable, Selection.getSelectionEnd(editor.editable))
+                    }
+                    return super.commitText(text, newCursorPosition)
+                }
+            }
+            val history = history()
+            val connection = history.wrap(target)
+            assertTrue(connection.commitText("ab", 1))
+            assertTrue(connection.commitText("虽然", 1))
+            collapseBeforeCommit = true
+            undoStep(history, connection, "numbered=$numbered")
+            assertEquals("numbered=$numbered", "ab", editor.document)
+            assertFalse(collapseBeforeCommit)
+            undoStep(history, connection, "numbered=$numbered")
+            assertEquals("numbered=$numbered", "", editor.document)
+        }
+    }
+
     @Test fun a_read_that_changes_between_extraction_and_cursor_text_is_read_again_instead_of_discarding_history() {
         for (numbered in listOf(false, true)) {
             val editor = Editor(numbered = numbered)
