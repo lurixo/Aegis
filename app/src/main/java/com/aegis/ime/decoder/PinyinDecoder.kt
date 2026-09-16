@@ -383,16 +383,8 @@ class PinyinDecoder(
         return combined.substring(start)
     }
 
-    private fun bestSuffixGram(text: String, startLimit: Int): Double {
-        val gram = octagram ?: return 0.0
-        var best = 0.0
-        var start = 0
-        while (start < startLimit && start < text.length) {
-            gram.rawScore(text.substring(start))?.let { if (it > best) best = it }
-            start += Character.charCount(text.codePointAt(start))
-        }
-        return best
-    }
+    private fun bestSuffixGram(text: String, startLimit: Int): Double =
+        octagram?.bestSuffixScore(text, startLimit) ?: 0.0
 
     private fun contextArm(contextTail: String, word: String): Double =
         if (contextTail.isEmpty()) 0.0

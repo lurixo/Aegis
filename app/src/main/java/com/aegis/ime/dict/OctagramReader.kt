@@ -37,11 +37,11 @@ class OctagramReader private constructor(
     private fun hasLeaf(u: Int): Boolean = ((u ushr 8) and 1) == 1
     private fun value(u: Int): Int = u and 0x7FFFFFFF
 
-    private fun lookup(encoded: ByteArray): Int? {
+    private fun lookup(encoded: ByteArray, from: Int = 0, to: Int = encoded.size): Int? {
         var id = 0
         var u = unit(0)
-        for (b in encoded) {
-            val c = b.toInt() and 0xFF
+        for (i in from until to) {
+            val c = encoded[i].toInt() and 0xFF
             id = id xor offset(u) xor c
             if (!inImage(id)) return null
             u = unit(id)
@@ -55,11 +55,51 @@ class OctagramReader private constructor(
 
     fun rawScore(text: String): Double? = lookup(encode(text))?.let { it / VALUE_SCALE }
 
+    fun bestSuffixScore(text: String, startLimit: Int): Double {
+        var best = 0.0
+        var start = 0
+        while (start < startLimit && start < text.length) {
+            val found = lookupFrom(text, start)
+            if (found != ABSENT) {
+                val score = found / VALUE_SCALE
+                if (score > best) best = score
+            }
+            start += Character.charCount(text.codePointAt(start))
+        }
+        return best
+    }
+
+    private fun lookupFrom(text: String, from: Int): Int {
+        var id = 0
+        var u = unit(0)
+        var i = from
+        while (i < text.length) {
+            val cp = text.codePointAt(i)
+            val packed = pack(cp)
+            val count = (packed ushr PACKED_COUNT_SHIFT).toInt()
+            for (k in 0 until count) {
+                val c = ((packed ushr (8 * k)) and 0xFF).toInt()
+                id = id xor offset(u) xor c
+                if (!inImage(id)) return ABSENT
+                u = unit(id)
+                if ((u and labelMask) != c) return ABSENT
+            }
+            i += Character.charCount(cp)
+        }
+        if (!hasLeaf(u)) return ABSENT
+        val leaf = id xor offset(u)
+        if (!inImage(leaf)) return ABSENT
+        return value(unit(leaf))
+    }
+
     companion object {
         private const val VALUE_SCALE = 10000.0
         private const val METADATA_SIZE = 44
         private const val FORMAT_SIZE = 32
         private const val FORMAT_PREFIX = "Rime::Grammar/"
+        private const val MAX_BYTES_PER_CHAR = 6
+        private const val PACKED_COUNT_SHIFT = 56
+        private const val ABSENT = -1
 
         fun fromFile(file: File): OctagramReader {
             RandomAccessFile(file, "r").use { raf ->
@@ -93,31 +133,51 @@ class OctagramReader private constructor(
         }
 
         fun encode(text: String): ByteArray {
-            val out = ArrayList<Byte>(text.length * 2)
+            val out = ByteArray(text.length * MAX_BYTES_PER_CHAR)
+            var size = 0
             var i = 0
             while (i < text.length) {
                 val u = text.codePointAt(i)
                 i += Character.charCount(u)
-                when {
-                    u < 0x80 -> out.add(if (u == 0) 0xE0.toByte() else u.toByte())
-                    u in 0x4000 until 0xA000 -> {
-                        if ((u and 0xFF) == 0) {
-                            out.add(0xE1.toByte()); out.add(((u shr 8) + 0x40).toByte())
-                        } else {
-                            out.add(((u shr 8) + 0x40).toByte()); out.add((u and 0xFF).toByte())
-                        }
+                size = encodeInto(u, out, size)
+            }
+            return out.copyOf(size)
+        }
+
+        private fun encodeInto(u: Int, out: ByteArray, at: Int): Int {
+            val packed = pack(u)
+            val count = (packed ushr PACKED_COUNT_SHIFT).toInt()
+            for (k in 0 until count) out[at + k] = (packed ushr (8 * k)).toByte()
+            return at + count
+        }
+
+        private fun pack(u: Int): Long {
+            var packed: Long
+            var size: Int
+            when {
+                u < 0x80 -> {
+                    packed = if (u == 0) 0xE0L else u.toLong()
+                    size = 1
+                }
+                u in 0x4000 until 0xA000 -> {
+                    packed = if ((u and 0xFF) == 0) {
+                        0xE1L or (((u shr 8) + 0x40).toLong() shl 8)
+                    } else {
+                        ((u shr 8) + 0x40).toLong() or ((u and 0xFF).toLong() shl 8)
                     }
-                    else -> {
-                        var uu = u
-                        var bits = 32
-                        while (bits > 0 && (uu and 0xFE000000.toInt()) == 0) { bits -= 7; uu = uu shl 7 }
-                        var n = (bits + 6) / 7
-                        out.add((0xE0 or n).toByte())
-                        while (n > 0) { n--; out.add((((uu ushr 25) and 0x7F) or 0x80).toByte()) }
-                    }
+                    size = 2
+                }
+                else -> {
+                    var uu = u
+                    var bits = 32
+                    while (bits > 0 && (uu and 0xFE000000.toInt()) == 0) { bits -= 7; uu = uu shl 7 }
+                    var n = (bits + 6) / 7
+                    packed = (0xE0 or n).toLong()
+                    size = 1
+                    while (n > 0) { n--; packed = packed or ((((uu ushr 25) and 0x7F) or 0x80).toLong() shl (8 * size)); size++ }
                 }
             }
-            return out.toByteArray()
+            return packed or (size.toLong() shl PACKED_COUNT_SHIFT)
         }
     }
 }
