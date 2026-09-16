@@ -54,6 +54,10 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     var version: Long = 0L
         private set
 
+    @Volatile
+    var formedVersion: Long = 0L
+        private set
+
     private val saveLock = Any()
 
     @Volatile
@@ -74,6 +78,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
             coveredRanges.clear()
             chainPos = 0L
             version++
+            formedVersion++
         }
 
     @Synchronized
@@ -125,6 +130,17 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
                 .map { it.first }
         }
         return out
+    }
+
+    @Synchronized
+    fun rankedFormed(reading: String, words: List<String>): List<String> {
+        if (!enabled) return emptyList()
+        val now = clock()
+        return words.sortedWith(
+            compareByDescending<String> { word ->
+                formedByWord[word]?.get(reading)?.let { decayed(it.count, it.lastSeen, now, FORMED_HALF_LIFE_MILLIS) } ?: 0.0
+            }.thenBy { it },
+        )
     }
 
     @Synchronized
@@ -217,6 +233,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         formedByWord.remove(word)?.let {
             formedPairs -= it.size
             changed = true
+            formedVersion++
         }
         val deadPending = pendingCounts.keys.filter { it.endsWith("\t" + word) }
         for (key in deadPending) {
@@ -262,6 +279,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         val m = formedByWord[word] ?: return
         if (m.remove(reading) == null) return
         formedPairs--
+        formedVersion++
         if (m.isEmpty()) formedByWord.remove(word)
         pendingCounts.remove(pendingKey(reading, word))
         ripe.removeAll { it.chars.joinToString("") == word && it.readings.joinToString("") == reading }
@@ -285,6 +303,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         if (had) {
             dirty = true
             version++
+            formedVersion++
         }
     }
 
@@ -393,6 +412,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         sourceReadable = true
         unreadableSource = null
         version++
+        formedVersion++
     }
 
     @Synchronized
@@ -492,6 +512,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         }
         formedByWord.getOrPut(word) { HashMap() }[reading] = Usage(seed, now)
         formedPairs++
+        formedVersion++
     }
 
     private fun recordFollow(prev: String, word: String, now: Long): Boolean {
@@ -534,6 +555,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
                 if (decayed(u.count, u.lastSeen, now, FORMED_HALF_LIFE_MILLIS) < PRUNE_FLOOR) {
                     inner.remove()
                     formedPairs--
+                    formedVersion++
                     removed = true
                 }
             }

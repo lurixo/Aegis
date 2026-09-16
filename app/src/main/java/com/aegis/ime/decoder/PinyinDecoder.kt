@@ -57,8 +57,8 @@ class PinyinDecoder(
 
     private var userIndexVersion = Long.MIN_VALUE
     private var learnIndexVersion = Long.MIN_VALUE
-    private var userLetterIndex: Map<String, List<String>> = emptyMap()
-    private var userDigitIndex: Map<String, List<String>> = emptyMap()
+    private var userLetterIndex: Map<String, UserWords> = emptyMap()
+    private var userDigitIndex: Map<String, UserWords> = emptyMap()
     private var manualLetterIndex: Map<String, Set<String>> = emptyMap()
     private var manualDigitIndex: Map<String, Set<String>> = emptyMap()
 
@@ -68,6 +68,14 @@ class PinyinDecoder(
     }
 
     private class Edge(val word: String, val freq: Int, val penalty: Double)
+
+    private class RankedWords(val userVersion: Long, val learnVersion: Long, val words: List<String>)
+
+    private class UserWords {
+        val used = ArrayList<List<String>>()
+        val formed = ArrayList<Pair<String, List<String>>>()
+        @Volatile var ranked: RankedWords? = null
+    }
 
     private fun inputAliases(key: String): List<String> =
         if (key.isNotEmpty() && key[0] in '2'..'9') T9_INPUT_ALIASES[key].orEmpty()
@@ -100,24 +108,25 @@ class PinyinDecoder(
 
     private fun refreshUserIndex() {
         if (userModel == null && userLearning == null) return
-        val userVersion = userModel?.version ?: Long.MIN_VALUE
-        val learnVersion = userLearning?.version ?: Long.MIN_VALUE
+        val userVersion = userModel?.readingsVersion ?: Long.MIN_VALUE
+        val learnVersion = userLearning?.formedVersion ?: Long.MIN_VALUE
         if (userVersion == userIndexVersion && learnVersion == learnIndexVersion) return
         val userSnapshot = userModel?.readingSnapshot().orEmpty()
         val learnSnapshot = userLearning?.readingSnapshot().orEmpty()
-        val letter = HashMap<String, MutableList<String>>()
-        val digit = HashMap<String, MutableList<String>>()
+        val letter = HashMap<String, UserWords>()
+        val digit = HashMap<String, UserWords>()
         val singles = HashMap<String, Set<String>>()
-        for ((snapshot, assembled) in listOf(userSnapshot to false, learnSnapshot to true)) {
-            for ((reading, words) in snapshot) {
-                if (reading.isEmpty()) continue
-                val dk = T9Pinyin.toT9(reading)
-                for (w in words) {
-                    if (assembled && !readsAs(w, reading, singles)) continue
-                    letter.getOrPut(reading) { ArrayList() }.let { if (w !in it) it.add(w) }
-                    digit.getOrPut(dk) { ArrayList() }.let { if (w !in it) it.add(w) }
-                }
-            }
+        for ((reading, words) in userSnapshot) {
+            if (reading.isEmpty() || words.isEmpty()) continue
+            letter.getOrPut(reading) { UserWords() }.used.add(words)
+            digit.getOrPut(T9Pinyin.toT9(reading)) { UserWords() }.used.add(words)
+        }
+        for ((reading, words) in learnSnapshot) {
+            if (reading.isEmpty()) continue
+            val readable = words.filter { readsAs(it, reading, singles) }
+            if (readable.isEmpty()) continue
+            letter.getOrPut(reading) { UserWords() }.formed.add(reading to readable)
+            digit.getOrPut(T9Pinyin.toT9(reading)) { UserWords() }.formed.add(reading to readable)
         }
         val manualLetter = HashMap<String, MutableSet<String>>()
         val manualDigit = HashMap<String, MutableSet<String>>()
@@ -171,7 +180,19 @@ class PinyinDecoder(
     private fun userWordsFor(key: String): List<String> {
         if ((userModel == null && userLearning == null) || key.isEmpty()) return emptyList()
         refreshUserIndex()
-        return (if (key[0] in '2'..'9') userDigitIndex[key] else userLetterIndex[key]) ?: emptyList()
+        val words = (if (key[0] in '2'..'9') userDigitIndex[key] else userLetterIndex[key]) ?: return emptyList()
+        val userVersion = userModel?.version ?: Long.MIN_VALUE
+        val learnVersion = userLearning?.version ?: Long.MIN_VALUE
+        words.ranked?.let { if (it.userVersion == userVersion && it.learnVersion == learnVersion) return it.words }
+        val out = ArrayList<String>()
+        for (group in words.used) {
+            for (w in userModel?.rankedByUsage(group).orEmpty()) if (w !in out) out.add(w)
+        }
+        for ((reading, group) in words.formed) {
+            for (w in userLearning?.rankedFormed(reading, group).orEmpty()) if (w !in out) out.add(w)
+        }
+        words.ranked = RankedWords(userVersion, learnVersion, out)
+        return out
     }
 
     private fun manualWordsFor(key: String): Set<String> {
@@ -612,7 +633,9 @@ class PinyinDecoder(
         }
         if (userModel != null) {
             val present = out.mapTo(HashSet()) { it.word }
-            for (uw in userWordsFor(input)) if (present.add(uw)) out.add(Cand(uw, input.length))
+            for (uw in userWordsFor(input).sortedByDescending { userModel.wordBoost(it) }) {
+                if (present.add(uw)) out.add(Cand(uw, input.length))
+            }
         }
         val covered = out.mapTo(HashSet<String>(out.size * 2)) { it.word }
         appendLeadingSingles(input, input.length, out, ctx)

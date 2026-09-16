@@ -42,6 +42,10 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         private set
 
     @Volatile
+    var readingsVersion: Long = 0L
+        private set
+
+    @Volatile
     var forgottenCount: Int = 0
         private set
 
@@ -79,7 +83,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         if (!autoLearnEnabled) return
         val r = sanitizeReading(reading)
         if (!isValidWord(word) || r.isEmpty() || r.length > MAX_READING_LENGTH) return
-        readings.getOrPut(r) { LinkedHashSet() }.add(word)
+        if (readings.getOrPut(r) { LinkedHashSet() }.add(word)) readingsVersion++
         if (incrementCount) {
             count[word] = saturatingAdd(count[word] ?: 0, 1)
         } else if (word !in count) {
@@ -96,8 +100,8 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         if (!acceptsManualWord(w, reading)) return false
         val r = sanitizeReading(reading)
         if (r.isNotEmpty()) {
-            readings.getOrPut(r) { LinkedHashSet() }.add(w)
-            manual.getOrPut(r) { LinkedHashSet() }.add(w)
+            val listed = readings.getOrPut(r) { LinkedHashSet() }.add(w)
+            if (manual.getOrPut(r) { LinkedHashSet() }.add(w) || listed) readingsVersion++
         }
         count[w] = saturatingAdd(count[w] ?: 0, 1)
         lastUsed[w] = now.coerceAtLeast(0L)
@@ -111,6 +115,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         val r = sanitizeReading(reading)
         val set = readings[r] ?: return
         if (!set.remove(word)) return
+        readingsVersion++
         if (set.isEmpty()) readings.remove(r)
         manual[r]?.let { if (it.remove(word) && it.isEmpty()) manual.remove(r) }
         if (readings.values.none { word in it }) {
@@ -137,7 +142,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         for (r in emptyManual) manual.remove(r)
         if (bigram.remove(word) != null) changed = true
         for (m in bigram.values) if (m.remove(word) != null) changed = true
-        if (changed) { dirty = true; version++ }
+        if (changed) { dirty = true; version++; readingsVersion++ }
     }
 
     @Synchronized
@@ -193,6 +198,15 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
             )
         }
         return out
+    }
+
+    @Synchronized
+    fun rankedByUsage(words: List<String>): List<String> {
+        val now = clock()
+        return words.sortedWith(
+            compareByDescending<String> { usageScore(count[it] ?: 0, lastUsed[it] ?: 0L, now) }
+                .thenBy { it },
+        )
     }
 
     @Synchronized
@@ -328,6 +342,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         sourceReadable = true
         unreadableSource = null
         version++
+        readingsVersion++
     }
 
     @Synchronized
@@ -349,6 +364,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         sourceReadable = true
         unreadableSource = null
         version++
+        readingsVersion++
     }
 
     @Synchronized
@@ -389,6 +405,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         forgottenCount = saturatingAdd(forgottenCount, removed)
         dirty = true
         version++
+        readingsVersion++
         return removed
     }
 
@@ -433,6 +450,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         for ((reading, ws) in parsed.manual) manual.getOrPut(reading) { LinkedHashSet() }.addAll(ws)
         dirty = true
         version++
+        readingsVersion++
         return true
     }
 
