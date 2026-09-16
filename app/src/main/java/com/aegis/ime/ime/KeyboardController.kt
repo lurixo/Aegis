@@ -84,6 +84,8 @@ class KeyboardController(
 
     private val decodeLock = Any()
 
+    private var settlingDecode = false
+
     private val committedPrefix = StringBuilder()
 
     private val lockedReadings = mutableListOf<String>()
@@ -1171,8 +1173,8 @@ class KeyboardController(
         } else {
             lane.submit(
                 compute = { computeDecode(req) },
-                apply = { result -> applyDecodeResult(result); render() },
-                onError = { applyDecodeResult(emptyDecodeResult()); render() },
+                apply = { result -> applyDecodeResult(result); if (!settlingDecode) render() },
+                onError = { applyDecodeResult(emptyDecodeResult()); if (!settlingDecode) render() },
             )
         }
     }
@@ -1180,8 +1182,15 @@ class KeyboardController(
     private fun ensureDecodeApplied() {
         val lane = decodeLane ?: return
         if (!lane.pending) return
-        applyDecodeResult(computeDecode(buildDecodeRequest()))
+        settlingDecode = true
+        val settled = try {
+            lane.settle()
+        } finally {
+            settlingDecode = false
+        }
+        if (settled) return
         lane.markSatisfiedSynchronously()
+        applyDecodeResult(computeDecode(buildDecodeRequest()))
     }
 
     private class DecodeRequest(

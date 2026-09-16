@@ -130,6 +130,49 @@ class DecodeLaneTest {
         }
     }
 
+    @Test fun settle_applies_the_in_flight_result_on_the_calling_thread_without_computing_again() {
+        val exec = Executors.newSingleThreadExecutor()
+        try {
+            val posted = ConcurrentLinkedQueue<Runnable>()
+            val realLane = DecodeLane(exec, Executor { posted.add(it) }, settleMillis = 10_000L)
+            val computes = AtomicInteger(0)
+            val release = CountDownLatch(1)
+            val applied = ArrayList<Int>()
+            realLane.submit(compute = { computes.incrementAndGet(); release.await(5, TimeUnit.SECONDS); 7 }, apply = { applied.add(it) })
+            Thread { Thread.sleep(40); release.countDown() }.start()
+            assertTrue("the result of the same request arrives within the bound", realLane.settle())
+            assertEquals("it is applied before settle returns", listOf(7), applied)
+            assertFalse(realLane.pending)
+            while (posted.isNotEmpty()) posted.poll().run()
+            assertEquals("the queued main delivery of the same result is a no-op", listOf(7), applied)
+            assertEquals("nothing was computed twice", 1, computes.get())
+        } finally {
+            exec.shutdownNow()
+        }
+    }
+
+    @Test fun settle_gives_up_after_its_bound_when_the_result_does_not_arrive() {
+        val bounded = DecodeLane(worker, main, settleMillis = 30L)
+        val applied = ArrayList<Int>()
+        var computes = 0
+        bounded.submit(compute = { computes++; 1 }, apply = { applied.add(it) })
+        val started = System.nanoTime()
+        assertFalse("no worker ran, so nothing can be settled", bounded.settle())
+        val waitedMillis = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
+        assertTrue("the wait honours its bound: $waitedMillis ms", waitedMillis in 25L..2_000L)
+        assertTrue("the request is still pending for the caller to satisfy", bounded.pending)
+        bounded.markSatisfiedSynchronously()
+        runWorker(); runMain()
+        assertEquals("a request satisfied synchronously never computes on the worker", 0, computes)
+        assertTrue(applied.isEmpty())
+    }
+
+    @Test fun settle_is_immediate_when_nothing_is_pending() {
+        val started = System.nanoTime()
+        assertTrue(DecodeLane(worker, main, settleMillis = 5_000L).settle())
+        assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) < 1_000L)
+    }
+
     @Test fun a_superseded_compute_stops_at_its_next_checkpoint_without_reporting_an_error() {
         val exec = Executors.newSingleThreadExecutor()
         try {

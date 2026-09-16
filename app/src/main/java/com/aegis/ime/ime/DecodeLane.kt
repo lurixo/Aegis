@@ -17,16 +17,25 @@ package com.aegis.ime.ime
 
 import com.aegis.ime.dict.DecodeCancellation
 import java.util.concurrent.Executor
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.locks.ReentrantLock
+import kotlin.concurrent.withLock
 
 class DecodeLane(
     private val worker: Executor,
     private val main: Executor,
     private val logError: (Throwable) -> Unit = {},
+    private val settleMillis: Long = SETTLE_MILLIS,
 ) {
+    private class Delivery(val gen: Long, val run: () -> Unit)
+
     private val seq = AtomicLong(0L)
     @Volatile private var lastRequested = 0L
     @Volatile private var lastApplied = 0L
+    private val finishedLock = ReentrantLock()
+    private val finishedChanged = finishedLock.newCondition()
+    private var finished: Delivery? = null
 
     val pending: Boolean get() = lastApplied < lastRequested
 
@@ -40,16 +49,37 @@ class DecodeLane(
             val result = DecodeCancellation.attempt({ stale(gen) }, compute)
             if (result == null) return@execute
             result.exceptionOrNull()?.let(logError)
-            main.execute {
+            val delivery = Delivery(gen) {
                 if (gen == lastRequested && gen > lastApplied) {
                     lastApplied = gen
                     result.fold(onSuccess = apply, onFailure = { onError() })
                 }
             }
+            finishedLock.withLock {
+                finished = delivery
+                finishedChanged.signalAll()
+            }
+            main.execute { delivery.run() }
         }
+    }
+
+    fun settle(): Boolean {
+        val gen = lastRequested
+        if (gen <= lastApplied) return true
+        var remaining = TimeUnit.MILLISECONDS.toNanos(settleMillis)
+        val delivery = finishedLock.withLock {
+            while (finished?.gen != gen && remaining > 0L) remaining = finishedChanged.awaitNanos(remaining)
+            finished?.takeIf { it.gen == gen }
+        } ?: return false
+        delivery.run()
+        return gen <= lastApplied
     }
 
     fun markSatisfiedSynchronously() {
         lastApplied = lastRequested
+    }
+
+    companion object {
+        const val SETTLE_MILLIS = 150L
     }
 }
