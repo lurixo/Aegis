@@ -173,4 +173,66 @@ class StoredReadingRepairTest {
         }
     }
 
+    @Test fun aBurstOfRequestsWhileAPassRunsCollapsesIntoOneMorePass() {
+        val um = stored(listOf("bu" to "不是"))
+        val engine = DictEngine(EngineFixture.dict(), null, null, um)
+        val applied = Collections.synchronizedList(ArrayList<List<UserModel.ReadingRepair>>())
+        val repair = StoredReadingRepair { applied += it }
+        synchronized(um) {
+            repair.request(engine)
+            assertTrue("precondition: the first pass is taking its snapshot", waitFor { workerIn(Thread.State.BLOCKED) })
+            repeat(5) { repair.request() }
+            repeat(5) { repair.request(engine) }
+        }
+        assertTrue(waitFor { applied.size >= 2 })
+        assertTrue(settled())
+        assertEquals(2, applied.size)
+    }
+
+    @Test fun aPassOvertakenByANewerEngineIsNotApplied() {
+        val um = stored(listOf("bu" to "不是", "biku" to "词库"))
+        val older = DictEngine(
+            EngineFixture.build(
+                listOf(
+                    EngineFixture.Row("bu", "不", 900),
+                    EngineFixture.Row("shi", "是", 900),
+                    EngineFixture.Row("bushi", "不是", 800),
+                ),
+            ),
+            null,
+            null,
+            um,
+        )
+        val newer = DictEngine(
+            EngineFixture.build(
+                listOf(
+                    EngineFixture.Row("bi", "比", 900),
+                    EngineFixture.Row("ci", "词", 900),
+                    EngineFixture.Row("ku", "库", 900),
+                    EngineFixture.Row("ciku", "词库", 800),
+                ),
+            ),
+            null,
+            null,
+            um,
+        )
+        val applied = Collections.synchronizedList(ArrayList<List<UserModel.ReadingRepair>>())
+        val repair = StoredReadingRepair { applied += it }
+        synchronized(um) {
+            repair.request(older)
+            assertTrue("precondition: the older pass is taking its snapshot", waitFor { workerIn(Thread.State.BLOCKED) })
+            repair.request(newer)
+        }
+        assertTrue(waitFor { applied.isNotEmpty() })
+        assertTrue(settled())
+        assertEquals(listOf(listOf(UserModel.ReadingRepair("biku", "词库", "ciku"))), applied.toList())
+    }
+
+    @Test fun aRequestBeforeAnyEngineIsReadyDoesNothing() {
+        val applied = Collections.synchronizedList(ArrayList<List<UserModel.ReadingRepair>>())
+        val repair = StoredReadingRepair { applied += it }
+        repair.request()
+        assertTrue(settled())
+        assertEquals(emptyList<List<UserModel.ReadingRepair>>(), applied.toList())
+    }
 }

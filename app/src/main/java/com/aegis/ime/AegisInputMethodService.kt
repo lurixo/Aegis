@@ -49,6 +49,7 @@ import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.EngineAssets
 import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.engine.DictEngine
+import com.aegis.ime.engine.StoredReadingRepair
 import com.aegis.ime.ime.CaretRealign
 import com.aegis.ime.ime.ClearedTextRestore
 import com.aegis.ime.ime.ClipboardView
@@ -454,8 +455,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 savedUserDb?.let { userDbMtime = it }
                 savedUserLearn?.let { userLearnMtime = it }
             },
+            onWordsReplaced = { readingRepair.request() },
         )
     }
+
+    private val readingRepair: StoredReadingRepair by lazy { StoredReadingRepair { liveUserDictHost.repairReadings(it) } }
 
     private val userLexicon by lazy {
         com.aegis.ime.user.UserLexicon(getSharedPreferences("aegis", MODE_PRIVATE))
@@ -496,6 +500,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                     userLearnMtime = userLearnFile.lastModified()
                 }
                 LiveUserData.restoreInProgress = false
+                readingRepair.request()
             }
             if (!liveUserDictHost.handOff(adoptRestoredStores)) adoptRestoredStores()
         }
@@ -558,6 +563,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             }, {
                 buildEngine()
             })
+            readingRepair.request(engine)
             Handler(Looper.getMainLooper()).post {
                 controller.setEngine(engine)
                 maybeReloadEngine()
@@ -600,6 +606,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             Thread {
                 val ok = runCatching {
                     val engine = buildEngine()
+                    readingRepair.request(engine)
                     Handler(Looper.getMainLooper()).post { controller.setEngine(engine) }
                 }.onFailure { Log.e("Aegis", "engine hot-reload failed", it) }.isSuccess
                 engineReloading = false
@@ -679,11 +686,12 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             val previous = userDbMtime
             userDbMtime = readAt
             val handedOff = liveUserDictHost.handOff {
-                runCatching { userModel.reloadIfUnchanged(userDbFile) }
+                val reloaded = runCatching { userModel.reloadIfUnchanged(userDbFile) }.getOrDefault(false)
                 if (UserDeletionPromises.keep(userModel, userDbFile, userLearning, userLearnFile)) {
                     userDbMtime = userDbFile.lastModified()
                     userLearnMtime = userLearnFile.lastModified()
                 }
+                if (reloaded) readingRepair.request()
             }
             if (!handedOff) userDbMtime = previous
         }
