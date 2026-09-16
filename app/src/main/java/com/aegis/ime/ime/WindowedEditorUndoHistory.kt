@@ -85,6 +85,11 @@ internal class WindowedEditorUndoHistory {
     private var contradicted = false
     private var contradictions = 0
     private var reconnected = false
+    /** Where the history was last dropped, so a grey undo button can say why. */
+    var lastDrop: Pair<String, Long>? = null
+        private set
+
+    var recordDrops = false
     private var settling = false
     private val handler = Handler(Looper.getMainLooper())
     private val replayPump = object : Runnable {
@@ -102,6 +107,10 @@ internal class WindowedEditorUndoHistory {
     val hasDeletion get() = hasUndo && entries.lastOrNull()?.let { it.removed.length > it.inserted.length } == true
 
     fun clear() {
+        if (recordDrops && entries.isNotEmpty()) {
+            val at = Throwable().stackTrace.getOrNull(1)
+            lastDrop = "${at?.methodName ?: "?"}:${at?.lineNumber ?: 0} n=${entries.size}" to SystemClock.uptimeMillis()
+        }
         handler.removeCallbacks(replayPump)
         entries.clear()
         pending = null

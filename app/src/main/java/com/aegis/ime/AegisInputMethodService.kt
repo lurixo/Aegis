@@ -500,6 +500,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onCreate() {
         super.onCreate()
+        editorUndo.recordUndoDrops =
+            applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
         runCatching {
             RestoreJournal.finishAnyInterrupted(filesDir, getSharedPreferences("aegis", MODE_PRIVATE))
         }.onFailure { Log.e("Aegis", "interrupted restore rollback failed", it) }
@@ -1101,9 +1103,40 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         )
         currentInputConnection?.let(editorUndo::confirmReconnect)
         refreshUndoAvailability()
+        noteGreyUndo()
         iv.showPanel(ep)
     }
 
+    /**
+     * Records why the panel opened with undo greyed out. Debug builds only: the note lands in
+     * files/undo-diagnostics.txt under the app's folder on shared storage, where a file manager
+     * can read it back after a report.
+     */
+    private fun noteGreyUndo() {
+        if (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE == 0 || panelInput.active) return
+        if (!undoBlocked && (editorUndo.hasUndo ||
+                (editorUndo.hasPendingUndo || editorUndo.hasPendingInsertion || largeEdit) && !restoring)) return
+        runCatching {
+            val file = File(getExternalFilesDir(null) ?: return@runCatching, "undo-diagnostics.txt")
+            if (file.length() > 64 * 1024) file.delete()
+            val drop = editorUndo.lastUndoDrop
+            file.appendText(buildString {
+                append(java.text.SimpleDateFormat("MM-dd HH:mm:ss", java.util.Locale.US).format(java.util.Date()))
+                append(" grey undo blocked=").append(undoBlocked)
+                append(" hasUndo=").append(editorUndo.hasUndo)
+                append(" pendUndo=").append(editorUndo.hasPendingUndo)
+                append(" pendIns=").append(editorUndo.hasPendingInsertion)
+                append(" pendEdit=").append(editorUndo.hasPendingEdit)
+                append(" largeEdit=").append(largeEdit)
+                append(" restoring=").append(restoring)
+                append(" sel=(").append(selStart).append(',').append(selEnd).append(')')
+                append(" editor=").append(currentInputEditorInfo?.packageName)
+                append(" drop=").append(drop?.first ?: "none")
+                append(" ago=").append(drop?.let { SystemClock.uptimeMillis() - it.second } ?: -1L)
+                append("ms\n")
+            })
+        }
+    }
 
     private fun showLayoutPanel() {
         val iv = inputView ?: return

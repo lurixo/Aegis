@@ -382,6 +382,13 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
         return wrapped
     }
 
+    /** Where the window history was last dropped, for the grey-undo diagnostic. */
+    val lastUndoDrop get() = windowHistory.lastDrop
+
+    var recordUndoDrops: Boolean
+        get() = windowHistory.recordDrops
+        set(value) { windowHistory.recordDrops = value }
+
     /** Confirms a history kept across a connection swap before the panel offers it. */
     fun confirmReconnect(target: InputConnection) {
         windowHistory.settlePending()
