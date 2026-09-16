@@ -46,8 +46,6 @@ open class PreeditView(context: Context) : View(context) {
     var onCaret: (Int) -> Unit = {}
     var onEditDone: () -> Unit = {}
 
-    init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
-
     private var palette = ImePalette.STATIC_LIGHT
 
     private val tabPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {

@@ -87,8 +87,6 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
     private var dragging = false
     private val fling = FlingScroller(context)
 
-    init { setLayerType(LAYER_TYPE_SOFTWARE, null) }
-
     private fun hitRect(i: Int): RectF {
         while (hitRects.size <= i) hitRects.add(RectF())
         return hitRects[i]
