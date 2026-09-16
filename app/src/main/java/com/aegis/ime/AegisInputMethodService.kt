@@ -1073,6 +1073,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             if (panelInput.active) panelInput.hasSelection()
             else hasSelection() || !editorReportsNoSelection(),
         )
+        currentInputConnection?.let(editorUndo::confirmReconnect)
         refreshUndoAvailability()
         iv.showPanel(ep)
     }

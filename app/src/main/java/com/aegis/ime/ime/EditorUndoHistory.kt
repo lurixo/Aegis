@@ -365,8 +365,13 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
     fun wrap(target: InputConnection): InputConnection {
         val existing = connection
         if (target === existing || target === existing?.target) return existing
+        // Publish the new connection first so anything the reset notifies re-enters here harmlessly.
+        val wrapped = TrackedConnection(target)
+        connection = wrapped
         webTabInput.clear()
-        windowHistory.clear()
+        // An editor that rewrites a large document restarts input and hands over a new connection
+        // without losing its text, so keep the window history and confirm it against a read.
+        windowHistory.reconnected()
         nativeHistory.clear()
         history.clear()
         compositionBefore = null
@@ -374,7 +379,14 @@ class EditorUndoHistory(private val maxTextLength: Int = 65_536) {
         compositionUnsafe = false
         delayed = null
         nativeCleared = null
-        return TrackedConnection(target).also { connection = it }
+        return wrapped
+    }
+
+    /** Confirms a history kept across a connection swap before the panel offers it. */
+    fun confirmReconnect(target: InputConnection) {
+        windowHistory.settlePending()
+        if (!windowHistory.needsConfirmation) return
+        windowHistory.canUndo(unwrap(target))
     }
 
     /** True while an edit sent to the editor has yet to be confirmed by a read. */

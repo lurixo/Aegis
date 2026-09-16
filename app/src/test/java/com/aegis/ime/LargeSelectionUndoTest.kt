@@ -268,6 +268,36 @@ class LargeSelectionUndoTest {
         }
     }
 
+    @Test fun a_restarted_input_connection_keeps_the_undo_step() {
+        val from = 120_000
+        val span = 4_000
+        val f = Fixture(document, from)
+        f.warmUp()
+        f.select(from, from + span)
+        val expected = f.host.text.removeRange(from, from + span)
+        f.backspace()
+        assertEquals("the selection is deleted", expected, f.host.text)
+        assertTrue("the deletion is recorded", f.undo().hasUndo)
+        f.restartConnection()
+        f.showPanel()
+        assertTrue("a fresh connection keeps the undo step", f.undoAvailable())
+        f.edit(EditAction.UNDO)
+        assertEquals("the undo still restores the text", document, f.host.text)
+    }
+
+    @Test fun a_connection_that_arrives_with_other_text_drops_the_undo_step() {
+        val from = 120_000
+        val span = 4_000
+        val f = Fixture(document, from)
+        f.warmUp()
+        f.select(from, from + span)
+        f.backspace()
+        assertTrue("the deletion is recorded", f.undo().hasUndo)
+        f.restartConnection("这是另一个编辑器里的文字，和刚才那一页毫无关系。\n".repeat(400))
+        f.showPanel()
+        assertFalse("a different document drops the undo step", f.undoAvailable())
+    }
+
     @Test fun deleting_a_large_selection_keeps_the_undo_step() {
         for (span in listOf(20_000, 40_000)) {
             val f = Fixture(document, 100_000)

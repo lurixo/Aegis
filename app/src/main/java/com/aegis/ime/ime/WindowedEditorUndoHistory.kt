@@ -84,6 +84,7 @@ internal class WindowedEditorUndoHistory {
     private var reportsSelection = false
     private var contradicted = false
     private var contradictions = 0
+    private var reconnected = false
     private var settling = false
     private val handler = Handler(Looper.getMainLooper())
     private val replayPump = object : Runnable {
@@ -115,6 +116,7 @@ internal class WindowedEditorUndoHistory {
         recovery = null
         expectations.clear()
         contradicted = false
+        reconnected = false
         onChange?.invoke()
     }
 
@@ -380,7 +382,11 @@ internal class WindowedEditorUndoHistory {
         reportsSelection = false
         contradicted = false
         contradictions = 0
+        reconnected = false
     }
+
+    /** True while a kept history still has to be confirmed against the editor. */
+    val needsConfirmation get() = contradicted && entries.isNotEmpty()
 
     /** True while an edit sent to the editor has yet to be seen in a read. */
     val hasPendingEdit get() = pending != null
@@ -389,6 +395,32 @@ internal class WindowedEditorUndoHistory {
     fun settlePending() {
         pendingChange?.let { settle(it.target) }
         pending?.let { settle(it.target) }
+    }
+
+    /**
+     * The editor handed over a fresh connection. Anything in flight is void, but an editor that
+     * rewrote its content keeps the same text, so hold on to the recorded steps and let the next
+     * read decide whether they still describe the document.
+     */
+    fun reconnected() {
+        handler.removeCallbacks(replayPump)
+        pending = null
+        pendingChange = null
+        compositionBefore = null
+        compositionAfter = null
+        batchBefore = null
+        batchAfter = null
+        batchFailed = false
+        batchDepth = 0
+        replay = null
+        recovery = null
+        expectations.clear()
+        probe = null
+        reportsSelection = false
+        contradictions = 0
+        contradicted = entries.isNotEmpty()
+        reconnected = contradicted
+        onChange?.invoke()
     }
 
     fun trackLocal(target: InputConnection, operation: WindowEdit, action: () -> Boolean): Boolean? {
@@ -465,12 +497,16 @@ internal class WindowedEditorUndoHistory {
     private fun verify(target: InputConnection) {
         if (!contradicted) return
         contradicted = false
+        // A report that lags behind a drag leaves the caret far from the edit, so an unreachable
+        // entry is kept. A new connection can instead mean another document, so there it is dropped.
+        val strict = reconnected
+        reconnected = false
         val entry = entries.lastOrNull() ?: return
         val frame = read(target, reach = maxOf(WINDOW, entry.inserted.length + GUARD))
-        if (frame == null) return
+        if (frame == null) { if (strict) clear(); return }
         val from = entry.start - entry.left.length
         val through = entry.afterEnd + entry.right.length
-        if (from < frame.offset || through > frame.limit) return
+        if (from < frame.offset || through > frame.limit) { if (strict) clear(); return }
         if (!matches(frame, entry, false)) clear()
     }
 
