@@ -386,6 +386,32 @@ class WebEditorClearTest {
         assertEquals(6 to 6, f.editor.caret())
     }
 
+    @Test fun undo_taps_during_a_pending_web_undo_stay_available_and_run_in_order() {
+        val f = fixture("P")
+        f.service.onCreateInputView()
+        f.editor.normalizeInput = true
+        for (character in "abc") f.service.commitText(character.toString())
+        val handleEdit = f.service.javaClass.getDeclaredMethod("handleEdit", EditAction::class.java).apply { isAccessible = true }
+        val undoAvailable = f.service.javaClass.getDeclaredField("editPanelView").run {
+            isAccessible = true
+            { (get(f.service) as com.aegis.ime.ime.EditPanelView?)?.actionViewForTest(EditAction.UNDO)?.isEnabled }
+        }
+        f.service.javaClass.getDeclaredMethod("showEditPanel").apply { isAccessible = true }.invoke(f.service)
+        handleEdit.invoke(f.service, EditAction.UNDO)
+        assertEquals("Pabc", f.editor.document)
+        assertEquals(true, undoAvailable())
+        handleEdit.invoke(f.service, EditAction.UNDO)
+        handleEdit.invoke(f.service, EditAction.UNDO)
+        val queued = f.service.javaClass.getDeclaredField("queuedUndos").apply { isAccessible = true }
+        assertEquals(2, queued.get(f.service))
+        f.service.javaClass.getDeclaredMethod("runQueuedUndo").apply { isAccessible = true }.invoke(f.service)
+        assertEquals("A queued run that finds an undo still pending keeps the remaining taps", 2, queued.get(f.service))
+        repeat(60) { shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(32)) }
+        assertEquals("P", f.editor.document)
+        assertEquals(0, f.editor.nativeUndoCalls)
+        assertEquals(false, undoAvailable())
+    }
+
     @Test fun swipe_down_restores_without_the_undo_notice_that_the_panel_undo_shows() {
         val done = RuntimeEnvironment.getApplication().getString(R.string.edit_undo_done)
         val unavailable = RuntimeEnvironment.getApplication().getString(R.string.edit_undo_unavailable)

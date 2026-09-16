@@ -188,6 +188,10 @@ class LargeSelectionUndoTest {
             settle()
         }
 
+        fun editNow(action: EditAction) {
+            service.javaClass.getDeclaredMethod("handleEdit", EditAction::class.java).apply { isAccessible = true }.invoke(service, action)
+        }
+
         fun edit(action: EditAction) {
             service.javaClass.getDeclaredMethod("handleEdit", EditAction::class.java).apply { isAccessible = true }.invoke(service, action)
             settle()
@@ -348,6 +352,25 @@ class LargeSelectionUndoTest {
         assertTrue("the finished deletion can be undone", f.undoAvailable())
         f.edit(EditAction.UNDO)
         assertEquals("undo restores the deleted text", whole, f.host.text)
+        f.service.onFinishInput()
+    }
+
+    @Test fun an_undo_tapped_during_a_large_deletion_runs_once_it_finishes() {
+        val f = Fixture(document, 100_000)
+        f.warmUp()
+        val from = 100_000
+        val span = 40_000
+        f.select(from, from + span)
+        val whole = f.host.text
+        f.showPanel()
+        f.host.deferred = true
+        f.controller.onKey(Key("", action = KeyAction.BACKSPACE))
+        f.editNow(EditAction.UNDO)
+        f.host.deferred = false
+        f.host.flush()
+        f.settle()
+        f.settle()
+        assertEquals("the queued undo restores the text", whole, f.host.text)
         f.service.onFinishInput()
     }
 

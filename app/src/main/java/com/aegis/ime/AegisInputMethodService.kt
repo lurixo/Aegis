@@ -157,6 +157,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val readTimeout = Runnable { chunkedRead?.giveUp() }
     private var undoBlocked = true
     private var silentUndo = false
+    private var queuedUndos = 0
     private var largeEdit = false
     private var pasteCompletionNotice = false
     private var cutCompletionNotice: String? = null
@@ -169,6 +170,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             largeEdit = false
             controller.onEditorContextChanged()
             refreshUndoAvailability()
+            if (queuedUndos > 0) mainHandler.post(::runQueuedUndo)
             if (pasteCompletionNotice) {
                 pasteCompletionNotice = false
                 toast(uiString(if (inserted) R.string.edit_paste_done else R.string.edit_paste_failed))
@@ -214,6 +216,20 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         refreshUndoAvailability()
         if (notify) toast(uiString(if (restored) R.string.edit_undo_done else R.string.edit_undo_unavailable))
+        if (queuedUndos > 0) {
+            if (restored && editorUndo.hasUndo) mainHandler.post(::runQueuedUndo) else queuedUndos = 0
+        }
+    }
+
+    private fun runQueuedUndo() {
+        if (queuedUndos == 0 || editorUndo.hasPendingUndo) return
+        if (panelInput.active || chunkedRead?.pending == true || clearSweep != null || webClear != null || restoring ||
+            editorUndo.hasPendingInsertion || !editorUndo.hasUndo) {
+            queuedUndos = 0
+            return
+        }
+        queuedUndos--
+        undoEditing()
     }
 
     private val clearedText by lazy { ClearedTextStore(filesDir) }
@@ -546,6 +562,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun clearEditorTransientState(resetController: Boolean, abortInline: Boolean = true, preserveLayout: Boolean = false) {
         finishTranslation()
         editorUndo.clear()
+        queuedUndos = 0
         largeEdit = false
         inputView?.clearEditorTransientUiImmediately()
         if (abortInline) abortInlineInput(hideBar = false)
@@ -922,6 +939,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             EditAction.SELECT_ALL, EditAction.COPY, EditAction.CUT, EditAction.PASTE -> stopSelecting()
             else -> Unit
         }
+        if (action == EditAction.UNDO && (editorUndo.hasPendingUndo || editorUndo.hasPendingInsertion || largeEdit) && !restoring) {
+            queuedUndos = minOf(queuedUndos + 1, MAX_QUEUED_UNDOS)
+            return
+        }
         if (chunkedRead?.pending == true || clearSweep != null || webClear != null || restoring || editorUndo.hasPendingUndo || editorUndo.hasPendingInsertion) return
         val keyAction = action.keyAction
         if (keyAction == null) {
@@ -1129,6 +1150,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val to = maxOf(originalStart, originalEnd)
         fun failed() {
             largeEdit = false
+            queuedUndos = 0
             if (pasteCompletionNotice) {
                 pasteCompletionNotice = false
                 toast(uiString(R.string.edit_paste_failed))
@@ -1151,6 +1173,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 largeEdit = false
                 controller.onEditorContextChanged()
                 refreshUndoAvailability()
+                if (queuedUndos > 0) mainHandler.post(::runQueuedUndo)
                 if (pasteCompletionNotice) {
                     pasteCompletionNotice = false
                     toast(uiString(R.string.edit_paste_done))
@@ -2085,6 +2108,7 @@ private const val TRIM_WINDOW = 8
 private const val NAV_WINDOW = 16_384
 private const val READ_TIMEOUT_MS = 1_500L
 private const val WEB_WRITE_SETTLE_MS = 160L
+private const val MAX_QUEUED_UNDOS = 50
 private const val PREF_TRANSLATE_MODE = "translate_mode"
 private const val TRANSLATE_DEBOUNCE_MS = 300L
 
