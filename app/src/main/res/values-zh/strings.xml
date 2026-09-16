@@ -334,7 +334,7 @@
     <string name="panel_all">全部</string>
     <string name="panel_singles">单字</string>
     <string name="backspace_bubble_clear">上滑清空</string>
-    <string name="backspace_bubble_undo">下滑撤销</string>
+    <string name="backspace_bubble_undo">下滑恢复</string>
     <string name="emoji_clear_recent">清空常用表情</string>
     <string name="emoji_clear_recent_confirm">清空常用表情？</string>
     <string name="emoji_delete_recent_confirm">从常用表情中删除「%1$s」？</string>

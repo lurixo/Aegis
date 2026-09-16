@@ -168,6 +168,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var readDropped: (() -> Unit)? = null
     private val readTimeout = Runnable { chunkedRead?.giveUp() }
     private var undoBlocked = true
+    private var silentUndo = false
     private var committingContent = false
     private var pasteCompletionNotice = false
     private var cutCompletionNotice: String? = null
@@ -211,6 +212,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun undoEditing() {
+        silentUndo = false
         val restored = if (panelInput.active) panelInput.undo()
             else currentInputConnection?.let { !undoBlocked && editorUndo.undo(it) } == true
         if (!restored && editorUndo.hasPendingUndo) { refreshUndoAvailability(); return }
@@ -218,13 +220,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun finishEditingUndo(restored: Boolean) {
+        val notify = !silentUndo
+        silentUndo = false
         if (restored) {
             stopSelecting()
             editPanelView?.setSelecting(false)
             controller.onEditorContextChanged()
         }
         refreshUndoAvailability()
-        toast(uiString(if (restored) R.string.edit_undo_done else R.string.edit_undo_unavailable))
+        if (notify) toast(uiString(if (restored) R.string.edit_undo_done else R.string.edit_undo_unavailable))
     }
 
     private val clearedText by lazy { ClearedTextStore(filesDir) }
@@ -1689,6 +1693,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 return
             }
             if (editorUndo.hasDeletionToRestore) {
+                silentUndo = true
                 val restored = editorUndo.undo(ic)
                 if (restored) clearedText.forget()
                 if (!editorUndo.hasPendingUndo) finishEditingUndo(restored)

@@ -386,6 +386,32 @@ class WebEditorClearTest {
         assertEquals(6 to 6, f.editor.caret())
     }
 
+    @Test fun swipe_down_restores_without_the_undo_notice_that_the_panel_undo_shows() {
+        val done = RuntimeEnvironment.getApplication().getString(R.string.edit_undo_done)
+        val unavailable = RuntimeEnvironment.getApplication().getString(R.string.edit_undo_unavailable)
+        val cleared = fixture("AAA\nBBB").apply { service.onCreateInputView() }
+        swipe(cleared, up = true)
+        assertEquals("", cleared.editor.document)
+        swipe(cleared, up = false)
+        assertEquals("AAA\nBBB", cleared.editor.document)
+        assertEquals(1, cleared.editor.nativeUndoCalls)
+        assertTrue(cleared.service.toastTextForTest() !in listOf(done, unavailable))
+
+        val deleted = fixture("> quoted reply\n\n").apply { service.onCreateInputView() }
+        deleted.editor.normalizeInput = true
+        for (character in "abc") deleted.service.commitText(character.toString())
+        edit(deleted, EditAction.SELECT_ALL)
+        edit(deleted, EditAction.FORWARD_DELETE)
+        assertEquals("", deleted.editor.document)
+        assertTrue(canSwipe(deleted, up = false))
+        swipe(deleted, up = false)
+        assertEquals("> quoted reply\n\nabc", deleted.editor.document)
+        assertTrue(deleted.service.toastTextForTest() !in listOf(done, unavailable))
+        undo(deleted)
+        assertEquals("> quoted reply\n\nab", deleted.editor.document)
+        assertEquals(done, deleted.service.toastTextForTest())
+    }
+
     @Test fun swipe_down_restores_real_trailing_newlines_and_a_single_character_exactly() {
         for (original in listOf("AAA\nBBB", "AAA\nBBB\n", "AAA\n\n", "\nAAA\n\n", "一")) {
             for (caret in listOf(0, original.length / 2, original.length).distinct()) {
