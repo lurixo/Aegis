@@ -73,7 +73,7 @@ class EditPanelLayoutTest {
                 layout(panel, 411, height)
                 for (action in actions) {
                     val target = requireNotNull(panel.actionViewForTest(action)) as TextView
-                    if (target.text.isEmpty() || action == EditAction.START_SELECT) continue
+                    if (target.text.isEmpty()) continue
                     val message = "$language 411 x $height $action"
                     assertEquals("$message retains the reference 14 sp label", reference.textSize, target.textSize, 0.01f)
                     assertEquals("$message retains the ordinary font", reference.typeface, target.typeface)
@@ -83,18 +83,18 @@ class EditPanelLayoutTest {
         }
     }
 
-    @Test fun compact_selection_keeps_the_reference_proportions_without_shrinking_other_chinese_labels() {
+    @Test fun chinese_labels_share_one_type_size_and_weight_in_all_panel_shapes() {
         val context = localizedContext("zh")
-        val reference = TextView(context)
+        val reference = TextView(context).apply { setTextSize(TypedValue.COMPLEX_UNIT_SP, 14f) }
         for ((width, height) in sizes) {
             val panel = EditPanelView(context)
             layout(panel, width, height)
             for (action in actions) {
                 val target = requireNotNull(panel.actionViewForTest(action)) as TextView
                 if (target.text.isEmpty()) continue
-                val compactSelection = action == EditAction.START_SELECT && target.height < 52f * target.resources.displayMetrics.density
-                reference.setTextSize(TypedValue.COMPLEX_UNIT_SP, if (compactSelection) 12f else 14f)
-                assertEquals("$width x $height $action keeps its reference type size", reference.textSize, target.textSize, 0.01f)
+                assertEquals("$width x $height $action keeps the shared type size", reference.textSize, target.textSize, 0.01f)
+                assertEquals("$width x $height $action keeps the ordinary font", reference.typeface, target.typeface)
+                assertEquals("$width x $height $action keeps the ordinary weight", reference.paint.isFakeBoldText, target.paint.isFakeBoldText)
             }
         }
     }

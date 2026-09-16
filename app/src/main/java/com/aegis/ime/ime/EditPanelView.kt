@@ -317,7 +317,7 @@ class EditPanelView(context: Context) :
     private inner class EditKey(label: String, val icon: GlyphDrawable) : TextView(context) {
         private val shadowPaint = Paint(Paint.ANTI_ALIAS_FLAG)
         private var inline = false
-        private var nominalSp = 14f
+        private val nominalSp = 14f
         private var nominalIconDp = 24f
 
         init {
@@ -333,7 +333,6 @@ class EditPanelView(context: Context) :
         }
 
         fun configure(horizontal: Boolean, compactSelect: Boolean) {
-            nominalSp = if (compactSelect) 12f else 14f
             nominalIconDp = if (compactSelect) 18f else 24f
             setTextSize(TypedValue.COMPLEX_UNIT_SP, nominalSp)
             if (text.isNotEmpty()) {
