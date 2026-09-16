@@ -160,6 +160,12 @@ class DictEngine(
     override fun spelledReading(word: String, reading: String): String =
         decoder?.spelledReading(word, reading) ?: reading
 
+    fun storedReadingRepairs(): List<UserModel.ReadingRepair> {
+        val model = userModel ?: return emptyList()
+        val letters = decoder ?: return emptyList()
+        return letters.storedReadingRepairs(model.unmarkedReadings())
+    }
+
     override fun prepareUserWords() {
         decoder?.prepareUserIndex()
         t9Decoder?.prepareUserIndex()

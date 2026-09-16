@@ -201,6 +201,22 @@ class PinyinDecoder(
         else -> guessReading(word, T9Pinyin.toT9(reading), false, ReadingLookup(aliasSource))
     }
 
+    internal fun storedReadingRepairs(rows: List<Pair<String, String>>): List<UserModel.ReadingRepair> {
+        val singles = HashMap<String, Set<String>>()
+        var lookup = ReadingLookup(aliasSource)
+        return StoredReadingJudge(
+            aliasSource,
+            readsAs = { word, reading ->
+                if (singles.size >= READING_LOOKUP_LIMIT) singles.keys.retainAll(T9Pinyin.SYLLABLES)
+                readsAs(word, reading, singles)
+            },
+            spell = { word, reading ->
+                if (lookup.size() >= READING_LOOKUP_LIMIT) lookup = ReadingLookup(aliasSource)
+                guessReading(word, T9Pinyin.toT9(reading), false, lookup)
+            },
+        ).repairs(rows)
+    }
+
     private fun userWordsFor(key: String): List<String> {
         if ((userModel == null && userLearning == null) || key.isEmpty()) return emptyList()
         refreshUserIndex()
