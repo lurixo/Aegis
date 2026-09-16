@@ -51,6 +51,8 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     var version: Long = 0L
         private set
 
+    private val saveLock = Any()
+
     @Volatile
     private var sourceReadable: Boolean = true
 
@@ -273,24 +275,40 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     @Synchronized
     fun isEmpty(): Boolean = formedByWord.isEmpty() && pendingCounts.isEmpty() && followsByPrev.isEmpty()
 
+    private class SaveImage(
+        val version: Long,
+        val formed: List<Triple<String, String, Pair<Double, Long>>>,
+        val pending: List<Pair<String, Pair<Double, Long>>>,
+        val follows: List<Triple<String, String, Pair<Double, Long>>>,
+    )
+
     @Synchronized
-    fun save(file: File) {
+    private fun saveImage(file: File): SaveImage {
         if (unreadableSource == file.absolutePath) throw IOException("learning store could not be read")
         val now = clock()
         var mutated = closeChain(now)
         if (sweep(now)) mutated = true
         if (mutated) version++
+        val formed = ArrayList<Triple<String, String, Pair<Double, Long>>>(formedPairs)
+        for ((word, m) in formedByWord) {
+            for ((reading, u) in m) formed.add(Triple(word, reading, u.count to u.lastSeen))
+        }
+        val follows = ArrayList<Triple<String, String, Pair<Double, Long>>>()
+        for ((prev, m) in followsByPrev) {
+            for ((word, u) in m) follows.add(Triple(prev, word, u.count to u.lastSeen))
+        }
+        return SaveImage(version, formed, pendingCounts.map { it.key to (it.value.count to it.value.lastSeen) }, follows)
+    }
+
+    fun save(file: File) = synchronized(saveLock) {
+        val image = saveImage(file)
         val tmp = File(file.absoluteFile.parentFile, file.name + ".tmp")
         try {
             tmp.bufferedWriter().use { w ->
                 w.write("$HEADER\n")
-                for ((word, m) in formedByWord) {
-                    for ((reading, u) in m) w.write("F\t$reading\t$word\t${u.count}\t${u.lastSeen}\n")
-                }
-                for ((key, u) in pendingCounts) w.write("P\t$key\t${u.count}\t${u.lastSeen}\n")
-                for ((prev, m) in followsByPrev) {
-                    for ((word, u) in m) w.write("C\t$prev\t$word\t${u.count}\t${u.lastSeen}\n")
-                }
+                for ((word, reading, u) in image.formed) w.write("F\t$reading\t$word\t${u.first}\t${u.second}\n")
+                for ((key, u) in image.pending) w.write("P\t$key\t${u.first}\t${u.second}\n")
+                for ((prev, word, u) in image.follows) w.write("C\t$prev\t$word\t${u.first}\t${u.second}\n")
             }
             try {
                 Files.move(
@@ -306,7 +324,12 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
             tmp.delete()
             throw e
         }
-        dirty = false
+        markSaved(image.version)
+    }
+
+    @Synchronized
+    private fun markSaved(savedVersion: Long) {
+        if (version == savedVersion) dirty = false
     }
 
     @Synchronized

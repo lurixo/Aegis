@@ -31,6 +31,7 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     private val readings = HashMap<String, LinkedHashSet<String>>()
     private val manual = HashMap<String, LinkedHashSet<String>>()
     private val tombstones = LinkedHashSet<Pair<String, String>>()
+    private val saveLock = Any()
 
     @Volatile
     var dirty: Boolean = false
@@ -226,25 +227,52 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     fun isEmpty(): Boolean = count.isEmpty() && readings.isEmpty() && sweptOnLoad == 0
 
 
+    private class SaveImage(
+        val version: Long,
+        val header: String,
+        val forgottenCount: Int,
+        val tombstones: List<Pair<String, String>>,
+        val count: List<Pair<String, Int>>,
+        val lastUsed: Map<String, Long>,
+        val bigram: List<Pair<String, List<Pair<String, Int>>>>,
+        val readings: List<Pair<String, List<String>>>,
+        val manual: List<Pair<String, List<String>>>,
+    )
+
     @Synchronized
-    fun save(file: File) {
+    private fun saveImage(file: File): SaveImage {
         if (partiallyRead) throw IOException("user dictionary was only partly read")
         if (unreadableSource == file.absolutePath) throw IOException("user dictionary could not be read")
+        val header = when {
+            tombstones.isNotEmpty() -> TOMBSTONE_HEADER
+            forgottenCount > 0 -> HEADER
+            else -> MARKED_HEADER
+        }
+        return SaveImage(
+            version,
+            header,
+            forgottenCount,
+            ArrayList(tombstones),
+            count.map { it.key to it.value },
+            HashMap(lastUsed),
+            bigram.map { (prev, m) -> prev to m.map { it.key to it.value } },
+            readings.map { (reading, ws) -> reading to ArrayList(ws) },
+            manual.map { (reading, ws) -> reading to ArrayList(ws) },
+        )
+    }
+
+    fun save(file: File) = synchronized(saveLock) {
+        val image = saveImage(file)
         val tmp = File(file.absoluteFile.parentFile, file.name + ".tmp")
         try {
             tmp.bufferedWriter().use { w ->
-                val header = when {
-                    tombstones.isNotEmpty() -> TOMBSTONE_HEADER
-                    forgottenCount > 0 -> HEADER
-                    else -> MARKED_HEADER
-                }
-                w.write("$header\n")
-                if (forgottenCount > 0) w.write("G\t$forgottenCount\n")
-                for ((word, reading) in tombstones) w.write("D\t$word\t$reading\n")
-                for ((word, c) in count) w.write("W\t$word\t$c\t${lastUsed[word] ?: 0}\n")
-                for ((prev, m) in bigram) for ((word, c) in m) w.write("B\t$prev\t$word\t$c\n")
-                for ((reading, ws) in readings) for (word in ws) w.write("R\t$reading\t$word\n")
-                for ((reading, ws) in manual) for (word in ws) w.write("M\t$reading\t$word\n")
+                w.write("${image.header}\n")
+                if (image.forgottenCount > 0) w.write("G\t${image.forgottenCount}\n")
+                for ((word, reading) in image.tombstones) w.write("D\t$word\t$reading\n")
+                for ((word, c) in image.count) w.write("W\t$word\t$c\t${image.lastUsed[word] ?: 0}\n")
+                for ((prev, m) in image.bigram) for ((word, c) in m) w.write("B\t$prev\t$word\t$c\n")
+                for ((reading, ws) in image.readings) for (word in ws) w.write("R\t$reading\t$word\n")
+                for ((reading, ws) in image.manual) for (word in ws) w.write("M\t$reading\t$word\n")
             }
             try {
                 Files.move(
@@ -260,7 +288,12 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
             tmp.delete()
             throw e
         }
-        dirty = false
+        markSaved(image.version)
+    }
+
+    @Synchronized
+    private fun markSaved(savedVersion: Long) {
+        if (version == savedVersion) dirty = false
     }
 
     fun reload(file: File) {
