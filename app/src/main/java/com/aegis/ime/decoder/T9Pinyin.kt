@@ -54,6 +54,8 @@ object T9Pinyin {
         "yue", "yan", "mian", "jin", "xian", "qian", "zhen", "san", "wan", "bian", "guan",
     ).withIndex().associate { (i, s) -> s to i }
 
+    private const val NON_INITIAL_LETTERS = "iuv"
+
     private const val DEFAULT_RANK = 1000
     private const val FUZZY_VARIANT_CAP = 64
     private const val MAX_FUZZY_DIGITS = 40
@@ -424,6 +426,7 @@ object T9Pinyin {
         val out = LinkedHashSet<String>()
         out.addAll(firstSyllableOptions(digits, limit))
         KEY_LETTERS[digits[0]]?.toList()
+            ?.filterNot { it in NON_INITIAL_LETTERS }
             ?.sortedByDescending { it.toString() in SYLLABLES }
             ?.forEach { out.add(it.toString()) }
         return out.toList().take(limit)
@@ -433,7 +436,7 @@ object T9Pinyin {
         if (letters.isEmpty() || letters.any { it !in 'a'..'z' }) return emptyList()
         val out = LinkedHashSet<String>()
         out.addAll(firstLetterSyllableOptions(letters))
-        out.add(letters.first().toString())
+        if (letters.first() !in NON_INITIAL_LETTERS) out.add(letters.first().toString())
         return out.toList().take(limit)
     }
 

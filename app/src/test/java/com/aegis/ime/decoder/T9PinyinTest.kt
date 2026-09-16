@@ -195,6 +195,20 @@ class T9PinyinTest {
         assertEquals(listOf("w", "x", "y", "z"), T9Pinyin.leftColumnReadings("9", 4))
     }
 
+    @Test fun left_column_never_offers_letters_that_start_no_syllable() {
+        assertEquals(listOf("t"), T9Pinyin.leftColumnReadings("8", 4))
+        assertEquals(listOf("g", "h"), T9Pinyin.leftColumnReadings("4", 4))
+        for (digits in listOf("4", "8", "44", "48", "84", "88", "448", "884")) {
+            val col = T9Pinyin.leftColumnReadings(digits, 24)
+            assertTrue("$digits offers no i/u/v, was $col", col.none { it in setOf("i", "u", "v") })
+        }
+        for (letters in listOf("i", "u", "v", "iu", "uv", "vi")) {
+            val col = T9Pinyin.leftColumnLetterReadings(letters, 24)
+            assertTrue("$letters offers no i/u/v, was $col", col.none { it in setOf("i", "u", "v") })
+        }
+        assertEquals(listOf("tu", "t"), T9Pinyin.leftColumnLetterReadings("tu", 24))
+    }
+
     @Test fun left_column_is_deterministic_same_input_same_output() {
         repeat(5) { assertEquals(T9Pinyin.leftColumnReadings("23744", 4), T9Pinyin.leftColumnReadings("23744", 4)) }
         assertEquals(T9Pinyin.leftColumnReadings("9826", 6), T9Pinyin.leftColumnReadings("9826", 6))
