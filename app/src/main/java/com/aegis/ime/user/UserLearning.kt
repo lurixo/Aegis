@@ -42,6 +42,9 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     private var chainPos = 0L
     private val ripe = ArrayList<Window>()
     private val coveredRanges = ArrayList<Pair<Long, Long>>()
+    private val suffixSources = arrayOfNulls<String>(SUFFIX_CACHE_SIZE)
+    private val suffixLists = arrayOfNulls<Array<String>>(SUFFIX_CACHE_SIZE)
+    private var suffixCursor = 0
 
     @Volatile
     var dirty: Boolean = false
@@ -180,18 +183,31 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         if (!enabled || prevContext.isEmpty() || word.isEmpty()) return 0.0
         val now = clock()
         var best = 0.0
-        var start = prevContext.length
-        var chars = 0
-        while (start > 0 && chars < WINDOW_MAX) {
-            val cp = prevContext.codePointBefore(start)
-            if (!Character.isIdeographic(cp)) break
-            start -= Character.charCount(cp)
-            chars++
-            val u = followsByPrev[prevContext.substring(start)]?.get(word) ?: continue
+        for (suffix in contextSuffixes(prevContext)) {
+            val u = followsByPrev[suffix]?.get(word) ?: continue
             val eff = decayed(u.count, u.lastSeen, now, FOLLOW_HALF_LIFE_MILLIS)
             if (eff > best) best = eff
         }
         return if (best >= MIN_ACTIVE) FOLLOW_WEIGHT * ln(1.0 + best) else 0.0
+    }
+
+    private fun contextSuffixes(context: String): Array<String> {
+        for (i in 0 until SUFFIX_CACHE_SIZE) {
+            if (suffixSources[i] === context) return suffixLists[i]!!
+        }
+        val out = ArrayList<String>(WINDOW_MAX)
+        var start = context.length
+        while (start > 0 && out.size < WINDOW_MAX) {
+            val cp = context.codePointBefore(start)
+            if (!Character.isIdeographic(cp)) break
+            start -= Character.charCount(cp)
+            out.add(context.substring(start))
+        }
+        val suffixes = out.toTypedArray()
+        suffixSources[suffixCursor] = context
+        suffixLists[suffixCursor] = suffixes
+        suffixCursor = (suffixCursor + 1) % SUFFIX_CACHE_SIZE
+        return suffixes
     }
 
     @Synchronized
@@ -555,6 +571,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
 
     internal companion object {
         internal const val WINDOW_MAX = 4
+        private const val SUFFIX_CACHE_SIZE = 16
         internal const val PROMOTE_AT = 2.5
         internal const val FOLLOW_PER_PREV = 8
         internal const val PENDING_HALF_LIFE_MILLIS = 14L * 24L * 60L * 60L * 1000L
