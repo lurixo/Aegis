@@ -22,6 +22,7 @@ import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.dict.TghGrading
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
+import java.util.concurrent.ConcurrentHashMap
 import kotlin.math.exp
 import kotlin.math.ln
 
@@ -304,10 +305,12 @@ class PinyinDecoder(
         return if (best == Double.NEGATIVE_INFINITY || best == Double.MAX_VALUE) 1.0 else best.coerceAtLeast(1.0)
     }
 
-    private fun singleFreqs(key: String): Map<String, Int> {
+    private val singleFreqResults = BoundedLru<String, Map<String, Int>>(SINGLE_FREQ_CACHE_WEIGHT) { it.size + 1 }
+
+    private fun singleFreqs(key: String): Map<String, Int> = singleFreqResults.getOrPut(key) {
         val map = HashMap<String, Int>()
         for (wf in preferredExact(dict, key)) if (isSingleChar(wf.word)) map.putIfAbsent(wf.word, wf.freq)
-            return map
+        map
     }
 
     private fun edgesFor(sub: String): List<Edge> {
@@ -488,15 +491,46 @@ class PinyinDecoder(
     private fun preferredWordFreqs(words: List<BinaryDict.WordFreq>): List<BinaryDict.WordFreq> =
         words.sortedWith(compareByDescending<BinaryDict.WordFreq> { it.freq }.thenBy { supplementarySingleTieRank(it.word) })
 
+    private class BoundedLru<K : Any, V : Any>(private val budget: Int, private val weigh: (V) -> Int) {
+        private val entries = LinkedHashMap<K, V>(16, 0.75f, true)
+        private var weight = 0
+
+        @Synchronized
+        fun get(key: K): V? = entries[key]
+
+        @Synchronized
+        fun put(key: K, value: V) {
+            entries.put(key, value)?.let { weight -= weigh(it) }
+            weight += weigh(value)
+            val eldest = entries.values.iterator()
+            while (weight > budget && entries.size > 1) {
+                weight -= weigh(eldest.next())
+                eldest.remove()
+            }
+        }
+
+        inline fun getOrPut(key: K, compute: () -> V): V = get(key) ?: compute().also { put(key, it) }
+    }
+
+    private val initialSingleSets = ConcurrentHashMap<String, Set<String>>()
+
+    private enum class DictLookup { EXACT, PREFERRED, PREFIX }
+
+    private data class DictQuery(val lookup: DictLookup, val source: BinaryDict, val key: String, val limit: Int)
+
+    private val dictResults = BoundedLru<DictQuery, List<BinaryDict.WordFreq>>(DICT_CACHE_WEIGHT) { it.size + 1 }
+
     private fun cachedExact(source: BinaryDict, key: String): List<BinaryDict.WordFreq> =
-        source.exact(key)
+        dictResults.getOrPut(DictQuery(DictLookup.EXACT, source, key, Int.MAX_VALUE)) { source.exact(key) }
 
     private fun cachedPrefix(source: BinaryDict, prefix: String, limit: Int): List<BinaryDict.WordFreq> =
-        source.prefixByFreq(prefix, limit)
+        dictResults.getOrPut(DictQuery(DictLookup.PREFIX, source, prefix, limit)) { source.prefixByFreq(prefix, limit) }
 
     private fun preferredExact(source: BinaryDict, key: String, limit: Int = Int.MAX_VALUE): List<BinaryDict.WordFreq> {
         if (limit <= 0) return emptyList()
-            return lookupPreferredExact(source, key, limit)
+        return dictResults.getOrPut(DictQuery(DictLookup.PREFERRED, source, key, limit)) {
+            lookupPreferredExact(source, key, limit)
+        }
     }
 
     private fun lookupPreferredExact(source: BinaryDict, key: String, limit: Int): List<BinaryDict.WordFreq> {
@@ -505,8 +539,19 @@ class PinyinDecoder(
         return if (preferred.size <= limit) preferred else preferred.subList(0, limit).toList()
     }
 
+    private class VariantCache(val rules: Set<String>) {
+        val variants = BoundedLru<String, List<String>>(VARIANT_CACHE_WEIGHT) { it.size + 1 }
+    }
+
+    @Volatile private var variantCache: VariantCache? = null
+
     private fun cachedFuzzyVariants(key: String, rules: Set<String>): List<String> {
-            return fuzzyVariants(key, rules)
+        var cache = variantCache
+        if (cache == null || cache.rules !== rules) {
+            cache = VariantCache(rules)
+            variantCache = cache
+        }
+        return cache.variants.getOrPut(key) { fuzzyVariants(key, rules) }
     }
 
     private class Norm(val clean: String, val cuts: Set<Int>, val origLen: IntArray, private val cleanLenAtOrig: IntArray) {
@@ -951,7 +996,7 @@ class PinyinDecoder(
         val allowed = Array(span) { k ->
             val segment = input.substring(B[from + k], B[from + k + 1])
             if (initial[from + k]) {
-                singlesOf(source, segment)
+                initialSingleSets.getOrPut(segment) { singlesOf(source, segment) }
             } else {
                 singlesCache.getOrPut(segment) { singlesOf(dict, segment) }
             }
@@ -1277,11 +1322,15 @@ class PinyinDecoder(
         return if (rank <= GENERAL_USE_CARDINALITY) band - 1 else band
     }
 
+    private val homophoneResults = BoundedLru<String, List<Pair<String, Double>>>(HOMOPHONE_CACHE_WEIGHT) { it.size + 1 }
+
     internal fun homophoneFreqs(key: String): List<Pair<String, Double>> =
-        lookupHomophoneFreqs(key)
+        homophoneResults.getOrPut(key) { lookupHomophoneFreqs(key) }
+
+    private val homophoneMaps = BoundedLru<String, Map<String, Double>>(HOMOPHONE_CACHE_WEIGHT) { it.size + 1 }
 
     private fun homophoneFreqMap(key: String): Map<String, Double> =
-        homophoneFreqs(key).toMap()
+        homophoneMaps.getOrPut(key) { homophoneFreqs(key).toMap() }
 
     private fun lookupHomophoneFreqs(key: String): List<Pair<String, Double>> {
         val out = ArrayList<Pair<String, Double>>()
@@ -1616,6 +1665,10 @@ class PinyinDecoder(
         const val CTX_WORD_MAX = 4
         const val MAX_SYLLABLE_KEY_LEN = 6
         const val EXACT_TIE_LOOKAHEAD = 16
+        const val DICT_CACHE_WEIGHT = 8_192
+        const val SINGLE_FREQ_CACHE_WEIGHT = 8_192
+        const val HOMOPHONE_CACHE_WEIGHT = 4_096
+        const val VARIANT_CACHE_WEIGHT = 4_096
         const val SENTENCE_STATE_CAPACITY = 256
         const val READING_LOOKUP_LIMIT = 4_096
         const val ORDERING_RARE_FREQ = 100.0
