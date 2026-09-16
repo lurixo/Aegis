@@ -157,6 +157,9 @@ class DictEngine(
         um.recordWord(reading, word, System.currentTimeMillis(), incrementCount = assembled)
     }
 
+    override fun spelledReading(word: String, reading: String): String =
+        decoder?.spelledReading(word, reading) ?: reading
+
     override fun setFuzzyRules(rules: Set<String>) {
         decoder?.setFuzzyRules(rules)
         t9Decoder?.setFuzzyRules(rules)

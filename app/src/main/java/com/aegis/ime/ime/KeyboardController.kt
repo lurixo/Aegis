@@ -1017,7 +1017,8 @@ class KeyboardController(
             if (!Character.isIdeographic(cp)) return
             i += Character.charCount(cp)
         }
-        engine.learnWord(reading, word, assembled)
+        val spelled = engine.spelledReading(word, reading)
+        if (spelled.isNotEmpty()) engine.learnWord(spelled, word, assembled)
     }
 
     private fun candidateStaysInPreedit(cand: Cand): Boolean =

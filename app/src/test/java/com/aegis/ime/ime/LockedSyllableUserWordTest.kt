@@ -89,6 +89,25 @@ class LockedSyllableUserWordTest {
 
     private fun multiCharacter(words: List<String>) = words.filter { it.codePointCount(0, it.length) > 1 }
 
+    @Test fun pickingACompletionNeverFilesItUnderTheTypedSyllable() {
+        assets()
+        for (nine in listOf(true, false)) {
+            val um = UserModel()
+            val c = controller(um, nine)
+            type(c, "jiu", nine)
+            val at = c.candidateWords().indexOf("就是")
+            assertTrue("${layout(nine)}: unlocked jiu completes to 就是, was ${c.candidateWords().take(12)}", at >= 0)
+            c.onPickCandidate(at)
+            assertTrue(
+                "${layout(nine)}: 就是 is not stored under jiu, was ${um.readingSnapshot()}",
+                um.readingSnapshot().values.none { "就是" in it },
+            )
+            type(c, "jiu", nine)
+            lock(c, "jiu")
+            assertEquals("${layout(nine)}: locked jiu offers single characters only", emptyList<String>(), multiCharacter(c.candidateWords()))
+        }
+    }
+
     @Test fun completionsStoredByEarlierVersionsStayOutOfTheLockedSyllable() {
         assets()
         val stored = listOf("jiu" to "就是", "yi" to "一个", "yi" to "一下", "yi" to "已经", "tian" to "天气")
@@ -111,4 +130,45 @@ class LockedSyllableUserWordTest {
         }
     }
 
+    @Test fun anAssembledWordIsStillLearnedUnderItsFullReading() {
+        assets()
+        val um = UserModel()
+        val c = controller(um, nine = false)
+        type(c, "jiujiu", nine = false)
+        lock(c, "jiu")
+        val first = c.candidateWords().indexOf("旧")
+        assertTrue("旧 offered for the first locked syllable, was ${c.candidateWords().take(12)}", first >= 0)
+        c.onPickCandidate(first)
+        val second = c.candidateWords().indexOf("酒")
+        assertTrue("酒 offered for the remaining syllable, was ${c.candidateWords().take(12)}", second >= 0)
+        c.onPickCandidate(second)
+        assertTrue("旧酒 is stored under jiujiu, was ${um.readingSnapshot()}", "旧酒" in um.readingSnapshot()["jiujiu"].orEmpty())
+    }
+
+    @Test fun storedReadingsAreSpelledFromTheWordItself() {
+        assets()
+        val e = engine(UserModel())
+        assertEquals("", e.spelledReading("就是", "jiu"))
+        assertEquals("", e.spelledReading("天气", "tian"))
+        assertEquals("jiushi", e.spelledReading("就是", "jiushi"))
+        assertEquals("xian", e.spelledReading("西安", "xian"))
+        assertEquals("the 9-key letter guess is replaced by the spelling with the same keys", "pianmian", e.spelledReading("片面", "qianmian"))
+    }
+
+    @Test fun controllerLearnsOnlyWhatTheEngineCanSpell() {
+        for (spells in listOf(false, true)) {
+            val learned = ArrayList<Pair<String, String>>()
+            val fake = object : com.aegis.ime.engine.CandidateEngine {
+                override fun candidates(composing: String, t9: Boolean): List<String> = listOf("就是")
+                override fun spelledReading(word: String, reading: String): String = if (spells) "jiushi" else ""
+                override fun learnWord(reading: String, word: String, assembled: Boolean) { learned.add(reading to word) }
+            }
+            val host = Host()
+            val c = KeyboardController(host, fake).apply { setCnDefaultLayout(LayoutId.ALPHA); reset() }
+            "jiu".forEach { c.onKey(Key(it.toString(), output = it.toString())) }
+            c.onKey(Key(" ", action = KeyAction.SPACE))
+            assertEquals("就是", host.sb.toString())
+            assertEquals(if (spells) listOf("jiushi" to "就是") else emptyList(), learned)
+        }
+    }
 }

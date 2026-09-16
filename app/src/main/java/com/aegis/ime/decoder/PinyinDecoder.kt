@@ -194,6 +194,11 @@ class PinyinDecoder(
         if (input[0] in '2'..'9') readsAs(word, input, cache) { T9_SPELLINGS[it].orEmpty() }
         else readsAs(word, input, cache)
 
+    internal fun spelledReading(word: String, reading: String): String = when {
+        readsAs(word, reading, HashMap()) -> reading
+        else -> guessReading(word, T9Pinyin.toT9(reading), false, ReadingLookup(aliasSource))
+    }
+
     private fun userWordsFor(key: String): List<String> {
         if ((userModel == null && userLearning == null) || key.isEmpty()) return emptyList()
         refreshUserIndex()
