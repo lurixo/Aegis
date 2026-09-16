@@ -125,6 +125,12 @@ class DictEngine(
     override fun spelledReading(word: String, reading: String): String =
         decoder?.spelledReading(word, reading) ?: reading
 
+    fun storedReadingRepairs(): List<UserModel.ReadingRepair> {
+        val model = userModel ?: return emptyList()
+        val letters = decoder ?: return emptyList()
+        return letters.storedReadingRepairs(model.unmarkedReadings())
+    }
+
     override fun setFuzzyRules(rules: Set<String>) {
         decoder?.setFuzzyRules(rules)
         t9Decoder?.setFuzzyRules(rules)
