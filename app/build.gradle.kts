@@ -79,8 +79,8 @@ android {
     }
 }
 
-val debugVersionName = "0.1.0-debug.92"
-val debugVersionCode = 9162
+val debugVersionName = "0.1.0-debug.135"
+val debugVersionCode = 9205
 
 androidComponents {
     onVariants(selector().withBuildType("debug")) { variant ->
