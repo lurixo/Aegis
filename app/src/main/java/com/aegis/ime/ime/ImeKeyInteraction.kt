@@ -179,7 +179,7 @@ internal class ImePanelActionColumn(context: Context, density: Float) : LinearLa
     }
 
     fun applyPalette(p: ImePalette) {
-        setBackgroundColor(p.keyboardBg)
+        setBackgroundColor(p.functionSurface)
         rulePaint.color = p.gridLine
         invalidate()
     }

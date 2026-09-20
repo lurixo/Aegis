@@ -25,6 +25,7 @@ import androidx.core.graphics.ColorUtils
 data class ImePalette(
     val keyboardBg: Int,
     val keySurface: Int,
+    val functionSurface: Int,
     val keyLabel: Int,
     val keyLabelSecondary: Int,
     val keyHint: Int,
@@ -37,7 +38,7 @@ data class ImePalette(
     val preeditText: Int,
     val separator: Int,
     val gridLine: Int,
-    val railBg: Int,
+    val panelBg: Int,
     val chipBg: Int,
     val chipText: Int,
     val icon: Int,
@@ -51,8 +52,9 @@ data class ImePalette(
 ) {
     companion object {
         val STATIC_LIGHT = ImePalette(
-            keyboardBg = 0xFFC9D0DA.toInt(),
-            keySurface = 0xFFDCE2EA.toInt(),
+            keyboardBg = 0xFFDCE2EA.toInt(),
+            keySurface = 0xFFF4F7FB.toInt(),
+            functionSurface = 0xFFB7BEC7.toInt(),
             keyLabel = 0xFF16181B.toInt(),
             keyLabelSecondary = 0xFF3C4A54.toInt(),
             keyHint = 0xFF46525C.toInt(),
@@ -65,7 +67,7 @@ data class ImePalette(
             preeditText = 0xFF33639C.toInt(),
             separator = 0xFFBCC5D1.toInt(),
             gridLine = 0xFF000000.toInt(),
-            railBg = 0xFFD7DDE6.toInt(),
+            panelBg = 0xFFF4F7FB.toInt(),
             chipBg = 0xFFDCE2EA.toInt(),
             chipText = 0xFF16181B.toInt(),
             icon = 0xFF3C4A54.toInt(),
@@ -75,12 +77,13 @@ data class ImePalette(
             disabled = 0xFF9AA5AC.toInt(),
             scrim = 0x66000000,
             shadow = 0x22000000,
-            floatSurface = 0xFFE6EBF1.toInt(),
+            floatSurface = 0xFFFAFCFE.toInt(),
         )
 
         val STATIC_DARK = ImePalette(
             keyboardBg = 0xFF24282D.toInt(),
-            keySurface = 0xFF3B424A.toInt(),
+            keySurface = 0xFF525A64.toInt(),
+            functionSurface = 0xFF383E45.toInt(),
             keyLabel = 0xFFE4E6EA.toInt(),
             keyLabelSecondary = 0xFFC3C9D0.toInt(),
             keyHint = 0xFF8F979F.toInt(),
@@ -92,8 +95,8 @@ data class ImePalette(
             lockedReading = 0xFFEADDFF.toInt(),
             preeditText = 0xFF9FC9FF.toInt(),
             separator = 0xFF3E444B.toInt(),
-            gridLine = 0xFF969FAA.toInt(),
-            railBg = 0xFF30363D.toInt(),
+            gridLine = 0xFFA5AEB9.toInt(),
+            panelBg = 0xFF525A64.toInt(),
             chipBg = 0xFF262B30.toInt(),
             chipText = 0xFFE4E6EA.toInt(),
             icon = 0xFFB3BAC2.toInt(),
@@ -103,14 +106,15 @@ data class ImePalette(
             disabled = 0xFF5D646B.toInt(),
             scrim = 0x99000000.toInt(),
             shadow = 0x40000000,
-            floatSurface = 0xFF444C55.toInt(),
+            floatSurface = 0xFF5D6672.toInt(),
         )
 
         fun from(ctx: Context, dark: Boolean): ImePalette = runCatching {
             val cs: ColorScheme = if (dark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
             ImePalette(
-                keyboardBg = (if (dark) cs.surfaceContainer else cs.surfaceDim).toArgb(),
-                keySurface = (if (dark) cs.surfaceBright else cs.surfaceContainer).toArgb(),
+                keyboardBg = cs.surfaceContainer.toArgb(),
+                keySurface = if (dark) brightFace(cs) else cs.surfaceContainerLowest.toArgb(),
+                functionSurface = if (dark) cs.surfaceContainerHighest.toArgb() else sunkenFace(cs),
                 keyLabel = cs.onSurface.toArgb(),
                 keyLabelSecondary = cs.onSurfaceVariant.toArgb(),
                 keyHint = cs.outline.toArgb(),
@@ -123,7 +127,7 @@ data class ImePalette(
                 preeditText = cs.primary.toArgb(),
                 separator = cs.outlineVariant.toArgb(),
                 gridLine = if (dark) darkOutline(cs) else 0xFF000000.toInt(),
-                railBg = cs.surfaceContainerHigh.toArgb(),
+                panelBg = if (dark) brightFace(cs) else cs.surfaceContainerLowest.toArgb(),
                 chipBg = cs.secondaryContainer.toArgb(),
                 chipText = cs.onSecondaryContainer.toArgb(),
                 icon = cs.onSurfaceVariant.toArgb(),
@@ -133,19 +137,42 @@ data class ImePalette(
                 disabled = cs.outline.toArgb(),
                 scrim = withAlpha(cs.scrim.toArgb(), 0x66),
                 shadow = withAlpha(cs.scrim.toArgb(), if (dark) 0x40 else 0x22),
-                floatSurface = (if (dark) cs.surfaceContainerHighest else cs.surfaceContainer).toArgb(),
+                floatSurface = (if (dark) floatFace(cs) else cs.surfaceBright.toArgb()),
             )
         }.getOrElse { if (dark) STATIC_DARK else STATIC_LIGHT }
 
         private fun darkOutline(cs: ColorScheme): Int {
-            val surfaces = listOf(cs.surfaceContainer, cs.surfaceBright, cs.surfaceContainerHigh, cs.surfaceContainerHighest)
+            val surfaces = listOf(
+                cs.surfaceContainer.toArgb(),
+                cs.surfaceContainerHigh.toArgb(),
+                cs.surfaceContainerHighest.toArgb(),
+                brightFace(cs),
+                floatFace(cs),
+            )
             for (step in 0..10) {
-                val color = ColorUtils.blendARGB(cs.outline.toArgb(), cs.onSurface.toArgb(), step / 10f)
-                if (surfaces.all { ColorUtils.calculateContrast(color, it.toArgb()) >= 3.0 }) return color
+                val color = opaque(ColorUtils.blendARGB(cs.outline.toArgb(), cs.onSurface.toArgb(), step / 10f))
+                if (surfaces.all { ColorUtils.calculateContrast(color, it) >= 3.0 }) return color
             }
             return cs.onSurface.toArgb()
         }
 
+        private const val SUNKEN_FACE_BLEND = 0.09f
+
+        private fun sunkenFace(cs: ColorScheme): Int =
+            opaque(ColorUtils.blendARGB(cs.surfaceDim.toArgb(), cs.onSurface.toArgb(), SUNKEN_FACE_BLEND))
+
+        private const val BRIGHT_FACE_BLEND = 0.15f
+
+        private fun brightFace(cs: ColorScheme): Int =
+            opaque(ColorUtils.blendARGB(cs.surfaceBright.toArgb(), cs.onSurface.toArgb(), BRIGHT_FACE_BLEND))
+
+        private const val FLOAT_FACE_BLEND = 0.25f
+
+        private fun floatFace(cs: ColorScheme): Int =
+            opaque(ColorUtils.blendARGB(cs.surfaceBright.toArgb(), cs.onSurface.toArgb(), FLOAT_FACE_BLEND))
+
         private fun withAlpha(argb: Int, alpha: Int): Int = (argb and 0x00FFFFFF) or (alpha shl 24)
+
+        private fun opaque(argb: Int): Int = argb or 0xFF000000.toInt()
     }
 }

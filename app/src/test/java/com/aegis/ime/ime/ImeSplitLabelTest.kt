@@ -234,7 +234,7 @@ class ImeSplitLabelTest {
 
             val bmp = rendered(view)
             val face = bmp.getPixel((rect.left + rect.width() * 0.75f).toInt(), (rect.top + rect.height() * 0.12f).toInt())
-            assertEquals("$lang: the language key rests on the rail face", ImePalette.STATIC_LIGHT.railBg, face)
+            assertEquals("$lang: the language key rests on the function face", ImePalette.STATIC_LIGHT.functionSurface, face)
             val lead = placed.leading
             val trail = placed.trailing
             assertTrue("$lang: the leading word's ink box carries ink", inkIn(bmp, face, lead.left, lead.top, lead.right, lead.bottom) > 0)

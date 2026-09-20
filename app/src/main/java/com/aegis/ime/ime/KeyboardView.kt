@@ -239,7 +239,7 @@ class KeyboardView(context: Context) : View(context) {
     private val spaceMarkerPaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val sepLinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.gridLine; strokeWidth = ImeShapes.gridLinePx(density) }
     private val pressHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.keyLabel, 0x22) }
-    private val scrollTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.railBg }
+    private val scrollTrackPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.functionSurface }
     private val scrollbarPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = withAlpha(palette.icon, SCROLLBAR_ALPHA) }
     private val scrollLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = palette.keyLabel; textAlign = Paint.Align.LEFT; textSize = sp(17f); typeface = android.graphics.Typeface.DEFAULT }
     private val inkBounds = android.graphics.Rect()
@@ -263,7 +263,7 @@ class KeyboardView(context: Context) : View(context) {
         sepLinePaint.color = p.gridLine
         pressHighlight.color = Motion.withAlpha(p.keyLabel, 0x22)
         keyEdgePaint.color = p.shadow
-        scrollTrackPaint.color = p.railBg
+        scrollTrackPaint.color = p.functionSurface
         scrollbarPaint.color = withAlpha(p.icon, SCROLLBAR_ALPHA)
         scrollLabelPaint.color = p.keyLabel
         previewFillPaint.color = p.floatSurface
@@ -699,7 +699,7 @@ class KeyboardView(context: Context) : View(context) {
             }
             return
         }
-        fillPaint.color = if (rail) palette.railBg else palette.keySurface
+        fillPaint.color = if (rail) palette.functionSurface else palette.keySurface
         canvas.drawRoundRect(rect, keyRadius, keyRadius, fillPaint)
         if (pressLevel > 0f) {
             pressHighlight.color = Motion.stateLayerColor(palette.keyLabel, pressLevel)

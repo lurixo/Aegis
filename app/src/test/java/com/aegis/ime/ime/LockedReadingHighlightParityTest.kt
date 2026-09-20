@@ -449,8 +449,8 @@ class LockedReadingHighlightParityTest {
 
     @Test fun the_marked_reading_stays_readable_on_the_rail_in_both_static_themes() {
         for ((name, theme) in listOf("light" to ImePalette.STATIC_LIGHT, "dark" to ImePalette.STATIC_DARK)) {
-            val marked = contrast(theme.lockedReading, theme.railBg)
-            val plain = contrast(theme.candidateText, theme.railBg)
+            val marked = contrast(theme.lockedReading, theme.functionSurface)
+            val plain = contrast(theme.candidateText, theme.functionSurface)
             assertTrue(
                 "$name marks the locked reading at ${"%.2f".format(marked)}:1, under the 4.5:1 a reader needs",
                 marked >= 4.5,

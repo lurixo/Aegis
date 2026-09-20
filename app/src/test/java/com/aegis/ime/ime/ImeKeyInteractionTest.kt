@@ -92,7 +92,7 @@ class ImeKeyInteractionTest {
             setOnClickListener { taps++ }
             layout(0, 0, (100 * density).toInt(), (60 * density).toInt())
         }
-        val feedback = ImeKeyFeedback(view, ImePalette.STATIC_LIGHT.railBg, ImePalette.STATIC_LIGHT.keyLabel)
+        val feedback = ImeKeyFeedback(view, ImePalette.STATIC_LIGHT.functionSurface, ImePalette.STATIC_LIGHT.keyLabel)
         ImeBackspaceTouch(view, feedback, density, { true }, { repeats++ }, { swipes += it })
         val x = view.width / 2f
         val y = view.height / 2f

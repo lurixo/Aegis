@@ -166,18 +166,18 @@ class KeyFeedbackTest {
     }
 
     @Config(sdk = [34], qualifiers = "xxhdpi")
-    @Test fun function_keys_fill_with_the_rail_background_while_space_and_enter_keep_their_fills() {
+    @Test fun function_keys_fill_with_the_sunken_face_while_space_and_enter_keep_their_fills() {
         val palette = ImePalette.STATIC_LIGHT.copy(
             keyboardBg = Color.BLACK,
             keySurface = Color.WHITE,
-            railBg = Color.BLUE,
+            functionSurface = Color.BLUE,
         )
         val view = keyboardView(Layouts.forId(LayoutId.ALPHA, Lang.CN), language = Lang.CN).apply { applyPalette(palette) }
         val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         view.draw(Canvas(bitmap))
         fun fillAt(bounds: RectF): Int = bitmap.getPixel(bounds.centerX().toInt(), (bounds.top + 3f * density).toInt())
         for (action in listOf(KeyAction.SHOW_SYMBOLS, KeyAction.SWITCH_NUMPAD, KeyAction.TOGGLE_LANG, KeyAction.SHIFT, KeyAction.BACKSPACE)) {
-            assertEquals("$action", palette.railBg, fillAt(view.boundsOfActionForTest(action)!!))
+            assertEquals("$action", palette.functionSurface, fillAt(view.boundsOfActionForTest(action)!!))
         }
         assertEquals(palette.keySurface, fillAt(view.boundsOfActionForTest(KeyAction.SPACE)!!))
         assertEquals(palette.accentBottom, fillAt(view.boundsOfActionForTest(KeyAction.ENTER)!!))
@@ -186,7 +186,7 @@ class KeyFeedbackTest {
 
     @Config(sdk = [34], qualifiers = "xxhdpi")
     @Test fun the_pressed_scroll_cell_highlight_fills_the_cell_and_stops_at_the_track_corners() {
-        val palette = ImePalette.STATIC_LIGHT.copy(keyboardBg = Color.BLACK, railBg = Color.WHITE, keyLabel = Color.RED)
+        val palette = ImePalette.STATIC_LIGHT.copy(keyboardBg = Color.BLACK, functionSurface = Color.WHITE, keyLabel = Color.RED)
         val view = keyboardView(Layouts.nine(Layouts.ninePunctuation(), composing = false), language = Lang.CN)
             .apply { applyPalette(palette) }
         val region = view.scrollRegionForTest()
@@ -203,7 +203,7 @@ class KeyFeedbackTest {
         assertTrue("the square top-right corner of the pressed cell is tinted", tinted(pixel(region.right - inset, cellTop + inset)))
         assertTrue("the highlight reaches the bottom edge between the arcs", tinted(pixel(region.centerX(), region.bottom - inset)))
         assertEquals("outside the rounded track corner stays the board", palette.keyboardBg, pixel(region.left + 0.5f, region.bottom - 0.5f))
-        assertEquals("the unpressed cell above keeps the bare rail", palette.railBg, pixel(region.left + inset, cellTop - inset))
+        assertEquals("the unpressed cell above keeps the bare track", palette.functionSurface, pixel(region.left + inset, cellTop - inset))
     }
 
 

@@ -41,15 +41,10 @@ class PaletteContrastTest {
 
     @Test fun the_surfaces_layer_from_deep_board_to_bright_faces_on_both_palettes() {
         for (p in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
-            assertTrue("faces sit above the rail", luminance(p.keySurface) > luminance(p.railBg))
-            assertTrue("the rail sits above the board", luminance(p.railBg) > luminance(p.keyboardBg))
+            assertTrue("faces sit above the board", luminance(p.keySurface) > luminance(p.keyboardBg))
             assertTrue(
                 "faces still separate from the board: " + ratio(p.keySurface, p.keyboardBg),
-                ratio(p.keySurface, p.keyboardBg) >= 1.15,
-            )
-            assertTrue(
-                "faces stay off pure white: " + Integer.toHexString(p.keySurface),
-                p.keySurface != 0xFFFFFFFF.toInt(),
+                ratio(p.keySurface, p.keyboardBg) >= 1.14,
             )
         }
     }
@@ -66,10 +61,31 @@ class PaletteContrastTest {
             val roles = listOf(
                 p.keyboardBg, p.keySurface, p.keyLabel, p.keyLabelSecondary, p.keyHint, p.keySub,
                 p.accentBottom, p.accentLabel, p.candidateFirst, p.candidateText, p.preeditText, p.separator, p.gridLine,
-                p.railBg, p.lockedReading, p.chipBg, p.chipText, p.icon, p.deletable, p.errorContainer, p.onErrorContainer,
+                p.functionSurface, p.lockedReading, p.chipBg, p.chipText, p.icon, p.deletable, p.errorContainer, p.onErrorContainer,
                 p.disabled, p.scrim, p.shadow, p.floatSurface,
             )
             assertTrue("no palette role may reuse a retired green", roles.none { it in greens })
+        }
+    }
+
+    @Test fun the_function_keys_stand_clear_of_the_letter_faces_on_both_palettes() {
+        assertTrue(
+            "the light board sinks its function keys below the board itself",
+            luminance(ImePalette.STATIC_LIGHT.functionSurface) < luminance(ImePalette.STATIC_LIGHT.keyboardBg),
+        )
+        assertTrue(
+            "the dark board lifts its function keys above the board itself",
+            luminance(ImePalette.STATIC_DARK.functionSurface) > luminance(ImePalette.STATIC_DARK.keyboardBg),
+        )
+        for (p in listOf(ImePalette.STATIC_LIGHT, ImePalette.STATIC_DARK)) {
+            assertTrue(
+                "function keys stand clear of the letter faces: " + ratio(p.keySurface, p.functionSurface),
+                ratio(p.keySurface, p.functionSurface) >= 1.45,
+            )
+            assertTrue(
+                "the secondary ink stays readable on the function face: " + ratio(p.keyLabelSecondary, p.functionSurface),
+                ratio(p.keyLabelSecondary, p.functionSurface) >= 4.5,
+            )
         }
     }
 

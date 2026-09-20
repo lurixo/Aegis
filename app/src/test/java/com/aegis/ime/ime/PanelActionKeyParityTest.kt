@@ -144,18 +144,18 @@ class PanelActionKeyParityTest {
             val bar = if (panel is EmojiView) panel.categoryBarForTest() else (panel as SymbolsView).categoryBarForTest()
             val viewport = if (panel is EmojiView) panel.gridViewportForTest() else (panel as SymbolsView).gridViewportForTest()
             assertEquals(
-                "the $name action column takes the keyboard surface",
-                palette.keyboardBg,
+                "the $name action column takes the function surface",
+                palette.functionSurface,
                 (column.background as ColorDrawable).color,
             )
             assertEquals(
-                "the $name category bar takes the keyboard surface",
-                palette.keyboardBg,
+                "the $name category bar takes the function surface",
+                palette.functionSurface,
                 (bar.background as ColorDrawable).color,
             )
             assertEquals(
-                "the $name content viewport takes the rail surface",
-                palette.railBg,
+                "the $name content viewport takes the panel surface",
+                palette.panelBg,
                 (viewport.background as ColorDrawable).color,
             )
         }

@@ -206,8 +206,8 @@ class EmojiView(context: Context) :
             addView(actionColumnView, LayoutParams(0, LayoutParams.MATCH_PARENT, 1f))
         }
         gridRow = content
-        gridScroll.setBackgroundColor(palette.railBg)
-        railScroll.setBackgroundColor(palette.keyboardBg)
+        gridScroll.setBackgroundColor(palette.panelBg)
+        railScroll.setBackgroundColor(palette.functionSurface)
         val panelColumn = LinearLayout(context).apply {
             orientation = VERTICAL
             addView(content, LayoutParams(LayoutParams.MATCH_PARENT, gridAreaHeightPx()))
@@ -225,8 +225,8 @@ class EmojiView(context: Context) :
     fun applyPalette(p: ImePalette) {
         palette = p
         setBackgroundColor(p.keyboardBg)
-        gridScroll.setBackgroundColor(p.railBg)
-        railScroll.setBackgroundColor(p.keyboardBg)
+        gridScroll.setBackgroundColor(p.panelBg)
+        railScroll.setBackgroundColor(p.functionSurface)
         actionColumnView.applyPalette(p)
         grid.ruleColor = p.gridLine
         panelFrame.outlineColor = p.gridLine
@@ -404,7 +404,7 @@ class EmojiView(context: Context) :
                 gridScroll.fling(0)
             }
         }
-        if (animate && tabChanged && gridScroll.isShown) Motion.coverThrough(gridScroll, palette.railBg, swap)
+        if (animate && tabChanged && gridScroll.isShown) Motion.coverThrough(gridScroll, palette.panelBg, swap)
         else swap()
     }
 
