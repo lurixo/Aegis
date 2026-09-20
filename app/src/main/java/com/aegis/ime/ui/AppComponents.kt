@@ -61,11 +61,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
@@ -81,6 +83,8 @@ import com.aegis.ime.R
 import com.aegis.ime.ui.theme.AppIconMetrics
 import com.aegis.ime.ui.theme.AppShapes
 import com.aegis.ime.ui.theme.AppSpacing
+import com.aegis.ime.ui.theme.appSectionFace
+import com.aegis.ime.ui.theme.appSectionScheme
 
 @Composable
 internal fun AppPageScaffold(
@@ -196,15 +200,20 @@ internal fun AppSection(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
+    val context = LocalContext.current
+    val base = MaterialTheme.colorScheme
+    val dark = base.background.luminance() < 0.5f
+    val face = remember(context, dark) { appSectionFace(context, dark) }
+    val scheme = remember(base, face) { appSectionScheme(base, face) }
     Surface(
         modifier = modifier.fillMaxWidth(),
         shape = AppShapes.section,
-        color = MaterialTheme.colorScheme.run {
-            if (background.luminance() < 0.5f) surfaceContainerHigh else surfaceDim
-        },
+        color = Color(face),
         tonalElevation = 0.dp,
     ) {
-        Column(content = content)
+        MaterialTheme(colorScheme = scheme) {
+            Column(content = content)
+        }
     }
 }
 

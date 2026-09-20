@@ -24,8 +24,11 @@ import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalContext
+import androidx.core.graphics.ColorUtils
 import com.aegis.ime.R
+import com.aegis.ime.ime.theme.ImePalette
 
 @Composable
 fun AegisTheme(
@@ -63,3 +66,34 @@ internal fun settingsBackgroundArgb(context: Context, darkTheme: Boolean): Int {
 
 internal fun settingsBackgroundColor(context: Context, darkTheme: Boolean): Color =
     Color(settingsBackgroundArgb(context, darkTheme))
+
+internal fun appSectionFace(context: Context, darkTheme: Boolean): Int =
+    ImePalette.from(context, darkTheme).functionSurface
+
+internal fun appSectionScheme(base: ColorScheme, face: Int): ColorScheme = base.copy(
+    onSurfaceVariant = Color(
+        sectionInk(face, base.onSurfaceVariant.toArgb(), base.onSurface.toArgb(), SECTION_SUPPORT_CONTRAST),
+    ),
+    outlineVariant = Color(
+        sectionInk(face, base.outlineVariant.toArgb(), base.onSurface.toArgb(), SECTION_DIVIDER_CONTRAST),
+    ),
+    surfaceContainerHighest = Color(
+        sectionInk(face, base.surfaceContainerHighest.toArgb(), base.onSurface.toArgb(), SECTION_CONTROL_CONTRAST),
+    ),
+)
+
+internal const val SECTION_SUPPORT_CONTRAST = 7.0
+
+internal const val SECTION_DIVIDER_CONTRAST = 1.6
+
+internal const val SECTION_CONTROL_CONTRAST = 1.25
+
+private const val SECTION_INK_STEPS = 20
+
+private fun sectionInk(face: Int, base: Int, ink: Int, target: Double): Int {
+    for (step in 0..SECTION_INK_STEPS) {
+        val color = ColorUtils.blendARGB(base, ink, step.toFloat() / SECTION_INK_STEPS) or 0xFF000000.toInt()
+        if (ColorUtils.calculateContrast(color, face) >= target) return color
+    }
+    return ink
+}

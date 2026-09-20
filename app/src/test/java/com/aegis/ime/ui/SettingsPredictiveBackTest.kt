@@ -157,7 +157,7 @@ class SettingsPredictiveBackTest {
         assertTrue(
             "dark theme window background must be dark before runtime dynamic color sync",
             src("src/main/res/values-night/colors.xml")
-                .contains("<color name=\"settings_window_background\">#1C1B1F</color>"),
+                .contains("<color name=\"settings_window_background\">#121316</color>"),
         )
     }
 
