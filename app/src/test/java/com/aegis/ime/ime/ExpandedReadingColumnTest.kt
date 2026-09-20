@@ -218,7 +218,7 @@ class ExpandedReadingColumnTest {
         assertEquals("which now leads with the new reading", wordsFor("zhe").first(), grid.renderedCandidateTextsForTest().first())
         assertEquals(
             "the switched reading carries the mark",
-            palette.candidateFirst,
+            palette.lockedReading,
             iv.expandedReadingTextColorForTest(column.indexOf("zhe")),
         )
         assertEquals(

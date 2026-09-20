@@ -416,7 +416,7 @@ class Ui12SyllableColumnTest {
 
         lockAndDrillFirst(c)
 
-        assertEquals("drilled reading is visibly marked with the first-candidate color", palette.candidateFirst, iv.expandedReadingTextColorForTest(0))
+        assertEquals("drilled reading is visibly marked with the locked-reading color", palette.lockedReading, iv.expandedReadingTextColorForTest(0))
     }
 
     @Test fun input_view_marks_the_persisted_9key_locked_reading_with_the_accent_color() {
@@ -440,7 +440,7 @@ class Ui12SyllableColumnTest {
         val afterReadings = c.expandedReadings()
         val selected = afterReadings.indexOf("ni")
         assertTrue("locked last syllable remains visible, was $afterReadings", selected >= 0)
-        assertEquals("persisted locked 9-key reading is marked with the first-candidate color", palette.candidateFirst, iv.expandedReadingTextColorForTest(selected))
+        assertEquals("persisted locked 9-key reading is marked with the locked-reading color", palette.lockedReading, iv.expandedReadingTextColorForTest(selected))
         afterReadings.indices.firstOrNull { it != selected }?.let {
             assertEquals("unselected 9-key readings keep the normal text color", palette.candidateText, iv.expandedReadingTextColorForTest(it))
         }

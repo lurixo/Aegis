@@ -263,7 +263,7 @@ class CandidateGridViewTest {
         }
 
         assertEquals("unselected reading uses the default candidate text color", pal.candidateText, v.readingTextColorForTest(0))
-        assertEquals("selected reading uses the first-candidate color", pal.candidateFirst, v.readingTextColorForTest(1))
+        assertEquals("selected reading uses the locked-reading color", pal.lockedReading, v.readingTextColorForTest(1))
         assertEquals("other unselected readings also use the default candidate text color", pal.candidateText, v.readingTextColorForTest(2))
     }
 

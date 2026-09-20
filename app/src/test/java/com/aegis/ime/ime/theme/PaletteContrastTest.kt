@@ -66,7 +66,7 @@ class PaletteContrastTest {
             val roles = listOf(
                 p.keyboardBg, p.keySurface, p.keyLabel, p.keyLabelSecondary, p.keyHint, p.keySub,
                 p.accentBottom, p.accentLabel, p.candidateFirst, p.candidateText, p.preeditText, p.separator, p.gridLine,
-                p.railBg, p.chipBg, p.chipText, p.icon, p.deletable, p.errorContainer, p.onErrorContainer,
+                p.railBg, p.lockedReading, p.chipBg, p.chipText, p.icon, p.deletable, p.errorContainer, p.onErrorContainer,
                 p.disabled, p.scrim, p.shadow, p.floatSurface,
             )
             assertTrue("no palette role may reuse a retired green", roles.none { it in greens })

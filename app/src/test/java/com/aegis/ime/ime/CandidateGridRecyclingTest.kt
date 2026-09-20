@@ -168,7 +168,7 @@ class CandidateGridRecyclingTest {
         val allocBefore = v.readingsAllocatedForTest()
         v.setReadings(listOf("zhang", "xiang", "xia"), selected = 2)
         assertEquals("a pure selection change must not allocate", allocBefore, v.readingsAllocatedForTest())
-        assertEquals("new selection paints the mark", pal.candidateFirst, v.readingTextColorForTest(2))
+        assertEquals("new selection paints the mark", pal.lockedReading, v.readingTextColorForTest(2))
         assertEquals("old selection returns to the default text colour", pal.candidateText, v.readingTextColorForTest(0))
         assertEquals("untouched middle reading keeps the default colour", pal.candidateText, v.readingTextColorForTest(1))
     }
@@ -191,7 +191,7 @@ class CandidateGridRecyclingTest {
         val v = grid()
         v.setReadings(listOf("ni", "hao", "hai"), selected = 0)
         v.setReadings(listOf("ni", "hao", "hai"), selected = 2)
-        assertEquals("reduced motion jumps straight to the mark", pal.candidateFirst, v.readingTextColorForTest(2))
+        assertEquals("reduced motion jumps straight to the mark", pal.lockedReading, v.readingTextColorForTest(2))
         assertEquals(0, v.activeReadingColorAnimatorsForTest())
     }
 }

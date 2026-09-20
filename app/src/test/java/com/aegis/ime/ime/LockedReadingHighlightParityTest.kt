@@ -204,7 +204,7 @@ class LockedReadingHighlightParityTest {
         assertEquals("and that head cell is the locked reading, was ${keys.map { it.label }}", "ni", keys[0].label)
         assertTrue(
             "the unexpanded left column paints the locked cell with the first-candidate color",
-            pixels(frame(kb), cellRect(kb, 0), palette.candidateFirst) > 0,
+            pixels(frame(kb), cellRect(kb, 0), palette.lockedReading) > 0,
         )
     }
 
@@ -224,7 +224,7 @@ class LockedReadingHighlightParityTest {
             val bitmap = frame(kb)
             assertTrue(
                 "pass $pass: the marked reading keeps the mark color",
-                pixels(bitmap, cellRect(kb, readings.lastIndex), palette.candidateFirst) > 0,
+                pixels(bitmap, cellRect(kb, readings.lastIndex), palette.lockedReading) > 0,
             )
             for (i in 0 until readings.lastIndex) {
                 assertTrue(
@@ -234,7 +234,7 @@ class LockedReadingHighlightParityTest {
                 assertEquals(
                     "pass $pass: plain reading ${readings[i]} must not borrow the mark color",
                     0,
-                    pixels(bitmap, cellRect(kb, i), palette.candidateFirst),
+                    pixels(bitmap, cellRect(kb, i), palette.lockedReading),
                 )
             }
         }
@@ -254,7 +254,7 @@ class LockedReadingHighlightParityTest {
         assertTrue("precondition: the locked reading survives into the expanded grid, was $readings", expanded >= 0)
         assertEquals(
             "the expanded grid marks the very same reading with the very same color",
-            palette.candidateFirst,
+            palette.lockedReading,
             iv.expandedReadingTextColorForTest(expanded),
         )
 
@@ -285,7 +285,7 @@ class LockedReadingHighlightParityTest {
         iv.showExpandedCandidates()
         assertEquals(
             "precondition: the plain lock marks the reading in the expanded grid",
-            palette.candidateFirst,
+            palette.lockedReading,
             iv.expandedReadingTextColorForTest(c.expandedReadings().indexOf("ni")),
         )
         assertEquals("precondition: and in the unexpanded column too", 1, markedCells(kb).size)
@@ -315,7 +315,7 @@ class LockedReadingHighlightParityTest {
         val readings = c.expandedReadings()
         assertEquals(
             "the expanded grid marks the drilled reading, was $readings",
-            palette.candidateFirst,
+            palette.lockedReading,
             iv.expandedReadingTextColorForTest(readings.indexOf("ni")),
         )
 
@@ -339,7 +339,7 @@ class LockedReadingHighlightParityTest {
             )
             assertTrue(
                 "$reading is painted with the mark color where the user can see it",
-                pixels(frame(kb), cellRect(kb, marked.single()), palette.candidateFirst) > 0,
+                pixels(frame(kb), cellRect(kb, marked.single()), palette.lockedReading) > 0,
             )
         }
     }
@@ -355,7 +355,7 @@ class LockedReadingHighlightParityTest {
         first.second.showExpandedCandidates()
         assertEquals(
             "which the expanded grid marks",
-            palette.candidateFirst,
+            palette.lockedReading,
             first.second.expandedReadingTextColorForTest(first.first.expandedReadings().indexOf("ni")),
         )
 
@@ -370,7 +370,7 @@ class LockedReadingHighlightParityTest {
         middle.second.showExpandedCandidates()
         assertEquals(
             "which the expanded grid marks",
-            palette.candidateFirst,
+            palette.lockedReading,
             middle.second.expandedReadingTextColorForTest(middle.first.expandedReadings().indexOf("hao")),
         )
 
@@ -382,7 +382,7 @@ class LockedReadingHighlightParityTest {
         lastView.showExpandedCandidates()
         assertEquals(
             "which the expanded grid marks",
-            palette.candidateFirst,
+            palette.lockedReading,
             lastView.expandedReadingTextColorForTest(last.expandedReadings().indexOf("ni")),
         )
     }
@@ -426,7 +426,7 @@ class LockedReadingHighlightParityTest {
         assertTrue("the locked reading stays visible, was ${c.expandedReadings()}", after >= 0)
         assertEquals(
             "the 26-key expanded grid still marks the locked reading with the first-candidate color",
-            palette.candidateFirst,
+            palette.lockedReading,
             iv.expandedReadingTextColorForTest(after),
         )
     }
@@ -449,7 +449,7 @@ class LockedReadingHighlightParityTest {
 
     @Test fun the_marked_reading_stays_readable_on_the_rail_in_both_static_themes() {
         for ((name, theme) in listOf("light" to ImePalette.STATIC_LIGHT, "dark" to ImePalette.STATIC_DARK)) {
-            val marked = contrast(theme.candidateFirst, theme.railBg)
+            val marked = contrast(theme.lockedReading, theme.railBg)
             val plain = contrast(theme.candidateText, theme.railBg)
             assertTrue(
                 "$name marks the locked reading at ${"%.2f".format(marked)}:1, under the 4.5:1 a reader needs",
@@ -459,7 +459,7 @@ class LockedReadingHighlightParityTest {
                 "$name draws the plain readings at ${"%.2f".format(plain)}:1, under the 4.5:1 a reader needs",
                 plain >= 4.5,
             )
-            assertNotEquals("$name must still tell the marked reading apart", theme.candidateText, theme.candidateFirst)
+            assertNotEquals("$name must still tell the marked reading apart", theme.candidateText, theme.lockedReading)
         }
     }
 
@@ -471,14 +471,14 @@ class LockedReadingHighlightParityTest {
             val marked = markedCells(kb)
             assertEquals("$name marks exactly one reading", 1, marked.size)
             assertTrue(
-                "$name must paint the marked cell with the first-candidate color",
-                pixels(frame(kb), cellRect(kb, marked.single()), theme.candidateFirst) > 0,
+                "$name must paint the marked cell with the locked-reading color",
+                pixels(frame(kb), cellRect(kb, marked.single()), theme.lockedReading) > 0,
             )
 
             iv.showExpandedCandidates()
             assertEquals(
                 "$name must mark the same reading in the expanded grid with the very same color",
-                theme.candidateFirst,
+                theme.lockedReading,
                 iv.expandedReadingTextColorForTest(c.expandedReadings().indexOf("ni")),
             )
 
@@ -490,7 +490,7 @@ class LockedReadingHighlightParityTest {
             val readings = twoSyllables.expandedReadings()
             assertEquals(
                 "$name must mark the locked reading of a two-syllable composition, was $readings",
-                theme.candidateFirst,
+                theme.lockedReading,
                 view.expandedReadingTextColorForTest(readings.indexOf("ni")),
             )
             assertEquals(
