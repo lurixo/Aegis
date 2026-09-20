@@ -2,12 +2,12 @@
 <resources>
     <string name="clip_image_label">Image</string>
     <string name="clip_image_copy">Copy image</string>
-    <string name="clip_image_unavailable">This image is no longer available.</string>
-    <string name="clip_image_save_failed">Could not save the image. Copy it again and retry.</string>
-    <string name="clip_image_too_large">Images must be 20 MiB or smaller.</string>
-    <string name="clip_image_paste_unsupported">Could not paste the image into this input field.</string>
+    <string name="clip_image_unavailable">This image is no longer available</string>
+    <string name="clip_image_save_failed">Could not save the image — copy it again and retry</string>
+    <string name="clip_image_too_large">Images must be 20 MiB or smaller</string>
+    <string name="clip_image_paste_unsupported">Could not paste the image into this input field</string>
     <string name="clip_image_paste_requested">Image paste requested</string>
-    <string name="clip_image_paste_cursor">Place the cursor where you want the image, then paste again.</string>
+    <string name="clip_image_paste_cursor">Place the cursor where you want the image, then paste again</string>
     <string name="clip_image_copied">Image copied</string>
-    <string name="clip_image_text_only">Images cannot be saved as phrases.</string>
+    <string name="clip_image_text_only">Images cannot be saved as phrases</string>
 </resources>

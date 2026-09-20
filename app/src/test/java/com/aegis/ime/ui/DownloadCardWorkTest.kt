@@ -1042,7 +1042,6 @@ class ResourceUpdateCardTest {
         assertFalse(prefs.contains(ModelDownload.DICT_ASSET_NAME_PREF))
         assertFalse(prefs.contains(ModelDownload.DICT_RELEASE_PUBLISHED_PREF))
         assertEquals(context.getString(R.string.download_toast_up_to_date), AegisToast.textForTest())
-        compose.onNodeWithText(context.getString(R.string.dict_status_update_current)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.check_dict_update_button)).assertIsEnabled()
     }
 

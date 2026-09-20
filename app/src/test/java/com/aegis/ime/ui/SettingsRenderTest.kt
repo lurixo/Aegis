@@ -132,7 +132,7 @@ class SettingsRenderTest {
             snapCompose("dlcard_states_$t.png", dark, hDp = 1600) {
                 DictDownloadCard(DownloadCardPreview(present = true))
                 GramDownloadCard(DownloadCardPreview(present = true, checking = true))
-                DictDownloadCard(DownloadCardPreview(present = true, status = ctx.getString(R.string.dict_status_update_current)))
+                DictDownloadCard(DownloadCardPreview(present = true, status = ctx.getString(R.string.download_toast_up_to_date)))
                 GramDownloadCard(DownloadCardPreview(present = true, status = ctx.getString(R.string.download_toast_update_offline)))
             }
         }

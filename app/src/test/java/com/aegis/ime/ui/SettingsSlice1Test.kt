@@ -94,8 +94,7 @@ class SettingsSlice1Test {
     @Test fun resource_update_labels_are_specific_to_model_and_dictionary() {
         assertEquals("Check model updates", ctx.getString(R.string.check_model_update_button))
         assertEquals("Check dictionary updates", ctx.getString(R.string.check_dict_update_button))
-        assertFalse(ctx.getString(R.string.gram_status_update_current).contains("app", ignoreCase = true))
-        assertFalse(ctx.getString(R.string.dict_status_update_current).contains("app", ignoreCase = true))
+        assertFalse(ctx.getString(R.string.download_toast_up_to_date).contains("app", ignoreCase = true))
     }
 
 

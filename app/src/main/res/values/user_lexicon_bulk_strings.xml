@@ -3,8 +3,8 @@
     <string name="user_lexicon_manage">Manage</string>
     <string name="user_lexicon_batch_delete_title">Delete selected entries</string>
     <plurals name="user_lexicon_batch_delete_body">
-        <item quantity="one">This deletes the %1$d selected entry from this device. This cannot be undone.</item>
-        <item quantity="other">This deletes the %1$d selected entries from this device. This cannot be undone.</item>
+        <item quantity="one">Deletes the %1$d selected entry from this device, and cannot be undone</item>
+        <item quantity="other">Deletes the %1$d selected entries from this device, and cannot be undone</item>
     </plurals>
     <string name="user_lexicon_batch_deleted">Selected entries deleted</string>
 </resources>

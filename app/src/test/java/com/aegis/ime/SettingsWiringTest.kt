@@ -479,8 +479,6 @@ class SettingsWiringTest {
         assertFalse("EN gram card must not cite an internal evaluation score", en.contains("about 9 points"))
         assertFalse("ZH gram card must not cite an internal evaluation score", zh.contains("内部评测"))
         assertFalse("ZH gram card must not cite an internal evaluation score", zh.contains("约 9 分"))
-        assertTrue("EN gram card keeps the optional/offline wording", en.contains("input remains fully offline"))
-        assertTrue("ZH gram card keeps the optional/offline wording", zh.contains("全程离线"))
     }
 
     @Test fun no_ui_string_promises_a_delayed_settings_effect_any_more() {

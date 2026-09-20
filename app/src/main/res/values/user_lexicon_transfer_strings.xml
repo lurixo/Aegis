@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="user_lexicon_transfer_help">Export Chinese words, English words and email suffixes together or choose specific dictionaries. Import a dictionary export or an older Chinese text file.</string>
-    <string name="user_lexicon_export_help">Choose which dictionaries to include in one file.</string>
+    <string name="user_lexicon_transfer_help">Export Chinese words, English words and email suffixes together or separately; imports accept a dictionary export or an older Chinese text file</string>
+    <string name="user_lexicon_export_help">Choose which dictionaries go into the file</string>
     <string name="user_lexicon_export_confirm">Export</string>
-    <string name="user_lexicon_import_help">Included dictionaries: %1$s. Merge combines their entries with yours. Overwrite replaces these dictionaries, including empty ones. Other dictionaries stay as they are.</string>
+    <string name="user_lexicon_import_help">Included: %1$s — merge combines their entries with yours, overwrite replaces these dictionaries including empty ones, and the rest stay as they are</string>
 </resources>

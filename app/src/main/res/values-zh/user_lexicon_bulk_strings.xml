@@ -3,7 +3,7 @@
     <string name="user_lexicon_manage">管理</string>
     <string name="user_lexicon_batch_delete_title">删除所选条目</string>
     <plurals name="user_lexicon_batch_delete_body">
-        <item quantity="other">将从本机删除选中的 %1$d 个条目，此操作无法撤销。</item>
+        <item quantity="other">将从本机删除选中的 %1$d 个条目，无法撤销</item>
     </plurals>
     <string name="user_lexicon_batch_deleted">已删除所选条目</string>
 </resources>

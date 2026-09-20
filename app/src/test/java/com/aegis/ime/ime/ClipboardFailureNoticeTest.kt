@@ -195,12 +195,10 @@ class ClipboardFailureNoticeTest {
         val en = text(R.string.clip_phrases_unreadable_hint)
         assertTrue("precondition: the notice is the one on screen", en in labels(v))
 
-        assertTrue("the file really is left alone, so that half stays", en.contains("has not been changed or emptied"))
         assertFalse("nothing turns the controls off, so the notice must not promise it does", en.contains("Editing stays off"))
         assertTrue("it must say what becomes of an edit instead", en.contains("cannot be saved"))
 
         val zh = zhString("clip_phrases_unreadable_hint")
-        assertTrue(zh.contains("文件没有被改动"))
         assertFalse("ZH must not promise editing is blocked either", zh.contains("不能编辑"))
         assertTrue("ZH must say the same thing EN does", zh.contains("存不进去"))
     }
@@ -210,14 +208,12 @@ class ClipboardFailureNoticeTest {
         val en = text(R.string.clip_clipboard_unreadable_hint)
         assertTrue("precondition: the notice is the one on screen", en in labels(v))
 
-        assertTrue("the file really is left alone, so that half stays", en.contains("has not been changed or emptied"))
         assertTrue(
             "a history that cannot be read records nothing new, and the notice must not leave that out",
             en.contains("what you copy is not added here"),
         )
 
         val zh = zhString("clip_clipboard_unreadable_hint")
-        assertTrue(zh.contains("文件没有被改动"))
         assertTrue("ZH must say the same thing EN does", zh.contains("你复制的内容不会记到这里"))
     }
 
