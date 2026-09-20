@@ -44,7 +44,11 @@ class PaletteContrastTest {
             assertTrue("faces sit above the board", luminance(p.keySurface) > luminance(p.keyboardBg))
             assertTrue(
                 "faces still separate from the board: " + ratio(p.keySurface, p.keyboardBg),
-                ratio(p.keySurface, p.keyboardBg) >= 1.14,
+                ratio(p.keySurface, p.keyboardBg) >= 1.15,
+            )
+            assertTrue(
+                "faces stay off pure white: " + Integer.toHexString(p.keySurface),
+                p.keySurface != 0xFFFFFFFF.toInt(),
             )
         }
     }
