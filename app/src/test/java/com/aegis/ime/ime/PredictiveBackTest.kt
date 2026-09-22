@@ -216,6 +216,28 @@ class PredictiveBackTest {
         assertEquals("each routed state change pings the service so it can resync the back callback", 6, notifications)
     }
 
+    private fun backStep(iv: InputView, expected: String) {
+        assertTrue("Back stays claimed while $expected is open", iv.hasOverlay())
+        assertEquals(expected, iv.backTargetKindForTest())
+        assertTrue("Back reports it closed the top layer", iv.closeTopOverlay())
+    }
+
+    @Test fun back_closes_the_skin_tone_choice_before_the_emoji_panel() {
+        val iv = InputView(ctx)
+        val emoji = EmojiView(ctx)
+        var committed = 0
+        emoji.onEmoji = { committed++ }
+        iv.showPanel(emoji)
+        emoji.openVariantsForTest("👋")
+        assertTrue("precondition: the skin tone choice is open", emoji.variantVisibleForTest())
+        backStep(iv, "PANEL_LAYER")
+        assertFalse("Back closes the skin tone choice", emoji.variantVisibleForTest())
+        assertTrue("the emoji panel stays open", iv.panelShown)
+        assertEquals("Back commits no emoji", 0, committed)
+        backStep(iv, "PANEL")
+        assertFalse("a second Back closes the emoji panel", iv.panelShown)
+    }
+
     private fun startedService(shown: Boolean): Pair<AegisInputMethodService, InputView> {
         val service = Robolectric.buildService(AegisInputMethodService::class.java).create().get()
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)

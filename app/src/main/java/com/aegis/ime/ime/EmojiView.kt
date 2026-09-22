@@ -44,7 +44,8 @@ import com.aegis.ime.layout.EmojiCatalog
 import com.aegis.ime.layout.EmojiVariants
 
 class EmojiView(context: Context) :
-    LinearLayout(context), ResettablePanel, CoversToolbar, KeyHapticsAware, BackspaceBubbleSource {
+    LinearLayout(context), ResettablePanel, CoversToolbar, KeyHapticsAware, BackspaceBubbleSource, LayeredPanel {
+
     var onEmoji: (String) -> Unit = {}
     var onClearRecents: () -> Unit = {}
     var onDeleteRecent: (String) -> Unit = {}
@@ -589,6 +590,14 @@ class EmojiView(context: Context) :
         lp.leftMargin = (spot.centerX() - cardWidth / 2).coerceIn(0, maxOf(0, frameWidth - edge - cardWidth))
         lp.topMargin = top.coerceAtLeast(0)
         variantCard.layoutParams = lp
+    }
+
+    override fun hasInnerLayer(): Boolean = variantScrim.visibility == View.VISIBLE && variantScrim.isClickable
+
+    override fun closeInnerLayer(): Boolean {
+        if (!hasInnerLayer()) return false
+        dismissVariants()
+        return true
     }
 
     private fun dismissVariants() {

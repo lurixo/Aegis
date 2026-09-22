@@ -1016,7 +1016,7 @@ class InputView(context: Context) : LinearLayout(context) {
         onOverlayChanged()
     }
 
-    private enum class BackKind { NONE, PANEL_CONFIRMATION, TRANSLATE_DIALOG, PANEL, EDIT_BAR, PREEDIT_EDIT }
+    private enum class BackKind { NONE, PANEL_CONFIRMATION, TRANSLATE_DIALOG, PANEL_LAYER, PANEL, EDIT_BAR, PREEDIT_EDIT }
 
     fun isPreeditEditing(): Boolean = preeditEditingNow
 
@@ -1044,6 +1044,7 @@ class InputView(context: Context) : LinearLayout(context) {
             translateBarView.isModeDialogShowing() -> BackKind.TRANSLATE_DIALOG to null
             copyBarActive && copyBarShown -> BackKind.NONE to null
             editBarActive -> BackKind.EDIT_BAR to editBarView
+            (currentPanel as? LayeredPanel)?.hasInnerLayer() == true -> BackKind.PANEL_LAYER to currentPanel
             currentPanel != null -> BackKind.PANEL to currentPanel
             copyBarActive -> BackKind.NONE to null
             preeditEditingNow -> BackKind.PREEDIT_EDIT to preeditView
@@ -1057,6 +1058,7 @@ class InputView(context: Context) : LinearLayout(context) {
             BackKind.PANEL_CONFIRMATION -> { (view as PanelConfirmationOverlay).dismiss(); true }
             BackKind.TRANSLATE_DIALOG -> { translateBarView.dismissModeDialog(); true }
             BackKind.EDIT_BAR -> { onEditCancel(); true }
+            BackKind.PANEL_LAYER -> (view as LayeredPanel).closeInnerLayer()
             BackKind.PANEL -> { showPanel(null); true }
             BackKind.PREEDIT_EDIT -> { onPreeditEditDone(); true }
             BackKind.NONE -> false
