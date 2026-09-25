@@ -2,9 +2,11 @@
 #
 # SPDX-License-Identifier: GPL-3.0-only
 
+import argparse
 import importlib.util
 from pathlib import Path
 import re
+import sys
 import xml.etree.ElementTree as ET
 
 SPEC = importlib.util.spec_from_file_location("fetch_test_dict", Path(__file__).resolve().parents[1] / "fetch_test_dict.py")
@@ -99,3 +101,36 @@ def output_path(path, repository):
         raise SystemExit("coverage output must be a new file outside the repository")
     target.parent.mkdir(parents=True, exist_ok=True)
     return target
+
+
+def main(argv):
+    parser = argparse.ArgumentParser()
+    sub = parser.add_subparsers(dest="command", required=True)
+    prepare_args = sub.add_parser("prepare")
+    prepare_args.add_argument("pack")
+    prepare_args.add_argument("manifest")
+    prepare_args.add_argument("build_info")
+    prepare_args.add_argument("--baseline")
+    prepare_args.add_argument("--grammar-lock", required=True)
+    results = sub.add_parser("results")
+    results.add_argument("directory")
+    results.add_argument("--writer", action="store_true")
+    baseline = sub.add_parser("baseline")
+    baseline.add_argument("path")
+    output = sub.add_parser("output")
+    output.add_argument("path")
+    output.add_argument("repository")
+    args = parser.parse_args(argv)
+    if args.command == "prepare":
+        return prepare(args.pack, args.manifest, args.build_info, args.baseline, args.grammar_lock)
+    if args.command == "results":
+        check_results(args.directory, args.writer)
+    elif args.command == "baseline":
+        coverage_metadata(args.path)
+    else:
+        print(output_path(args.path, args.repository))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))
