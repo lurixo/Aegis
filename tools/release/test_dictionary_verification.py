@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest import mock
+import xml.etree.ElementTree as ET
 
 SPEC = importlib.util.spec_from_file_location("dictionary_verification", Path(__file__).with_name("dictionary_verification.py"))
 verification = importlib.util.module_from_spec(SPEC)
@@ -62,6 +63,45 @@ class CoverageInputTest(unittest.TestCase):
                     verification.output_path(target, repo)
             self.assertEqual("preserve", existing.read_text())
             self.assertEqual(Path(root) / "new.tsv", verification.output_path(Path(root) / "new.tsv", repo))
+
+
+class JunitGateTest(unittest.TestCase):
+    def results(self, root, count=1000, writer=False, skipped=False, failed=False):
+        suite = ET.Element("testsuite")
+        method = "writeCoverageDigestWhenAsked" if writer else "everyCandidateKeepsTheKeyCountItAteInTheBaseline"
+        gate = ET.SubElement(suite, "testcase", classname="com.aegis.ime.decoder.CoverageIdentityGateTest", name=method)
+        if skipped: ET.SubElement(gate, "skipped")
+        if failed: ET.SubElement(gate, "failure")
+        if not writer:
+            ET.SubElement(suite, "testcase", classname="com.aegis.ime.dict.BuildInfoJsonTest", name="schema")
+            for index in range(max(0, count - 2)):
+                ET.SubElement(suite, "testcase", classname="other", name=f"case{index}")
+        ET.ElementTree(suite).write(Path(root) / "TEST-results.xml")
+
+    def test_release_requires_a_thousand_tests_and_executed_coverage(self):
+        for count, skipped, failed in ((999, False, False), (1000, True, False), (1000, False, True)):
+            with self.subTest(count=count, skipped=skipped, failed=failed), tempfile.TemporaryDirectory() as root:
+                self.results(root, count=count, skipped=skipped, failed=failed)
+                with self.assertRaises(SystemExit): verification.check_results(root)
+        with tempfile.TemporaryDirectory() as root:
+            self.results(root)
+            verification.check_results(root)
+
+    def test_writer_requires_exactly_its_unskipped_test(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.results(root, writer=True, skipped=True)
+            with self.assertRaises(SystemExit): verification.check_results(root, writer=True)
+            self.results(root, writer=True)
+            verification.check_results(root, writer=True)
+
+    def test_release_rejects_missing_or_skipped_metadata_tests(self):
+        with tempfile.TemporaryDirectory() as root:
+            self.results(root)
+            path = Path(root) / "TEST-results.xml"; tree = ET.parse(path)
+            case = tree.getroot().findall("testcase")[1]
+            ET.SubElement(case, "skipped"); tree.write(path)
+            with self.assertRaisesRegex(SystemExit, "build-info tests"):
+                verification.check_results(root)
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

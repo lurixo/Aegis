@@ -5,6 +5,7 @@
 import importlib.util
 from pathlib import Path
 import re
+import xml.etree.ElementTree as ET
 
 SPEC = importlib.util.spec_from_file_location("fetch_test_dict", Path(__file__).resolve().parents[1] / "fetch_test_dict.py")
 FETCH = importlib.util.module_from_spec(SPEC)
@@ -62,6 +63,34 @@ def prepare(pack, manifest, build_info, baseline=None, grammar_lock=None):
     FETCH.freeze_grammar(grammar_lock)
     return FETCH.main(["--zip", str(pack), "--manifest-file", str(manifest),
                        "--build-info", str(build_info), "--grammar-lock-file", str(grammar_lock), "--with-grammar"])
+
+
+def check_results(directory, writer=False):
+    files = sorted(Path(directory).glob("TEST-*.xml"))
+    if not files:
+        raise SystemExit("missing JUnit XML results")
+    cases = []
+    for path in files:
+        root = ET.parse(path).getroot()
+        cases.extend(root.iter("testcase"))
+        if next(root.iter("failure"), None) is not None or next(root.iter("error"), None) is not None:
+            raise SystemExit(f"failed JUnit result: {path.name}")
+    method = "writeCoverageDigestWhenAsked" if writer else "everyCandidateKeepsTheKeyCountItAteInTheBaseline"
+    gate = [case for case in cases if case.get("classname") == "com.aegis.ime.decoder.CoverageIdentityGateTest"
+            and case.get("name", "").startswith(method)]
+    if len(gate) != 1 or gate[0].find("skipped") is not None:
+        raise SystemExit(f"required coverage test did not execute: {method}")
+    if writer:
+        if len(cases) != 1:
+            raise SystemExit("coverage writer must run only its explicit export test")
+    else:
+        if len(cases) < 1000:
+            raise SystemExit(f"release verification ran only {len(cases)} tests")
+        metadata = [case for case in cases if case.get("classname") == "com.aegis.ime.dict.BuildInfoJsonTest"]
+        if not metadata or any(case.find("skipped") is not None for case in metadata):
+            raise SystemExit("release build-info tests must execute without skips")
+    print(f"JUnit verified: tests={len(cases)}, skipped={sum(case.find('skipped') is not None for case in cases)}")
+
 
 def output_path(path, repository):
     target = Path(path).absolute()
