@@ -48,3 +48,17 @@ def coverage_metadata(path):
                 or not re.fullmatch(r"[0-9a-f]{64}", fields[6])):
             raise SystemExit(f"invalid coverage row {ordinal}")
     return assets
+
+
+def prepare(pack, manifest, build_info, baseline=None, grammar_lock=None):
+    asset, components, _ = FETCH.fixed_input_metadata(manifest, build_info)
+    if baseline:
+        assets = coverage_metadata(baseline)
+        if assets != {name: components[name]["sha256"] for name in FETCH.RUNTIME_BINS}:
+            raise SystemExit("coverage baseline and fixed pack asset identities disagree")
+    FETCH.verify_fixed_pack(pack, asset, components)
+    if grammar_lock is None:
+        raise SystemExit("a new grammar lock path is required")
+    FETCH.freeze_grammar(grammar_lock)
+    return FETCH.main(["--zip", str(pack), "--manifest-file", str(manifest),
+                       "--build-info", str(build_info), "--grammar-lock-file", str(grammar_lock), "--with-grammar"])

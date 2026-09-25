@@ -6,6 +6,7 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
 
 SPEC = importlib.util.spec_from_file_location("dictionary_verification", Path(__file__).with_name("dictionary_verification.py"))
 verification = importlib.util.module_from_spec(SPEC)
@@ -40,6 +41,16 @@ class CoverageInputTest(unittest.TestCase):
                 else: lines[8] = lines[8].rsplit("\t", 1)[0] + "\tbad"
                 path.write_text("\n".join(lines) + "\n")
                 with self.assertRaises(SystemExit): verification.coverage_metadata(path)
+
+    def test_baseline_component_mismatch_fails_before_materialization(self):
+        with tempfile.TemporaryDirectory() as root:
+            path = self.baseline(root)
+            components = {name: {"sha256": "f" * 64} for name in verification.FETCH.RUNTIME_BINS}
+            with mock.patch.object(verification.FETCH, "fixed_input_metadata", return_value=({}, components, ())), \
+                 mock.patch.object(verification.FETCH, "main") as materialize:
+                with self.assertRaisesRegex(SystemExit, "asset identities disagree"):
+                    verification.prepare("pack", "manifest", "info", path)
+            materialize.assert_not_called()
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
