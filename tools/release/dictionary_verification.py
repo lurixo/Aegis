@@ -62,3 +62,11 @@ def prepare(pack, manifest, build_info, baseline=None, grammar_lock=None):
     FETCH.freeze_grammar(grammar_lock)
     return FETCH.main(["--zip", str(pack), "--manifest-file", str(manifest),
                        "--build-info", str(build_info), "--grammar-lock-file", str(grammar_lock), "--with-grammar"])
+
+def output_path(path, repository):
+    target = Path(path).absolute()
+    resolved = target.resolve()
+    if resolved.is_relative_to(Path(repository).resolve()) or target.exists() or target.is_symlink():
+        raise SystemExit("coverage output must be a new file outside the repository")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    return target

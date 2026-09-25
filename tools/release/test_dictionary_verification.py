@@ -52,5 +52,16 @@ class CoverageInputTest(unittest.TestCase):
                     verification.prepare("pack", "manifest", "info", path)
             materialize.assert_not_called()
 
+    def test_export_target_cannot_overwrite_or_land_in_the_repository(self):
+        with tempfile.TemporaryDirectory() as root:
+            repo = Path(root) / "repository"; repo.mkdir()
+            existing = Path(root) / "existing.tsv"; existing.write_text("preserve")
+            link = Path(root) / "alias.tsv"; link.symlink_to(repo / "baseline.tsv")
+            for target in (existing, repo / "new.tsv", link):
+                with self.subTest(target=target), self.assertRaises(SystemExit):
+                    verification.output_path(target, repo)
+            self.assertEqual("preserve", existing.read_text())
+            self.assertEqual(Path(root) / "new.tsv", verification.output_path(Path(root) / "new.tsv", repo))
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)
