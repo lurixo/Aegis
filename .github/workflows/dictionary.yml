@@ -1,0 +1,100 @@
+name: Dictionary CI
+
+on:
+  push:
+    branches: [dict]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify the dictionary release
+    runs-on: ubuntu-26.04
+    timeout-minutes: 90
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@v7
+        with:
+          path: release
+
+      - name: Resolve the builder commit
+        id: builder
+        run: |
+          python3 - release/aegis-build-info.json >> "$GITHUB_OUTPUT" <<'PY'
+          import json
+          import re
+          import sys
+
+          with open(sys.argv[1], encoding="utf-8") as source:
+              build_info = json.load(source)
+          resources = [item for item in build_info.get("resources", []) if item.get("kind") == "dictionary"]
+          if len(resources) != 1:
+              raise SystemExit("the build-info sample does not carry one dictionary resource")
+          commit = (resources[0].get("build") or {}).get("builder_commit")
+          if not isinstance(commit, str) or not re.fullmatch(r"[0-9a-f]{40}", commit):
+              raise SystemExit("the build-info sample names no builder commit")
+          print(f"commit={commit}")
+          PY
+
+      - name: Check out the builder commit
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ steps.builder.outputs.commit }}
+          path: builder
+
+      - name: Install the JDK the local gate runs on
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends openjdk-25-jdk-headless
+          home=/usr/lib/jvm/java-25-openjdk-amd64
+          if [[ ! -x "$home/bin/java" ]]; then
+            echo "the Ubuntu OpenJDK 25 package did not land in $home" >&2
+            exit 1
+          fi
+          echo "JAVA_HOME=$home" >> "$GITHUB_ENV"
+          echo "$home/bin" >> "$GITHUB_PATH"
+
+      - name: Validate Gradle wrapper
+        uses: gradle/actions/wrapper-validation@v6.3.0
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: ""
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6.3.0
+
+      - name: Download the dictionary release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/dictionary-release"
+          for attempt in 1 2 3 4 5 6; do
+            if gh release download dict-latest --repo "$GITHUB_REPOSITORY" \
+              --pattern aegis_dict_pack_dict-latest.zip --pattern aegis-dictionary-update.json \
+              --dir "$RUNNER_TEMP/dictionary-release" --clobber; then
+              break
+            fi
+            if [[ "$attempt" -eq 6 ]]; then
+              echo "the dict-latest release assets are unavailable after $attempt attempts" >&2
+              exit 1
+            fi
+            sleep $((attempt * 10))
+          done
+
+      - name: Verify the dictionary release
+        working-directory: builder
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          AEGIS_DICTIONARY_RELEASE_VERIFY: "1"
+          AEGIS_COVERAGE_DIGEST_BASELINE: ${{ github.workspace }}/release/coverage-identity.tsv
+        run: |
+          bash tools/release/verify_dictionary_release.sh \
+            "$RUNNER_TEMP/dictionary-release/aegis_dict_pack_dict-latest.zip" \
+            "$RUNNER_TEMP/dictionary-release/aegis-dictionary-update.json" \
+            "$GITHUB_WORKSPACE/release/aegis-build-info.json" \
+            "$GITHUB_WORKSPACE/release/coverage-identity.tsv"
