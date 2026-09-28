@@ -42,7 +42,7 @@ class AppVersionCardTest {
     @Test fun release_version_code_matches_the_application_candidate() {
         val gradle = File("build.gradle.kts").readText()
 
-        assertTrue("release version code should match the application candidate", gradle.contains("versionCode = 1"))
+        assertTrue("release version code should match the application candidate", gradle.contains("versionCode = 9230"))
     }
 
     @Test fun app_release_label_resource_is_not_a_stale_hard_coded_version() {
