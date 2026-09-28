@@ -82,7 +82,7 @@ Menu names vary slightly by device, but the flow is the standard Android one:
 **English typing works straight away; Chinese needs one download first.** The APK carries no Chinese
 dictionary, and the keyboard never fetches the dictionary pack on its own. When you type Chinese with
 no pack installed, the candidate strip offers the download — a transfer into the app's private
-storage, not restricted to Wi-Fi — and it starts only when you tap there, or on the dictionary
+storage — and it starts only when you tap there, or on the dictionary
 card in the settings screen. An interrupted transfer resumes where it
 stopped, and the pack is checked against its SHA-256 before it is installed. Until it finishes,
 Chinese input stays locked, while English and every panel keep working.
@@ -119,7 +119,7 @@ unless you ask it to.
   While composing, a segmentation key splits a run of letters where you want it.
 - **Expanded candidates:** the chevron at the end of the candidate strip unfolds it into a full
   panel; the *All* / *Single* key under its *Retype* key narrows the list to single characters.
-- **CN-EN mixed input:** commit English words (e.g. `wifi`) without switching language.
+- **CN-EN mixed input:** commit English words without switching language.
 - **On-device learning:** frequently and recently used words rank up and next-word pairs are
   learned. Automatic learning has its own switch. Suggestions have a master switch with separate
   switches for Chinese next-word prediction, English word completion and email domains after `@`,
