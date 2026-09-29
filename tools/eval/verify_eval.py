@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+#
+# SPDX-License-Identifier: GPL-3.0-only
+
 """Verify (hanzi,pinyin) eval pairs against per-character readings from zi.dict.yaml.
 Keeps a pair only if its toneless pinyin segments into len(hanzi) syllables, each a
 valid reading of the corresponding character. Output: pinyin<TAB>hanzi (verified)."""
