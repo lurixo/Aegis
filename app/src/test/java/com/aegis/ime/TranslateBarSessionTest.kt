@@ -15,8 +15,10 @@
 
 package com.aegis.ime
 
+import android.os.Looper
 import android.text.InputType
 import android.view.MotionEvent
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.BarFunction
@@ -30,7 +32,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.Robolectric
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -220,6 +224,38 @@ class TranslateBarSessionTest {
         s.service.onViewClicked(false)
         assertFalse("a reported editor click hands typing back to the editor", panelInput(s.service).active)
         assertTrue(s.view.isTranslateBarShowing())
+    }
+
+    @Test fun a_touch_anywhere_in_the_host_app_pauses_translation() {
+        val service = Robolectric.buildService(AegisInputMethodService::class.java).create().get()
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (System.nanoTime() < deadline && Thread.getAllStackTraces().keys.any { it.name == "aegis-dict-load" && it.isAlive }) Thread.yield()
+        shadowOf(Looper.getMainLooper()).idle()
+        val info = editor()
+        service.onStartInput(info, false)
+        val view = service.onCreateInputView() as InputView
+        service.onStartInputView(info, false)
+        call(service, "toggleTranslateBar")
+        assertTrue(panelInput(service).active)
+
+        val window = requireNotNull(service.window.window)
+        assertTrue(
+            "the keyboard window asks for touches that land in the host app",
+            window.attributes.flags and WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH != 0,
+        )
+        val inside = MotionEvent.obtain(0L, 0L, MotionEvent.ACTION_DOWN, 1f, 1f, 0)
+        val outside = MotionEvent.obtain(0L, 0L, MotionEvent.ACTION_OUTSIDE, 0f, 0f, 0)
+        try {
+            window.decorView.dispatchTouchEvent(inside)
+            assertTrue("a touch on the keyboard keeps translating", panelInput(service).active)
+            window.decorView.dispatchTouchEvent(outside)
+        } finally {
+            inside.recycle()
+            outside.recycle()
+        }
+        assertFalse("a touch in the host app hands typing back to the editor", panelInput(service).active)
+        assertTrue(view.isTranslateBarShowing())
+        assertTrue(service.translateBarOpenForTest())
     }
 
     @Test fun a_recreated_input_view_shows_the_open_bar_again() {

@@ -34,7 +34,9 @@ import android.text.style.ReplacementSpan
 import android.util.Log
 import android.view.KeyCharacterMap
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
+import android.view.WindowManager
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
@@ -507,6 +509,13 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     override fun onCreate() {
         super.onCreate()
+        window.window?.let { w ->
+            w.addFlags(WindowManager.LayoutParams.FLAG_WATCH_OUTSIDE_TOUCH)
+            w.decorView.setOnTouchListener { _, event ->
+                if (event.actionMasked == MotionEvent.ACTION_OUTSIDE) pauseTranslateRouting()
+                false
+            }
+        }
         editorUndo.recordUndoDrops =
             applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
         runCatching {
