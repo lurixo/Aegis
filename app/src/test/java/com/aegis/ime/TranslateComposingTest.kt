@@ -183,6 +183,62 @@ class TranslateComposingTest {
         assertEquals(listOf("Hello"), connection.composings)
     }
 
+    @Test fun a_failed_translation_stays_on_screen_but_closing_drops_it_instead_of_committing_it() {
+        var fail = false
+        val script = Script { if (fail) throw IOException("HTTP 502") else """[["Hello"],["zh-CN"]]""" }
+        val s = started(script)
+        val connection = Connection(s.view)
+        install(s.service, connection)
+        s.controller.onBarFunction(BarFunction.TRANSLATE)
+        type(s.service, "你好")
+        settle { connection.composings.isNotEmpty() }
+
+        fail = true
+        type(s.service, "吗")
+        settle { s.service.toastTextForTest() != null }
+        assertEquals("the older translation stays in the editor", "Hello", connection.editable.toString())
+
+        s.view.translateBarForTest().closeButtonForTest().performClick()
+        assertEquals("a translation of older text is never committed", "", connection.editable.toString())
+        assertEquals(1, connection.finishes)
+    }
+
+    @Test fun closing_before_the_newer_translation_lands_drops_the_older_one() {
+        val script = Script { """[["Hello"],["zh-CN"]]""" }
+        val s = started(script)
+        val connection = Connection(s.view)
+        install(s.service, connection)
+        s.controller.onBarFunction(BarFunction.TRANSLATE)
+        type(s.service, "你好")
+        settle { connection.composings.isNotEmpty() }
+
+        type(s.service, "吗")
+        s.view.translateBarForTest().closeButtonForTest().performClick()
+        settle()
+        assertEquals("", connection.editable.toString())
+        assertEquals("the newer text is never sent once the bar is closed", 1, script.bodies.size)
+    }
+
+    @Test fun an_editor_tap_drops_a_stale_translation_instead_of_committing_it() {
+        var fail = false
+        val script = Script { if (fail) throw IOException("HTTP 502") else """[["Hello"],["zh-CN"]]""" }
+        val s = started(script)
+        val connection = Connection(s.view)
+        install(s.service, connection)
+        s.controller.onBarFunction(BarFunction.TRANSLATE)
+        type(s.service, "你好")
+        settle { connection.composings.isNotEmpty() }
+
+        fail = true
+        type(s.service, "吗")
+        settle { s.service.toastTextForTest() != null }
+        s.service.onUpdateEditorToolType(MotionEvent.TOOL_TYPE_FINGER)
+        assertEquals("", connection.editable.toString())
+
+        type(s.service, "raw")
+        assertEquals("raw", connection.editable.toString())
+    }
+
     @Test fun a_request_superseded_while_in_flight_fails_silently_and_the_newer_one_lands() {
         val release = java.util.concurrent.CountDownLatch(1)
         val calls = java.util.concurrent.atomic.AtomicInteger()

@@ -342,6 +342,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var translateEngaged = true
     private var translateInputConnection: InputConnection? = null
     private var translatePending: Runnable? = null
+    private var translationStale = false
     private var lastCopy: String? = null
     @Volatile private var userStoresLoaded = false
     @Volatile private var engineSig = ""
@@ -2260,9 +2261,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         translateLane.markSatisfiedSynchronously()
         translateClient.abort()
         if (text.isBlank()) {
+            translationStale = false
             translateInputConnection?.setComposingText("", 1)
             return
         }
+        translationStale = true
         val request = Runnable {
             translatePending = null
             val mode = translateMode()
@@ -2292,6 +2295,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         if (!translateOpen) return
         val connection = translateInputConnection ?: currentInputConnection?.also { translateInputConnection = it }
         connection?.setComposingText(text, 1)
+        translationStale = false
     }
 
     private fun finishTranslation() {
@@ -2299,8 +2303,11 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         translatePending = null
         translateClient.abort()
         translateLane.markSatisfiedSynchronously()
+        val stale = translationStale
+        translationStale = false
         val connection = translateInputConnection ?: return
         translateInputConnection = null
+        if (stale) connection.setComposingText("", 1)
         if (!frameworkWillFinishInput) connection.finishComposingText()
     }
 
