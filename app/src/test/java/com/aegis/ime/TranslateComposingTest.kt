@@ -100,6 +100,15 @@ class TranslateComposingTest {
             .invoke(service, text)
     }
 
+    private fun tapField(s: Session) {
+        val down = MotionEvent.obtain(0L, 0L, MotionEvent.ACTION_DOWN, 1f, 1f, 0)
+        try {
+            s.view.translateBarForTest().fieldForTest().dispatchTouchEvent(down)
+        } finally {
+            down.recycle()
+        }
+    }
+
     private fun settle(until: () -> Boolean = { true }) {
         shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(300))
         repeat(200) {
@@ -373,7 +382,7 @@ class TranslateComposingTest {
 
         s.service.onUpdateEditorToolType(MotionEvent.TOOL_TYPE_FINGER)
         assertEquals("the standing translation is committed in place", 1, connection.finishes)
-        assertEquals("the consumed source leaves the field", "", s.view.translateText())
+        assertEquals("the source stays in the paused field", "你好", s.view.translateText())
         assertTrue("the bar itself stays open", s.view.isTranslateBarShowing())
 
         type(s.service, "raw")
@@ -382,17 +391,59 @@ class TranslateComposingTest {
         assertEquals("nothing new is translated", listOf("Hello"), connection.composings)
         assertEquals(1, script.bodies.size)
 
-        val down = MotionEvent.obtain(0L, 0L, MotionEvent.ACTION_DOWN, 1f, 1f, 0)
-        try {
-            s.view.translateBarForTest().fieldForTest().dispatchTouchEvent(down)
-        } finally {
-            down.recycle()
-        }
+        tapField(s)
+        assertEquals("a delivered source whose translation was typed past starts over", "", s.view.translateText())
         type(s.service, "再见")
         settle { connection.composings.size == 2 }
         assertEquals("再见", s.view.translateText())
         assertEquals(listOf("Hello", "Goodbye"), connection.composings)
         assertEquals("HellorawGoodbye", connection.editable.toString())
+    }
+
+    @Test fun resuming_right_after_the_translation_takes_it_back_and_keeps_translating() {
+        val script = Script { body -> if ("你好吗" in body) """[["How are you"],["zh-CN"]]""" else """[["Hello"],["zh-CN"]]""" }
+        val s = started(script)
+        val connection = Connection(s.view)
+        install(s.service, connection)
+        s.controller.onBarFunction(BarFunction.TRANSLATE)
+        type(s.service, "你好")
+        settle { connection.composings.isNotEmpty() }
+
+        s.service.onUpdateEditorToolType(MotionEvent.TOOL_TYPE_FINGER)
+        assertEquals("Hello", connection.editable.toString())
+        tapField(s)
+        assertEquals("你好", s.view.translateText())
+        assertEquals("the committed translation is composing again", 0, BaseInputConnection.getComposingSpanStart(connection.editable!!))
+        assertEquals(5, BaseInputConnection.getComposingSpanEnd(connection.editable!!))
+
+        type(s.service, "吗")
+        settle { connection.composings.last() == "How are you" }
+        assertEquals("the translation is updated in place", "How are you", connection.editable.toString())
+        assertEquals("taking the translation back sends no request of its own", 2, script.bodies.size)
+    }
+
+    @Test fun a_source_that_never_translated_is_translated_again_on_resume() {
+        var fail = true
+        val script = Script { if (fail) throw IOException("HTTP 502") else """[["Hello"],["zh-CN"]]""" }
+        val s = started(script)
+        val connection = Connection(s.view)
+        install(s.service, connection)
+        s.controller.onBarFunction(BarFunction.TRANSLATE)
+        type(s.service, "你好")
+        settle { s.service.toastTextForTest() != null }
+
+        s.service.onUpdateEditorToolType(MotionEvent.TOOL_TYPE_FINGER)
+        assertEquals("the untranslated source is kept for a retry", "你好", s.view.translateText())
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(60_000))
+        settle()
+        val sent = script.bodies.size
+        assertEquals("a paused bar stops retrying", 1, sent)
+
+        fail = false
+        tapField(s)
+        settle { connection.composings.isNotEmpty() }
+        assertEquals(listOf("Hello"), connection.composings)
+        assertEquals("Hello", connection.editable.toString())
     }
 
     @Test fun an_editor_switch_leaves_the_old_translation_behind_and_composes_into_the_new_editor() {

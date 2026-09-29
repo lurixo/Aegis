@@ -345,6 +345,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var translateInputConnection: InputConnection? = null
     private var translatePending: Runnable? = null
     private var translationStale = false
+    private var translationShown = ""
+    private var pausedTranslation: Pair<String, String>? = null
     private var translateFailures = 0
     private var lastCopy: String? = null
     @Volatile private var userStoresLoaded = false
@@ -2234,17 +2236,37 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             if (::controller.isInitialized) controller.onPanelClear()
             panelInput.end()
         }
+        val source = inputView?.translateText().orEmpty()
+        val delivered = translationShown.takeIf { !translationStale && translateInputConnection != null && it.isNotEmpty() }
         finishTranslation()
-        inputView?.let { iv ->
-            iv.setTranslateText("")
-            iv.setTranslateFieldEngaged(false)
-        }
+        pausedTranslation = delivered?.let { source to it }
+        inputView?.setTranslateFieldEngaged(false)
     }
 
     private fun resumeTranslateRouting() {
         if (!translateOpen || translateEngaged || inputPurpose != null) return
         translateEngaged = true
+        val paused = pausedTranslation
+        pausedTranslation = null
         bindTranslateInput()
+        val source = inputView?.translateText().orEmpty()
+        if (source.isBlank()) return
+        if (paused == null || paused.first != source) scheduleTranslation(source)
+        else if (!readoptTranslation(paused.second)) inputView?.setTranslateText("")
+    }
+
+    private fun readoptTranslation(text: String): Boolean {
+        val connection = currentInputConnection ?: return false
+        if (!connection.getSelectedText(0).isNullOrEmpty()) return false
+        if (connection.getTextBeforeCursor(text.length, 0)?.toString() != text) return false
+        connection.beginBatchEdit()
+        connection.deleteSurroundingText(text.length, 0)
+        connection.setComposingText(text, 1)
+        connection.endBatchEdit()
+        translateInputConnection = connection
+        translationShown = text
+        translationStale = false
+        return true
     }
 
     override fun onUpdateEditorToolType(toolType: Int) {
@@ -2273,6 +2295,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         translateFailures = 0
         if (text.isBlank()) {
             translationStale = false
+            translationShown = ""
             translateInputConnection?.setComposingText("", 1)
             return
         }
@@ -2318,6 +2341,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         val connection = translateInputConnection ?: currentInputConnection?.also { translateInputConnection = it }
         connection?.setComposingText(text, 1)
         translationStale = false
+        translationShown = text
     }
 
     private fun finishTranslation() {
@@ -2327,6 +2351,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         translateLane.markSatisfiedSynchronously()
         val stale = translationStale
         translationStale = false
+        translationShown = ""
+        pausedTranslation = null
         val connection = translateInputConnection ?: return
         translateInputConnection = null
         if (stale) connection.setComposingText("", 1)
