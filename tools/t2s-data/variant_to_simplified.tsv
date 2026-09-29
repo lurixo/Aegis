@@ -1,12 +1,13 @@
 # Japanese/variant form -> Simplified Chinese, derived from OpenCC ver.1.1.7 JPVariants.txt
 # (inverted, adjudicated: rows whose variant form is itself a valid simplified character were
-# dropped; supplements 尅疎鉱鑛 added). Source data Apache-2.0, see LICENSE-OpenCC.
+# dropped; supplements listed in PROVENANCE.md added). Source data Apache-2.0, see LICENSE-OpenCC.
 両	两
 乗	乘
 亀	龟
 亜	亚
 仏	佛
 仮	假
+伕	夫
 伝	传
 価	价
 倹	俭
@@ -31,6 +32,7 @@
 唖	哑
 営	营
 噛	啮
+囕	𰈆
 団	团
 囲	围
 図	图
@@ -83,17 +85,22 @@
 捜	搜
 掲	揭
 掻	搔
+揹	背
 揺	摇
 摂	摄
 撃	击
 撹	搅
+擡	抬
+敍	叙
 斉	齐
 斎	斋
 晩	晚
 暁	晓
 暦	历
+暱	昵
 曁	暨
 曽	曾
+枱	台
 査	查
 栄	荣
 桜	樱
@@ -127,6 +134,7 @@
 為	为
 焔	焰
 焼	烧
+牠	它
 犠	牺
 猟	猎
 獣	兽
@@ -138,6 +146,7 @@
 発	发
 皐	皋
 県	县
+睪	睾
 砕	碎
 稜	棱
 稲	稻
@@ -146,9 +155,11 @@
 穣	穰
 竃	灶
 竜	龙
+簷	檐
 粋	粹
 粛	肃
 粧	妆
+糭	粽
 経	经
 絵	绘
 絶	绝
@@ -156,6 +167,7 @@
 続	续
 総	总
 緑	绿
+緪	縆
 縁	缘
 縄	绳
 縦	纵
@@ -175,6 +187,8 @@
 薬	药
 蛍	萤
 蝋	蜡
+衞	卫
+襨	𰳸
 覇	霸
 覚	觉
 覧	览
