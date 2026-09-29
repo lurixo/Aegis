@@ -343,6 +343,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var translateInputConnection: InputConnection? = null
     private var translatePending: Runnable? = null
     private var translationStale = false
+    private var translateFailures = 0
     private var lastCopy: String? = null
     @Volatile private var userStoresLoaded = false
     @Volatile private var engineSig = ""
@@ -2260,12 +2261,17 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         translatePending = null
         translateLane.markSatisfiedSynchronously()
         translateClient.abort()
+        translateFailures = 0
         if (text.isBlank()) {
             translationStale = false
             translateInputConnection?.setComposingText("", 1)
             return
         }
         translationStale = true
+        requestTranslation(text, TRANSLATE_DEBOUNCE_MS)
+    }
+
+    private fun requestTranslation(text: String, delayMs: Long) {
         val request = Runnable {
             translatePending = null
             val mode = translateMode()
@@ -2274,13 +2280,20 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 apply = { outcome ->
                     outcome.fold(
                         onSuccess = { applyTranslation(it) },
-                        onFailure = { toast(uiString(R.string.translate_failed_cause, translateFailureCause(it))) },
+                        onFailure = { retryTranslation(text, it) },
                     )
                 },
             )
         }
         translatePending = request
-        mainHandler.postDelayed(request, TRANSLATE_DEBOUNCE_MS)
+        mainHandler.postDelayed(request, delayMs)
+    }
+
+    private fun retryTranslation(text: String, failure: Throwable) {
+        if (translateFailures == 0) toast(uiString(R.string.translate_failed_cause, translateFailureCause(failure)))
+        if (translateFailures >= TRANSLATE_RETRIES) return
+        translateFailures++
+        requestTranslation(text, TRANSLATE_RETRY_MS shl (translateFailures - 1))
     }
 
     private fun translateFailureCause(failure: Throwable): String = uiString(
@@ -2966,6 +2979,8 @@ private const val WEB_WRITE_SETTLE_MS = 160L
 private const val MAX_QUEUED_UNDOS = 50
 private const val PREF_TRANSLATE_MODE = "translate_mode"
 private const val TRANSLATE_DEBOUNCE_MS = 300L
+private const val TRANSLATE_RETRIES = 3
+private const val TRANSLATE_RETRY_MS = 1_000L
 
 internal fun quarantineCorruptStore(file: java.io.File): Boolean {
     if (!file.exists()) return false

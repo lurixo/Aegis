@@ -239,6 +239,79 @@ class TranslateComposingTest {
         assertEquals("raw", connection.editable.toString())
     }
 
+    @Test fun a_failed_request_is_retried_and_the_retry_replaces_the_older_translation() {
+        var fail = false
+        val script = Script { body ->
+            when {
+                fail -> throw IOException("HTTP 502")
+                "你好吗" in body -> """[["How are you"],["zh-CN"]]"""
+                else -> """[["Hello"],["zh-CN"]]"""
+            }
+        }
+        val s = started(script)
+        val connection = Connection(s.view)
+        install(s.service, connection)
+        s.controller.onBarFunction(BarFunction.TRANSLATE)
+        type(s.service, "你好")
+        settle { connection.composings.isNotEmpty() }
+
+        fail = true
+        type(s.service, "吗")
+        settle { s.service.toastTextForTest() != null }
+        assertEquals(2, script.bodies.size)
+
+        fail = false
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(1_000))
+        settle { connection.composings.size == 2 }
+        assertEquals("the retry repeats the failed text", 3, script.bodies.size)
+        assertEquals(listOf("Hello", "How are you"), connection.composings)
+
+        s.view.translateBarForTest().closeButtonForTest().performClick()
+        assertEquals("How are you", connection.editable.toString())
+    }
+
+    @Test fun retries_back_off_and_stop_after_three_attempts() {
+        val script = Script { throw IOException("HTTP 502") }
+        val s = started(script)
+        val connection = Connection(s.view)
+        install(s.service, connection)
+        s.controller.onBarFunction(BarFunction.TRANSLATE)
+        type(s.service, "你好")
+        val pending = s.service.javaClass.getDeclaredField("translatePending").apply { isAccessible = true }
+        fun drain(sent: Int, retrying: Boolean) {
+            repeat(200) {
+                shadowOf(Looper.getMainLooper()).idle()
+                if (script.bodies.size == sent && (pending.get(s.service) != null) == retrying) return
+                Thread.sleep(10)
+            }
+        }
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(300))
+        drain(sent = 1, retrying = true)
+
+        for ((waitMs, sent) in listOf(999L to 1, 1L to 2, 1_999L to 2, 1L to 3, 3_999L to 3, 1L to 4, 60_000L to 4)) {
+            shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(waitMs))
+            drain(sent, retrying = sent < 4)
+            assertEquals("after another ${waitMs}ms", sent, script.bodies.size)
+        }
+        assertEquals("the budget is spent", null, pending.get(s.service))
+        assertTrue(connection.composings.isEmpty())
+    }
+
+    @Test fun closing_the_bar_cancels_a_pending_retry() {
+        val script = Script { throw IOException("HTTP 502") }
+        val s = started(script)
+        val connection = Connection(s.view)
+        install(s.service, connection)
+        s.controller.onBarFunction(BarFunction.TRANSLATE)
+        type(s.service, "你好")
+        settle { s.service.toastTextForTest() != null }
+
+        s.view.translateBarForTest().closeButtonForTest().performClick()
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(60_000))
+        settle()
+        assertEquals(1, script.bodies.size)
+    }
+
     @Test fun a_request_superseded_while_in_flight_fails_silently_and_the_newer_one_lands() {
         val release = java.util.concurrent.CountDownLatch(1)
         val calls = java.util.concurrent.atomic.AtomicInteger()
