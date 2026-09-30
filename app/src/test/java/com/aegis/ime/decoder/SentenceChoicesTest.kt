@@ -16,6 +16,11 @@
 package com.aegis.ime.decoder
 
 import com.aegis.ime.dict.OctagramFixture
+import com.aegis.ime.engine.DictEngine
+import com.aegis.ime.ime.ImeHost
+import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.layout.Key
+import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Test
@@ -56,6 +61,37 @@ class SentenceChoicesTest {
         val got = words(decoder)
         assertEquals("卖书", got.first())
         assertFalse("买书" in got)
+    }
+
+    @Test fun aPickedSentenceChoiceLeadsTheSameInputNextTime() {
+        val commits = ArrayList<String>()
+        val host = object : ImeHost {
+            override fun commitText(text: CharSequence) { commits.add(text.toString()) }
+            override fun deleteBackward() {}
+            override fun performEnter() {}
+        }
+        val collocations = OctagramFixture.reader(mapOf("买书" to 30.0, "卖书" to 30.0))
+        val controller = KeyboardController(host, DictEngine(dict(50), null, null, userModel = UserModel(), octagram = collocations))
+        fun type() = "maishu".forEach { controller.onKey(Key(it.toString(), output = it.toString())) }
+        type()
+        assertEquals("卖书", controller.candidateWords()[1])
+        controller.onPickCandidate(1)
+        assertEquals(listOf("卖书"), commits)
+        type()
+        assertEquals("卖书", controller.candidateWords().first())
+    }
+
+    @Test fun aSentenceChoiceAlreadyLearnedAsAWordStillFollowsTheBestOne() {
+        val userModel = UserModel().apply { recordWord("maishu", "卖书", 0L, incrementCount = false) }
+        val rows = listOf(
+            EngineFixture.Row("mai", "买", 100),
+            EngineFixture.Row("mai", "卖", 7),
+            EngineFixture.Row("shu", "书", 100),
+            EngineFixture.Row("shu", "树", 50),
+        )
+        val collocations = OctagramFixture.reader(mapOf("买书" to 30.0, "卖书" to 30.0, "买树" to 30.0))
+        val decoder = PinyinDecoder(EngineFixture.build(rows), userModel = userModel, octagram = collocations)
+        assertEquals(listOf("买书", "卖书", "买树"), words(decoder).take(3))
     }
 
     @Test fun aDictionaryWordAmongTheRunnersUpStillOutranksTheComposedSentence() {

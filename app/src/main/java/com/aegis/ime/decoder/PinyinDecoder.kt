@@ -871,7 +871,7 @@ class PinyinDecoder(
         val nSyl = B.size - 1
 
         val singlesCache = HashMap<String, Set<String>>()
-        val sentences = atomicSentences(input, B, interior, ctx, singlesCache)
+        val sentences = byUsage(atomicSentences(input, B, interior, ctx, singlesCache))
         DecodeCancellation.checkpoint()
 
         val best = sentences.firstOrNull()?.text
@@ -1501,7 +1501,13 @@ class PinyinDecoder(
         val condMemo = spareCondMemo.getAndSet(null) ?: CondMemo()
         val paths = sentencePaths(input, ctx, if (octagram != null) SENTENCE_CHOICES else 1, condMemo = condMemo)
         spareCondMemo.set(condMemo)
-        return paths
+        return byUsage(paths)
+    }
+
+    private fun byUsage(paths: List<SentencePath>): List<SentencePath> {
+        val model = userModel
+        if (model == null || octagram == null || paths.size < 2) return paths
+        return paths.map { it.copy(score = it.score + model.wordBoost(it.text)) }.sortedByDescending { it.score }
     }
 
     private fun bestSentencePath(
