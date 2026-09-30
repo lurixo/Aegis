@@ -740,7 +740,8 @@ class PinyinDecoder(
         val condMemo = CondMemo()
         val cover = LinkedHashMap<String, Int>()
         val completionCap = completionCap(limit)
-        val sentence = bestSentence(input, ctx)?.also { cover[it] = input.length }
+        val sentences = bestSentences(input, ctx)
+        val sentence = sentences.firstOrNull()?.text?.also { cover[it] = input.length }
         DecodeCancellation.checkpoint()
         val pool = ArrayList<RankedWord>()
         val offered = HashSet<String>()
@@ -812,7 +813,13 @@ class PinyinDecoder(
         val primaryGuess = guesses.firstOrNull { it.source == GuessSource.EXACT }
         val primaryWord = primaryGuess?.word
         val correctionByWord = guesses.associateBy { it.word }
-        val ordered = demoteBelowExact(cover.keys.toList(), assembled, exactWords, manualWordsFor(input))
+        val choices = sentenceChoices(sentences, input)
+        for (c in choices) cover.putIfAbsent(c, input.length)
+        val ordered = demoteBelowExact(cover.keys.toList().filterNot { it in choices }, assembled, exactWords, manualWordsFor(input))
+            .let { words ->
+                val at = words.indexOf(sentence)
+                if (at < 0 || choices.isEmpty()) words else words.subList(0, at + 1) + choices + words.subList(at + 1, words.size)
+            }
             .filterNot { it == primaryWord }
         val remainingGuesses = guesses.filter { it.word != primaryWord && it.word !in cover }
         val guessAt = when {
@@ -954,7 +961,8 @@ class PinyinDecoder(
                 .thenBy { supplementarySingleTieRank(it.word) },
         )
 
-        val assembled = assembledWordsFor(input, best)
+        val choices = sentenceChoices(sentences, input)
+        val assembled = assembledWordsFor(input, best) + choices
         val fullCoverExact = leadFreq.keys.filterTo(HashSet()) {
             leadCov.getValue(it) == input.length && dict.exactWordFreq(input, it) != null
         }
@@ -973,16 +981,18 @@ class PinyinDecoder(
                     .thenByDescending { leadScore.getValue(it) }
                     .thenBy { supplementarySingleTieRank(it) },
             )
-            val head = ArrayList<String>(STAGED_REAL_WORD_SLOTS)
+            val head = ArrayList<String>(STAGED_REAL_WORD_SLOTS + choices.size)
             best?.let { head.add(it) }
+            head.addAll(choices)
             for (w in stagedRealWords) {
-                if (head.size >= STAGED_REAL_WORD_SLOTS) break
+                if (head.size >= STAGED_REAL_WORD_SLOTS + choices.size) break
                 if (w !in head) head.add(w)
             }
             emit(head)
         }
-        val rest = ArrayList<String>(leadFreq.size + 1)
+        val rest = ArrayList<String>(leadFreq.size + 1 + choices.size)
         best?.let { rest.add(it) }
+        rest.addAll(choices)
         val leadRank = HashMap<String, Double>(leadFreq.size * 2)
         for ((w, f) in leadFreq) leadRank[w] = wordModelScore(w, f, ctxId, ctx, condMemo)
         for (w in leadFreq.keys.sortedByDescending { leadRank.getValue(it) }) {
@@ -1485,13 +1495,13 @@ class PinyinDecoder(
         override fun hashCode(): Int = if (tail.isEmpty()) lastCp else 31 * lastCp + tail.hashCode()
     }
 
-    private class Cell(val score: Double, val prevPos: Int, val prevState: SentenceState?, val word: String)
+    private class Cell(val score: Double, val prevPos: Int, val prevState: SentenceState?, val prevRank: Int, val word: String)
 
-    private fun bestSentence(input: String, ctx: Ctx): String? {
+    private fun bestSentences(input: String, ctx: Ctx): List<SentencePath> {
         val condMemo = spareCondMemo.getAndSet(null) ?: CondMemo()
-        val text = bestSentencePath(input, ctx, condMemo = condMemo)?.text
+        val paths = sentencePaths(input, ctx, if (octagram != null) SENTENCE_CHOICES else 1, condMemo = condMemo)
         spareCondMemo.set(condMemo)
-        return text
+        return paths
     }
 
     private fun bestSentencePath(
@@ -1500,18 +1510,35 @@ class PinyinDecoder(
         edgeMemo: MutableMap<String, List<Edge>>? = null,
         condMemo: CondMemo = CondMemo(),
         pruned: Boolean = false,
-    ): SentencePath? {
+    ): SentencePath? = sentencePaths(input, ctx, 1, edgeMemo, condMemo, pruned).firstOrNull()
+
+    private fun keepBest(cells: MutableList<Cell>, cell: Cell, limit: Int) {
+        if (cells.size >= limit && cell.score <= cells[cells.size - 1].score) return
+        var at = cells.size
+        while (at > 0 && cells[at - 1].score < cell.score) at--
+        cells.add(at, cell)
+        if (cells.size > limit) cells.removeAt(cells.size - 1)
+    }
+
+    private fun sentencePaths(
+        input: String,
+        ctx: Ctx,
+        limit: Int,
+        edgeMemo: MutableMap<String, List<Edge>>? = null,
+        condMemo: CondMemo = CondMemo(),
+        pruned: Boolean = false,
+    ): List<SentencePath> {
         val model = lm
         val grammar = octagram
         val learn = activeLearning
         val lam = activeLambda(ctx)
         val n = input.length
         val abbreviations = grammar == null || T9Pinyin.segmentCost(input) == null
-        val dp = Array<MutableMap<SentenceState, Cell>>(n + 1) {
+        val dp = Array<MutableMap<SentenceState, MutableList<Cell>>>(n + 1) {
             if (octagram == null && userLearning == null) HashMap() else LinkedHashMap(SENTENCE_STATE_CAPACITY)
         }
         val initial = SentenceState(ctx.cp, if (octagram == null && userLearning == null) "" else ctx.tail)
-        dp[0][initial] = Cell(0.0, -1, null, "")
+        dp[0][initial] = mutableListOf(Cell(0.0, -1, null, 0, ""))
 
         for (q in 1..n) {
             DecodeCancellation.checkpoint()
@@ -1532,54 +1559,67 @@ class PinyinDecoder(
                     val idFirst = model?.charId(firstCp) ?: -1
                     val lastCp = w.codePointBefore(w.length)
                     val inner = if (grammar != null || model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model, condMemo)
-                    for ((state, cell) in from) {
-                        val link = if (grammar != null) {
-                            grammar.query(state.tail, w, q == n)
-                        } else {
-                            val bw = if (cell.prevPos < 0 && state.lastCp != BOS) contextWeight else lam
-                            if (model == null || state.lastCp == BOS || bw == 0.0) 0.0
-                            else bw * logCondMemo(condMemo, model, state.charId(model), idFirst)
-                        }
+                    for ((state, cells) in from) {
+                        val collocation = if (grammar != null) grammar.query(state.tail, w, q == n) else 0.0
                         val follow = learn?.followBoost(state.tail, w) ?: 0.0
-                        val score = cell.score + uni + link + inner + boost + follow - e.penalty
                         val nextState = SentenceState(lastCp, advanceJoinedTail(joinTail(state.tail, w)))
-                        val cur = dp[q][nextState]
-                        if (cur == null || score > cur.score) {
-                            dp[q][nextState] = Cell(score, p, state, w)
+                        val kept = dp[q].getOrPut(nextState) { ArrayList(limit) }
+                        for ((rank, cell) in cells.withIndex()) {
+                            val link = if (grammar != null) {
+                                collocation
+                            } else {
+                                val bw = if (cell.prevPos < 0 && state.lastCp != BOS) contextWeight else lam
+                                if (model == null || state.lastCp == BOS || bw == 0.0) 0.0
+                                else bw * logCondMemo(condMemo, model, state.charId(model), idFirst)
+                            }
+                            val score = cell.score + uni + link + inner + boost + follow - e.penalty
+                            keepBest(kept, Cell(score, p, state, rank, w), limit)
                         }
                     }
                 }
             }
             if ((pruned || octagram != null || userLearning != null) && dp[q].size > BEAM_W) {
                 val keep = dp[q].entries
-                    .sortedByDescending { it.value.score }
+                    .sortedByDescending { it.value[0].score }
                     .take(BEAM_W)
                     .map { it.key to it.value }
                 dp[q].clear()
-                for ((state, cell) in keep) dp[q][state] = cell
+                for ((state, cells) in keep) dp[q][state] = cells
             }
         }
 
-        val end = dp[n]
-        if (end.isEmpty()) return null
-        var bestState = initial
-        var bestScore = Double.NEGATIVE_INFINITY
-        for ((state, cell) in end) if (cell.score > bestScore) {
-            bestScore = cell.score
-            bestState = state
+        val ends = ArrayList<Pair<SentenceState, Int>>()
+        for ((state, cells) in dp[n]) for (rank in cells.indices) ends.add(state to rank)
+        ends.sortByDescending { (state, rank) -> dp[n][state]!![rank].score }
+        val out = ArrayList<SentencePath>(limit)
+        val seen = HashSet<String>()
+        for ((endState, endRank) in ends) {
+            val parts = ArrayList<String>()
+            var q = n
+            var state = endState
+            var rank = endRank
+            while (q > 0) {
+                val cell = dp[q][state]!![rank]
+                parts.add(cell.word)
+                state = cell.prevState!!
+                rank = cell.prevRank
+                q = cell.prevPos
+            }
+            parts.reverse()
+            val text = parts.joinToString("")
+            if (seen.add(text)) out.add(SentencePath(text, dp[n][endState]!![endRank].score))
+            if (out.size >= limit) break
         }
+        return out
+    }
 
-        val parts = ArrayList<String>()
-        var q = n
-        var state = bestState
-        while (q > 0) {
-            val cell = dp[q][state]!!
-            parts.add(cell.word)
-            state = cell.prevState!!
-            q = cell.prevPos
-        }
-        parts.reverse()
-        return SentencePath(parts.joinToString(""), bestScore)
+    private fun sentenceChoices(sentences: List<SentencePath>, key: String): List<String> {
+        val best = sentences.firstOrNull() ?: return emptyList()
+        if (octagram == null || dict.exactWordFreq(key, best.text) != null) return emptyList()
+        return sentences.drop(1)
+            .takeWhile { best.score - it.score < SENTENCE_CHOICE_MARGIN }
+            .map { it.text }
+            .filter { dict.exactWordFreq(key, it) == null }
     }
 
     private class GuessVariant(val input: String, val letters: String, val prefix: String?, val sentence: String?, val score: Double)
@@ -1786,6 +1826,8 @@ class PinyinDecoder(
         const val COND_MEMO_CAPACITY = 256
         const val COND_MEMO_MAX_CAPACITY = 1 shl 13
         const val SENTENCE_STATE_CAPACITY = 256
+        const val SENTENCE_CHOICES = 3
+        const val SENTENCE_CHOICE_MARGIN = 3.0
         const val COND_MEMO_MIX = -7046029254386353131L
         const val UNRESOLVED_CHAR_ID = Int.MIN_VALUE
         const val HAN_TABLE_SIZE = 0x10000
