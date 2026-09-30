@@ -50,6 +50,7 @@ class PinyinDecoder(
     private val userLearning: UserLearning? = null,
     private val fuzzyVariants: (String, Set<String>) -> List<String> = { s, rules -> Fuzzy.variants(s, rules).filter { it != s } },
     private val fuzzyPenalty: Double = FUZZY_PENALTY,
+    private val grammarCharPenalty: Double = 0.0,
 ) {
     private val grading = TghGrading.bundled
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
@@ -1159,7 +1160,8 @@ class PinyinDecoder(
                     val firstCp = w.codePointAt(0)
                     val idFirst = model?.charId(firstCp) ?: -1
                     val lastCp = w.codePointBefore(w.length)
-                    val uni = ln(wf.freq.toDouble()) - (if (grammar != null) LN_GRAMMAR_WEIGHT_SCALE else lnTotal) - penalty
+                    val uni = if (grammar != null) ln(wf.freq.toDouble()) - LN_GRAMMAR_WEIGHT_SCALE - grammarCharPenalty * w.codePointCount(0, w.length) - penalty
+                    else ln(wf.freq.toDouble()) - lnTotal - penalty
                     val boost = (userModel?.wordBoost(w) ?: 0.0) +
                         (learn?.formedWeight(w) ?: 0.0)
                     val inner = if (grammar != null || model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model, condMemo)
@@ -1522,7 +1524,8 @@ class PinyinDecoder(
                 for (e in edges) {
                     if (e.abbreviated && !abbreviations) continue
                     val w = e.word
-                    val uni = ln(e.freq.toDouble()) - if (grammar != null) LN_GRAMMAR_WEIGHT_SCALE else lnTotal
+                    val uni = if (grammar != null) ln(e.freq.toDouble()) - LN_GRAMMAR_WEIGHT_SCALE - grammarCharPenalty * w.codePointCount(0, w.length)
+                    else ln(e.freq.toDouble()) - lnTotal
                     val boost = (userModel?.wordBoost(w) ?: 0.0) +
                         (learn?.formedWeight(w) ?: 0.0)
                     val firstCp = w.codePointAt(0)

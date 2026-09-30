@@ -61,6 +61,7 @@ class DictEngine(
             userLearning = userLearning,
             fuzzyVariants = { s, rules -> T9Pinyin.fuzzyVariants(s, rules) },
             fuzzyPenalty = T9_FUZZY_PENALTY,
+            grammarCharPenalty = T9_GRAMMAR_CHAR_PENALTY,
         )
     }
 
@@ -185,3 +186,4 @@ class DictEngine(
 }
 
 internal const val T9_FUZZY_PENALTY = 6.0
+internal const val T9_GRAMMAR_CHAR_PENALTY = 4.0
