@@ -73,7 +73,13 @@ class PinyinDecoder(
         edgeN = if (lm != null || rules.isNotEmpty() || initialsDict != null || octagram != null) EDGE_N else 1
     }
 
-    private class Edge(val word: String, val freq: Int, val penalty: Double, val abbreviated: Boolean = false)
+    private class Edge(
+        val word: String,
+        val freq: Int,
+        val penalty: Double,
+        val abbreviated: Boolean = false,
+        val userOnly: Boolean = false,
+    )
 
     private class RankedWords(val userVersion: Long, val learnVersion: Long, val words: List<String>)
 
@@ -330,7 +336,7 @@ class PinyinDecoder(
         for (uw in userWordsFor(sub)) {
             if (seen.add(uw)) {
                 val n = uw.codePointCount(0, uw.length)
-                out.add(Edge(uw, userWordFreq(uw, sub).toInt().coerceAtLeast(1), (n - 1).coerceAtLeast(0) * lnTotal))
+                out.add(Edge(uw, userWordFreq(uw, sub).toInt().coerceAtLeast(1), (n - 1).coerceAtLeast(0) * lnTotal, userOnly = true))
             }
         }
         for (alias in inputAliases(sub)) {
@@ -464,6 +470,9 @@ class PinyinDecoder(
 
     private fun wordModelScore(word: String, freq: Int, ctxId: Int, ctx: Ctx, condMemo: CondMemo): Double =
         wordModelScore(word, freq.toDouble(), ctxId, ctx, condMemo)
+
+    private fun sentenceUsageBoost(word: String, whole: Boolean): Double =
+        if (whole) userModel?.wordBoost(word) ?: 0.0 else 0.0
 
     private fun wordModelScore(word: String, freq: Double, ctxId: Int, ctx: Ctx, condMemo: CondMemo): Double {
         val terms = contextTerms(word, ctxId, ctx, condMemo)
@@ -1172,7 +1181,7 @@ class PinyinDecoder(
                     val lastCp = w.codePointBefore(w.length)
                     val uni = if (grammar != null) ln(wf.freq.toDouble()) - LN_GRAMMAR_WEIGHT_SCALE - grammarCharPenalty * w.codePointCount(0, w.length) - penalty
                     else ln(wf.freq.toDouble()) - lnTotal - penalty
-                    val boost = (userModel?.wordBoost(w) ?: 0.0) +
+                    val boost = sentenceUsageBoost(w, i == 0 && j == nSyl) +
                         (learn?.formedWeight(w) ?: 0.0)
                     val inner = if (grammar != null || model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model, condMemo)
                     for (p in src) {
@@ -1559,7 +1568,7 @@ class PinyinDecoder(
                     val w = e.word
                     val uni = if (grammar != null) ln(e.freq.toDouble()) - LN_GRAMMAR_WEIGHT_SCALE - grammarCharPenalty * w.codePointCount(0, w.length)
                     else ln(e.freq.toDouble()) - lnTotal
-                    val boost = (userModel?.wordBoost(w) ?: 0.0) +
+                    val boost = sentenceUsageBoost(w, e.userOnly || (p == 0 && q == n)) +
                         (learn?.formedWeight(w) ?: 0.0)
                     val firstCp = w.codePointAt(0)
                     val idFirst = model?.charId(firstCp) ?: -1
