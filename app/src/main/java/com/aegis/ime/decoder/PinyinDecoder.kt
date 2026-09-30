@@ -1513,6 +1513,11 @@ class PinyinDecoder(
         return byUsage(paths)
     }
 
+    internal fun rankedSentences(input: String, context: CharSequence, limit: Int): List<SentencePath> {
+        if (input.isEmpty() || limit <= 0 || octagram == null || normalizeSeparators(input) != null) return emptyList()
+        return byUsage(sentencePaths(input, parseContext(context), limit))
+    }
+
     private fun byUsage(paths: List<SentencePath>): List<SentencePath> {
         val model = userModel
         if (model == null || octagram == null || paths.size < 2) return paths

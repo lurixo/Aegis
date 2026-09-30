@@ -37,6 +37,9 @@ interface CandidateEngine {
         context: CharSequence = "",
     ): List<Cand> = emptyList()
 
+    fun rankedSentences(composing: String, t9: Boolean, context: CharSequence, limit: Int): List<Pair<String, Double>> =
+        emptyList()
+
     fun syllables(composing: String, t9: Boolean): List<Syllable> = emptyList()
 
     fun syllables(composing: String, t9: Boolean, cuts: Set<Int>): List<Syllable> = syllables(composing, t9)
