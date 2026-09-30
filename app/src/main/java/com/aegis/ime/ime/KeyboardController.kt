@@ -194,6 +194,8 @@ class KeyboardController(
     var onShowCustomOperators: () -> Unit = {}
     var userLearning: UserLearning? = null
 
+    var onLearned: () -> Unit = {}
+
     private var view: InputView? = null
 
     fun attachView(v: InputView) {
@@ -315,6 +317,7 @@ class KeyboardController(
 
     fun reset(preserveLayout: Boolean = false) {
         userLearning?.observeBreak()
+        if (userLearning?.dirty == true) onLearned()
         decodeLane?.markSatisfiedSynchronously()
         drainLearning()
         beforeCursor = null
@@ -791,6 +794,7 @@ class KeyboardController(
                 if (!learningBlocked) engine.learn(lastWord, cand.word)
                 if (!learningBlocked) {
                     userLearning?.observeCommit(lastWord, cand.word, "", System.currentTimeMillis())
+                    onLearned()
                 }
                 lastWord = cand.word
             }
@@ -1059,7 +1063,10 @@ class KeyboardController(
         val target = engine
         learnOnWorker {
             val spelled = target.spelledReading(word, reading)
-            if (spelled.isNotEmpty()) target.learnWord(spelled, word, assembled)
+            if (spelled.isNotEmpty()) {
+                target.learnWord(spelled, word, assembled)
+                onLearned()
+            }
         }
     }
 
@@ -1209,7 +1216,9 @@ class KeyboardController(
                 userLearning?.observeCommit(lastWord, finalWord, finalReading, now)
             }
         }
+        val learned = !learningBlocked && (finalWord != null || deferredLearnEvents.isNotEmpty())
         deferredLearnEvents.clear()
+        if (learned) onLearned()
     }
 
     private fun trimDeferredLearningToPrefix() {

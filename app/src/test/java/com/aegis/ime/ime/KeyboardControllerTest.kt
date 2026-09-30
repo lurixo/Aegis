@@ -956,6 +956,39 @@ class KeyboardControllerTest {
         assertEquals(listOf("密码"), learned)
     }
 
+    @Test fun a_learned_commit_asks_for_a_save() {
+        var saves = 0
+        val c = KeyboardController(FakeHost(), learnSpyEngine(mutableListOf()))
+        c.onLearned = { saves++ }
+        c.switchTextLayoutForTest(nine = true)
+        "426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        assertTrue("a commit that was learned must ask for the learning to be saved", saves > 0)
+    }
+
+    @Test fun word_by_word_picks_ask_for_a_save_once_the_input_is_committed() {
+        var saves = 0
+        val c = KeyboardController(FakeHost(), stagedLetterLearningEngine())
+        c.userLearning = UserLearning { 1_000L }
+        c.onLearned = { saves++ }
+        c.switchTextLayoutForTest(nine = false)
+        "nihao".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        c.onPickCandidate(0)
+        assertTrue("picks learned word by word must ask for the learning to be saved", saves > 0)
+    }
+
+    @Test fun a_blocked_field_never_asks_for_a_save() {
+        var saves = 0
+        val c = KeyboardController(FakeHost(), learnSpyEngine(mutableListOf()))
+        c.onLearned = { saves++ }
+        c.setLearningBlocked(true)
+        c.switchTextLayoutForTest(nine = true)
+        "426".forEach { c.onKey(out(it.toString())) }
+        c.onPickCandidate(0)
+        assertEquals(0, saves)
+    }
+
 
     @Test fun backspace_steps_back_a_locked_reading_not_the_whole_syllable() {
         val c = KeyboardController(FakeHost(), engine)

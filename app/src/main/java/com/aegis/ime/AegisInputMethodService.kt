@@ -575,6 +575,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.onShowCustomSymbols = { showCustomSymbolPanel() }
         controller.onShowCustomOperators = { showCustomOperatorPanel() }
         controller.userLearning = userLearning
+        controller.onLearned = { if (!LiveUserData.restoreInProgress) liveUserDictHost.saveSoon() }
         controller.setCustomSymbols(customSymbolStore.list())
         controller.setCustomOperators(customOperatorStore.list())
         Thread {

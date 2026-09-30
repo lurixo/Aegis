@@ -21,6 +21,7 @@ import java.util.concurrent.Callable
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.Future
+import java.util.concurrent.ScheduledFuture
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 
@@ -43,6 +44,12 @@ class LiveUserDictHost(
     private val io = Executors.newSingleThreadExecutor { r ->
         Thread(r, "aegis-userdict-io").apply { isDaemon = true }.also { writer = it }
     }
+
+    private val timer = Executors.newSingleThreadScheduledExecutor { r ->
+        Thread(r, "aegis-userdict-save").apply { isDaemon = true }
+    }
+
+    private var pendingSave: ScheduledFuture<*>? = null
 
     override fun addWord(reading: String, word: String, now: Long): Boolean {
         if (LiveUserData.restoreInProgress) return false
@@ -159,6 +166,12 @@ class LiveUserDictHost(
         if (!queued) persistUnsaved()
     }
 
+    @Synchronized
+    fun saveSoon() {
+        if (pendingSave?.isDone == false) return
+        pendingSave = runCatching { timer.schedule(Runnable { scheduleSave() }, SAVE_SOON_MILLIS, TimeUnit.MILLISECONDS) }.getOrNull()
+    }
+
     fun handOff(work: () -> Unit): Boolean = runCatching { io.execute(work) }.isSuccess
 
     fun repairReadings(repairs: List<UserModel.ReadingRepair>): Boolean = handOff {
@@ -166,6 +179,7 @@ class LiveUserDictHost(
     }
 
     fun stopSaving() {
+        runCatching { timer.shutdownNow() }
         runCatching { io.shutdown() }
     }
 
@@ -246,5 +260,6 @@ class LiveUserDictHost(
 
     private companion object {
         const val WRITE_TIMEOUT_MILLIS = 5_000L
+        const val SAVE_SOON_MILLIS = 2_000L
     }
 }
