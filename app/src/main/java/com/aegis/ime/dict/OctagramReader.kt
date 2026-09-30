@@ -55,6 +55,71 @@ class OctagramReader private constructor(
 
     fun rawScore(text: String): Double? = lookup(encode(text))?.let { it / VALUE_SCALE }
 
+    fun query(context: String, word: String, isRear: Boolean): Double {
+        if (context.isEmpty() || word.isEmpty()) return NON_COLLOCATION_PENALTY
+        var result = NON_COLLOCATION_PENALTY
+        var start = context.length
+        var count = 0
+        while (start > 0 && count < QUERY_UNICODE_MAX) {
+            start -= Character.charCount(context.codePointBefore(start))
+            count++
+        }
+        while (start < context.length) {
+            var node = descend(context, start)
+            var i = 0
+            var chars = 0
+            while (node != ABSENT && i < word.length && chars < QUERY_UNICODE_MAX) {
+                val cp = word.codePointAt(i)
+                node = child(node, cp)
+                val found = if (node == ABSENT) ABSENT else leafValue(node)
+                if (found != ABSENT) result = maxOf(result, found / VALUE_SCALE + COLLOCATION_PENALTY)
+                i += Character.charCount(cp)
+                chars++
+            }
+            start += Character.charCount(context.codePointAt(start))
+        }
+        if (isRear && word.codePointCount(0, word.length) <= QUERY_UNICODE_MAX) {
+            val node = child(descend(word, 0), REAR_MARK)
+            val found = if (node == ABSENT) ABSENT else leafValue(node)
+            if (found != ABSENT) result = maxOf(result, found / VALUE_SCALE + REAR_PENALTY)
+        }
+        return result
+    }
+
+    private fun descend(text: String, from: Int): Int {
+        var node = 0
+        var i = from
+        while (node != ABSENT && i < text.length) {
+            val cp = text.codePointAt(i)
+            node = child(node, cp)
+            i += Character.charCount(cp)
+        }
+        return node
+    }
+
+    private fun child(node: Int, cp: Int): Int {
+        if (node == ABSENT) return ABSENT
+        var id = node
+        var u = unit(id)
+        val packed = pack(cp)
+        val count = (packed ushr PACKED_COUNT_SHIFT).toInt()
+        for (k in 0 until count) {
+            val c = ((packed ushr (8 * k)) and 0xFF).toInt()
+            id = id xor offset(u) xor c
+            if (!inImage(id)) return ABSENT
+            u = unit(id)
+            if ((u and labelMask) != c) return ABSENT
+        }
+        return id
+    }
+
+    private fun leafValue(node: Int): Int {
+        val u = unit(node)
+        if (!hasLeaf(u)) return ABSENT
+        val leaf = node xor offset(u)
+        return if (inImage(leaf)) value(unit(leaf)) else ABSENT
+    }
+
     fun bestSuffixScore(text: String, startLimit: Int): Double {
         var best = 0.0
         var start = 0
@@ -94,6 +159,11 @@ class OctagramReader private constructor(
 
     companion object {
         private const val VALUE_SCALE = 10000.0
+        const val QUERY_UNICODE_MAX = 5
+        const val COLLOCATION_PENALTY = -14.0
+        const val NON_COLLOCATION_PENALTY = -6.0
+        const val REAR_PENALTY = -18.0
+        private const val REAR_MARK = '$'.code
         private const val METADATA_SIZE = 44
         private const val FORMAT_SIZE = 32
         private const val FORMAT_PREFIX = "Rime::Grammar/"

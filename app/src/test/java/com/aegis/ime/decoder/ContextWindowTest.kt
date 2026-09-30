@@ -59,6 +59,11 @@ class ContextWindowTest {
         assertEquals("", decoder.parseContext("你好。").tail)
     }
 
+    @Test fun grammarWidensTheContextTailToFiveHanCodePoints() {
+        val decoder = PinyinDecoder(fixtureDict(), octagram = OctagramFixture.reader(mapOf("无关" to 10.0)))
+        assertEquals("二三四五六", decoder.parseContext("一二三四五六").tail)
+    }
+
     @Test fun contextTailWalksSupplementaryHanByCodePoint() {
         val decoder = PinyinDecoder(fixtureDict())
         val a = EngineFixture.supplementary(0)
@@ -78,6 +83,16 @@ class ContextWindowTest {
         assertEquals("卖", decoder.decodeCovered("mai", 30).first().word)
         assertEquals("买", decoder.decodeCovered("mai", 30, context = "昨天去超市").first().word)
         assertEquals("买", decoder.decodeCoveredAtomic("mai", 30, context = "昨天去超市").first().word)
+    }
+
+    @Test fun grammarRewardsTheSentenceEndOnlyAfterSomeContext() {
+        val grammar = OctagramFixture.reader(mapOf("买$" to 20.0))
+        val decoder = PinyinDecoder(fixtureDict(), octagram = grammar)
+        decoder.setFuzzyRules(emptySet())
+        assertEquals("卖", decoder.decodeCovered("mai", 30).first().word)
+        assertEquals("买", decoder.decodeCovered("mai", 30, context = "昨天").first().word)
+        assertEquals("卖", decoder.decodeCoveredAtomic("mai", 30).first().word)
+        assertEquals("买", decoder.decodeCoveredAtomic("mai", 30, context = "昨天").first().word)
     }
 
     @Test fun contextTailPropagatesAcrossMultipleDecodedWords() {
@@ -105,6 +120,25 @@ class ContextWindowTest {
         assertEquals("任和", PinyinDecoder(dict).decodeCovered("gonghe", 30, context = "一二三四").first().word)
         assertEquals("共和", decoder.decodeCovered("gonghe", 30, context = "一二三四").first().word)
         assertEquals("共和", decoder.decodeCoveredAtomic("gonghe", 30, context = "一二三四").first().word)
+    }
+
+    @Test fun sentencesQueryFiveContextCharactersBeforeTheLastWord() {
+        val dict = EngineFixture.build(
+            listOf(
+                EngineFixture.Row("qu", "去", 100),
+                EngineFixture.Row("chao", "超", 100),
+                EngineFixture.Row("shi", "事", 200),
+                EngineFixture.Row("shi", "市", 100),
+                EngineFixture.Row("mai", "买", 100),
+                EngineFixture.Row("dong", "东", 100),
+                EngineFixture.Row("xi", "西", 100),
+            ),
+        )
+        val input = "quchaoshimaidongxi"
+        assertEquals("去超事买东西", PinyinDecoder(dict).decodeCoveredAtomic(input, 30).first().word)
+        val decoder = PinyinDecoder(dict, octagram = OctagramFixture.reader(mapOf("去超市买东西" to 30.0)))
+        assertEquals("去超市买东西", decoder.decodeCoveredAtomic(input, 30).first().word)
+        assertEquals("去超市买东西", decoder.decodeCovered(input, 30).first().word)
     }
 
     @Test fun bestSentenceBeamKeepsDifferentTailsEndingInTheSameCodePoint() {

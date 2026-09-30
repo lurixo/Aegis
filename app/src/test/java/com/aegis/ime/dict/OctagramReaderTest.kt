@@ -80,6 +80,40 @@ class OctagramReaderTest {
     }
 
     @Test
+    fun queryKeepsTheBestCollocationOfFiveContextAndFiveWordCharacters() {
+        val supplementary = String(Character.toChars(0x20000))
+        val reader = OctagramFixture.reader(
+            mapOf(
+                "市买" to 10.0,
+                "去超市买东" to 20.0,
+                "二三四五六七" to 25.0,
+                "一二三四五六七" to 40.0,
+                "甲乙丙丁戊己" to 21.0,
+                "甲乙丙丁戊己庚" to 40.0,
+                "天买" to 5.0,
+                "${supplementary}买" to 18.0,
+            ),
+        )
+        assertEquals(6.0, reader.query("去超市", "买东西", false), 1e-9)
+        assertEquals(-4.0, reader.query("超市", "买东西", false), 1e-9)
+        assertEquals(11.0, reader.query("一二三四五六", "七", false), 1e-9)
+        assertEquals(7.0, reader.query("甲", "乙丙丁戊己庚", false), 1e-9)
+        assertEquals(4.0, reader.query("好$supplementary", "买", false), 1e-9)
+        assertEquals(-6.0, reader.query("今天", "买", false), 1e-9)
+        assertEquals(-6.0, reader.query("", "买东西", false), 1e-9)
+        assertEquals(-6.0, reader.query("\uD800", "买", false), 1e-9)
+    }
+
+    @Test
+    fun queryScoresTheSentenceEndOnlyForARearWordAfterContext() {
+        val reader = OctagramFixture.reader(mapOf("好$" to 16.0, "甲乙丙丁戊己$" to 30.0))
+        assertEquals(-2.0, reader.query("你", "好", true), 1e-9)
+        assertEquals(-6.0, reader.query("你", "好", false), 1e-9)
+        assertEquals(-6.0, reader.query("", "好", true), 1e-9)
+        assertEquals(-6.0, reader.query("你", "甲乙丙丁戊己", true), 1e-9)
+    }
+
+    @Test
     fun loadsAndScores() {
         assumeTrue("AEGIS_GRAM points at the .gram", gram != null && gram.exists())
         val r = OctagramReader.fromFile(gram!!)

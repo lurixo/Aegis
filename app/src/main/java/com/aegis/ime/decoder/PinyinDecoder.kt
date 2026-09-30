@@ -19,6 +19,7 @@ import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.DecodeCancellation
 import com.aegis.ime.dict.Fuzzy
+import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.dict.TghGrading
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
@@ -52,6 +53,7 @@ class PinyinDecoder(
 ) {
     private val grading = TghGrading.bundled
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
+    private val tailMax = if (octagram != null) OctagramReader.QUERY_UNICODE_MAX else CTX_WORD_MAX
 
     @Volatile private var fuzzyRules: Set<String> = fuzzyRules
 
@@ -70,7 +72,7 @@ class PinyinDecoder(
         edgeN = if (lm != null || rules.isNotEmpty() || initialsDict != null || octagram != null) EDGE_N else 1
     }
 
-    private class Edge(val word: String, val freq: Int, val penalty: Double)
+    private class Edge(val word: String, val freq: Int, val penalty: Double, val abbreviated: Boolean = false)
 
     private class RankedWords(val userVersion: Long, val learnVersion: Long, val words: List<String>)
 
@@ -348,7 +350,7 @@ class PinyinDecoder(
         }
         initialsDict?.let { id ->
             for (wf in preferredExact(id, sub, edgeN + seen.size)) {
-                if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, INITIALS_PENALTY))
+                if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, INITIALS_PENALTY, abbreviated = true))
                 if (out.size >= edgeN) break
             }
         }
@@ -514,7 +516,7 @@ class PinyinDecoder(
     private fun hanTail(combined: String): String {
         var start = combined.length
         var chars = 0
-        while (start > 0 && chars < CTX_WORD_MAX) {
+        while (start > 0 && chars < tailMax) {
             val cp = combined.codePointBefore(start)
             if (!isHan(cp)) break
             start -= Character.charCount(cp)
@@ -530,10 +532,6 @@ class PinyinDecoder(
         if (contextTail.isEmpty()) 0.0
         else bestSuffixGram(contextTail + word, contextTail.length)
 
-    private fun joinedArm(contextTail: String, joined: String): Double =
-        if (contextTail.isEmpty()) 0.0
-        else bestSuffixGram(joined, contextTail.length)
-
     private val activeLearning: UserLearning? get() = userLearning?.takeIf { it.enabled }
 
     private fun userLearningScore(contextTail: String, word: String): Double =
@@ -544,12 +542,6 @@ class PinyinDecoder(
 
     private fun advanceJoinedTail(joined: String): String =
         if (octagram == null && userLearning == null) "" else hanTail(joined)
-
-    internal fun wholeSentenceArm(contextTail: String, text: String): Double {
-        if (text.isEmpty()) return 0.0
-        val combined = contextTail + text
-        return bestSuffixGram(combined, combined.length)
-    }
 
     private fun isHan(cp: Int): Boolean {
         if (cp !in 0 until HAN_TABLE_SIZE) return Character.isIdeographic(cp)
@@ -1124,21 +1116,6 @@ class PinyinDecoder(
 
     internal data class SentencePath(val text: String, val score: Double)
 
-    internal fun rerankSentencePaths(paths: List<SentencePath>, contextTail: String): List<SentencePath> {
-        if (octagram == null || paths.size < 2) return paths
-        val headSize = minOf(SENTENCE_RERANK_N, paths.size)
-        val scores = DoubleArray(headSize) {
-            paths[it].score + octagramWeight * wholeSentenceArm(contextTail, paths[it].text)
-        }
-        val order = (0 until headSize).sortedWith(
-            compareByDescending<Int> { scores[it] }.thenBy { it },
-        )
-        val out = ArrayList<SentencePath>(paths.size)
-        for (index in order) out.add(paths[index])
-        for (index in headSize until paths.size) out.add(paths[index])
-        return out
-    }
-
     private fun atomicSentences(
         input: String,
         B: List<Int>,
@@ -1147,6 +1124,7 @@ class PinyinDecoder(
         singlesCache: HashMap<String, Set<String>>,
     ): List<SentencePath> {
         val model = lm
+        val grammar = octagram
         val condMemo = CondMemo()
         val lam = activeLambda(ctx)
         val nSyl = B.size - 1
@@ -1181,22 +1159,24 @@ class PinyinDecoder(
                     val firstCp = w.codePointAt(0)
                     val idFirst = model?.charId(firstCp) ?: -1
                     val lastCp = w.codePointBefore(w.length)
-                    val uni = ln(wf.freq.toDouble()) - lnTotal - penalty
+                    val uni = ln(wf.freq.toDouble()) - (if (grammar != null) LN_GRAMMAR_WEIGHT_SCALE else lnTotal) - penalty
                     val boost = (userModel?.wordBoost(w) ?: 0.0) +
                         (learn?.formedWeight(w) ?: 0.0)
-                    val inner = if (model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model, condMemo)
+                    val inner = if (grammar != null || model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model, condMemo)
                     for (p in src) {
-                        val bw = if (p.text.isEmpty() && p.lastCp != BOS) contextWeight else lam
-                        val bi = if (model == null || p.lastCp == BOS || bw == 0.0) 0.0 else bw * logCondMemo(condMemo, model, p.charId(model), idFirst)
-                        val joined = joinTail(p.tail, w)
-                        val og = octagramWeight * joinedArm(p.tail, joined)
+                        val link = if (grammar != null) {
+                            grammar.query(p.tail, w, j == nSyl)
+                        } else {
+                            val bw = if (p.text.isEmpty() && p.lastCp != BOS) contextWeight else lam
+                            if (model == null || p.lastCp == BOS || bw == 0.0) 0.0 else bw * logCondMemo(condMemo, model, p.charId(model), idFirst)
+                        }
                         val follow = learn?.followBoost(p.tail, w) ?: 0.0
                         dp[j].add(
                             APath(
                                 p.text + w,
                                 lastCp,
-                                advanceJoinedTail(joined),
-                                p.score + uni + bi + inner + boost + follow + og,
+                                advanceJoinedTail(joinTail(p.tail, w)),
+                                p.score + uni + link + inner + boost + follow,
                             ),
                         )
                     }
@@ -1210,7 +1190,7 @@ class PinyinDecoder(
         for (p in dp[nSyl].sortedByDescending { it.score }) {
             if (seen.add(p.text)) { ordered.add(SentencePath(p.text, p.score)); if (ordered.size >= emit) break }
         }
-        return rerankSentencePaths(ordered, ctx.tail)
+        return ordered
     }
 
     private fun appendLeadingSingles(
@@ -1520,9 +1500,11 @@ class PinyinDecoder(
         pruned: Boolean = false,
     ): SentencePath? {
         val model = lm
+        val grammar = octagram
         val learn = activeLearning
         val lam = activeLambda(ctx)
         val n = input.length
+        val abbreviations = grammar == null || T9Pinyin.segmentCost(input) == null
         val dp = Array<MutableMap<SentenceState, Cell>>(n + 1) {
             if (octagram == null && userLearning == null) HashMap() else LinkedHashMap(SENTENCE_STATE_CAPACITY)
         }
@@ -1538,23 +1520,26 @@ class PinyinDecoder(
                 val edges = if (edgeMemo == null) edgesFor(sub) else edgeMemo.getOrPut(sub) { edgesFor(sub) }
                 if (edges.isEmpty()) continue
                 for (e in edges) {
+                    if (e.abbreviated && !abbreviations) continue
                     val w = e.word
-                    val uni = ln(e.freq.toDouble()) - lnTotal
+                    val uni = ln(e.freq.toDouble()) - if (grammar != null) LN_GRAMMAR_WEIGHT_SCALE else lnTotal
                     val boost = (userModel?.wordBoost(w) ?: 0.0) +
                         (learn?.formedWeight(w) ?: 0.0)
                     val firstCp = w.codePointAt(0)
                     val idFirst = model?.charId(firstCp) ?: -1
                     val lastCp = w.codePointBefore(w.length)
-                    val inner = if (model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model, condMemo)
+                    val inner = if (grammar != null || model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model, condMemo)
                     for ((state, cell) in from) {
-                        val bw = if (cell.prevPos < 0 && state.lastCp != BOS) contextWeight else lam
-                        val bi = if (model == null || state.lastCp == BOS || bw == 0.0) 0.0
-                        else bw * logCondMemo(condMemo, model, state.charId(model), idFirst)
-                        val joined = joinTail(state.tail, w)
-                        val og = octagramWeight * joinedArm(state.tail, joined)
+                        val link = if (grammar != null) {
+                            grammar.query(state.tail, w, q == n)
+                        } else {
+                            val bw = if (cell.prevPos < 0 && state.lastCp != BOS) contextWeight else lam
+                            if (model == null || state.lastCp == BOS || bw == 0.0) 0.0
+                            else bw * logCondMemo(condMemo, model, state.charId(model), idFirst)
+                        }
                         val follow = learn?.followBoost(state.tail, w) ?: 0.0
-                        val score = cell.score + uni + bi + inner + boost + follow - e.penalty + og
-                        val nextState = SentenceState(lastCp, advanceJoinedTail(joined))
+                        val score = cell.score + uni + link + inner + boost + follow - e.penalty
+                        val nextState = SentenceState(lastCp, advanceJoinedTail(joinTail(state.tail, w)))
                         val cur = dp[q][nextState]
                         if (cur == null || score > cur.score) {
                             dp[q][nextState] = Cell(score, p, state, w)
@@ -1787,8 +1772,8 @@ class PinyinDecoder(
         const val ATOMIC_BEAM_N = 8
         const val ATOMIC_BEAM_PER_SYL = 40
         const val STAGED_REAL_WORD_SLOTS = 8
-        const val SENTENCE_RERANK_N = 128
         const val CTX_WORD_MAX = 4
+        const val LN_GRAMMAR_WEIGHT_SCALE = 18.420680743952367
         const val MAX_SYLLABLE_KEY_LEN = 6
         const val EXACT_TIE_LOOKAHEAD = 16
         const val DICT_CACHE_WEIGHT = 8_192
