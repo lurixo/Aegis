@@ -20,7 +20,10 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <map>
 #include <mutex>
+#include <numeric>
+#include <utility>
 
 #include "llama.h"
 
@@ -105,25 +108,66 @@ double logSumExp(const float * logits, int nVocab) {
     return static_cast<double>(peak) + std::log(total);
 }
 
-double logprobOf(const float * logits, int nVocab, llama_token token) {
-    return static_cast<double>(logits[token]) - logSumExp(logits, nVocab);
-}
-
 void logSoftmax(const float * logits, int nVocab, std::vector<float> * out) {
     const double norm = logSumExp(logits, nVocab);
     out->resize(nVocab);
     for (int i = 0; i < nVocab; ++i) (*out)[i] = static_cast<float>(static_cast<double>(logits[i]) - norm);
 }
 
-void addToken(llama_batch & batch, llama_token token, llama_pos pos, int firstSeq, int seqCount, bool output) {
+void addToken(llama_batch & batch, llama_token token, llama_pos pos, const std::vector<llama_seq_id> & seqs, bool output) {
     const int at = batch.n_tokens;
     batch.token[at] = token;
     batch.pos[at] = pos;
-    batch.n_seq_id[at] = seqCount;
-    for (int s = 0; s < seqCount; ++s) batch.seq_id[at][s] = firstSeq + s;
+    batch.n_seq_id[at] = static_cast<int32_t>(seqs.size());
+    for (size_t s = 0; s < seqs.size(); ++s) batch.seq_id[at][s] = seqs[s];
     batch.logits[at] = output ? 1 : 0;
     batch.n_tokens = at + 1;
 }
+
+struct TrieNode {
+    llama_token token;
+    int depth;
+    int parent;
+    std::vector<llama_seq_id> seqs;
+    bool hasChildren = false;
+    int row = -1;
+    double norm = 0.0;
+    double score = 0.0;
+};
+
+class CandidateTrie {
+public:
+    int extraNodes(const std::vector<llama_token> & tokens) const {
+        int parent = -1;
+        for (size_t k = 0; k < tokens.size(); ++k) {
+            const auto it = index_.find({parent, tokens[k]});
+            if (it == index_.end()) return static_cast<int>(tokens.size() - k);
+            parent = it->second;
+        }
+        return 0;
+    }
+
+    int insert(const std::vector<llama_token> & tokens, llama_seq_id seq) {
+        int parent = -1;
+        for (size_t k = 0; k < tokens.size(); ++k) {
+            const auto key = std::make_pair(parent, tokens[k]);
+            auto it = index_.find(key);
+            if (it == index_.end()) {
+                if (parent >= 0) nodes[parent].hasChildren = true;
+                nodes.push_back(TrieNode{tokens[k], static_cast<int>(k), parent, {}});
+                it = index_.emplace(key, static_cast<int>(nodes.size()) - 1).first;
+            }
+            nodes[it->second].seqs.push_back(seq);
+            parent = it->second;
+        }
+        return parent;
+    }
+
+    std::vector<TrieNode> nodes;
+
+private:
+    std::map<std::pair<int, llama_token>, int> index_;
+};
 
 }  // namespace
 
@@ -136,6 +180,7 @@ struct NeuralScorer::Impl {
     llama_batch batch{};
     bool batchReady = false;
     std::atomic<bool> abort{false};
+    std::vector<llama_seq_id> allSeqs;
     std::vector<llama_token> prefix;
     std::vector<float> afterPrefix;
     FILE * file = nullptr;
@@ -187,7 +232,7 @@ struct NeuralScorer::Impl {
         for (int from = 0; from < total; from += kBatchTokens) {
             const int to = std::min(total, from + kBatchTokens);
             batch.n_tokens = 0;
-            for (int i = from; i < to; ++i) addToken(batch, want[i], i, 0, kMaxCandidates, i == total - 1);
+            for (int i = from; i < to; ++i) addToken(batch, want[i], i, allSeqs, i == total - 1);
             const Status status = decode();
             if (status != Status::Ok) {
                 reset();
@@ -242,6 +287,8 @@ NeuralScorer::Impl * createImpl(llama_model * model, int threads, std::string * 
         return nullptr;
     }
     impl->batch = llama_batch_init(kBatchTokens, 0, NeuralScorer::kMaxCandidates);
+    impl->allSeqs.resize(NeuralScorer::kMaxCandidates);
+    std::iota(impl->allSeqs.begin(), impl->allSeqs.end(), 0);
     impl->batchReady = true;
     return impl;
 }
@@ -318,31 +365,23 @@ NeuralScorer::Status NeuralScorer::score(const std::string & context,
     }
     const int base = static_cast<int>(m.prefix.size());
     const int room = std::min(kBatchTokens, kContextCells - base);
-    llama_memory_t memory = llama_get_memory(m.ctx);
 
     size_t next = 0;
     while (next < candidates.size()) {
         const size_t first = next;
-        int used = 0;
-        while (next < candidates.size() && used + static_cast<int>(tokens[next].size()) <= room) {
-            used += static_cast<int>(tokens[next].size());
+        CandidateTrie trie;
+        std::vector<int> leaves;
+        while (next < candidates.size()) {
+            const int extra = trie.extraNodes(tokens[next]);
+            if (static_cast<int>(trie.nodes.size()) + extra > room) break;
+            leaves.push_back(trie.insert(tokens[next], static_cast<llama_seq_id>(next - first)));
             ++next;
         }
-        if (next == first) {
-            if (!tokens[first].empty()) return Status::Failed;
-            ++next;
-            continue;
-        }
+        if (next == first) return Status::Failed;
         m.batch.n_tokens = 0;
-        std::vector<std::vector<int>> outputAt(next - first);
-        for (size_t c = first; c < next; ++c) {
-            const auto & toks = tokens[c];
-            const int seq = static_cast<int>(c - first);
-            for (size_t k = 0; k < toks.size(); ++k) {
-                const bool output = k + 1 < toks.size();
-                if (output) outputAt[c - first].push_back(m.batch.n_tokens);
-                addToken(m.batch, toks[k], base + static_cast<int>(k), seq, 1, output);
-            }
+        for (auto & node : trie.nodes) {
+            if (node.hasChildren) node.row = m.batch.n_tokens;
+            addToken(m.batch, node.token, base + node.depth, node.seqs, node.hasChildren);
         }
         if (m.batch.n_tokens > 0) {
             const Status status = m.decode();
@@ -351,25 +390,34 @@ NeuralScorer::Status NeuralScorer::score(const std::string & context,
                 return status;
             }
         }
-        for (size_t c = first; c < next; ++c) {
-            const auto & toks = tokens[c];
-            if (toks.empty()) continue;
-            double sum = m.afterPrefix[toks[0]];
-            for (size_t k = 1; k < toks.size(); ++k) {
-                const float * logits = llama_get_logits_ith(m.ctx, outputAt[c - first][k - 1]);
+        for (auto & node : trie.nodes) {
+            if (node.parent < 0) {
+                node.score = m.afterPrefix[node.token];
+            } else {
+                const TrieNode & parent = trie.nodes[node.parent];
+                const float * logits = llama_get_logits_ith(m.ctx, parent.row);
                 if (logits == nullptr) {
                     m.reset();
                     return Status::Failed;
                 }
-                sum += logprobOf(logits, m.nVocab, toks[k]);
+                node.score = parent.score + static_cast<double>(logits[node.token]) - parent.norm;
             }
-            (*logprobs)[c] = sum;
+            if (node.hasChildren) {
+                const float * logits = llama_get_logits_ith(m.ctx, node.row);
+                if (logits == nullptr) {
+                    m.reset();
+                    return Status::Failed;
+                }
+                node.norm = logSumExp(logits, m.nVocab);
+            }
         }
         for (size_t c = first; c < next; ++c) {
-            if (!llama_memory_seq_rm(memory, static_cast<llama_seq_id>(c - first), base, -1)) {
-                m.reset();
-                return Status::Failed;
-            }
+            const int leaf = leaves[c - first];
+            if (leaf >= 0) (*logprobs)[c] = trie.nodes[leaf].score;
+        }
+        if (!m.dropCandidates(base)) {
+            m.reset();
+            return Status::Failed;
         }
     }
     return Status::Ok;
