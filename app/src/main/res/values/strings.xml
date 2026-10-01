@@ -327,6 +327,8 @@
     <string name="license_wanxiang_note">The downloadable Chinese dictionary, repacked into Aegis\'s binary format</string>
     <string name="license_octagram_name">wanxiang octagram model</string>
     <string name="license_octagram_note">Optional next-word ranking model, used as published</string>
+    <string name="license_qwen_name">Qwen3-0.6B-Base model</string>
+    <string name="license_qwen_note">The optional whole-sentence reranking model, converted to GGUF and quantized to Q8_0</string>
     <string name="license_opencc_name">OpenCC conversion data</string>
     <string name="license_opencc_note">The traditional-to-simplified tables used at dictionary build time</string>
     <string name="license_emoji_name">Unicode / CLDR emoji data</string>

@@ -219,6 +219,10 @@ Aegis 自身代码为 **GPL-3.0**（见 [`LICENSE`](LICENSE)）。Aegis 采用**
 **OpenCC 数据**（`tools/t2s-data`）—— 繁转简与异体映射，**Apache-2.0**（见
 `tools/t2s-data/LICENSE-OpenCC` 与 `tools/t2s-data/PROVENANCE.md`）；仅在构建词库时使用。
 
+**Qwen3-0.6B-Base**（`qwen3-0.6b-base-q8_0.gguf`）—— © Qwen Team，**Apache-2.0**，见
+[Qwen/Qwen3-0.6B-Base](https://huggingface.co/Qwen/Qwen3-0.6B-Base)。可选的整句重排模型，转换为 GGUF
+并量化为 Q8_0；仅在明确选择时从 `model-latest` 发布下载，**不**打包进 APK。
+
 **llama.cpp / ggml** —— © The ggml authors，**MIT**，见
 [llama.cpp](https://github.com/ggml-org/llama.cpp)（tag `v0.5.0`）；其中的 llamafile 矩阵运算代码
 © 2024 Mozilla Foundation，MIT。未作修改，静态链接进重排打分器 `libaegis_neural.so`。

@@ -156,6 +156,20 @@ sentence-reranking scorer, which statically links llama.cpp (section 9).
   only; OpenMP, dynamic backends and the upstream common code, tools, tests and examples are
   disabled.
 
+## 10. Qwen3-0.6B-Base reranking model — Apache-2.0
+
+- **Copyright:** © Qwen Team
+- **License:** Apache License 2.0 (full text in Appendix A; the upstream `LICENSE` is published as
+  `MODEL-LICENSE.txt` next to the model in the `model-latest` release)
+- **Source:** <https://huggingface.co/Qwen/Qwen3-0.6B-Base>, revision
+  `da87bfb608c14b7cf20ba1ce41287e8de496c0cd`
+- **Used in:** the optional whole-sentence reranking model `qwen3-0.6b-base-q8_0.gguf`. Fetched from
+  <https://github.com/lurixo/Aegis/releases/tag/model-latest> only on explicit opt-in; **not** bundled
+  in the APK.
+- **Modifications:** converted to GGUF with llama.cpp `v0.5.0` `convert_hf_to_gguf.py`
+  (`--outtype bf16`), then quantized to Q8_0 with `llama-quantize`. No fine-tuning or other change
+  to the weights.
+
 ## Other references (not vendored, no source copied)
 
 - Algorithm references only: AOSP PinyinIME (Apache-2.0), darts-clone (BSD-2-Clause).

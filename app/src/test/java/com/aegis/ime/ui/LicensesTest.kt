@@ -48,6 +48,7 @@ class LicensesTest {
     private val licenseNameIds = listOf(
         R.string.license_wanxiang_name,
         R.string.license_octagram_name,
+        R.string.license_qwen_name,
         R.string.license_opencc_name,
         R.string.license_emoji_name,
         R.string.license_tgh_name,
@@ -81,6 +82,8 @@ class LicensesTest {
             "AndroidX", "Compose", "Material 3", "Kotlin",
             "Mechvibes", "2021 Hai Nguyen", "MIT License", "key_blue.flac", "key_brown.flac", "key_red.flac",
             "llama.cpp", "The ggml authors", "Mozilla Foundation", "libaegis_neural.so", "assets/licenses/llama-cpp.txt",
+            "Qwen3-0.6B-Base", "Qwen Team", "huggingface.co/Qwen/Qwen3-0.6B-Base",
+            "da87bfb608c14b7cf20ba1ce41287e8de496c0cd", "releases/tag/model-latest", "MODEL-LICENSE.txt",
             "Apache License", "Version 2.0",
             "TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION",
             "Limitation of Liability",
@@ -130,6 +133,7 @@ class LicensesTest {
             "licenses_page_title", "licenses_intro", "licenses_modified", "licenses_footer",
             "license_wanxiang_name", "license_wanxiang_note",
             "license_octagram_name", "license_octagram_note",
+            "license_qwen_name", "license_qwen_note",
             "license_opencc_name", "license_opencc_note",
             "license_emoji_name", "license_emoji_note",
             "license_tgh_name", "license_tgh_note",
@@ -154,9 +158,20 @@ class LicensesTest {
         assertTrue("back arrow finishes the licenses Activity", compose.activity.isFinishing)
     }
 
+    @Test fun the_reranking_model_card_follows_the_wanxiang_model_card() {
+        fun top(id: Int) = compose.onNodeWithText(s(id)).fetchSemanticsNode().positionInRoot.y
+        val octagram = top(R.string.license_octagram_name)
+        val qwen = top(R.string.license_qwen_name)
+        val opencc = top(R.string.license_opencc_name)
+        assertTrue("Qwen card sits below the octagram card", qwen > octagram)
+        assertTrue("Qwen card sits above the OpenCC card", qwen < opencc)
+        compose.onNodeWithText("Qwen Team · Apache-2.0 · ${s(R.string.licenses_modified)}").assertExists()
+    }
+
     private val expectedLinks = listOf(
         R.string.license_wanxiang_name to "https://github.com/amzxyz/rime-wanxiang",
         R.string.license_octagram_name to "https://github.com/amzxyz/RIME-LMDG",
+        R.string.license_qwen_name to "https://huggingface.co/Qwen/Qwen3-0.6B-Base",
         R.string.license_opencc_name to "https://github.com/BYVoid/OpenCC",
         R.string.license_emoji_name to "https://www.unicode.org/license.txt",
         R.string.license_tgh_name to "https://www.gov.cn/zwgk/2013-08/19/content_2469793.htm",

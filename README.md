@@ -357,6 +357,11 @@ reverse-engineered from **librime-octagram** (GPL-3.0) + **darts-clone**; no ups
 (see `tools/t2s-data/LICENSE-OpenCC` and `tools/t2s-data/PROVENANCE.md`); used at dictionary-build
 time only.
 
+**Qwen3-0.6B-Base** (`qwen3-0.6b-base-q8_0.gguf`): (c) Qwen Team, **Apache-2.0**
+([Qwen/Qwen3-0.6B-Base](https://huggingface.co/Qwen/Qwen3-0.6B-Base)). The optional whole-sentence
+reranking model, converted to GGUF and quantized to Q8_0; fetched from the `model-latest` release only
+on explicit opt-in, **not** bundled in the APK.
+
 **llama.cpp / ggml:** (c) The ggml authors, **MIT** ([llama.cpp](https://github.com/ggml-org/llama.cpp),
 tag `v0.5.0`), including llamafile matrix code (c) 2024 Mozilla Foundation, MIT. Statically linked,
 unmodified, into the reranking scorer `libaegis_neural.so`.

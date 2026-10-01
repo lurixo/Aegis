@@ -325,6 +325,8 @@
     <string name="license_wanxiang_note">可下载的中文词库，重打包为 Aegis 二进制格式</string>
     <string name="license_octagram_name">万象 octagram 模型</string>
     <string name="license_octagram_note">可选的下一词排序模型，按原样使用</string>
+    <string name="license_qwen_name">千问 Qwen3-0.6B-Base 模型</string>
+    <string name="license_qwen_note">可选的整句重排模型，转换为 GGUF 格式并量化为 Q8_0</string>
     <string name="license_opencc_name">OpenCC 转换数据</string>
     <string name="license_opencc_note">词库构建时用的繁转简映射表</string>
     <string name="license_emoji_name">Unicode / CLDR 表情数据</string>
