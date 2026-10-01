@@ -88,10 +88,12 @@ stopped, and the pack is checked against its SHA-256 before it is installed. Unt
 Chinese input stays locked, while English and every panel keep working.
 
 The settings screen additionally offers an **optional** enhancement model (the octagram
-grammar) for sharper next-word and whole-sentence ranking; that one is fetched only when you tap to
-start it. Once a file is installed, its card offers a check-for-updates button, and a check that
-finds a newer file continues straight into the download. Beyond those two downloads, the update
-checks that go with them (a small metadata file for the dictionary, a `HEAD` request for the model),
+grammar) for sharper next-word and whole-sentence ranking, and an **optional** reranking model
+(Qwen3-0.6B-Base) that reorders whole-sentence candidates on the device once the enhancement model is
+installed; each is fetched only when you tap to start it. Once a file is installed, its card offers a
+check-for-updates button, and a check that finds a newer file continues straight into the download.
+Beyond those three downloads, the update checks that go with them (a small metadata file for the
+dictionary and for the reranking model, a `HEAD` request for the enhancement model),
 and the translate bar — which sends only the text you type into that bar to Google Translate while
 it is open — Aegis's own code makes no network requests, and nothing Aegis does reaches the network
 unless you ask it to.
@@ -163,7 +165,7 @@ unless you ask it to.
   (AES-256-GCM, key derived with PBKDF2-HMAC-SHA256
   at 600,000 iterations), and import it back by overwriting or merging. A default backup password
   can be kept on the device behind biometric or screen-lock authentication. The downloadable
-  dictionary and model are not in the backup; they can be downloaded again.
+  dictionary and models are not in the backup; they can be downloaded again.
 - **Simplified-Chinese normalization:** every candidate Aegis proposes is Simplified. Traditional
   and variant character forms from the upstream data are folded to their Simplified image (with
   frequency merging) when the dictionary pack is built, using the OpenCC tables in
@@ -183,9 +185,10 @@ not depend on our word alone:
   own namespace, and asks for nothing on your device.
 - **`INTERNET`** fetches the dictionary pack (offered by the keyboard while no pack is installed,
   because no Chinese dictionary ships in the APK, and started only when you tap), the optional
-  enhancement model (only when *you* tap to start it), the update checks for those two, and the
-  translate bar, which sends only the text typed into that bar to Google Translate
-  (`translate-pa.googleapis.com`, over HTTPS). **Outside the translate bar, no network request is
+  enhancement and reranking models (each only when *you* tap to start it), the update checks for
+  those three, and the translate bar, which sends only the text typed into that bar to
+  Google Translate (`translate-pa.googleapis.com`, over HTTPS).
+  **Outside the translate bar, no network request is
   ever made while you type, and nothing you type is ever sent.**
 - **`USE_BIOMETRIC`** is used only for the default backup password: saving it, or filling it into a
   backup dialog, needs a biometric or screen-lock confirmation first.

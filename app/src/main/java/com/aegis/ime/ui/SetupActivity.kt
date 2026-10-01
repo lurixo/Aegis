@@ -288,6 +288,7 @@ internal fun DictSettingsPage(onBack: () -> Unit) {
     SettingsPageColumn(stringResource(R.string.settings_group_dicts_title), onBack) {
         GramDownloadCard()
         DictDownloadCard()
+        NeuralDownloadCard()
     }
 }
 

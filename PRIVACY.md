@@ -6,9 +6,9 @@ what Aegis does and does not do with that data. It is consistent with the
 
 **Short version:** what you type stays on your device. Aegis has no analytics, no telemetry, and no
 account, and, apart from the translate bar, nothing you type is ever sent anywhere. The only network
-use in Aegis's own code is fetching the Chinese dictionary pack and the optional enhancement model,
-checking whether a newer one exists, and sending the text you type into the translate bar to Google
-Translate.
+use in Aegis's own code is fetching the Chinese dictionary pack and the optional enhancement and
+reranking models, checking whether a newer one exists, and sending the text you type into the
+translate bar to Google Translate.
 
 ## What Aegis stores, and where
 
@@ -80,10 +80,14 @@ over HTTPS.
   file from the same GitHub release to learn which asset to get.
 - **The optional enhancement model.** Fetched from the upstream project's GitHub release, and only
   when *you* tap to start it.
+- **The optional reranking model.** Fetched only when *you* tap to start it. Aegis first reads a
+  small manifest, `aegis-model-update.json`, from this project's `model-latest` GitHub release to
+  learn which file to get and its SHA-256, then downloads that file from the same release.
 - **Update checks.** Once a file is installed, its card carries a button to check for updates: on
   the dictionary card that re-fetches the same metadata file; on the enhancement-model card it
-  sends a `HEAD` request to the model's URL to compare version markers. Both happen only when you
-  tap, and if either finds a newer file it goes straight on to download it. Nothing in Aegis's own
+  sends a `HEAD` request to the model's URL to compare version markers; on the reranking-model card
+  it re-fetches the model manifest. Each happens only when you tap, and if one finds a newer file it
+  goes straight on to download it. Nothing in Aegis's own
   code makes an automatic request of any kind.
 - **The translate bar.** While the bar opened from the toolbar is up, the text you type into it —
   and only that text — is sent to Google Translate at `translate-pa.googleapis.com` after you pause

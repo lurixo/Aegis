@@ -23,6 +23,7 @@ import android.util.Log
 import com.aegis.ime.R
 import com.aegis.ime.SettingsHotApply
 import com.aegis.ime.dict.ModelDownload
+import com.aegis.ime.neural.NeuralModelDownload
 
 private const val DOWNLOAD_LOG_TAG = "AegisDownload"
 
@@ -401,6 +402,60 @@ internal object DictDownloadWork {
                     logDownloadFailure("dictionary", "verification or extraction failed")
                     LocalizedText.Resource(R.string.dict_status_install_failed)
                 }
+            }
+        }
+    }
+
+    fun setIdleStatus(context: Context, status: LocalizedText) = runtime.setIdleStatus(context, status)
+}
+
+internal object NeuralDownloadWork {
+    private val runtime = DownloadRuntime(
+        resource = "reranking model",
+        isPresent = { installedModel(it) != null },
+        doneStatus = { context ->
+            installedModel(context)?.let { enabledStatus(it) }
+                ?: LocalizedText.Resource(R.string.neural_status_not_downloaded)
+        },
+        notDownloadedStatus = LocalizedText.Resource(R.string.neural_status_not_downloaded),
+        failureStatus = LocalizedText.Resource(R.string.neural_status_download_failed),
+    )
+
+    fun installedModel(context: Context): NeuralModelDownload.Manifest? =
+        NeuralModelDownload.installed(context.filesDir, context.getSharedPreferences("aegis", Context.MODE_PRIVATE))
+
+    private fun enabledStatus(manifest: NeuralModelDownload.Manifest): LocalizedText =
+        LocalizedText.ResourceLong(R.string.neural_status_enabled, ModelDownload.bytesToDisplayMb(manifest.bytes))
+
+    fun snapshot(context: Context): DownloadCardSnapshot = runtime.snapshot(context)
+
+    fun observe(context: Context, observer: (DownloadCardSnapshot) -> Unit): () -> Unit =
+        runtime.observe(context, observer)
+
+    fun start(
+        context: Context,
+        manifest: NeuralModelDownload.Manifest,
+        startTask: (Thread) -> Unit = Thread::start,
+        url: String = manifest.url,
+    ) {
+        runtime.start(context, startTask) { app, onProgress, _ ->
+            val prefs = app.getSharedPreferences("aegis", Context.MODE_PRIVATE)
+            var lastPct = -1
+            val result = NeuralModelDownload.install(app.filesDir, prefs, manifest, { done, total ->
+                if (total > 0) {
+                    val pct = (done * 100 / total).toInt()
+                    if (pct != lastPct) {
+                        lastPct = pct
+                        onProgress(pct / 100f)
+                    }
+                }
+            }, url)
+            logResumedTransfer("reranking model", result)
+            if (result.ok) {
+                enabledStatus(manifest)
+            } else {
+                logTransferFailure("reranking model", result)
+                transferFailureStatus(result, R.string.neural_status_download_failed)
             }
         }
     }

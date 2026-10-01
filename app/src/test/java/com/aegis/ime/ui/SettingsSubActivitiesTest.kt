@@ -43,6 +43,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.rules.ActivityScenarioRule
 import com.aegis.ime.R
 import com.aegis.ime.dict.ModelDownload
+import com.aegis.ime.neural.NeuralModelDownload
 import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserLearnEdit
@@ -609,6 +610,7 @@ class DictSettingsActivityTest {
         val links = listOf(
             R.string.dict_source_link to ModelDownload.DICT_REPO_URL,
             R.string.gram_source_link to ModelDownload.REPO_URL,
+            R.string.neural_source_link to NeuralModelDownload.SOURCE_URL,
         )
         for ((labelRes, url) in links) {
             repeat(2) { attempt ->

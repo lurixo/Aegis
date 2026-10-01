@@ -6,7 +6,7 @@
     <string name="subtype_en">Aegis English</string>
 
     <string name="setup_title">Aegis 输入法</string>
-    <string name="setup_summary">中文 / 英文输入法，自研拼音引擎；仅在下载词库与增强模型、使用翻译、打开外部链接时联网</string>
+    <string name="setup_summary">中文 / 英文输入法，自研拼音引擎；仅在下载词库与模型、使用翻译、打开外部链接时联网</string>
     <string name="setup_first_run_title">首次使用</string>
     <string name="setup_first_run_body">中文输入需要先下载词库，可在候选栏点下载提示，或到下方词库设置中下载；英文词库也在同一个包里</string>
     <string name="setup_first_run_ack">知道了</string>
@@ -20,7 +20,7 @@
     <string name="settings_group_keyboard_title">键盘设置</string>
     <string name="settings_group_keyboard_desc">布局、按键音效、振动与预览</string>
     <string name="settings_group_dicts_title">词库与下载</string>
-    <string name="settings_group_dicts_desc">全量词库包、增强模型</string>
+    <string name="settings_group_dicts_desc">全量词库包、增强模型、重排模型</string>
     <string name="settings_group_userdict_title">用户词库</string>
     <string name="settings_group_userdict_desc">搜索、增删自造词、导入导出</string>
     <string name="settings_group_about_title">关于与启用</string>
@@ -83,6 +83,27 @@
     <string name="dict_gate_downloading">正在下载词库…</string>
     <string name="dict_gate_verifying">正在校验安装…</string>
     <string name="dict_gate_failed">下载失败，点按重试</string>
+
+    <string name="neural_card_title">重排模型（千问 Qwen3）</string>
+    <string name="neural_card_description">可选下载，整句候选更准；需先启用上方的增强模型</string>
+    <string name="neural_source_link">模型来源：Qwen/Qwen3-0.6B-Base ↗</string>
+    <string name="neural_status_enabled">✅ 已启用（约 %1$d MB）</string>
+    <string name="neural_status_not_downloaded">⚠ 重排模型未启用</string>
+    <string name="neural_status_unsupported">⚠ 此设备的处理器不支持重排模型</string>
+    <string name="neural_status_fetching">正在获取模型信息…</string>
+    <string name="neural_status_download_failed">下载失败</string>
+    <string name="neural_status_deleted">⚠ 重排模型未启用（已删除）</string>
+    <string name="neural_delete_dialog_title">删除重排模型</string>
+    <string name="neural_delete_dialog_body">将删除已下载的重排模型，不可撤销</string>
+    <string name="neural_card_model">模型：%1$s</string>
+    <string name="neural_state_idle">状态：未加载，用本输入法打字时自动加载</string>
+    <string name="neural_state_loading">状态：正在加载…</string>
+    <string name="neural_state_ready">状态：已加载（用时 %1$d 毫秒）</string>
+    <string name="neural_state_failed">状态：加载失败（%1$s）</string>
+    <string name="neural_state_closed">状态：已停止</string>
+    <string name="neural_card_runs">已重排 %1$d 次，其中 %2$d 次换了首选</string>
+    <string name="neural_card_timing">用时：最近 %1$d 毫秒，平均 %2$d 毫秒，最长 %3$d 毫秒</string>
+    <string name="neural_card_timeouts">超时未重排 %1$d 次</string>
 
     <string name="fuzzy_master_title">模糊音</string>
     <string name="fuzzy_master_description">容忍常见拼音混淆</string>

@@ -26,6 +26,8 @@ object NeuralModelDownload {
 
     const val MANIFEST_URL = "${RELEASE_URL}aegis-model-update.json"
 
+    const val SOURCE_URL = "https://huggingface.co/Qwen/Qwen3-0.6B-Base"
+
     const val MANIFEST_PREF = "neural_manifest"
 
     private const val SCHEMA = 1

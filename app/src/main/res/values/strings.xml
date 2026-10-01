@@ -6,7 +6,7 @@
     <string name="subtype_en">Aegis English</string>
 
     <string name="setup_title">Aegis IME</string>
-    <string name="setup_summary">Chinese / English input method with a self-developed Pinyin engine; it goes online only to download the dictionary and enhancement model, to translate, and to open external links</string>
+    <string name="setup_summary">Chinese / English input method with a self-developed Pinyin engine; it goes online only to download the dictionary and models, to translate, and to open external links</string>
     <string name="setup_first_run_title">First use</string>
     <string name="setup_first_run_body">Chinese input needs a dictionary download — tap the prompt in the candidate bar, or use the dictionary settings below; the English dictionary is in the same pack</string>
     <string name="setup_first_run_ack">Got it</string>
@@ -20,7 +20,7 @@
     <string name="settings_group_keyboard_title">Keyboard settings</string>
     <string name="settings_group_keyboard_desc">Layout, key sounds, vibration and previews</string>
     <string name="settings_group_dicts_title">Dictionaries &amp; downloads</string>
-    <string name="settings_group_dicts_desc">Full dictionary pack, enhancement model</string>
+    <string name="settings_group_dicts_desc">Full dictionary pack, enhancement model, reranking model</string>
     <string name="settings_group_userdict_title">User dictionary</string>
     <string name="settings_group_userdict_desc">Search, add or delete your words, import and export</string>
     <string name="settings_group_about_title">About &amp; enable</string>
@@ -83,6 +83,27 @@
     <string name="dict_gate_downloading">Downloading dictionary…</string>
     <string name="dict_gate_verifying">Verifying…</string>
     <string name="dict_gate_failed">Download failed — tap to retry</string>
+
+    <string name="neural_card_title">Reranking model (Qwen3)</string>
+    <string name="neural_card_description">Optional download — whole-sentence candidates become more accurate; needs the enhancement model above</string>
+    <string name="neural_source_link">Model source: Qwen/Qwen3-0.6B-Base ↗</string>
+    <string name="neural_status_enabled">✅ Enabled (about %1$d MB)</string>
+    <string name="neural_status_not_downloaded">⚠ Reranking model is not enabled</string>
+    <string name="neural_status_unsupported">⚠ This device\'s processor does not support the reranking model</string>
+    <string name="neural_status_fetching">Getting the model details…</string>
+    <string name="neural_status_download_failed">Download failed</string>
+    <string name="neural_status_deleted">⚠ Reranking model is not enabled (deleted)</string>
+    <string name="neural_delete_dialog_title">Delete the reranking model</string>
+    <string name="neural_delete_dialog_body">Deletes the downloaded reranking model — this cannot be undone</string>
+    <string name="neural_card_model">Model: %1$s</string>
+    <string name="neural_state_idle">Status: not loaded — it loads once you type with this keyboard</string>
+    <string name="neural_state_loading">Status: loading…</string>
+    <string name="neural_state_ready">Status: loaded (took %1$d ms)</string>
+    <string name="neural_state_failed">Status: failed to load (%1$s)</string>
+    <string name="neural_state_closed">Status: stopped</string>
+    <string name="neural_card_runs">Reranked: %1$d, first candidate changed: %2$d</string>
+    <string name="neural_card_timing">Time: last %1$d ms, mean %2$d ms, max %3$d ms</string>
+    <string name="neural_card_timeouts">Timed out without reranking: %1$d</string>
 
     <string name="fuzzy_master_title">Fuzzy Pinyin</string>
     <string name="fuzzy_master_description">Tolerate common Pinyin confusions</string>
