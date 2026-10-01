@@ -1,0 +1,32 @@
+{
+  "schema": 1,
+  "id": "qwen3-0.6b-base-q8_0",
+  "name": "Qwen3-0.6B-Base Q8_0",
+  "file": {
+    "name": "qwen3-0.6b-base-q8_0.gguf",
+    "url": "https://github.com/lurixo/Aegis/releases/download/model-latest/qwen3-0.6b-base-q8_0.gguf",
+    "bytes": 639446784,
+    "sha256": "fd15a5badaf0d117d1d62832b8fba0009c79b7b52cf62fddd2867ecbf25ae5a9"
+  },
+  "license": {
+    "spdx": "Apache-2.0",
+    "name": "MODEL-LICENSE.txt",
+    "url": "https://github.com/lurixo/Aegis/releases/download/model-latest/MODEL-LICENSE.txt",
+    "sha256": "832dd9e00a68dd83b3c3fb9f5588dad7dcf337a0db50f7d9483f310cd292e92e"
+  },
+  "rerank": {
+    "alphaLetters": 3,
+    "alphaNine": 2,
+    "candidates": 10
+  },
+  "source": {
+    "repo": "Qwen/Qwen3-0.6B-Base",
+    "revision": "da87bfb608c14b7cf20ba1ce41287e8de496c0cd"
+  },
+  "conversion": {
+    "tool": "llama.cpp",
+    "version": "v0.5.0",
+    "outtype": "bf16",
+    "quantization": "Q8_0"
+  }
+}
