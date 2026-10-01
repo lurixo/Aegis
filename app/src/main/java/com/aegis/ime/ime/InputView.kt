@@ -1281,10 +1281,14 @@ class InputView(context: Context) : LinearLayout(context) {
                     outline.setRoundRect(0, 0, view.width, view.height + r.toInt(), r)
                 }
             }
-            clipToOutline = true
         }
 
         fun topRadiusPx(): Float = topRadiusPx
+
+        override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
+            super.onLayout(changed, l, t, r, b)
+            clipToOutline = width < ((parent as? View)?.width ?: 0)
+        }
 
         override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
             super.onSizeChanged(w, h, oldw, oldh)

@@ -23,6 +23,7 @@ import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -45,6 +46,24 @@ class ImeSurfaceTopCornersTest {
         iv.layout(0, 0, iv.measuredWidth, iv.measuredHeight)
     }
 
+    private fun layoutLandscape(iv: InputView, widthPx: Int) {
+        iv.measure(
+            View.MeasureSpec.makeMeasureSpec(widthPx, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec(dp(411), View.MeasureSpec.AT_MOST),
+        )
+        iv.layout(0, 0, iv.measuredWidth, iv.measuredHeight)
+    }
+
+    private fun dp(v: Int): Int = (v * density).toInt()
+
+    private fun assertTopSquare(iv: InputView, state: String) {
+        assertEquals("$state: the surface spans its whole slot", iv.width, iv.dockSurfaceWidthPx())
+        assertFalse(
+            "$state: a full-width surface must not clip its top corners — the host behind them is not its content",
+            iv.surfaceClipsTopCornersForTest(),
+        )
+    }
+
     private fun assertTopRounded(iv: InputView, state: String) {
         val expected = ImeShapes.surfaceTopRadiusDp * density
         assertTrue("$state: the surface must clip its top corners", iv.surfaceClipsTopCornersForTest())
@@ -62,23 +81,65 @@ class ImeSurfaceTopCornersTest {
         )
     }
 
-    @Test fun surface_top_corners_rounded_at_container_level_in_every_bar_state() {
+    @Test fun full_width_surface_keeps_square_top_corners_in_every_bar_state() {
         val iv = InputView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
         layout(iv)
-        assertTopRounded(iv, "idle pill")
+        assertTopSquare(iv, "idle pill")
 
         iv.showCandidates(listOf("你好", "你", "尼", "拟"), "ni'hao", emptyList())
         layout(iv)
-        assertTopRounded(iv, "candidates")
+        assertTopSquare(iv, "candidates")
 
         iv.showCopyBar("这是一段被复制的内容")
         layout(iv)
-        assertTopRounded(iv, "copy bar")
+        assertTopSquare(iv, "copy bar")
 
         iv.hideCopyBar()
         iv.showEditBar(true)
         layout(iv)
+        assertTopSquare(iv, "edit bar")
+
+        iv.showEditBar(false)
+        iv.showPanel(View(ctx))
+        layout(iv)
+        assertTopSquare(iv, "panel")
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "w891dp-h411dp-land-xxhdpi")
+    fun floating_landscape_surface_rounds_its_top_corners_in_every_bar_state() {
+        val iv = InputView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        layoutLandscape(iv, dp(891))
+        assertTrue("this wide landscape window floats the surface", iv.isCompactLandscapeDock())
+        assertTopRounded(iv, "idle pill")
+
+        iv.showCandidates(listOf("你好", "你", "尼", "拟"), "ni'hao", emptyList())
+        layoutLandscape(iv, dp(891))
+        assertTopRounded(iv, "candidates")
+
+        iv.showEditBar(true)
+        layoutLandscape(iv, dp(891))
         assertTopRounded(iv, "edit bar")
+
+        iv.showEditBar(false)
+        iv.showPanel(View(ctx))
+        layoutLandscape(iv, dp(891))
+        assertTopRounded(iv, "panel")
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "w891dp-h411dp-land-xxhdpi")
+    fun landscape_surface_that_falls_back_to_full_width_keeps_square_top_corners() {
+        val iv = InputView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
+        layoutLandscape(iv, dp(320))
+        assertFalse("a narrow landscape window docks the surface full width", iv.isCompactLandscapeDock())
+        assertTopSquare(iv, "full-width landscape")
+
+        layoutLandscape(iv, dp(891))
+        assertTopRounded(iv, "floating again after widening")
+
+        layoutLandscape(iv, dp(320))
+        assertTopSquare(iv, "full width again after narrowing")
     }
 
     @Test fun the_preedit_tab_starts_where_the_top_corners_end() = assertPreeditTabClearsTheCorners()
