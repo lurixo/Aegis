@@ -65,7 +65,7 @@ class BackupRoundTripTest {
     private companion object {
         val DOWNLOAD_KEYS = listOf(
             "engine_pack_touch", "gram_validator", "gram_sha256", "gram_size_bytes", "dict_validator", "dict_sha256",
-            "dict_asset_name", "dict_asset_url", "dict_release_tag", "dict_release_published_at",
+            "dict_asset_name", "dict_asset_url", "dict_release_tag", "dict_release_published_at", "neural_manifest",
         )
     }
 

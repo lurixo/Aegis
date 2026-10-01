@@ -67,6 +67,7 @@ object BackupManager {
         "dict_asset_url",
         "dict_release_tag",
         "dict_release_published_at",
+        "neural_manifest",
     )
 
     private val restoring = AtomicBoolean(false)

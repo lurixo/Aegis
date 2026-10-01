@@ -308,7 +308,7 @@ object ModelDownload {
 
     enum class UpdateCheck { OFFLINE, TIMEOUT, UP_TO_DATE, UPDATE, UNKNOWN, SERVER_ERROR, PARSE_ERROR }
 
-    private fun CheckFailure.toUpdateCheck(): UpdateCheck = when (this) {
+    internal fun CheckFailure.toUpdateCheck(): UpdateCheck = when (this) {
         CheckFailure.OFFLINE -> UpdateCheck.OFFLINE
         CheckFailure.TIMEOUT -> UpdateCheck.TIMEOUT
         CheckFailure.SERVER -> UpdateCheck.SERVER_ERROR
