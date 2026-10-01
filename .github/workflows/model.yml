@@ -1,0 +1,93 @@
+name: Model CI
+
+on:
+  push:
+    branches: [model]
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify the model release manifest
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out the release commit
+        uses: actions/checkout@v7
+
+      - name: Check the manifest, the license and the tree
+        run: |
+          git ls-files > tracked.txt
+          git log -1 --format=%s > subject.txt
+          python3 - aegis-model-update.json MODEL-LICENSE.txt tracked.txt subject.txt <<'PY'
+          import hashlib
+          import json
+          import math
+          import re
+          import sys
+
+          manifest_path, license_path, tracked_path, subject_path = sys.argv[1:5]
+          base = "https://github.com/lurixo/Aegis/releases/download/model-latest/"
+          problems = []
+
+          def check(condition, message):
+              if not condition:
+                  problems.append(message)
+
+          with open(manifest_path, encoding="utf-8") as source:
+              manifest = json.load(source)
+          expected_keys = {"schema", "id", "name", "file", "license", "rerank", "source", "conversion"}
+          check(set(manifest) == expected_keys, f"top-level keys are {sorted(manifest)}")
+          check(manifest.get("schema") == 1, "schema is not 1")
+          model_id = manifest.get("id")
+          check(isinstance(model_id, str) and re.fullmatch(r"[a-z0-9][a-z0-9._-]*", model_id or ""), "id is malformed")
+          check(isinstance(manifest.get("name"), str) and manifest["name"].strip(), "name is empty")
+
+          model = manifest.get("file") or {}
+          check(set(model) == {"name", "url", "bytes", "sha256"}, f"file keys are {sorted(model)}")
+          name = model.get("name")
+          check(isinstance(name, str) and re.fullmatch(r"[A-Za-z0-9._-]+\.gguf", name or ""), "file name is malformed")
+          check(model.get("url") == f"{base}{name}", "file url does not point at the model-latest asset")
+          check(type(model.get("bytes")) is int and model["bytes"] > 0, "file bytes is not a positive integer")
+          check(isinstance(model.get("sha256"), str) and re.fullmatch(r"[0-9a-f]{64}", model.get("sha256") or ""), "file sha256 is malformed")
+
+          notice = manifest.get("license") or {}
+          check(set(notice) == {"spdx", "name", "url", "sha256"}, f"license keys are {sorted(notice)}")
+          check(isinstance(notice.get("spdx"), str) and notice["spdx"].strip(), "license spdx is empty")
+          check(notice.get("name") == "MODEL-LICENSE.txt", "license name is not MODEL-LICENSE.txt")
+          check(notice.get("url") == f"{base}MODEL-LICENSE.txt", "license url does not point at the model-latest asset")
+          with open(license_path, "rb") as source:
+              license_sha = hashlib.sha256(source.read()).hexdigest()
+          check(notice.get("sha256") == license_sha, "license sha256 does not match MODEL-LICENSE.txt")
+
+          rerank = manifest.get("rerank") or {}
+          check(set(rerank) == {"alphaLetters", "alphaNine", "candidates"}, f"rerank keys are {sorted(rerank)}")
+          for key in ("alphaLetters", "alphaNine"):
+              value = rerank.get(key)
+              check(type(value) in (int, float) and math.isfinite(value) and value > 0, f"rerank {key} is not a positive number")
+          check(type(rerank.get("candidates")) is int and 2 <= rerank["candidates"] <= 16, "rerank candidates is outside 2..16")
+
+          source_info = manifest.get("source") or {}
+          check(set(source_info) == {"repo", "revision"}, f"source keys are {sorted(source_info)}")
+          check(re.fullmatch(r"[A-Za-z0-9._-]+/[A-Za-z0-9._-]+", source_info.get("repo") or ""), "source repo is malformed")
+          check(re.fullmatch(r"[0-9a-f]{40}", source_info.get("revision") or ""), "source revision is not a full commit hash")
+
+          conversion = manifest.get("conversion") or {}
+          check(set(conversion) == {"tool", "version", "outtype", "quantization"}, f"conversion keys are {sorted(conversion)}")
+          for key in ("tool", "version", "outtype", "quantization"):
+              check(isinstance(conversion.get(key), str) and conversion[key].strip(), f"conversion {key} is empty")
+
+          with open(tracked_path, encoding="utf-8") as source:
+              tracked = sorted(line.strip() for line in source if line.strip())
+          check(tracked == [".github/workflows/model.yml", "MODEL-LICENSE.txt", "aegis-model-update.json"], f"tree holds {tracked}")
+          with open(subject_path, encoding="utf-8") as source:
+              subject = source.read().strip()
+          check(subject == f"Prepare model-latest {model_id}", f"release commit subject is {subject!r}")
+
+          if problems:
+              for problem in problems:
+                  print(f"::error::{problem}")
+              raise SystemExit(1)
+          print(f"manifest for {model_id} is consistent")
+          PY
