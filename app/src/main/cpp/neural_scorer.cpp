@@ -30,6 +30,7 @@ namespace {
 
 constexpr int kContextCells = 512;
 constexpr int kBatchTokens = 512;
+constexpr int kMicroBatchTokens = 32;
 
 std::once_flag gBackendOnce;
 std::mutex gLogMutex;
@@ -226,7 +227,7 @@ NeuralScorer::Impl * createImpl(llama_model * model, int threads, std::string * 
     llama_context_params params = llama_context_default_params();
     params.n_ctx = kContextCells;
     params.n_batch = kBatchTokens;
-    params.n_ubatch = kBatchTokens;
+    params.n_ubatch = kMicroBatchTokens;
     params.n_seq_max = NeuralScorer::kMaxCandidates;
     params.kv_unified = true;
     params.n_threads = threads;
