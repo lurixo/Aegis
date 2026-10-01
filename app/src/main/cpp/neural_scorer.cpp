@@ -168,8 +168,15 @@ struct NeuralScorer::Impl {
     Status decode() {
         const int32_t rc = llama_decode(ctx, batch);
         if (rc == 0) return Status::Ok;
-        reset();
         return rc == 2 ? Status::Aborted : Status::Failed;
+    }
+
+    bool dropCandidates(int base) {
+        llama_memory_t memory = llama_get_memory(ctx);
+        for (int seq = 0; seq < kMaxCandidates; ++seq) {
+            if (!llama_memory_seq_rm(memory, seq, base, -1)) return false;
+        }
+        return true;
     }
 
     Status loadPrefix(const std::vector<llama_token> & want) {
@@ -181,7 +188,10 @@ struct NeuralScorer::Impl {
             batch.n_tokens = 0;
             for (int i = from; i < to; ++i) addToken(batch, want[i], i, 0, kMaxCandidates, i == total - 1);
             const Status status = decode();
-            if (status != Status::Ok) return status;
+            if (status != Status::Ok) {
+                reset();
+                return status;
+            }
             lastIndex = to - from - 1;
         }
         const float * logits = llama_get_logits_ith(ctx, lastIndex);
@@ -335,7 +345,10 @@ NeuralScorer::Status NeuralScorer::score(const std::string & context,
         }
         if (m.batch.n_tokens > 0) {
             const Status status = m.decode();
-            if (status != Status::Ok) return status;
+            if (status != Status::Ok) {
+                if (status == Status::Failed || !m.dropCandidates(base)) m.reset();
+                return status;
+            }
         }
         for (size_t c = first; c < next; ++c) {
             const auto & toks = tokens[c];
