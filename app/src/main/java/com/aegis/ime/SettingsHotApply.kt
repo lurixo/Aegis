@@ -20,6 +20,7 @@ import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.dict.ModelDownload
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
+import com.aegis.ime.neural.NeuralModelDownload
 
 internal class SettingsHotApply(
     private val onCnLayout: (LayoutId) -> Unit,
@@ -38,6 +39,7 @@ internal class SettingsHotApply(
     private val onKeySoundVolume: (Float) -> Unit = {},
     private val onEnAssociations: (Boolean) -> Unit = {},
     private val onEmailAssociations: (Boolean) -> Unit = {},
+    private val onNeuralModelChanged: () -> Unit = {},
 ) : SharedPreferences.OnSharedPreferenceChangeListener {
 
     override fun onSharedPreferenceChanged(prefs: SharedPreferences, key: String?) {
@@ -73,6 +75,7 @@ internal class SettingsHotApply(
             key == com.aegis.ime.ui.PREF_KEY_PREVIEW_ALPHA -> onKeyPreviewAlpha(keyPreviewAlpha(prefs))
             key == com.aegis.ime.ui.PREF_LETTER_CASE -> onLetterCase(letterCase(prefs))
             key in ENGINE_ASSET_PREF_KEYS -> onEngineAssetsChanged()
+            key == NeuralModelDownload.MANIFEST_PREF -> onNeuralModelChanged()
         }
     }
 

@@ -95,6 +95,10 @@ import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
 import com.aegis.ime.dict.ModelDownload
+import com.aegis.ime.neural.NativeSentenceScorer
+import com.aegis.ime.neural.NeuralModelDownload
+import com.aegis.ime.neural.NeuralReranker
+import com.aegis.ime.neural.NeuralRuntime
 import com.aegis.ime.translate.TranslateClient
 import com.aegis.ime.translate.TranslateMode
 import java.io.File
@@ -131,6 +135,15 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         logError = { Log.w("Aegis", "translate failed", it) },
     )
     private var translateClient = TranslateClient()
+    private val neuralWorker: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "aegis-neural").apply { isDaemon = true }
+        }
+    private val neuralTimer: java.util.concurrent.ScheduledExecutorService =
+        java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r ->
+            Thread(r, "aegis-neural-timer").apply { isDaemon = true }
+        }
+    private var neuralManifest: NeuralModelDownload.Manifest? = null
     @Volatile private var panelTextSnapshot: String? = null
     private val userModel = UserModel()
     private val userLearning = UserLearning()
@@ -471,6 +484,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         onEngineAssetsChanged = {
             Handler(Looper.getMainLooper()).post { maybeReloadEngine() }
         },
+        onNeuralModelChanged = {
+            mainHandler.post { if (::controller.isInitialized) syncNeuralModel() }
+        },
         onKeySound = { sound -> mainHandler.post { inputView?.setKeySound(sound) } },
         onKeySoundVolume = { volume -> mainHandler.post { inputView?.setKeySoundVolume(volume) } },
         onKeyHaptics = { on -> mainHandler.post { inputView?.setKeyHaptics(on) } },
@@ -575,6 +591,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         controller.onShowCustomSymbols = { showCustomSymbolPanel() }
         controller.onShowCustomOperators = { showCustomOperatorPanel() }
         controller.userLearning = userLearning
+        syncNeuralModel()
         controller.onLearned = { if (!LiveUserData.restoreInProgress) liveUserDictHost.saveSoon() }
         controller.setCustomSymbols(customSymbolStore.list())
         controller.setCustomOperators(customOperatorStore.list())
@@ -640,6 +657,35 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
 
     private fun currentFuzzyRules(): Set<String> =
         SettingsHotApply.fuzzyRules(getSharedPreferences("aegis", MODE_PRIVATE))
+
+    private fun syncNeuralModel() {
+        if (neuralWorker.isShutdown) return
+        val manifest = NeuralModelDownload.installed(filesDir, getSharedPreferences("aegis", MODE_PRIVATE))
+        if (manifest == neuralManifest) return
+        neuralManifest = manifest
+        closeNeuralModel()
+        controller.neural = manifest?.let { installed ->
+            val threads = Runtime.getRuntime().availableProcessors().coerceIn(1, NEURAL_THREADS)
+            val path = NeuralModelDownload.modelFile(filesDir, installed).absolutePath
+            NeuralReranker(
+                installed.spec,
+                { NativeSentenceScorer.open(path, threads) },
+                neuralWorker,
+                mainLane,
+                { millis, task -> neuralTimer.schedule(Runnable { task() }, millis, java.util.concurrent.TimeUnit.MILLISECONDS) },
+            ).also {
+                NeuralRuntime.active = it
+                it.start()
+            }
+        }
+    }
+
+    private fun closeNeuralModel() {
+        controller.neural?.let { reranker ->
+            reranker.close()
+            if (NeuralRuntime.active === reranker) NeuralRuntime.active = null
+        }
+    }
 
     private fun maybeReloadEngine() {
         if (engineSig.isEmpty() || engineReloading) return
@@ -2759,6 +2805,9 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         personalizationBlocked = false
         unregisterBackCallback()
         runCatching { decodeWorker.shutdownNow() }
+        closeNeuralModel()
+        runCatching { neuralWorker.shutdown() }
+        runCatching { neuralTimer.shutdownNow() }
         synchronized(decodeHintLock) {
             decodeHintOpened = true
             decodeHint?.let { session -> runCatching { session.close() } }
@@ -3014,6 +3063,7 @@ private const val READ_TIMEOUT_MS = 1_500L
 private const val WEB_WRITE_SETTLE_MS = 160L
 private const val MAX_QUEUED_UNDOS = 50
 private const val PREF_TRANSLATE_MODE = "translate_mode"
+private const val NEURAL_THREADS = 4
 private const val TRANSLATE_DEBOUNCE_MS = 300L
 private const val TRANSLATE_RETRIES = 3
 private const val TRANSLATE_RETRY_MS = 1_000L

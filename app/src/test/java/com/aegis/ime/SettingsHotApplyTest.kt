@@ -22,6 +22,7 @@ import com.aegis.ime.dict.Fuzzy
 import com.aegis.ime.dict.ModelDownload
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
+import com.aegis.ime.neural.NeuralModelDownload
 import com.aegis.ime.ui.ASSOCIATIONS_DEFAULT_ON
 import com.aegis.ime.ui.AUTO_LEARN_DEFAULT_ON
 import com.aegis.ime.ui.KEY_HAPTICS_DEFAULT
@@ -69,6 +70,7 @@ class SettingsHotApplyTest {
     private val autoLearns = mutableListOf<Boolean>()
     private val fuzzySets = mutableListOf<Set<String>>()
     private var engineAssetChanges = 0
+    private var neuralModelChanges = 0
     private val keyHaptics = mutableListOf<Boolean>()
     private val keyPreviewsNine = mutableListOf<Boolean>()
     private val keyPreviewsAlpha = mutableListOf<Boolean>()
@@ -89,6 +91,7 @@ class SettingsHotApplyTest {
         onKeyPreviewAlpha = { keyPreviewsAlpha += it },
         onLetterCase = { letterCases += it },
         onKeySoundVolume = { keySoundVolumes += it },
+        onNeuralModelChanged = { neuralModelChanges++ },
     )
 
     @Test fun a_setting_carrying_the_wrong_type_reads_as_its_default_instead_of_throwing() {
@@ -139,7 +142,7 @@ class SettingsHotApplyTest {
         cnLayouts.size + defaultLangs.size + cnAssociations.size + enAssociations.size + emailAssociations.size +
             autoLearns.size + fuzzySets.size +
             engineAssetChanges + keyHaptics.size + keyPreviewsNine.size + keyPreviewsAlpha.size + letterCases.size +
-            keySoundVolumes.size
+            keySoundVolumes.size + neuralModelChanges
 
     private val allRuleKeys = Fuzzy.RULES.mapTo(LinkedHashSet()) { it.key }
 
@@ -535,6 +538,15 @@ class SettingsHotApplyTest {
             ),
             SettingsHotApply.ENGINE_ASSET_PREF_KEYS,
         )
+    }
+
+    @Test fun recording_or_dropping_the_reranking_model_triggers_only_a_model_swap_check() {
+        put { putString(NeuralModelDownload.MANIFEST_PREF, "{}") }
+        assertEquals(1, neuralModelChanges)
+        put { remove(NeuralModelDownload.MANIFEST_PREF) }
+        assertEquals(2, neuralModelChanges)
+        assertEquals(0, engineAssetChanges)
+        assertEquals(neuralModelChanges, totalActions())
     }
 
     @Test fun the_touch_counter_fires_even_when_the_validator_prefs_do_not_change() {

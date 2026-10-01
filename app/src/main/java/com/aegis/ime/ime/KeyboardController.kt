@@ -27,6 +27,7 @@ import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
+import com.aegis.ime.neural.NeuralReranker
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.RestoreTrouble
 import com.aegis.ime.user.UserLearning
@@ -116,6 +117,8 @@ class KeyboardController(
     private val decodeLock = Any()
 
     private var settlingDecode = false
+    private var settlingRerank = false
+    private var heldDecode: DecodeResult? = null
 
     private val committedPrefix = StringBuilder()
 
@@ -193,6 +196,15 @@ class KeyboardController(
     var onShowCustomSymbols: () -> Unit = {}
     var onShowCustomOperators: () -> Unit = {}
     var userLearning: UserLearning? = null
+
+    var neural: NeuralReranker? = null
+        set(value) {
+            field = value
+            val held = heldDecode ?: return
+            heldDecode = null
+            applyDecodeResult(held)
+            render()
+        }
 
     var onLearned: () -> Unit = {}
 
@@ -319,6 +331,7 @@ class KeyboardController(
         userLearning?.observeBreak()
         if (userLearning?.dirty == true) onLearned()
         decodeLane?.markSatisfiedSynchronously()
+        heldDecode = null
         drainLearning()
         beforeCursor = null
         composing.setLength(0)
@@ -937,6 +950,7 @@ class KeyboardController(
             return
         }
         ensureDecodeApplied()
+        ensureRerankApplied()
         val pick = candidates.firstOrNull()
         when {
             pick != null && pick in compositeCands -> commitCompositeCandidate(pick)
@@ -1186,6 +1200,7 @@ class KeyboardController(
 
     private fun clearComposingState() {
         decodeLane?.markSatisfiedSynchronously()
+        heldDecode = null
         composing.setLength(0)
         literalIndices.clear()
         candidates = emptyList()
@@ -1232,6 +1247,8 @@ class KeyboardController(
     }
 
     private fun refreshCandidates() {
+        neural?.invalidate()
+        heldDecode = null
         val req = buildDecodeRequest()
         val lane = decodeLane
         if (lane == null) {
@@ -1240,11 +1257,63 @@ class KeyboardController(
         } else {
             lane.submit(
                 compute = { computeDecode(req) },
-                apply = { result -> applyDecodeResult(result); if (!settlingDecode) render() },
+                apply = { result ->
+                    if (!holdForRerank(req, result)) {
+                        applyDecodeResult(result)
+                        if (!settlingDecode) render()
+                    }
+                },
                 onError = { applyDecodeResult(emptyDecodeResult()); if (!settlingDecode) render() },
             )
             if (req.idle) lane.execute { synchronized(decodeLock) { req.engine.prepareUserWords() } }
         }
+    }
+
+    private fun holdForRerank(req: DecodeRequest, result: DecodeResult): Boolean {
+        val reranker = neural ?: return false
+        if (!reranker.ready) return false
+        if (req.composingEmpty || req.mode != Mode.PINYIN || req.literalIndices.isNotEmpty() || req.lockedNonEmpty ||
+            req.drillSyllable >= 0 || req.forcedCuts.isNotEmpty() || req.emailContext != null
+        ) return false
+        if (result.candidates.isEmpty()) return false
+        val decoderContext = req.beforeCursor.takeLast(CTX_SCAN_LEN)
+        val modelContext = (req.beforeCursor + committedPrefix).takeLast(CALC_SCAN_LEN)
+        val engine = req.engine
+        heldDecode = result
+        reranker.submit(
+            context = modelContext,
+            nine = req.isNine,
+            waitMillis = RERANK_WAIT_MILLIS,
+            paths = {
+                synchronized(decodeLock) {
+                    engine.rankedSentences(req.raw, req.isNine, decoderContext, reranker.spec.candidates * RERANK_SEARCH_FACTOR)
+                }
+            },
+        ) { choice ->
+            if (heldDecode !== result) return@submit
+            heldDecode = null
+            applyDecodeResult(result)
+            val top = candidates.first()
+            if (choice != null && top.word == choice.decoderBest && top.coveredLen == req.composingLen && top.word != choice.best) {
+                candidates = listOf(Cand(choice.best, req.composingLen)) + candidates.filterNot { it.word == choice.best }
+            }
+            if (!settlingRerank && !settlingDecode) render()
+        }
+        return true
+    }
+
+    private fun ensureRerankApplied() {
+        val reranker = neural ?: return
+        settlingRerank = true
+        try {
+            reranker.settle(RERANK_WAIT_MILLIS)
+        } finally {
+            settlingRerank = false
+        }
+        val held = heldDecode ?: return
+        heldDecode = null
+        reranker.invalidate()
+        applyDecodeResult(held)
     }
 
     private fun ensureDecodeApplied() {
@@ -1790,7 +1859,7 @@ class KeyboardController(
                 mode() == Mode.PINYIN && composing.isNotEmpty()
             },
             preeditModel = preeditModel(preedit),
-            candidatesPending = decodeLane?.pending == true,
+            candidatesPending = decodeLane?.pending == true || heldDecode != null,
         )
     }
 
@@ -1966,6 +2035,8 @@ class KeyboardController(
         const val CALC_SCAN_LEN = 32
         const val CTX_SCAN_LEN = 16
         const val EMAIL_SCAN_LEN = 256
+        const val RERANK_WAIT_MILLIS = 300L
+        const val RERANK_SEARCH_FACTOR = 2
     }
 }
 
