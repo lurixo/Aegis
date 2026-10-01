@@ -18,6 +18,8 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cstdint>
+#include <cstring>
 #include <mutex>
 
 #include "llama.h"
@@ -58,20 +60,56 @@ bool abortRequested(void * data) {
     return static_cast<std::atomic<bool> *>(data)->load(std::memory_order_relaxed);
 }
 
+float expNonPositive(float x) {
+    x = x < -87.0f ? -87.0f : x;
+    const float n = (x * 1.44269504088896341f + 12582912.0f) - 12582912.0f;
+    const float r = (x - n * 0.693145751953125f) - n * 1.42860682030941723212e-6f;
+    float p = 1.9875691500e-4f;
+    p = p * r + 1.3981999507e-3f;
+    p = p * r + 8.3334519073e-3f;
+    p = p * r + 4.1665795894e-2f;
+    p = p * r + 1.6666665459e-1f;
+    p = p * r + 5.0000001201e-1f;
+    p = p * r * r + r + 1.0f;
+    int32_t bits;
+    std::memcpy(&bits, &p, sizeof bits);
+    bits += static_cast<int32_t>(n) << 23;
+    float out;
+    std::memcpy(&out, &bits, sizeof out);
+    return out;
+}
+
+double logSumExp(const float * logits, int nVocab) {
+    constexpr int kLanes = 8;
+    constexpr int kBlock = 4096;
+    const int whole = nVocab - nVocab % kLanes;
+    float peaks[kLanes];
+    for (float & peak : peaks) peak = logits[0];
+    for (int i = 0; i < whole; i += kLanes) {
+        for (int l = 0; l < kLanes; ++l) peaks[l] = logits[i + l] > peaks[l] ? logits[i + l] : peaks[l];
+    }
+    float peak = peaks[0];
+    for (int l = 1; l < kLanes; ++l) peak = peaks[l] > peak ? peaks[l] : peak;
+    for (int i = whole; i < nVocab; ++i) peak = logits[i] > peak ? logits[i] : peak;
+    double total = 0.0;
+    for (int from = 0; from < whole; from += kBlock) {
+        const int to = std::min(whole, from + kBlock);
+        float sums[kLanes] = {};
+        for (int i = from; i < to; i += kLanes) {
+            for (int l = 0; l < kLanes; ++l) sums[l] += expNonPositive(logits[i + l] - peak);
+        }
+        for (float sum : sums) total += sum;
+    }
+    for (int i = whole; i < nVocab; ++i) total += expNonPositive(logits[i] - peak);
+    return static_cast<double>(peak) + std::log(total);
+}
+
 double logprobOf(const float * logits, int nVocab, llama_token token) {
-    float peak = logits[0];
-    for (int i = 1; i < nVocab; ++i) peak = std::max(peak, logits[i]);
-    double sum = 0.0;
-    for (int i = 0; i < nVocab; ++i) sum += std::exp(static_cast<double>(logits[i] - peak));
-    return static_cast<double>(logits[token] - peak) - std::log(sum);
+    return static_cast<double>(logits[token]) - logSumExp(logits, nVocab);
 }
 
 void logSoftmax(const float * logits, int nVocab, std::vector<float> * out) {
-    float peak = logits[0];
-    for (int i = 1; i < nVocab; ++i) peak = std::max(peak, logits[i]);
-    double sum = 0.0;
-    for (int i = 0; i < nVocab; ++i) sum += std::exp(static_cast<double>(logits[i] - peak));
-    const double norm = static_cast<double>(peak) + std::log(sum);
+    const double norm = logSumExp(logits, nVocab);
     out->resize(nVocab);
     for (int i = 0; i < nVocab; ++i) (*out)[i] = static_cast<float>(static_cast<double>(logits[i]) - norm);
 }
