@@ -332,7 +332,7 @@ does not substitute a historical model or silently select another dictionary pac
 
 Aegis's own code is **GPL-3.0** (see [`LICENSE`](LICENSE)). Aegis ships a **self-built decoder**
 (clean-room Kotlin) and is an **independent project, not affiliated with the RIME project**; it
-links no librime / native code. It stands on open data from the **wanxiang** project by **amzxyz**,
+links no librime code, and its only native code is the reranking scorer built on llama.cpp. It stands on open data from the **wanxiang** project by **amzxyz**,
 with our deepest thanks. The third-party attribution / ShareAlike obligations below are not waived
 by Aegis's own license.
 
@@ -353,6 +353,10 @@ reverse-engineered from **librime-octagram** (GPL-3.0) + **darts-clone**; no ups
 **OpenCC data** (`tools/t2s-data`): traditional-to-simplified and variant mappings, **Apache-2.0**
 (see `tools/t2s-data/LICENSE-OpenCC` and `tools/t2s-data/PROVENANCE.md`); used at dictionary-build
 time only.
+
+**llama.cpp / ggml:** (c) The ggml authors, **MIT** ([llama.cpp](https://github.com/ggml-org/llama.cpp),
+tag `v0.5.0`), including llamafile matrix code (c) 2024 Mozilla Foundation, MIT. Statically linked,
+unmodified, into the reranking scorer `libaegis_neural.so`.
 
 **Other:** AndroidX / Jetpack Compose / Material 3 / Kotlin stdlib: Apache-2.0; JUnit: EPL (test
 scope only, not distributed). Algorithm references (not vendored): AOSP PinyinIME (Apache-2.0),

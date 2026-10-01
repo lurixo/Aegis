@@ -312,6 +312,8 @@
     <string name="license_tgh_note">随 APK 打包的汉字分级表，取自国家规范，属非官方转录</string>
     <string name="license_androidx_name">AndroidX · Compose · Material 3 · Kotlin</string>
     <string name="license_androidx_note">应用 UI 框架与 Kotlin 标准库，未作修改</string>
+    <string name="license_llama_name">llama.cpp / ggml</string>
+    <string name="license_llama_note">重排打分器的端上推理引擎，未作修改，静态链接；其中的 llamafile 矩阵运算代码归 Mozilla Foundation</string>
     <string name="license_aegis_name">Aegis</string>
     <string name="license_aegis_note">本应用自身，依据 GNU 通用公共许可证第 3 版发布，不提供任何担保</string>
 

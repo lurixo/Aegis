@@ -14,6 +14,7 @@ plugins {
 android {
     namespace = "com.aegis.ime"
     compileSdk = 37
+    ndkVersion = "30.0.16248370"
 
     defaultConfig {
         applicationId = "com.aegis.ime"
@@ -21,6 +22,7 @@ android {
         targetSdk = 37
         versionName = "0.1.0"
         versionCode = 9230
+        externalNativeBuild.cmake.arguments += "-DCMAKE_BUILD_TYPE=Release"
     }
 
     buildTypes {
@@ -46,6 +48,13 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    externalNativeBuild {
+        cmake {
+            path = file("src/main/cpp/CMakeLists.txt")
+            version = "4.1.2"
+        }
     }
 
     packaging {

@@ -314,6 +314,8 @@
     <string name="license_tgh_note">The character grading table packaged in the APK, from the national standard — an unofficial transcription</string>
     <string name="license_androidx_name">AndroidX · Compose · Material 3 · Kotlin</string>
     <string name="license_androidx_note">The app UI toolkit and the Kotlin standard library, unmodified</string>
+    <string name="license_llama_name">llama.cpp / ggml</string>
+    <string name="license_llama_note">The on-device engine of the reranking scorer, statically linked and unmodified; Mozilla Foundation holds the llamafile matrix code</string>
     <string name="license_aegis_name">Aegis</string>
     <string name="license_aegis_note">This app itself, released under the GNU General Public License version 3 with no warranty</string>
 

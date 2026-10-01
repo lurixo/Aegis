@@ -7,8 +7,9 @@ enable → Open-source licenses** screen shows the same list, and every download
 carries a `NOTICE.txt` repeating the dictionary attribution. The full text of every license named
 below is reproduced in the appendices.
 
-Aegis ships a **self-built decoder** (clean-room Kotlin), links no rime / librime / native code, and is
-an independent project not affiliated with the RIME project.
+Aegis ships a **self-built decoder** (clean-room Kotlin), links no rime / librime code, and is an
+independent project not affiliated with the RIME project. Its only native code is the
+sentence-reranking scorer, which statically links llama.cpp (section 9).
 
 ---
 
@@ -138,6 +139,22 @@ an independent project not affiliated with the RIME project.
   recordings above. Original pitch and audible press/release timing preserved. The
   processed 16-bit PCM samples receive the same uniform 1.375x gain and are stored
   with lossless FLAC encoding at 44.1 kHz.
+
+## 9. llama.cpp / ggml — MIT
+
+- **Copyright:** © 2023-2026 The ggml authors; `ggml/src/ggml-cpu/llamafile/sgemm.cpp` © 2024
+  Mozilla Foundation.
+- **License:** MIT, both notices (full text in Appendix E and `assets/licenses/llama-cpp.txt` in the
+  APK)
+- **Source:** <https://github.com/ggml-org/llama.cpp>, tag `v0.5.0` (source archive SHA-256
+  `fef9ed754f4e031fb5c663c29260feda4ebc241abb68d64a81c0f1df5f1748e2`), fetched at build time.
+- **Used in:** `lib/<abi>/libaegis_neural.so`, the on-device scorer for the optional reranking model.
+  The `llama`, `ggml`, `ggml-base` and `ggml-cpu` libraries are linked statically; the upstream
+  `vendor/hash` library is built but not linked. `src/unicode-data.cpp` holds tables generated from
+  the Unicode Character Database (Unicode License, Appendix C).
+- **Modifications:** none to the upstream source. Built as static libraries with the CPU backend
+  only; OpenMP, dynamic backends and the upstream common code, tools, tests and examples are
+  disabled.
 
 ## Other references (not vendored, no source copied)
 
@@ -822,4 +839,52 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+## Appendix E — MIT License (llama.cpp / ggml)
+
+MIT License
+
+Copyright (c) 2023-2026 The ggml authors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+`ggml/src/ggml-cpu/llamafile/sgemm.cpp`:
+
+Copyright 2024 Mozilla Foundation
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
+BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN
+ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.

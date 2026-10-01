@@ -206,7 +206,7 @@ build-info 和更新 manifest，才能成为 `dict-latest` 的发布候选；上
 
 ## 许可与致谢
 
-Aegis 自身代码为 **GPL-3.0**（见 [`LICENSE`](LICENSE)）。Aegis 采用**自研解码器**（净室 Kotlin），是一个**独立项目，与 RIME 项目无从属关系**——不链接任何 librime 或原生代码。它立足于 **amzxyz** 的
+Aegis 自身代码为 **GPL-3.0**（见 [`LICENSE`](LICENSE)）。Aegis 采用**自研解码器**（净室 Kotlin），是一个**独立项目，与 RIME 项目无从属关系**——不链接任何 librime 代码，唯一的原生代码是基于 llama.cpp 的重排打分器。它立足于 **amzxyz** 的
 **万象（wanxiang）** 项目所提供的开放数据，在此致以最深的谢意。下述第三方署名与相同方式共享义务不因 Aegis 自身许可而被免除。
 
 **rime-wanxiang 词库** —— © amzxyz 及 rime-wanxiang 贡献者，**CC BY 4.0**，见
@@ -218,6 +218,10 @@ Aegis 自身代码为 **GPL-3.0**（见 [`LICENSE`](LICENSE)）。Aegis 采用**
 
 **OpenCC 数据**（`tools/t2s-data`）—— 繁转简与异体映射，**Apache-2.0**（见
 `tools/t2s-data/LICENSE-OpenCC` 与 `tools/t2s-data/PROVENANCE.md`）；仅在构建词库时使用。
+
+**llama.cpp / ggml** —— © The ggml authors，**MIT**，见
+[llama.cpp](https://github.com/ggml-org/llama.cpp)（tag `v0.5.0`）；其中的 llamafile 矩阵运算代码
+© 2024 Mozilla Foundation，MIT。未作修改，静态链接进重排打分器 `libaegis_neural.so`。
 
 **其他：**AndroidX、Jetpack Compose、Material 3、Kotlin 标准库 —— Apache-2.0；JUnit —— EPL
 （仅测试范围，不随包分发）。算法参考（未内联引入）：AOSP PinyinIME（Apache-2.0）、

@@ -52,6 +52,7 @@ class LicensesTest {
         R.string.license_emoji_name,
         R.string.license_tgh_name,
         R.string.license_androidx_name,
+        R.string.license_llama_name,
         R.string.license_mechvibes_name,
         R.string.license_silver_name,
     )
@@ -79,6 +80,7 @@ class LicensesTest {
             "通用规范汉字表", "State Council", "gov.cn/zwgk/2013-08/19/content_2469793", "aegis_tgh.bin",
             "AndroidX", "Compose", "Material 3", "Kotlin",
             "Mechvibes", "2021 Hai Nguyen", "MIT License", "key_blue.flac", "key_brown.flac", "key_red.flac",
+            "llama.cpp", "The ggml authors", "Mozilla Foundation", "libaegis_neural.so", "assets/licenses/llama-cpp.txt",
             "Apache License", "Version 2.0",
             "TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION",
             "Limitation of Liability",
@@ -90,6 +92,14 @@ class LicensesTest {
             emptyList<String>(),
             unnamedDictionaryBins(doc),
         )
+    }
+
+    @Test fun the_apk_carries_both_mit_notices_for_the_linked_llama_cpp() {
+        val text = File("src/main/assets/licenses/llama-cpp.txt").readText()
+        for (needle in listOf("Copyright (c) 2023-2026 The ggml authors", "Copyright 2024 Mozilla Foundation")) {
+            assertTrue("llama-cpp.txt must carry '$needle'", text.contains(needle))
+        }
+        assertEquals(2, Regex("Permission is hereby granted").findAll(text).count())
     }
 
     @Test fun the_binary_coverage_check_fails_when_a_binary_goes_unnamed() {
@@ -124,6 +134,7 @@ class LicensesTest {
             "license_emoji_name", "license_emoji_note",
             "license_tgh_name", "license_tgh_note",
             "license_androidx_name", "license_androidx_note",
+            "license_llama_name", "license_llama_note",
         )) {
             assertTrue("EN strings.xml must define '$key'", en.contains("name=\"$key\""))
             assertTrue("ZH strings.xml must define '$key'", zh.contains("name=\"$key\""))
@@ -150,6 +161,7 @@ class LicensesTest {
         R.string.license_emoji_name to "https://www.unicode.org/license.txt",
         R.string.license_tgh_name to "https://www.gov.cn/zwgk/2013-08/19/content_2469793.htm",
         R.string.license_androidx_name to "https://developer.android.com/jetpack/androidx",
+        R.string.license_llama_name to "https://github.com/ggml-org/llama.cpp",
     )
 
     @Test fun each_component_card_taps_through_to_its_upstream_url_every_time() {
