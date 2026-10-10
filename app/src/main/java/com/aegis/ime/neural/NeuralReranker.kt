@@ -15,6 +15,7 @@
 
 package com.aegis.ime.neural
 
+import com.aegis.ime.dict.DecodeCancellation
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
@@ -135,7 +136,8 @@ class NeuralReranker(
             return
         }
         val started = nanoTime()
-        val ranked = runCatching { paths() }.getOrDefault(emptyList()).take(spec.candidates)
+        val generated = DecodeCancellation.attempt({ gen != latest.get() }, paths) ?: return
+        val ranked = generated.getOrDefault(emptyList()).take(spec.candidates)
         if (gen != latest.get()) return
         if (ranked.size < 2) {
             deliver(gen) { apply(null) }

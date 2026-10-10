@@ -15,6 +15,7 @@
 
 package com.aegis.ime.neural
 
+import com.aegis.ime.dict.DecodeCancellation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -23,7 +24,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -175,6 +179,110 @@ class NeuralRerankerTest {
         assertEquals(listOf("new:拟好"), chosen)
         assertEquals(listOf("new"), scorer.contexts)
     }
+
+    private fun newerJobCancelsThePathGenerationInFlight(nine: Boolean) {
+        val q = Queues()
+        val scorer = FakeScorer(prefersSecond)
+        val r = started(q, scorer)
+        val chosen = ArrayList<String>()
+        var oldFinished = false
+        r.submit("old", nine = nine, waitMillis = WAIT, paths = {
+            r.submit("new", nine = nine, waitMillis = WAIT, paths = { paths }) { chosen.add("new:" + it?.best) }
+            DecodeCancellation.checkpoint()
+            oldFinished = true
+            paths
+        }) { chosen.add("old:" + it?.best) }
+        q.runWorker(); q.runMain()
+        assertFalse(oldFinished)
+        assertEquals(listOf("new:拟好"), chosen)
+        assertEquals(listOf("new"), scorer.contexts)
+        assertEquals(1, r.snapshot().runs)
+    }
+
+    @Test fun a_newer_job_cancels_the_path_generation_in_flight_on_26key() = newerJobCancelsThePathGenerationInFlight(nine = false)
+
+    @Test fun a_newer_job_cancels_the_path_generation_in_flight_on_9key() = newerJobCancelsThePathGenerationInFlight(nine = true)
+
+    private fun invalidatingCancelsAPathGenerationThatHoldsTheDecodeLock(nine: Boolean) {
+        val q = Queues()
+        val scorer = FakeScorer(prefersSecond)
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            val r = NeuralReranker(spec, { scorer }, worker, Executor { q.main.add(it) }, q.schedule)
+            r.start()
+            val lock = Any()
+            val entered = CountDownLatch(1)
+            var ranOut = false
+            val chosen = ArrayList<String>()
+            r.submit("", nine = nine, waitMillis = WAIT, paths = {
+                synchronized(lock) {
+                    entered.countDown()
+                    val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+                    while (System.nanoTime() < deadline) {
+                        DecodeCancellation.checkpoint()
+                        Thread.sleep(1)
+                    }
+                    ranOut = true
+                    paths
+                }
+            }) { chosen.add(it?.best ?: NONE) }
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            val before = System.nanoTime()
+            r.invalidate()
+            synchronized(lock) {}
+            val waited = System.nanoTime() - before
+            assertTrue("waited ${waited / 1_000_000L} ms for the lock", waited < TimeUnit.SECONDS.toNanos(2))
+            worker.submit {}.get(15, TimeUnit.SECONDS)
+            q.runMain()
+            assertFalse(ranOut)
+            assertTrue(chosen.isEmpty())
+            assertTrue(scorer.batches.isEmpty())
+            assertEquals(0, r.snapshot().runs)
+        } finally {
+            worker.shutdown()
+            worker.awaitTermination(5, TimeUnit.SECONDS)
+        }
+    }
+
+    @Test fun invalidating_cancels_a_path_generation_that_holds_the_decode_lock_on_26key() =
+        invalidatingCancelsAPathGenerationThatHoldsTheDecodeLock(nine = false)
+
+    @Test fun invalidating_cancels_a_path_generation_that_holds_the_decode_lock_on_9key() =
+        invalidatingCancelsAPathGenerationThatHoldsTheDecodeLock(nine = true)
+
+    private fun currentJobPassesEveryPathCheckpoint(nine: Boolean) {
+        val q = Queues()
+        val scorer = FakeScorer(prefersSecond)
+        val r = started(q, scorer)
+        val chosen = ArrayList<String>()
+        r.submit("", nine = nine, waitMillis = WAIT, paths = {
+            repeat(3) { DecodeCancellation.checkpoint() }
+            paths
+        }) { chosen.add(it?.best ?: NONE) }
+        q.runWorker(); q.runMain()
+        assertEquals(listOf("拟好"), chosen)
+        assertEquals(listOf("你好", "拟好", "你号"), scorer.batches.single())
+        assertEquals(1, r.snapshot().runs)
+    }
+
+    @Test fun a_current_job_passes_every_path_checkpoint_on_26key() = currentJobPassesEveryPathCheckpoint(nine = false)
+
+    @Test fun a_current_job_passes_every_path_checkpoint_on_9key() = currentJobPassesEveryPathCheckpoint(nine = true)
+
+    private fun failedPathGenerationDeliversNoChoice(nine: Boolean) {
+        val q = Queues()
+        val scorer = FakeScorer(prefersSecond)
+        val r = started(q, scorer)
+        val chosen = ArrayList<String>()
+        r.submit("", nine = nine, waitMillis = WAIT, paths = { error("broken lattice") }) { chosen.add(it?.best ?: NONE) }
+        q.runWorker(); q.runMain()
+        assertEquals(listOf(NONE), chosen)
+        assertTrue(scorer.batches.isEmpty())
+    }
+
+    @Test fun a_failed_path_generation_delivers_no_choice_on_26key() = failedPathGenerationDeliversNoChoice(nine = false)
+
+    @Test fun a_failed_path_generation_delivers_no_choice_on_9key() = failedPathGenerationDeliversNoChoice(nine = true)
 
     @Test fun an_aborted_score_delivers_nothing() {
         val q = Queues()

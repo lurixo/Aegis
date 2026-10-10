@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import com.aegis.ime.decoder.Cand
+import com.aegis.ime.dict.DecodeCancellation
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
@@ -30,6 +31,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
 import org.robolectric.annotation.Config
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -55,12 +57,23 @@ class NeuralRerankControllerTest {
     private class Engine : CandidateEngine {
         val rankedCalls = ArrayList<String>()
         var leading: String? = null
+        var rankedEntered: CountDownLatch? = null
+        @Volatile var rankedRanOut = false
         override val supportsChinese: Boolean = true
         override fun candidates(composing: String, t9: Boolean): List<String> = words(composing, t9)
         override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
             words(composing, t9).map { Cand(it, composing.length) }
         override fun rankedSentences(composing: String, t9: Boolean, context: CharSequence, limit: Int): List<Pair<String, Double>> {
             rankedCalls.add("$composing|$t9|$context|$limit")
+            rankedEntered?.let { entered ->
+                entered.countDown()
+                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+                while (System.nanoTime() < deadline) {
+                    DecodeCancellation.checkpoint()
+                    Thread.sleep(1)
+                }
+                rankedRanOut = true
+            }
             return if (key(composing, t9)) listOf("你好" to -10.0, "拟好" to -11.0, "你号" to -12.0) else emptyList()
         }
         private fun key(composing: String, t9: Boolean) = composing == (if (t9) "64426" else "nihao")
@@ -221,6 +234,43 @@ class NeuralRerankControllerTest {
             worker.awaitTermination(5, TimeUnit.SECONDS)
         }
     }
+
+    private fun nextKeyCancelsAStalePathGeneration(nine: Boolean) {
+        val engine = Engine().apply { rankedEntered = CountDownLatch(1) }
+        val worker = Executors.newSingleThreadExecutor()
+        try {
+            val (c, q, r) = setup(engine, reranker = {
+                NeuralReranker(spec, { Scorer() }, worker, Executor { r -> it.neuralMain.add(r) }, it.schedule)
+            })
+            worker.submit {}.get(5, TimeUnit.SECONDS)
+            assertTrue(r.ready)
+            c.switchTextLayoutForTest(nine)
+            val input = if (nine) "64426" else "nihao"
+            type(c, input)
+            q.decode()
+            assertTrue(engine.rankedEntered!!.await(5, TimeUnit.SECONDS))
+            val before = System.nanoTime()
+            type(c, input.take(1))
+            q.decode()
+            val waited = System.nanoTime() - before
+            assertTrue("waited ${waited / 1_000_000L} ms to decode", waited < TimeUnit.SECONDS.toNanos(2))
+            worker.submit {}.get(15, TimeUnit.SECONDS)
+            q.neural()
+            assertFalse(engine.rankedRanOut)
+            assertEquals(1, engine.rankedCalls.size)
+            assertTrue(engine.rankedCalls.single().startsWith("$input|$nine|"))
+            assertTrue(c.candidateWords().isEmpty())
+        } finally {
+            worker.shutdown()
+            worker.awaitTermination(5, TimeUnit.SECONDS)
+        }
+    }
+
+    @Test fun the_next_key_cancels_a_stale_path_generation_instead_of_waiting_for_it_on_26key() =
+        nextKeyCancelsAStalePathGeneration(nine = false)
+
+    @Test fun the_next_key_cancels_a_stale_path_generation_instead_of_waiting_for_it_on_9key() =
+        nextKeyCancelsAStalePathGeneration(nine = true)
 
     @Test fun space_falls_back_to_the_decoder_sentence_when_the_model_never_answers() {
         val host = Host()
