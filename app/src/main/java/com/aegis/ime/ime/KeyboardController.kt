@@ -1096,7 +1096,8 @@ class KeyboardController(
         learnOnWorker {
             val spelled = target.spelledReading(word, reading)
             if (spelled.isNotEmpty()) {
-                target.learnWord(spelled, word, assembled)
+                if (target.isDictionaryWord(word, spelled)) target.learnWordUse(word, assembled)
+                else target.learnWord(spelled, word, assembled)
                 onLearned()
             }
         }

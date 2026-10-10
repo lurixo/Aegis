@@ -84,6 +84,16 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         val r = sanitizeReading(reading)
         if (!isValidWord(word) || r.isEmpty() || r.length > MAX_READING_LENGTH) return
         if (readings.getOrPut(r) { LinkedHashSet() }.add(word)) readingsVersion++
+        noteWordUse(word, now, incrementCount)
+    }
+
+    @Synchronized
+    fun recordWordUse(word: String, now: Long, incrementCount: Boolean) {
+        if (!autoLearnEnabled || !isValidWord(word)) return
+        noteWordUse(word, now, incrementCount)
+    }
+
+    private fun noteWordUse(word: String, now: Long, incrementCount: Boolean) {
         if (incrementCount) {
             count[word] = saturatingAdd(count[word] ?: 0, 1)
         } else if (word !in count) {

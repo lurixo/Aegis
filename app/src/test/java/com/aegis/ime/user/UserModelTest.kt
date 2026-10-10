@@ -222,6 +222,32 @@ class UserModelTest {
     }
 
     @Test
+    fun recordWordUse_countsAndBoostsWithoutListingAUserWord() {
+        val m = UserModel { 1_000L }
+        m.recordWordUse("词库", 10, incrementCount = true)
+        m.recordWordUse("词库", 11, incrementCount = false)
+        assertTrue(m.readingSnapshot().isEmpty())
+        assertTrue(m.userWordEntries().isEmpty())
+        assertTrue(m.wordBoost("词库") > 0.0)
+        assertTrue(m.dirty)
+        m.recordWordUse("词库", 12, incrementCount = true)
+        val file = File.createTempFile("userdb", ".txt")
+        m.save(file)
+        val loaded = UserModel { 1_000L }.apply { load(file) }
+        assertTrue(loaded.readingSnapshot().isEmpty())
+        assertEquals(m.wordBoost("词库"), loaded.wordBoost("词库"), 1e-9)
+        file.delete()
+    }
+
+    @Test
+    fun recordWordUse_isSkippedWhileAutoLearningIsOff() {
+        val m = UserModel().apply { autoLearnEnabled = false }
+        m.recordWordUse("词库", 10, incrementCount = true)
+        assertEquals(0.0, m.wordBoost("词库"), 0.0)
+        assertFalse(m.dirty)
+    }
+
+    @Test
     fun mergingTheDiskFileKeepsUnsavedLearningDirty() {
         val file = File.createTempFile("userdb", ".txt")
         UserModel().apply { record(null, "落盘", 1000) }.save(file)

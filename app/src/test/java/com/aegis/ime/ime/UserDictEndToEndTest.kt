@@ -24,6 +24,7 @@ import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -45,9 +46,15 @@ class UserDictEndToEndTest {
         EngineFixture.Row("ku", "库", 900), EngineFixture.Row("ku", "哭", 800),
         EngineFixture.Row("hao", "好", 950),
         EngineFixture.Row("ciku", "词库", 850),
+        EngineFixture.Row("ouyang", "欧阳", 700), EngineFixture.Row("ou", "欧", 600), EngineFixture.Row("yang", "阳", 600),
+        EngineFixture.Row("ming", "明", 700),
+        EngineFixture.Row("yue", "月", 700), EngineFixture.Row("hua", "华", 700),
     )
-    private fun letterDict(): BinaryDict = EngineFixture.build(rows)
-    private fun t9Dict(): BinaryDict = EngineFixture.build(rows.map { EngineFixture.Row(T9Pinyin.toT9(it.key), it.word, it.freq) })
+    private val rival = EngineFixture.Row("ciku", "此库", 900)
+    private val everySyllable = T9Pinyin.SYLLABLES.map { EngineFixture.Row(it, "丌", 1) }
+    private fun letterDict(extra: List<EngineFixture.Row> = emptyList()): BinaryDict = EngineFixture.build(rows + extra)
+    private fun t9Dict(extra: List<EngineFixture.Row> = emptyList()): BinaryDict =
+        EngineFixture.build((rows + extra).map { EngineFixture.Row(T9Pinyin.toT9(it.key), it.word, it.freq) })
 
     private val lmFile = java.io.File("src/main/assets/aegis_lm.bin")
     private val lm: com.aegis.ime.dict.CharBigramLM by lazy { com.aegis.ime.dict.CharBigramLM.fromFile(lmFile) }
@@ -56,11 +63,12 @@ class UserDictEndToEndTest {
         org.junit.Assume.assumeTrue("real LM asset present (production engine wiring)", lmFile.exists())
     }
 
-    private fun engine(um: UserModel) = DictEngine(letterDict(), t9Dict(), lm, um)
+    private fun engine(um: UserModel, extra: List<EngineFixture.Row> = emptyList()) =
+        DictEngine(letterDict(extra), t9Dict(extra), lm, um)
     private fun out(s: String) = Key(s, output = s)
-    private fun controller(um: UserModel): Pair<KeyboardController, EditorHost> {
+    private fun controller(um: UserModel, extra: List<EngineFixture.Row> = emptyList()): Pair<KeyboardController, EditorHost> {
         val h = EditorHost()
-        return KeyboardController(h, engine(um)) to h
+        return KeyboardController(h, engine(um, extra)) to h
     }
 
     private fun pick(c: KeyboardController, word: String) {
@@ -149,7 +157,7 @@ class UserDictEndToEndTest {
         assertEquals("flush-committed assembled word is learned under its reading", listOf("此是"), um.readingSnapshot()["cishi"])
     }
 
-    @Test fun exact_dictionary_word_is_saved_once_and_recalled_after_reload() {
+    @Test fun exact_dictionary_word_is_counted_but_not_saved_as_a_user_word() {
         val um = UserModel()
         val (c, h) = controller(um)
         switchAlpha(c)
@@ -162,17 +170,74 @@ class UserDictEndToEndTest {
         "ciku".forEach { c.onKey(out(it.toString())) }
         pick(c, "词库")
         assertEquals("次词库", h.text)
-        assertEquals(listOf("词库"), um.readingSnapshot()["ciku"])
-        assertEquals(1, um.userWordEntries().single { it.word == "词库" }.count)
+        assertTrue("an installed dictionary word is not filed as a user word", um.readingSnapshot().isEmpty())
+        assertTrue(um.userWordEntries().none { it.word == "词库" })
+        assertTrue("its use is still counted", um.wordBoost("词库") > 0.0)
 
         val file = File.createTempFile("userdb-exact", ".txt").also { it.deleteOnExit() }
         um.save(file)
         val loaded = UserModel().apply { load(file) }
-        assertEquals(listOf("词库"), loaded.readingSnapshot()["ciku"])
+        assertTrue(loaded.readingSnapshot().isEmpty())
+        assertTrue("the counted use survives a reload", loaded.wordBoost("词库") > 0.0)
         val fallback = EngineFixture.build(listOf(EngineFixture.Row("bie", "别", 100)))
         val recalled = PinyinDecoder(fallback, lm, userModel = loaded).decodeCovered("ciku", 30).map { it.word }
-        assertTrue("词库" in recalled)
+        assertFalse("without the dictionary nothing recalls it as a user word", "词库" in recalled)
     }
+
+    private fun longNameIsLearnedFirstTimeAndRecalledAfterReload(nine: Boolean) {
+        val um = UserModel()
+        val (c, h) = controller(um, everySyllable)
+        if (nine) switchNine(c) else switchAlpha(c)
+        val reading = "ouyangmingyuehua"
+        val typed = if (nine) T9Pinyin.toT9(reading) else reading
+        typed.forEach { c.onKey(out(it.toString())) }
+        pick(c, "欧阳")
+        pick(c, "明")
+        pick(c, "月")
+        pick(c, "华")
+        assertEquals("欧阳明月华", h.text)
+        assertEquals("a five-character name is learned the first time it is assembled: ${um.readingSnapshot()}", listOf("欧阳明月华"), um.readingSnapshot()[reading])
+        assertEquals(listOf("欧阳明月华"), um.userWordEntries().map { it.word })
+
+        val file = File.createTempFile("userdb-name", ".txt").also { it.deleteOnExit() }
+        um.save(file)
+        val loaded = UserModel().apply { load(file) }
+        val (c2, _) = controller(loaded, everySyllable)
+        if (nine) switchNine(c2) else switchAlpha(c2)
+        typed.forEach { c2.onKey(out(it.toString())) }
+        assertTrue("the name is recalled after a reload: ${c2.candidateWords()}", "欧阳明月华" in c2.candidateWords())
+    }
+
+    @Test fun long_name_assembled_once_is_learned_and_recalled_after_reload_on26key() =
+        longNameIsLearnedFirstTimeAndRecalledAfterReload(nine = false)
+
+    @Test fun long_name_assembled_once_is_learned_and_recalled_after_reload_on9key() =
+        longNameIsLearnedFirstTimeAndRecalledAfterReload(nine = true)
+
+    private fun dictionaryWordUseBoostsWithoutFilingIt(nine: Boolean) {
+        val um = UserModel()
+        val (c, h) = controller(um, everySyllable + rival)
+        if (nine) switchNine(c) else switchAlpha(c)
+        val typed = if (nine) T9Pinyin.toT9("ciku") else "ciku"
+        typed.forEach { c.onKey(out(it.toString())) }
+        val before = c.candidateWords()
+        assertTrue("词库 leads before any use: $before", before.indexOf("词库") in 0 until before.indexOf("此库"))
+        pick(c, "此")
+        pick(c, "库")
+        assertEquals("此库", h.text)
+        assertTrue("an assembled dictionary word is not filed as a user word: ${um.readingSnapshot()}", um.readingSnapshot().isEmpty())
+        assertTrue(um.userWordEntries().isEmpty())
+        assertTrue("its use is counted", um.wordBoost("此库") > 0.0)
+
+        clear(c)
+        typed.forEach { c.onKey(out(it.toString())) }
+        val after = c.candidateWords()
+        assertTrue("the counted use lifts it over 词库: $after", after.indexOf("此库") in 0 until after.indexOf("词库"))
+    }
+
+    @Test fun assembled_dictionary_word_boosts_without_being_filed_on26key() = dictionaryWordUseBoostsWithoutFilingIt(nine = false)
+
+    @Test fun assembled_dictionary_word_boosts_without_being_filed_on9key() = dictionaryWordUseBoostsWithoutFilingIt(nine = true)
 
     @Test fun same_word_only_and_same_reading_only_remain_distinct_learning_records() {
         val um = UserModel()

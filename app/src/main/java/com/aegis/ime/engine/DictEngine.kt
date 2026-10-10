@@ -222,6 +222,10 @@ class DictEngine(
         um.recordWord(reading, word, System.currentTimeMillis(), incrementCount = assembled)
     }
 
+    override fun learnWordUse(word: String, assembled: Boolean) {
+        userModel?.recordWordUse(word, System.currentTimeMillis(), incrementCount = assembled)
+    }
+
     override fun spelledReading(word: String, reading: String): String =
         decoder?.spelledReading(word, reading) ?: reading
 

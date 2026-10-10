@@ -26,6 +26,7 @@ import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -130,19 +131,33 @@ class LockedSyllableUserWordTest {
         }
     }
 
-    @Test fun anAssembledWordIsStillLearnedUnderItsFullReading() {
-        assets()
-        val um = UserModel()
+    private fun assembleUnderLockedJiu(um: UserModel, second: String) {
         val c = controller(um, nine = false)
         type(c, "jiujiu", nine = false)
         lock(c, "jiu")
         val first = c.candidateWords().indexOf("旧")
         assertTrue("旧 offered for the first locked syllable, was ${c.candidateWords().take(12)}", first >= 0)
         c.onPickCandidate(first)
-        val second = c.candidateWords().indexOf("酒")
-        assertTrue("酒 offered for the remaining syllable, was ${c.candidateWords().take(12)}", second >= 0)
-        c.onPickCandidate(second)
-        assertTrue("旧酒 is stored under jiujiu, was ${um.readingSnapshot()}", "旧酒" in um.readingSnapshot()["jiujiu"].orEmpty())
+        val next = c.candidateWords().indexOf(second)
+        assertTrue("$second offered for the remaining syllable, was ${c.candidateWords().take(12)}", next >= 0)
+        c.onPickCandidate(next)
+    }
+
+    @Test fun anAssembledWordIsStillLearnedUnderItsFullReading() {
+        assets()
+        assertFalse("旧九 is not a dictionary word", engine(UserModel()).isDictionaryWord("旧九", "jiujiu"))
+        val um = UserModel()
+        assembleUnderLockedJiu(um, "九")
+        assertTrue("旧九 is stored under jiujiu, was ${um.readingSnapshot()}", "旧九" in um.readingSnapshot()["jiujiu"].orEmpty())
+    }
+
+    @Test fun anAssembledDictionaryWordIsCountedButNotStored() {
+        assets()
+        assertTrue("旧酒 is a dictionary word", engine(UserModel()).isDictionaryWord("旧酒", "jiujiu"))
+        val um = UserModel()
+        assembleUnderLockedJiu(um, "酒")
+        assertTrue("旧酒 is not stored as a user word, was ${um.readingSnapshot()}", um.readingSnapshot().values.none { "旧酒" in it })
+        assertTrue("its use is still counted", um.wordBoost("旧酒") > 0.0)
     }
 
     @Test fun storedReadingsAreSpelledFromTheWordItself() {

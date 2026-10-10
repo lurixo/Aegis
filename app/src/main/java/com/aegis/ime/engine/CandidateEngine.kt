@@ -83,6 +83,8 @@ interface CandidateEngine {
 
     fun learnWord(reading: String, word: String, assembled: Boolean) {}
 
+    fun learnWordUse(word: String, assembled: Boolean) {}
+
     fun spelledReading(word: String, reading: String): String = reading
 
     fun isDictionaryWord(word: String, reading: String): Boolean = false
