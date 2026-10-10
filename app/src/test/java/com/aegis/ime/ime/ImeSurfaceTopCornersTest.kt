@@ -17,11 +17,13 @@ package com.aegis.ime.ime
 
 import android.graphics.Rect
 import android.view.View
+import com.aegis.ime.LandscapeImeWindowPolicy
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.layout.Lang
 import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
+import kotlin.math.ceil
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -56,12 +58,39 @@ class ImeSurfaceTopCornersTest {
 
     private fun dp(v: Int): Int = (v * density).toInt()
 
-    private fun assertTopSquare(iv: InputView, state: String) {
+    private fun input(id: LayoutId) = InputView(ctx).apply {
+        applyPalette(ImePalette.STATIC_LIGHT)
+        showKeyboard(Layouts.forId(id, Lang.CN, true), false, false, Lang.CN)
+    }
+
+    private fun cornerExtentPx(iv: InputView): Int = ceil(iv.surfaceTopRadiusPxForTest()).toInt()
+
+    private fun assertDockedRounded(iv: InputView, state: String) {
         assertEquals("$state: the surface spans its whole slot", iv.width, iv.dockSurfaceWidthPx())
-        assertFalse(
-            "$state: a full-width surface must not clip its top corners — the host behind them is not its content",
-            iv.surfaceClipsTopCornersForTest(),
+        assertTopRounded(iv, state)
+        assertEquals(
+            "$state: the host must extend behind the whole corner arc of a docked surface",
+            cornerExtentPx(iv),
+            iv.surfaceCornerOverlapPx(),
         )
+        val normalTop = iv.barTopInsetPx()
+        val spec = LandscapeImeWindowPolicy.resolve(
+            compactLandscape = iv.isCompactLandscapeDock(),
+            normalTop = normalTop,
+            windowBottom = iv.height,
+            surfaceBounds = iv.dockTouchableBoundsInWindow(),
+            windowBounds = Rect(0, 0, iv.width, iv.height),
+            preeditTab = iv.preeditTabBoundsInWindow(),
+            cornerOverlap = iv.surfaceCornerOverlapPx(),
+        )
+        assertEquals("$state: the surface top stays the visible top", iv.dockSurfaceTopPx(), spec.visibleTop)
+        assertEquals("$state: host content ends where the corner arc ends", normalTop + cornerExtentPx(iv), spec.contentTop)
+    }
+
+    private fun assertFloatingRounded(iv: InputView, state: String) {
+        assertTrue("$state: the surface floats", iv.isCompactLandscapeDock())
+        assertTopRounded(iv, state)
+        assertEquals("$state: the host already runs behind a floating surface", 0, iv.surfaceCornerOverlapPx())
     }
 
     private fun assertTopRounded(iv: InputView, state: String) {
@@ -81,65 +110,80 @@ class ImeSurfaceTopCornersTest {
         )
     }
 
-    @Test fun full_width_surface_keeps_square_top_corners_in_every_bar_state() {
-        val iv = InputView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
-        layout(iv)
-        assertTopSquare(iv, "idle pill")
+    @Test fun full_width_surface_rounds_its_top_corners_in_every_bar_state() = assertDockedRoundedInEveryBarState()
 
-        iv.showCandidates(listOf("你好", "你", "尼", "拟"), "ni'hao", emptyList())
-        layout(iv)
-        assertTopSquare(iv, "candidates")
+    @Test
+    @Config(sdk = [34], qualifiers = "w411dp-h891dp-port-390dpi")
+    fun full_width_surface_rounds_its_top_corners_at_a_fractional_radius() {
+        val iv = input(LayoutId.NINE)
+        assertTrue("this density gives a fractional radius", iv.surfaceTopRadiusPxForTest() % 1f != 0f)
+        assertDockedRoundedInEveryBarState()
+    }
 
-        iv.showCopyBar("这是一段被复制的内容")
-        layout(iv)
-        assertTopSquare(iv, "copy bar")
+    private fun assertDockedRoundedInEveryBarState() {
+        for (id in listOf(LayoutId.NINE, LayoutId.ALPHA)) {
+            val iv = input(id)
+            layout(iv)
+            assertDockedRounded(iv, "$id idle pill")
 
-        iv.hideCopyBar()
-        iv.showEditBar(true)
-        layout(iv)
-        assertTopSquare(iv, "edit bar")
+            iv.showCandidates(listOf("你好", "你", "尼", "拟"), "ni'hao", emptyList())
+            layout(iv)
+            assertDockedRounded(iv, "$id candidates")
 
-        iv.showEditBar(false)
-        iv.showPanel(View(ctx))
-        layout(iv)
-        assertTopSquare(iv, "panel")
+            iv.showCopyBar("这是一段被复制的内容")
+            layout(iv)
+            assertDockedRounded(iv, "$id copy bar")
+
+            iv.hideCopyBar()
+            iv.showEditBar(true)
+            layout(iv)
+            assertDockedRounded(iv, "$id edit bar")
+
+            iv.showEditBar(false)
+            iv.showPanel(View(ctx))
+            layout(iv)
+            assertDockedRounded(iv, "$id panel")
+        }
     }
 
     @Test
     @Config(sdk = [34], qualifiers = "w891dp-h411dp-land-xxhdpi")
     fun floating_landscape_surface_rounds_its_top_corners_in_every_bar_state() {
-        val iv = InputView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
-        layoutLandscape(iv, dp(891))
-        assertTrue("this wide landscape window floats the surface", iv.isCompactLandscapeDock())
-        assertTopRounded(iv, "idle pill")
+        for (id in listOf(LayoutId.NINE, LayoutId.ALPHA)) {
+            val iv = input(id)
+            layoutLandscape(iv, dp(891))
+            assertFloatingRounded(iv, "$id idle pill")
 
-        iv.showCandidates(listOf("你好", "你", "尼", "拟"), "ni'hao", emptyList())
-        layoutLandscape(iv, dp(891))
-        assertTopRounded(iv, "candidates")
+            iv.showCandidates(listOf("你好", "你", "尼", "拟"), "ni'hao", emptyList())
+            layoutLandscape(iv, dp(891))
+            assertFloatingRounded(iv, "$id candidates")
 
-        iv.showEditBar(true)
-        layoutLandscape(iv, dp(891))
-        assertTopRounded(iv, "edit bar")
+            iv.showEditBar(true)
+            layoutLandscape(iv, dp(891))
+            assertFloatingRounded(iv, "$id edit bar")
 
-        iv.showEditBar(false)
-        iv.showPanel(View(ctx))
-        layoutLandscape(iv, dp(891))
-        assertTopRounded(iv, "panel")
+            iv.showEditBar(false)
+            iv.showPanel(View(ctx))
+            layoutLandscape(iv, dp(891))
+            assertFloatingRounded(iv, "$id panel")
+        }
     }
 
     @Test
     @Config(sdk = [34], qualifiers = "w891dp-h411dp-land-xxhdpi")
-    fun landscape_surface_that_falls_back_to_full_width_keeps_square_top_corners() {
-        val iv = InputView(ctx).apply { applyPalette(ImePalette.STATIC_LIGHT) }
-        layoutLandscape(iv, dp(320))
-        assertFalse("a narrow landscape window docks the surface full width", iv.isCompactLandscapeDock())
-        assertTopSquare(iv, "full-width landscape")
+    fun landscape_surface_that_falls_back_to_full_width_keeps_the_host_behind_its_corners() {
+        for (id in listOf(LayoutId.NINE, LayoutId.ALPHA)) {
+            val iv = input(id)
+            layoutLandscape(iv, dp(320))
+            assertFalse("$id: a narrow landscape window docks the surface full width", iv.isCompactLandscapeDock())
+            assertDockedRounded(iv, "$id full-width landscape")
 
-        layoutLandscape(iv, dp(891))
-        assertTopRounded(iv, "floating again after widening")
+            layoutLandscape(iv, dp(891))
+            assertFloatingRounded(iv, "$id floating again after widening")
 
-        layoutLandscape(iv, dp(320))
-        assertTopSquare(iv, "full width again after narrowing")
+            layoutLandscape(iv, dp(320))
+            assertDockedRounded(iv, "$id full width again after narrowing")
+        }
     }
 
     @Test fun the_preedit_tab_starts_where_the_top_corners_end() = assertPreeditTabClearsTheCorners()

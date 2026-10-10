@@ -261,8 +261,10 @@ class PreeditEditingViewTest {
                 surfaceBounds = iv.dockTouchableBoundsInWindow(),
                 windowBounds = window,
                 preeditTab = tab,
+                cornerOverlap = iv.surfaceCornerOverlapPx(),
             )
-            assertEquals(normalTop, spec.contentTop)
+            assertTrue("raw=$raw a docked surface rounds its top corners", iv.surfaceCornerOverlapPx() > 0)
+            assertEquals(normalTop + iv.surfaceCornerOverlapPx(), spec.contentTop)
             assertEquals(normalTop, spec.visibleTop)
             assertEquals(InputMethodService.Insets.TOUCHABLE_INSETS_REGION, spec.touchableInsets)
             assertEquals(Rect(0, normalTop, iv.width, iv.height), spec.touchableRegion)

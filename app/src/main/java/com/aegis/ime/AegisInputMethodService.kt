@@ -1139,6 +1139,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             surfaceBounds = v.dockTouchableBoundsInWindow(),
             windowBounds = Rect(loc[0], loc[1], loc[0] + v.width, loc[1] + v.height),
             preeditTab = v.preeditTabBoundsInWindow(),
+            cornerOverlap = v.surfaceCornerOverlapPx(),
         )
         outInsets.contentTopInsets = spec.contentTop
         outInsets.visibleTopInsets = spec.visibleTop

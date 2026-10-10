@@ -120,8 +120,14 @@ class NarrowLandscapeMultiWindowFallbackTest {
             normalTop = normalTop,
             windowBottom = view.measuredHeight,
             surfaceBounds = view.dockTouchableBoundsInWindow(),
+            cornerOverlap = view.surfaceCornerOverlapPx(),
         )
-        assertEquals("full-width fallback keeps conventional content insets", normalTop, fallbackInsets.contentTop)
+        assertTrue("full-width fallback rounds its top corners", view.surfaceCornerOverlapPx() > 0)
+        assertEquals(
+            "full-width fallback resizes the host down to the end of the corner arc",
+            normalTop + view.surfaceCornerOverlapPx(),
+            fallbackInsets.contentTop,
+        )
         assertEquals(normalTop, fallbackInsets.visibleTop)
         assertEquals(InputMethodService.Insets.TOUCHABLE_INSETS_VISIBLE, fallbackInsets.touchableInsets)
         assertNull("there is no synthetic region/gutter in fallback mode", fallbackInsets.touchableRegion)

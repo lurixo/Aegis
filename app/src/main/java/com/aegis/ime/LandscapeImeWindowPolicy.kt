@@ -34,6 +34,7 @@ internal object LandscapeImeWindowPolicy {
         surfaceBounds: Rect,
         windowBounds: Rect? = null,
         preeditTab: Rect? = null,
+        cornerOverlap: Int = 0,
     ): ImeWindowInsetsSpec {
         val validFloatingSurface = compactLandscape && !surfaceBounds.isEmpty
         if (validFloatingSurface) {
@@ -44,10 +45,11 @@ internal object LandscapeImeWindowPolicy {
                 touchableRegion = Rect(surfaceBounds),
             )
         }
+        val contentTop = (normalTop + cornerOverlap).coerceIn(normalTop, maxOf(normalTop, windowBottom))
         val tab = preeditTab?.takeIf { !it.isEmpty && windowBounds != null && !windowBounds.isEmpty }
         if (tab != null) {
             return ImeWindowInsetsSpec(
-                contentTop = normalTop,
+                contentTop = contentTop,
                 visibleTop = normalTop,
                 touchableInsets = InputMethodService.Insets.TOUCHABLE_INSETS_REGION,
                 touchableRegion = Rect(windowBounds!!.left, normalTop, windowBounds.right, windowBottom),
@@ -55,7 +57,7 @@ internal object LandscapeImeWindowPolicy {
             )
         }
         return ImeWindowInsetsSpec(
-            contentTop = normalTop,
+            contentTop = contentTop,
             visibleTop = normalTop,
             touchableInsets = InputMethodService.Insets.TOUCHABLE_INSETS_VISIBLE,
             touchableRegion = null,

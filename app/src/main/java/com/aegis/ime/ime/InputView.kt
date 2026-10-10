@@ -35,6 +35,7 @@ import android.widget.FrameLayout
 import android.widget.LinearLayout
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import kotlin.math.ceil
 import kotlin.math.roundToInt
 import com.aegis.ime.R
 import com.aegis.ime.decoder.WordReading
@@ -1146,6 +1147,7 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun dockSurfaceRightPx(): Int = dockSurfaceLeftPx() + body.width
     internal fun dockSurfaceTopPx(): Int = bodySlot.top + body.top
     internal fun dockSurfaceBottomPx(): Int = dockSurfaceTopPx() + body.height
+    internal fun surfaceCornerOverlapPx(): Int = if (isCompactLandscapeDock()) 0 else body.topCornerExtentPx()
     internal fun surfaceClipsTopCornersForTest(): Boolean = body.clipToOutline
     internal fun surfaceTopRadiusPxForTest(): Float = body.topRadiusPx()
     internal fun surfaceTopOutlineForTest(): Outline = Outline().also { body.outlineProvider?.getOutline(body, it) }
@@ -1310,14 +1312,12 @@ class InputView(context: Context) : LinearLayout(context) {
                     outline.setRoundRect(0, 0, view.width, view.height + r.toInt(), r)
                 }
             }
+            clipToOutline = true
         }
 
         fun topRadiusPx(): Float = topRadiusPx
 
-        override fun onLayout(changed: Boolean, l: Int, t: Int, r: Int, b: Int) {
-            super.onLayout(changed, l, t, r, b)
-            clipToOutline = width < ((parent as? View)?.width ?: 0)
-        }
+        fun topCornerExtentPx(): Int = if (clipToOutline) ceil(topRadiusPx).toInt() else 0
 
         override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
             super.onSizeChanged(w, h, oldw, oldh)
