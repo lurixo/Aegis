@@ -91,6 +91,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     var onReorderPhrase: (String, Int, Int) -> Unit = { _, _, _ -> }
     var onReorderCategory: (Int, Int) -> Unit = { _, _ -> }
     var onAddPhrase: (String) -> Unit = {}
+    var onAddWord: (String) -> Unit = {}
     var onAddCategory: () -> Unit = {}
     var onAddCategoryThenAdd: (List<String>) -> Unit = {}
     var onAddCategoryThenMove: (String, List<String>) -> Unit = { _, _ -> }
@@ -516,6 +517,11 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
     }
 
     private fun entryBodies(keys: List<String>): List<String> = keys.mapNotNull(::entryBody)
+
+    private fun addableWord(key: String): String? {
+        if (clipTab() && ClipEntry.isReferenceKey(key)) return null
+        return entryBody(key)?.let(CopyBarController::addableWord)
+    }
 
     private fun entryIsImage(key: String): Boolean = clipTab() && clipIndex[key]?.isImage == true
 
@@ -2721,6 +2727,9 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         } else {
             actions += context.getString(R.string.clip_add_phrase) to { hideOverlay(); chooseCategoryThen(listOf(text)) }
             actions += context.getString(R.string.clip_split_title) to { hideOverlay(); showSplit(text) }
+            addableWord(text)?.let { word ->
+                actions += context.getString(R.string.copybar_add_word) to { hideOverlay(); onAddWord(word) }
+            }
         }
         val card = menuCard()
         val bar = actionBar(actions)

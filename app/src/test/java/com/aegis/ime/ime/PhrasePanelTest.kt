@@ -1142,9 +1142,9 @@ class PhrasePanelTest {
             com.aegis.ime.R.string.clip_split_title,
         ).map(ctx::getString)
         fun open(w: Int): Pair<ClipboardView, List<TextView>> {
-            val v = clipboardView(listOf("第一条"), listOf("默认"))
+            val v = clipboardView(listOf("第1条"), listOf("默认"))
             layout(v, w, 320)
-            assertTrue(textViews(v).first { it.text?.toString() == "第一条" && it.isLongClickable }.performLongClick())
+            assertTrue(textViews(v).first { it.text?.toString() == "第1条" && it.isLongClickable }.performLongClick())
             layout(v, w, 320)
             return v to actionLabels.map { label -> textViews(overlayOf(v)).single { it.text?.toString() == label } }
         }

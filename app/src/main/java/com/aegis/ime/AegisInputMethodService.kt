@@ -1969,6 +1969,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             it.onReorderPhrase = { cat, fromIdx, toIdx -> clipboardStore.reorderPhrase(cat, fromIdx, toIdx) }
             it.onReorderCategory = { fromIdx, toIdx -> clipboardStore.reorderCategory(fromIdx, toIdx) }
             it.onAddPhrase = { cat -> beginInlineAddPhrase(cat) }
+            it.onAddWord = { word -> addCopiedWord(word) }
             it.onAddCategory = { beginInlineAddCategory() }
             it.onAddCategoryThenAdd = { texts -> beginInlineAddCategory(texts) }
             it.onAddCategoryThenMove = { from, texts -> beginInlineAddCategory(pendingMove = from to texts) }

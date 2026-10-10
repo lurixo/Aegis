@@ -24,6 +24,7 @@ import android.widget.TextView
 import com.aegis.ime.backup.RestoreJournal
 import com.aegis.ime.decoder.EngineFixture
 import com.aegis.ime.engine.DictEngine
+import com.aegis.ime.ime.ClipboardView
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.ime.WordReadingChooser
@@ -903,5 +904,60 @@ class AegisInputMethodServicePersistenceTest {
         LiveUserData.restoreInProgress = true
         add("银好", R.string.user_dict_toast_write_failed)
         assertFalse(model(service).hasWord("yinhao", "银好"))
+    }
+
+    @Test fun a_clipboard_entry_added_from_its_menu_takes_the_copy_bar_flow_inside_the_panel() {
+        val service = started()
+        shadowOf(Looper.getMainLooper()).idle()
+        val rows = listOf(
+            EngineFixture.Row("yin", "银", 800),
+            EngineFixture.Row("xing", "行", 900), EngineFixture.Row("hang", "行", 700),
+            EngineFixture.Row("hao", "好", 900),
+        )
+        val controller = service.javaClass.getDeclaredField("controller").run {
+            isAccessible = true
+            get(service) as KeyboardController
+        }
+        controller.setEngine(DictEngine(EngineFixture.build(rows), null, null, model(service), userLearning = learning(service)))
+        service.onStartInput(editor(), false)
+        val view = service.onCreateInputView() as InputView
+        service.onStartInputView(editor(), false)
+        service.javaClass.getDeclaredMethod("showClipboardPanel").apply { isAccessible = true }.invoke(service)
+        shadowOf(Looper.getMainLooper()).idle()
+        val panel = service.javaClass.getDeclaredField("clipboardView").run {
+            isAccessible = true
+            get(service) as ClipboardView
+        }
+        assertTrue(view.isPanelShowing(panel))
+        val app = RuntimeEnvironment.getApplication()
+
+        fun settle(done: () -> Boolean) {
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+            while (!done() && System.nanoTime() < deadline) {
+                shadowOf(Looper.getMainLooper()).idle()
+                Thread.yield()
+            }
+        }
+
+        val added = app.getString(R.string.copybar_word_added)
+        panel.onAddWord("好银")
+        settle { service.toastTextForTest() == added }
+        assertEquals(added, service.toastTextForTest())
+        assertTrue(model(service).hasWord("haoyin", "好银"))
+
+        panel.onAddWord("行好")
+        settle { panel.wordReadingChooserForTest() != null }
+        val chooser = requireNotNull(panel.wordReadingChooserForTest()) { "the chooser opens inside the clipboard panel" }
+        assertEquals(null, view.wordReadingChooserForTest())
+        chooser.pickForTest(0, "hang")
+        requireNotNull(find(chooser, app.getString(R.string.word_readings_add))).performClick()
+        val exists = app.getString(R.string.copybar_word_exists)
+        settle { model(service).hasWord("hanghao", "行好") && service.toastTextForTest() == added }
+        assertTrue(model(service).hasWord("hanghao", "行好"))
+        assertFalse(model(service).hasWord("xinghao", "行好"))
+        assertTrue("the clipboard panel stays open", view.isPanelShowing(panel))
+        panel.onAddWord("好银")
+        settle { service.toastTextForTest() == exists }
+        assertEquals(exists, service.toastTextForTest())
     }
 }
