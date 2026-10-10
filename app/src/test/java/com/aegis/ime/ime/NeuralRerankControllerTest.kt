@@ -65,7 +65,7 @@ class NeuralRerankControllerTest {
             words(composing, t9).map { Cand(it, composing.length) }
         override fun rankedSentences(composing: String, t9: Boolean, context: CharSequence, limit: Int): List<Pair<String, Double>> {
             rankedCalls.add("$composing|$t9|$context|$limit")
-            rankedEntered?.let { entered ->
+            rankedEntered?.takeIf { key(composing, t9) }?.let { entered ->
                 entered.countDown()
                 val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
                 while (System.nanoTime() < deadline) {
@@ -91,14 +91,14 @@ class NeuralRerankControllerTest {
         override fun close() {}
     }
 
-    private class Queues {
+    private class Queues(decodeExecutor: Executor? = null) {
         val decodeWorker = ArrayDeque<Runnable>()
         val decodeMain = ArrayDeque<Runnable>()
         val neuralWorker = ArrayDeque<Runnable>()
         val neuralMain = ArrayDeque<Runnable>()
         val timers = ArrayList<() -> Unit>()
         val schedule: (Long, () -> Unit) -> Unit = { _, task -> timers.add(task) }
-        val lane = DecodeLane(Executor { decodeWorker.add(it) }, Executor { decodeMain.add(it) })
+        val lane = DecodeLane(decodeExecutor ?: Executor { decodeWorker.add(it) }, Executor { decodeMain.add(it) })
         fun decode() {
             while (decodeWorker.isNotEmpty() || decodeMain.isNotEmpty()) {
                 while (decodeWorker.isNotEmpty()) decodeWorker.removeFirst().run()
@@ -235,41 +235,53 @@ class NeuralRerankControllerTest {
         }
     }
 
+    private fun theDecodeCarriesThePathsTheModelScores(nine: Boolean) {
+        val engine = Engine()
+        val (c, q, _) = setup(engine)
+        c.switchTextLayoutForTest(nine)
+        val input = if (nine) "64426" else "nihao"
+        type(c, input)
+        q.decode()
+        assertEquals(listOf("$input|$nine||20"), engine.rankedCalls)
+        q.neural()
+        assertEquals(listOf("$input|$nine||20"), engine.rankedCalls)
+        assertEquals("拟好", c.candidateWords().first())
+    }
+
+    @Test fun the_decode_carries_the_paths_the_model_scores_on_26key() = theDecodeCarriesThePathsTheModelScores(nine = false)
+
+    @Test fun the_decode_carries_the_paths_the_model_scores_on_9key() = theDecodeCarriesThePathsTheModelScores(nine = true)
+
     private fun nextKeyCancelsAStalePathGeneration(nine: Boolean) {
         val engine = Engine().apply { rankedEntered = CountDownLatch(1) }
-        val worker = Executors.newSingleThreadExecutor()
+        val decodeWorker = Executors.newSingleThreadExecutor()
         try {
-            val (c, q, r) = setup(engine, reranker = {
-                NeuralReranker(spec, { Scorer() }, worker, Executor { r -> it.neuralMain.add(r) }, it.schedule)
-            })
-            worker.submit {}.get(5, TimeUnit.SECONDS)
-            assertTrue(r.ready)
+            val (c, q, _) = setup(engine, q = Queues(decodeWorker))
             c.switchTextLayoutForTest(nine)
             val input = if (nine) "64426" else "nihao"
             type(c, input)
-            q.decode()
             assertTrue(engine.rankedEntered!!.await(5, TimeUnit.SECONDS))
             val before = System.nanoTime()
             type(c, input.take(1))
-            q.decode()
+            decodeWorker.submit {}.get(15, TimeUnit.SECONDS)
             val waited = System.nanoTime() - before
             assertTrue("waited ${waited / 1_000_000L} ms to decode", waited < TimeUnit.SECONDS.toNanos(2))
-            worker.submit {}.get(15, TimeUnit.SECONDS)
+            q.decode()
             q.neural()
             assertFalse(engine.rankedRanOut)
-            assertEquals(1, engine.rankedCalls.size)
-            assertTrue(engine.rankedCalls.single().startsWith("$input|$nine|"))
+            assertEquals(1, engine.rankedCalls.count { it.startsWith("$input|$nine|") })
+            assertTrue(engine.rankedCalls.last().startsWith("$input${input.take(1)}|$nine|"))
             assertTrue(c.candidateWords().isEmpty())
         } finally {
-            worker.shutdown()
-            worker.awaitTermination(5, TimeUnit.SECONDS)
+            decodeWorker.shutdown()
+            decodeWorker.awaitTermination(15, TimeUnit.SECONDS)
         }
     }
 
-    @Test fun the_next_key_cancels_a_stale_path_generation_instead_of_waiting_for_it_on_26key() =
+    @Test fun the_next_key_cancels_a_stale_path_generation_on_the_decode_lane_on_26key() =
         nextKeyCancelsAStalePathGeneration(nine = false)
 
-    @Test fun the_next_key_cancels_a_stale_path_generation_instead_of_waiting_for_it_on_9key() =
+    @Test fun the_next_key_cancels_a_stale_path_generation_on_the_decode_lane_on_9key() =
         nextKeyCancelsAStalePathGeneration(nine = true)
 
     @Test fun space_falls_back_to_the_decoder_sentence_when_the_model_never_answers() {

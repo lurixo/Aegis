@@ -246,7 +246,7 @@ class NeuralDownloadCardTest {
         show()
 
         val timedOut = NeuralReranker(installed.spec, { error("not loaded") }, Executor {}, Executor { it.run() }, { _, expire -> expire() })
-        timedOut.submit("", nine = false, waitMillis = 300L, paths = { emptyList() }) {}
+        timedOut.submit("", nine = false, waitMillis = 300L, paths = emptyList()) {}
         NeuralRuntime.active = timedOut
         compose.mainClock.advanceTimeBy(1_100L)
         compose.waitForIdle()
@@ -256,15 +256,25 @@ class NeuralDownloadCardTest {
         compose.onNodeWithText(context.getString(R.string.neural_card_queue, 0L, 0L, 0L)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_cancelled, 0)).assertDoesNotExist()
 
+        lateinit var ran: NeuralReranker
+        var abortNext = true
         val scorer = object : SentenceScorer {
-            override fun score(context: String, candidates: List<String>) = DoubleArray(candidates.size) { -it.toDouble() }
+            override fun score(context: String, candidates: List<String>): DoubleArray? {
+                if (abortNext) {
+                    abortNext = false
+                    ran.invalidate()
+                    return null
+                }
+                return DoubleArray(candidates.size) { -it.toDouble() }
+            }
             override fun cancel() {}
             override fun close() {}
         }
-        val ran = NeuralReranker(installed.spec, { scorer }, Executor { it.run() }, Executor { it.run() }, { _, _ -> })
+        ran = NeuralReranker(installed.spec, { scorer }, Executor { it.run() }, Executor { it.run() }, { _, _ -> })
             .apply { start() }
-        ran.submit("", nine = false, waitMillis = 300L, paths = { ran.invalidate(); emptyList() }) {}
-        ran.submit("", nine = false, waitMillis = 300L, paths = { listOf("甲" to -1.0, "乙" to -2.0) }) {}
+        val paths = listOf("甲" to -1.0, "乙" to -2.0)
+        ran.submit("", nine = false, waitMillis = 300L, paths = paths) {}
+        ran.submit("", nine = false, waitMillis = 300L, paths = paths) {}
         NeuralRuntime.active = ran
         compose.mainClock.advanceTimeBy(1_100L)
         compose.waitForIdle()

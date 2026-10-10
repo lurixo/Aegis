@@ -104,7 +104,7 @@ class DynamicLambdaTest {
     }
 
     private fun sentenceOf(decoder: PinyinDecoder, input: String, context: String): String? =
-        (BEST_SENTENCES.invoke(decoder, input, decoder.parseContext(context)) as List<*>)
+        (BEST_SENTENCES.invoke(decoder, input, decoder.parseContext(context), null) as List<*>)
             .firstOrNull()?.let { (it as PinyinDecoder.SentencePath).text }
 
     @Test fun the_free_segmentation_sentence_still_uses_the_word_bigram_at_a_fresh_start() {
@@ -152,7 +152,7 @@ class DynamicLambdaTest {
             ("不" to "cici") to "词次",
         )
         val BEST_SENTENCES = PinyinDecoder::class.java.getDeclaredMethod(
-            "bestSentences", String::class.java, PinyinDecoder.Ctx::class.java,
+            "bestSentences", String::class.java, PinyinDecoder.Ctx::class.java, PinyinDecoder.PathSink::class.java,
         ).apply { isAccessible = true }
     }
 }

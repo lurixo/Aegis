@@ -1255,8 +1255,9 @@ class KeyboardController(
             applyDecodeResult(computeDecode(req))
             if (req.idle) req.engine.prepareUserWords()
         } else {
+            val sentenceLimit = rerankSentenceLimit(req)
             lane.submit(
-                compute = { computeDecode(req) },
+                compute = { computeDecode(req, sentenceLimit) },
                 apply = { result ->
                     if (!holdForRerank(req, result)) {
                         applyDecodeResult(result)
@@ -1269,26 +1270,27 @@ class KeyboardController(
         }
     }
 
+    private fun rerankSentenceLimit(req: DecodeRequest): Int {
+        val reranker = neural ?: return 0
+        if (!reranker.ready) return 0
+        if (req.composingEmpty || req.mode != Mode.PINYIN || req.literalIndices.isNotEmpty() || req.lockedNonEmpty ||
+            req.drillSyllable >= 0 || req.forcedCuts.isNotEmpty() || req.emailContext != null
+        ) return 0
+        return reranker.spec.candidates * RERANK_SEARCH_FACTOR
+    }
+
     private fun holdForRerank(req: DecodeRequest, result: DecodeResult): Boolean {
         val reranker = neural ?: return false
         if (!reranker.ready) return false
-        if (req.composingEmpty || req.mode != Mode.PINYIN || req.literalIndices.isNotEmpty() || req.lockedNonEmpty ||
-            req.drillSyllable >= 0 || req.forcedCuts.isNotEmpty() || req.emailContext != null
-        ) return false
+        val paths = result.sentences ?: return false
         if (result.candidates.isEmpty()) return false
-        val decoderContext = req.beforeCursor.takeLast(CTX_SCAN_LEN)
         val modelContext = (req.beforeCursor + committedPrefix).takeLast(CALC_SCAN_LEN)
-        val engine = req.engine
         heldDecode = result
         reranker.submit(
             context = modelContext,
             nine = req.isNine,
             waitMillis = RERANK_WAIT_MILLIS,
-            paths = {
-                synchronized(decodeLock) {
-                    engine.rankedSentences(req.raw, req.isNine, decoderContext, reranker.spec.candidates * RERANK_SEARCH_FACTOR)
-                }
-            },
+            paths = paths,
         ) { choice ->
             if (heldDecode !== result) return@submit
             heldDecode = null
@@ -1376,6 +1378,7 @@ class KeyboardController(
         val englishCands: Set<Cand> = emptySet(),
         val emailCands: Set<Cand> = emptySet(),
         val emailContext: String? = null,
+        val sentences: List<Pair<String, Double>>? = null,
     )
 
     private fun emptyDecodeResult(): DecodeResult =
@@ -1452,7 +1455,7 @@ class KeyboardController(
         emailContext = r.emailContext
     }
 
-    private fun computeDecode(req: DecodeRequest): DecodeResult = synchronized(decodeLock) {
+    private fun computeDecode(req: DecodeRequest, sentenceLimit: Int = 0): DecodeResult = synchronized(decodeLock) {
         var directCommit: Set<Cand> = emptySet()
         var composite: Set<Cand> = emptySet()
         var literal: Set<Cand> = emptySet()
@@ -1460,7 +1463,8 @@ class KeyboardController(
         var english: Set<Cand> = emptySet()
         var email: Set<Cand> = emptySet()
         var calcC: Cand? = null; var calcE = ""; var calcR = ""
-        val base = computeBase(req)
+        val sentences = if (sentenceLimit > 0) ArrayList<Pair<String, Double>>() else null
+        val base = computeBase(req, sentenceLimit, sentences)
         val out = when {
             req.emailContext != null -> {
                 val words = req.emailDomains.map { Cand(it, 0) }
@@ -1509,7 +1513,7 @@ class KeyboardController(
             }
             else -> base
         }
-        DecodeResult(out, directCommit, composite, literal, prediction, calcC, calcE, calcR, english, email, req.emailContext)
+        DecodeResult(out, directCommit, composite, literal, prediction, calcC, calcE, calcR, english, email, req.emailContext, sentences)
     }
 
     private class MixedCandidates(
@@ -1591,7 +1595,11 @@ class KeyboardController(
         return candidates
     }
 
-    private fun computeBase(req: DecodeRequest): List<Cand> {
+    private fun computeBase(
+        req: DecodeRequest,
+        sentenceLimit: Int,
+        sentences: MutableList<Pair<String, Double>>?,
+    ): List<Cand> {
         if (req.composingEmpty || req.mode != Mode.PINYIN || req.literalIndices.isNotEmpty()) return emptyList()
         val context = req.beforeCursor.takeLast(CTX_SCAN_LEN)
         return if (req.lockedNonEmpty) {
@@ -1609,7 +1617,13 @@ class KeyboardController(
             val guessed = guesses.mapTo(HashSet()) { it.word }
             guesses + c.filterNot { it.word in guessed }
         } else {
-            var c = req.engine.candidatesCovered(req.raw, req.isNine, req.forcedCuts, context)
+            var c = if (sentences == null) {
+                req.engine.candidatesCovered(req.raw, req.isNine, req.forcedCuts, context)
+            } else {
+                val (decoded, paths) = req.engine.candidatesCoveredWithSentences(req.raw, req.isNine, context, sentenceLimit)
+                sentences.addAll(paths)
+                decoded
+            }
             if (c.isEmpty() && req.isNine) {
                 val pfx = T9Pinyin.longestDecodablePrefix(req.raw)
                 if (pfx.length in 1 until req.raw.length) c = req.engine.candidatesCovered(pfx, true, context = context)

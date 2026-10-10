@@ -674,15 +674,20 @@ class PinyinDecoder(
     fun decodeCovered(input: String, limit: Int, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
         withFuzzyReadings(input, decodeCoveredLayered(input, limit, cuts, context).first)
 
+    internal fun decodeCovered(input: String, limit: Int, context: CharSequence, pathSink: PathSink): List<Cand> =
+        withFuzzyReadings(input, decodeCoveredLayered(input, limit, emptySet(), context, pathSink = pathSink).first)
+
     internal fun decodeCoveredLayered(
         input: String,
         limit: Int,
         cuts: Set<Int> = emptySet(),
         context: CharSequence = "",
         guessSink: MutableList<String>? = null,
+        pathSink: PathSink? = null,
     ): Pair<List<Cand>, Int> {
         if (input.isEmpty() || limit <= 0) return emptyList<Cand>() to 0
-        val norm = normalizeSeparators(input) ?: return decodeCoveredClean(input, limit, cuts, context, false, guessSink)
+        val norm = normalizeSeparators(input)
+            ?: return decodeCoveredClean(input, limit, cuts, context, false, guessSink, pathSink)
         if (norm.clean.isEmpty()) return emptyList<Cand>() to 0
         val passedClean = cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
         val (cands, remainderStart) =
@@ -740,6 +745,7 @@ class PinyinDecoder(
         context: CharSequence,
         staged: Boolean,
         guessSink: MutableList<String>? = null,
+        pathSink: PathSink? = null,
     ): Pair<List<Cand>, Int> {
         val ctx = parseContext(context)
         val interior = cuts.filter { it in 1 until input.length }.toSortedSet()
@@ -749,8 +755,8 @@ class PinyinDecoder(
         val condMemo = CondMemo()
         val cover = LinkedHashMap<String, Int>()
         val completionCap = completionCap(limit)
-        val sentences = bestSentences(input, ctx)
-        val sentence = sentences.firstOrNull()?.text?.also { cover[it] = input.length }
+        val sentences = bestSentences(input, ctx, pathSink)
+        val sentence =sentences.firstOrNull()?.text?.also { cover[it] = input.length }
         DecodeCancellation.checkpoint()
         val pool = ArrayList<RankedWord>()
         val offered = HashSet<String>()
@@ -1136,6 +1142,10 @@ class PinyinDecoder(
 
     internal data class SentencePath(val text: String, val score: Double)
 
+    internal class PathSink(val limit: Int) {
+        var paths: List<SentencePath> = emptyList()
+    }
+
     private fun atomicSentences(
         input: String,
         B: List<Int>,
@@ -1506,11 +1516,14 @@ class PinyinDecoder(
 
     private class Cell(val score: Double, val prevPos: Int, val prevState: SentenceState?, val prevRank: Int, val word: String)
 
-    private fun bestSentences(input: String, ctx: Ctx): List<SentencePath> {
+    private fun bestSentences(input: String, ctx: Ctx, pathSink: PathSink? = null): List<SentencePath> {
         val condMemo = spareCondMemo.getAndSet(null) ?: CondMemo()
-        val paths = sentencePaths(input, ctx, if (octagram != null) SENTENCE_CHOICES else 1, condMemo = condMemo)
+        val choices = if (octagram != null) SENTENCE_CHOICES else 1
+        val ranked = if (octagram != null && pathSink != null) pathSink.limit else 0
+        val lattice = sentenceLattice(input, ctx, maxOf(choices, ranked), condMemo = condMemo)
         spareCondMemo.set(condMemo)
-        return byUsage(paths)
+        if (ranked > 0) pathSink?.paths = byUsage(lattice.paths(ranked))
+        return byUsage(lattice.paths(choices))
     }
 
     internal fun rankedSentences(input: String, context: CharSequence, limit: Int): List<SentencePath> {
@@ -1547,7 +1560,45 @@ class PinyinDecoder(
         edgeMemo: MutableMap<String, List<Edge>>? = null,
         condMemo: CondMemo = CondMemo(),
         pruned: Boolean = false,
-    ): List<SentencePath> {
+    ): List<SentencePath> = sentenceLattice(input, ctx, limit, edgeMemo, condMemo, pruned).paths(limit)
+
+    private class SentenceLattice(private val dp: Array<MutableMap<SentenceState, MutableList<Cell>>>) {
+        fun paths(limit: Int): List<SentencePath> {
+            val n = dp.size - 1
+            val ends = ArrayList<Pair<SentenceState, Int>>()
+            for ((state, cells) in dp[n]) for (rank in 0 until minOf(cells.size, limit)) ends.add(state to rank)
+            ends.sortByDescending { (state, rank) -> dp[n][state]!![rank].score }
+            val out = ArrayList<SentencePath>(limit)
+            val seen = HashSet<String>()
+            for ((endState, endRank) in ends) {
+                val parts = ArrayList<String>()
+                var q = n
+                var state = endState
+                var rank = endRank
+                while (q > 0) {
+                    val cell = dp[q][state]!![rank]
+                    parts.add(cell.word)
+                    state = cell.prevState!!
+                    rank = cell.prevRank
+                    q = cell.prevPos
+                }
+                parts.reverse()
+                val text = parts.joinToString("")
+                if (seen.add(text)) out.add(SentencePath(text, dp[n][endState]!![endRank].score))
+                if (out.size >= limit) break
+            }
+            return out
+        }
+    }
+
+    private fun sentenceLattice(
+        input: String,
+        ctx: Ctx,
+        limit: Int,
+        edgeMemo: MutableMap<String, List<Edge>>? = null,
+        condMemo: CondMemo = CondMemo(),
+        pruned: Boolean = false,
+    ): SentenceLattice {
         val model = lm
         val grammar = octagram
         val learn = activeLearning
@@ -1607,30 +1658,7 @@ class PinyinDecoder(
                 for ((state, cells) in keep) dp[q][state] = cells
             }
         }
-
-        val ends = ArrayList<Pair<SentenceState, Int>>()
-        for ((state, cells) in dp[n]) for (rank in cells.indices) ends.add(state to rank)
-        ends.sortByDescending { (state, rank) -> dp[n][state]!![rank].score }
-        val out = ArrayList<SentencePath>(limit)
-        val seen = HashSet<String>()
-        for ((endState, endRank) in ends) {
-            val parts = ArrayList<String>()
-            var q = n
-            var state = endState
-            var rank = endRank
-            while (q > 0) {
-                val cell = dp[q][state]!![rank]
-                parts.add(cell.word)
-                state = cell.prevState!!
-                rank = cell.prevRank
-                q = cell.prevPos
-            }
-            parts.reverse()
-            val text = parts.joinToString("")
-            if (seen.add(text)) out.add(SentencePath(text, dp[n][endState]!![endRank].score))
-            if (out.size >= limit) break
-        }
-        return out
+        return SentenceLattice(dp)
     }
 
     private fun sentenceChoices(sentences: List<SentencePath>, key: String): List<String> {

@@ -79,10 +79,25 @@ class DictEngine(
 
     override fun rankedSentences(composing: String, t9: Boolean, context: CharSequence, limit: Int): List<Pair<String, Double>> {
         val d = (if (t9) t9Decoder else decoder) ?: return emptyList()
-        return d.rankedSentences(composing, context, limit)
-            .filterNot { path -> t9 && path.text.all { it.code < 128 } }
-            .map { it.text to it.score }
+        return sentencePairs(d.rankedSentences(composing, context, limit), t9)
     }
+
+    override fun candidatesCoveredWithSentences(
+        composing: String,
+        t9: Boolean,
+        context: CharSequence,
+        sentenceLimit: Int,
+    ): Pair<List<Cand>, List<Pair<String, Double>>> {
+        if (composing.isEmpty()) return emptyList<Cand>() to emptyList()
+        val d = (if (t9) t9Decoder else decoder) ?: return emptyList<Cand>() to emptyList()
+        val sink = PinyinDecoder.PathSink(sentenceLimit)
+        val out = d.decodeCovered(composing, MAX_CANDIDATES, context, sink)
+        val candidates = if (t9) out.filterNot { c -> c.word.all { it.code < 128 } } else out
+        return candidates to sentencePairs(sink.paths, t9)
+    }
+
+    private fun sentencePairs(paths: List<PinyinDecoder.SentencePath>, t9: Boolean): List<Pair<String, Double>> =
+        paths.filterNot { path -> t9 && path.text.all { it.code < 128 } }.map { it.text to it.score }
 
     override fun candidatesForLockedReadingCovered(letters: String, cuts: Set<Int>, context: CharSequence): List<Cand> {
         if (letters.isEmpty()) return emptyList()

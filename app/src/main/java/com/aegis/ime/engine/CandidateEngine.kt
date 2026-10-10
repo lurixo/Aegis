@@ -40,6 +40,14 @@ interface CandidateEngine {
     fun rankedSentences(composing: String, t9: Boolean, context: CharSequence, limit: Int): List<Pair<String, Double>> =
         emptyList()
 
+    fun candidatesCoveredWithSentences(
+        composing: String,
+        t9: Boolean,
+        context: CharSequence,
+        sentenceLimit: Int,
+    ): Pair<List<Cand>, List<Pair<String, Double>>> =
+        candidatesCovered(composing, t9, emptySet(), context) to rankedSentences(composing, t9, context, sentenceLimit)
+
     fun syllables(composing: String, t9: Boolean): List<Syllable> = emptyList()
 
     fun syllables(composing: String, t9: Boolean, cuts: Set<Int>): List<Syllable> = syllables(composing, t9)
