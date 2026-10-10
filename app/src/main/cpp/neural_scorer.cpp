@@ -225,17 +225,30 @@ struct NeuralScorer::Impl {
         return true;
     }
 
+    bool truncatePrefix(int keep) {
+        afterPrefix.clear();
+        if (!llama_memory_seq_rm(llama_get_memory(ctx), -1, keep, -1)) return false;
+        prefix.resize(keep);
+        return true;
+    }
+
     Status loadPrefix(const std::vector<llama_token> & want) {
-        reset();
         const int total = static_cast<int>(want.size());
+        const int limit = std::min(static_cast<int>(prefix.size()), total - 1);
+        int keep = 0;
+        while (keep < limit && prefix[keep] == want[keep]) ++keep;
+        if (!truncatePrefix(keep)) {
+            reset();
+            keep = 0;
+        }
         int lastIndex = -1;
-        for (int from = 0; from < total; from += kBatchTokens) {
+        for (int from = keep; from < total; from += kBatchTokens) {
             const int to = std::min(total, from + kBatchTokens);
             batch.n_tokens = 0;
             for (int i = from; i < to; ++i) addToken(batch, want[i], i, allSeqs, i == total - 1);
             const Status status = decode();
             if (status != Status::Ok) {
-                reset();
+                if (status == Status::Failed || !truncatePrefix(keep)) reset();
                 return status;
             }
             lastIndex = to - from - 1;
@@ -359,7 +372,7 @@ NeuralScorer::Status NeuralScorer::score(const std::string & context,
         (*tokenCounts)[i] = static_cast<int>(tokens[i].size());
     }
 
-    if (want != m.prefix) {
+    if (want != m.prefix || m.afterPrefix.empty()) {
         const Status status = m.loadPrefix(want);
         if (status != Status::Ok) return status;
     }
