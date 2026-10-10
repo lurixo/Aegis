@@ -253,6 +253,8 @@ class NeuralDownloadCardTest {
         compose.onNodeWithText(context.getString(R.string.neural_card_timeouts, 1)).assertExists()
         compose.onNodeWithText(context.getString(R.string.neural_card_runs, 0, 0)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_timing, 0L, 0L, 0L)).assertDoesNotExist()
+        compose.onNodeWithText(context.getString(R.string.neural_card_queue, 0L, 0L, 0L)).assertDoesNotExist()
+        compose.onNodeWithText(context.getString(R.string.neural_card_cancelled, 0)).assertDoesNotExist()
 
         val scorer = object : SentenceScorer {
             override fun score(context: String, candidates: List<String>) = DoubleArray(candidates.size) { -it.toDouble() }
@@ -261,16 +263,22 @@ class NeuralDownloadCardTest {
         }
         val ran = NeuralReranker(installed.spec, { scorer }, Executor { it.run() }, Executor { it.run() }, { _, _ -> })
             .apply { start() }
+        ran.submit("", nine = false, waitMillis = 300L, paths = { ran.invalidate(); emptyList() }) {}
         ran.submit("", nine = false, waitMillis = 300L, paths = { listOf("甲" to -1.0, "乙" to -2.0) }) {}
         NeuralRuntime.active = ran
         compose.mainClock.advanceTimeBy(1_100L)
         compose.waitForIdle()
         val snap = ran.snapshot()
         assertEquals(1, snap.runs)
+        assertEquals(1, snap.cancelled)
         compose.onNodeWithText(context.getString(R.string.neural_card_runs, 1, snap.changed)).assertExists()
         compose.onNodeWithText(
             context.getString(R.string.neural_card_timing, snap.lastMillis, snap.meanMillis, snap.maxMillis),
         ).assertExists()
+        compose.onNodeWithText(
+            context.getString(R.string.neural_card_queue, snap.lastQueueMillis, snap.meanQueueMillis, snap.maxQueueMillis),
+        ).assertExists()
+        compose.onNodeWithText(context.getString(R.string.neural_card_cancelled, 1)).assertExists()
         compose.onNodeWithText(context.getString(R.string.neural_card_timeouts, 0)).assertDoesNotExist()
     }
 }

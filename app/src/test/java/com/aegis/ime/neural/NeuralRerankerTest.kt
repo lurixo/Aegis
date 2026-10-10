@@ -168,17 +168,22 @@ class NeuralRerankerTest {
         assertTrue(chosen.isEmpty())
     }
 
-    @Test fun a_newer_job_supersedes_an_older_one() {
+    private fun newerJobSupersedesAnOlderOne(nine: Boolean) {
         val q = Queues()
         val scorer = FakeScorer(prefersSecond)
         val r = started(q, scorer)
         val chosen = ArrayList<String>()
-        r.submit("old", nine = false, waitMillis = WAIT, paths = { paths }) { chosen.add("old:" + it?.best) }
-        r.submit("new", nine = false, waitMillis = WAIT, paths = { paths }) { chosen.add("new:" + it?.best) }
+        r.submit("old", nine = nine, waitMillis = WAIT, paths = { paths }) { chosen.add("old:" + it?.best) }
+        r.submit("new", nine = nine, waitMillis = WAIT, paths = { paths }) { chosen.add("new:" + it?.best) }
         q.runWorker(); q.runMain()
         assertEquals(listOf("new:拟好"), chosen)
         assertEquals(listOf("new"), scorer.contexts)
+        assertEquals(1, r.snapshot().cancelled)
     }
+
+    @Test fun a_newer_job_supersedes_an_older_one_on_26key() = newerJobSupersedesAnOlderOne(nine = false)
+
+    @Test fun a_newer_job_supersedes_an_older_one_on_9key() = newerJobSupersedesAnOlderOne(nine = true)
 
     private fun newerJobCancelsThePathGenerationInFlight(nine: Boolean) {
         val q = Queues()
@@ -197,6 +202,7 @@ class NeuralRerankerTest {
         assertEquals(listOf("new:拟好"), chosen)
         assertEquals(listOf("new"), scorer.contexts)
         assertEquals(1, r.snapshot().runs)
+        assertEquals(1, r.snapshot().cancelled)
     }
 
     @Test fun a_newer_job_cancels_the_path_generation_in_flight_on_26key() = newerJobCancelsThePathGenerationInFlight(nine = false)
@@ -238,6 +244,7 @@ class NeuralRerankerTest {
             assertTrue(chosen.isEmpty())
             assertTrue(scorer.batches.isEmpty())
             assertEquals(0, r.snapshot().runs)
+            assertEquals(1, r.snapshot().cancelled)
         } finally {
             worker.shutdown()
             worker.awaitTermination(5, TimeUnit.SECONDS)
@@ -284,16 +291,65 @@ class NeuralRerankerTest {
 
     @Test fun a_failed_path_generation_delivers_no_choice_on_9key() = failedPathGenerationDeliversNoChoice(nine = true)
 
-    @Test fun an_aborted_score_delivers_nothing() {
+    private fun abortedScoreDeliversNothing(nine: Boolean) {
         val q = Queues()
         val scorer = FakeScorer(prefersSecond).apply { aborted = true }
         val r = started(q, scorer)
         val chosen = ArrayList<String>()
-        r.submit("", nine = false, waitMillis = WAIT, paths = { paths }) { chosen.add(it?.best ?: NONE) }
+        r.submit("", nine = nine, waitMillis = WAIT, paths = { paths }) { chosen.add(it?.best ?: NONE) }
         q.runWorker(); q.runMain()
         assertTrue(chosen.isEmpty())
         assertEquals(0, r.snapshot().runs)
+        assertEquals(0, r.snapshot().cancelled)
     }
+
+    @Test fun an_aborted_score_delivers_nothing_on_26key() = abortedScoreDeliversNothing(nine = false)
+
+    @Test fun an_aborted_score_delivers_nothing_on_9key() = abortedScoreDeliversNothing(nine = true)
+
+    private fun scoreAbortedByANewerKeyCountsAsCancelled(nine: Boolean) {
+        val q = Queues()
+        val chosen = ArrayList<String>()
+        lateinit var r: NeuralReranker
+        val scorer = object : SentenceScorer {
+            override fun score(context: String, candidates: List<String>): DoubleArray? {
+                if (context == "old") {
+                    r.submit("new", nine = nine, waitMillis = WAIT, paths = { paths }) { chosen.add("new:" + it?.best) }
+                    return null
+                }
+                return DoubleArray(candidates.size) { prefersSecond.getValue(candidates[it]) }
+            }
+            override fun cancel() {}
+            override fun close() {}
+        }
+        r = started(q, scorer)
+        r.submit("old", nine = nine, waitMillis = WAIT, paths = { paths }) { chosen.add("old:" + it?.best) }
+        q.runWorker(); q.runMain()
+        assertEquals(listOf("new:拟好"), chosen)
+        val snap = r.snapshot()
+        assertEquals(1, snap.runs)
+        assertEquals(1, snap.cancelled)
+    }
+
+    @Test fun a_score_aborted_by_a_newer_key_counts_as_cancelled_on_26key() = scoreAbortedByANewerKeyCountsAsCancelled(nine = false)
+
+    @Test fun a_score_aborted_by_a_newer_key_counts_as_cancelled_on_9key() = scoreAbortedByANewerKeyCountsAsCancelled(nine = true)
+
+    private fun invalidatingAfterPathsCountsTheDroppedJobAsCancelled(nine: Boolean) {
+        val q = Queues()
+        val scorer = FakeScorer(prefersSecond)
+        val r = started(q, scorer)
+        r.submit("", nine = nine, waitMillis = WAIT, paths = { r.invalidate(); paths }) {}
+        q.runWorker(); q.runMain()
+        assertTrue(scorer.batches.isEmpty())
+        assertEquals(1, r.snapshot().cancelled)
+    }
+
+    @Test fun invalidating_after_paths_counts_the_dropped_job_as_cancelled_on_26key() =
+        invalidatingAfterPathsCountsTheDroppedJobAsCancelled(nine = false)
+
+    @Test fun invalidating_after_paths_counts_the_dropped_job_as_cancelled_on_9key() =
+        invalidatingAfterPathsCountsTheDroppedJobAsCancelled(nine = true)
 
     @Test fun fewer_than_two_paths_skip_the_model() {
         val q = Queues()
@@ -336,12 +392,12 @@ class NeuralRerankerTest {
         assertEquals(0, r.snapshot().timeouts)
     }
 
-    @Test fun a_job_that_misses_its_wait_delivers_no_choice_and_drops_the_late_result() {
+    private fun jobThatMissesItsWaitDeliversNoChoiceAndDropsTheLateResult(nine: Boolean) {
         val q = Queues()
         val scorer = FakeScorer(prefersSecond)
         val r = started(q, scorer)
         val chosen = ArrayList<String>()
-        r.submit("", nine = false, waitMillis = WAIT, paths = { paths }) { chosen.add(it?.best ?: NONE) }
+        r.submit("", nine = nine, waitMillis = WAIT, paths = { paths }) { chosen.add(it?.best ?: NONE) }
         val cancelsBefore = scorer.cancels
         q.fireTimers()
         q.runMain()
@@ -351,7 +407,14 @@ class NeuralRerankerTest {
         q.runWorker(); q.runMain()
         assertEquals(listOf(NONE), chosen)
         assertEquals(1, r.snapshot().timeouts)
+        assertEquals(0, r.snapshot().cancelled)
     }
+
+    @Test fun a_job_that_misses_its_wait_delivers_no_choice_and_drops_the_late_result_on_26key() =
+        jobThatMissesItsWaitDeliversNoChoiceAndDropsTheLateResult(nine = false)
+
+    @Test fun a_job_that_misses_its_wait_delivers_no_choice_and_drops_the_late_result_on_9key() =
+        jobThatMissesItsWaitDeliversNoChoiceAndDropsTheLateResult(nine = true)
 
     @Test fun a_choice_that_arrives_in_time_makes_the_wait_a_no_op() {
         val q = Queues()
@@ -429,4 +492,29 @@ class NeuralRerankerTest {
         assertEquals(40L, snap.maxMillis)
         assertNull(snap.error)
     }
+
+    private fun queueWaitRunsFromSubmitToTheStartOfTheRun(nine: Boolean) {
+        val q = Queues()
+        var now = 0L
+        val r = started(q, FakeScorer(prefersSecond)) { now }
+        r.submit("", nine = nine, waitMillis = WAIT, paths = { now += 5_000_000L; paths }) {}
+        now += 30_000_000L
+        q.runWorker()
+        r.submit("", nine = nine, waitMillis = WAIT, paths = { now += 7_000_000L; paths }) {}
+        now += 10_000_000L
+        q.runWorker()
+        val snap = r.snapshot()
+        assertEquals(2, snap.runs)
+        assertEquals(10L, snap.lastQueueMillis)
+        assertEquals(20L, snap.meanQueueMillis)
+        assertEquals(30L, snap.maxQueueMillis)
+        assertEquals(7L, snap.lastMillis)
+        assertEquals(6L, snap.meanMillis)
+        assertEquals(7L, snap.maxMillis)
+        assertEquals(0, snap.cancelled)
+    }
+
+    @Test fun queue_wait_runs_from_submit_to_the_start_of_the_run_on_26key() = queueWaitRunsFromSubmitToTheStartOfTheRun(nine = false)
+
+    @Test fun queue_wait_runs_from_submit_to_the_start_of_the_run_on_9key() = queueWaitRunsFromSubmitToTheStartOfTheRun(nine = true)
 }

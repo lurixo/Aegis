@@ -43,7 +43,11 @@ class NeuralReranker(
         val lastMillis: Long,
         val meanMillis: Long,
         val maxMillis: Long,
+        val lastQueueMillis: Long,
+        val meanQueueMillis: Long,
+        val maxQueueMillis: Long,
         val timeouts: Int,
+        val cancelled: Int,
     )
 
     private class Delivery(val gen: Long, val run: () -> Unit)
@@ -66,7 +70,11 @@ class NeuralReranker(
     private var lastMillis = 0L
     private var totalMillis = 0L
     private var maxMillis = 0L
+    private var lastQueueMillis = 0L
+    private var totalQueueMillis = 0L
+    private var maxQueueMillis = 0L
     private var timeouts = 0
+    private var cancelled = 0
 
     val ready: Boolean get() = phase == Phase.READY
 
@@ -109,7 +117,8 @@ class NeuralReranker(
         val gen = latest.incrementAndGet()
         pendingGen = gen
         scorer?.cancel()
-        worker.execute { run(gen, context, nine, paths, apply) }
+        val queued = nanoTime()
+        worker.execute { run(gen, queued, context, nine, paths, apply) }
         schedule(waitMillis) { expire(gen, apply) }
     }
 
@@ -124,21 +133,22 @@ class NeuralReranker(
 
     private fun run(
         gen: Long,
+        queued: Long,
         context: String,
         nine: Boolean,
         paths: () -> List<Pair<String, Double>>,
         apply: (Choice?) -> Unit,
     ) {
-        if (gen != latest.get()) return
+        if (gen != latest.get()) return dropped(gen)
         val active = scorer
         if (active == null || phase != Phase.READY) {
             deliver(gen) { apply(null) }
             return
         }
         val started = nanoTime()
-        val generated = DecodeCancellation.attempt({ gen != latest.get() }, paths) ?: return
+        val generated = DecodeCancellation.attempt({ gen != latest.get() }, paths) ?: return dropped(gen)
         val ranked = generated.getOrDefault(emptyList()).take(spec.candidates)
-        if (gen != latest.get()) return
+        if (gen != latest.get()) return dropped(gen)
         if (ranked.size < 2) {
             deliver(gen) { apply(null) }
             return
@@ -149,9 +159,9 @@ class NeuralReranker(
             error = t.message ?: t.javaClass.simpleName
             deliver(gen) { apply(null) }
             return
-        } ?: return
+        } ?: return dropped(gen)
         val pick = choose(DoubleArray(ranked.size) { ranked[it].second }, lm, spec.alpha(nine))
-        record((nanoTime() - started) / NANOS_PER_MILLI, pick != 0)
+        record((started - queued) / NANOS_PER_MILLI, (nanoTime() - started) / NANOS_PER_MILLI, pick != 0)
         val choice = Choice(ranked[pick].first, ranked[0].first)
         deliver(gen) { apply(choice) }
     }
@@ -195,13 +205,20 @@ class NeuralReranker(
         return true
     }
 
-    private fun record(millis: Long, moved: Boolean) {
+    private fun dropped(gen: Long) {
+        if (gen != latest.get()) synchronized(statsLock) { cancelled++ }
+    }
+
+    private fun record(queueMillis: Long, millis: Long, moved: Boolean) {
         synchronized(statsLock) {
             runs++
             if (moved) changed++
             lastMillis = millis
             totalMillis += millis
             if (millis > maxMillis) maxMillis = millis
+            lastQueueMillis = queueMillis
+            totalQueueMillis += queueMillis
+            if (queueMillis > maxQueueMillis) maxQueueMillis = queueMillis
         }
     }
 
@@ -215,7 +232,11 @@ class NeuralReranker(
             lastMillis = lastMillis,
             meanMillis = if (runs == 0) 0L else totalMillis / runs,
             maxMillis = maxMillis,
+            lastQueueMillis = lastQueueMillis,
+            meanQueueMillis = if (runs == 0) 0L else totalQueueMillis / runs,
+            maxQueueMillis = maxQueueMillis,
             timeouts = timeouts,
+            cancelled = cancelled,
         )
     }
 

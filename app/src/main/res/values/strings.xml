@@ -103,7 +103,9 @@
     <string name="neural_state_closed">Status: stopped</string>
     <string name="neural_card_runs">Reranked: %1$d, first candidate changed: %2$d</string>
     <string name="neural_card_timing">Time: last %1$d ms, mean %2$d ms, max %3$d ms</string>
+    <string name="neural_card_queue">Queued: last %1$d ms, mean %2$d ms, max %3$d ms</string>
     <string name="neural_card_timeouts">Timed out without reranking: %1$d</string>
+    <string name="neural_card_cancelled">Cancelled by a later key: %1$d</string>
 
     <string name="fuzzy_master_title">Fuzzy Pinyin</string>
     <string name="fuzzy_master_description">Tolerate common Pinyin confusions</string>
