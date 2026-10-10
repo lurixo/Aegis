@@ -61,6 +61,53 @@ class UserLearningTest {
     }
 
     @Test
+    fun promotionFilesTheWordUnderItsSpelledReading() {
+        store.spelledReading = { word, reading -> if (word == "欧阳明") "ouyangming" else reading }
+        repeat(3) { typeRun(store, "欧" to "ou", "阳" to "wang", "明" to "ming") }
+        assertEquals(listOf(UserLearning.Formed("欧阳明", "ouyangming")), store.formedEntries())
+        assertEquals(listOf("欧阳明"), store.formedWordsFor(T9Pinyin.toT9("ouyangming")))
+    }
+
+    @Test
+    fun anUnusableSpellingKeepsTheTypedReading() {
+        store.spelledReading = { _, _ -> "" }
+        repeat(3) { typeRun(store, "李" to "li", "雷" to "lei") }
+        assertEquals(listOf(UserLearning.Formed("李雷", "lilei")), store.formedEntries())
+    }
+
+    @Test
+    fun aCharacterThatCannotBeSpelledKeepsItsTypedReadingAlone() {
+        val spellings = mapOf(("层" to "beng") to "ceng", ("峦" to "luan") to "luan")
+        store.spelledReading = { word, reading -> spellings[word to reading].orEmpty() }
+        repeat(3) { typeRun(store, "层" to "beng", "峦" to "luan", "嗯" to "en") }
+        assertEquals(listOf(UserLearning.Formed("层峦嗯", "cengluanen")), store.formedEntries())
+        assertEquals(listOf("层峦嗯"), store.formedWordsFor(T9Pinyin.toT9("bengluanen")))
+        assertEquals(listOf("层峦嗯"), store.formedWordsFor("cengluanen"))
+    }
+
+    @Test
+    fun aCharacterSpellingOffItsKeysIsNotUsed() {
+        val spellings = mapOf(("存" to "cuo") to "cun", ("嗯" to "en") to "ng", ("化" to "hua") to "huai")
+        store.spelledReading = { word, reading -> spellings[word to reading].orEmpty() }
+        repeat(3) { typeRun(store, "存" to "cuo", "嗯" to "en", "化" to "hua") }
+        assertEquals(listOf(UserLearning.Formed("存嗯化", "cunenhua")), store.formedEntries())
+    }
+
+    @Test
+    fun aWordFiledUnderItsSpelledReadingIsCountedAsThatWordWhenTypedAgain() {
+        store.spelledReading = { word, reading -> if (word == "欧阳明") "ouyangming" else reading }
+        val name = arrayOf("欧" to "ou", "阳" to "wang", "明" to "ming")
+        repeat(3) { typeRun(store, *name) }
+        val formedAt = store.formedWeight("欧阳明")
+        typeRun(store, *name)
+        assertTrue("typing it again counts as a use", store.formedWeight("欧阳明") > formedAt)
+        val f = tempFile("userlearn-spelled-again")
+        store.save(f)
+        assertTrue("the whole word is not counted again", f.readLines().none { it.startsWith("P\t") && it.contains("欧阳明") })
+        assertEquals(listOf(UserLearning.Formed("欧阳明", "ouyangming")), store.formedEntries())
+    }
+
+    @Test
     fun nullPrevWordClosesTheChainAndPromotes() {
         val name = arrayOf("李" to "li", "雷" to "lei")
         var prev: String? = null

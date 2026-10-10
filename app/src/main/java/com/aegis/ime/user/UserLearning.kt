@@ -61,6 +61,9 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     private val saveLock = Any()
 
     @Volatile
+    var spelledReading: (word: String, reading: String) -> String = { _, reading -> reading }
+
+    @Volatile
     private var sourceReadable: Boolean = true
 
     @Volatile
@@ -438,7 +441,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
             }
             val word = chars.joinToString("")
             val joined = readings.joinToString("")
-            val formedUsage = formedByWord[word]?.get(joined)
+            val formedUsage = formedUsage(word, joined)
             if (formedUsage != null) {
                 touch(formedUsage, now, FORMED_HALF_LIFE_MILLIS)
                 coveredRanges.add((chainPos - len) to chainPos)
@@ -491,8 +494,8 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
 
     private fun promote(w: Window, now: Long) {
         val word = w.chars.joinToString("")
-        val reading = w.readings.joinToString("")
-        val u = pendingCounts[pendingKey(reading, word)]
+        val typed = w.readings.joinToString("")
+        val u = pendingCounts[pendingKey(typed, word)]
         val seed = (u?.let { decayed(it.count, it.lastSeen, now, PENDING_HALF_LIFE_MILLIS) } ?: PROMOTE_AT)
             .coerceIn(PROMOTE_AT, MAX_COUNT)
         for (len in 2 until w.chars.size) {
@@ -505,6 +508,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
                 )
             }
         }
+        val reading = spelledReading(word, typed).takeIf(::isFormedReading) ?: spelledByCharacter(w)
         val existing = formedByWord[word]?.get(reading)
         if (existing != null) {
             touch(existing, now, FORMED_HALF_LIFE_MILLIS)
@@ -513,6 +517,25 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         formedByWord.getOrPut(word) { HashMap() }[reading] = Usage(seed, now)
         formedPairs++
         formedVersion++
+    }
+
+    private fun spelledByCharacter(w: Window): String {
+        val sb = StringBuilder()
+        for (i in w.chars.indices) {
+            val typed = w.readings[i]
+            val spelled = spelledReading(w.chars[i], typed)
+            val usable = spelled in T9Pinyin.SYLLABLES && T9Pinyin.toT9(spelled) == T9Pinyin.toT9(typed)
+            sb.append(if (usable) spelled else typed)
+        }
+        return sb.toString()
+    }
+
+    private fun formedUsage(word: String, typed: String): Usage? {
+        val readings = formedByWord[word] ?: return null
+        readings[typed]?.let { return it }
+        val keys = T9Pinyin.toT9(typed)
+        for ((reading, usage) in readings) if (T9Pinyin.toT9(reading) == keys) return usage
+        return null
     }
 
     private fun recordFollow(prev: String, word: String, now: Long): Boolean {

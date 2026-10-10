@@ -202,6 +202,10 @@ class KeyboardController(
     var onShowCustomSymbols: () -> Unit = {}
     var onShowCustomOperators: () -> Unit = {}
     var userLearning: UserLearning? = null
+        set(value) {
+            field = value
+            value?.spelledReading = { word, reading -> engine.spelledReading(word, reading) }
+        }
 
     var neural: NeuralReranker? = null
         set(value) {
