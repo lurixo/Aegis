@@ -380,8 +380,9 @@ NeuralScorer::Status NeuralScorer::score(const std::string & context,
         if (next == first) return Status::Failed;
         m.batch.n_tokens = 0;
         for (auto & node : trie.nodes) {
-            if (node.hasChildren) node.row = m.batch.n_tokens;
-            addToken(m.batch, node.token, base + node.depth, node.seqs, node.hasChildren);
+            if (!node.hasChildren) continue;
+            node.row = m.batch.n_tokens;
+            addToken(m.batch, node.token, base + node.depth, node.seqs, true);
         }
         if (m.batch.n_tokens > 0) {
             const Status status = m.decode();
