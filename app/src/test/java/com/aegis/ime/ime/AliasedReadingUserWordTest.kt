@@ -108,6 +108,34 @@ class AliasedReadingUserWordTest {
         assertFalse("存安化 is not read as $syllables", "存安化" in offered(recorded("cunenhua", "存安化"), nine, syllables))
     }
 
+    private fun annotatedWordIsOfferedForItsDefaultReading(nine: Boolean) {
+        val engine = DictEngine(letters, digits, lm, initialsDict = initials)
+        fun saved(vararg words: String) = UserModel().apply {
+            for (word in words) assertTrue(addManualWord(engine.annotateWord(word)!!.reading, word, clock))
+        }
+        assertEquals("cunenhua", engine.annotateWord("存嗯化")!!.reading)
+        assertEquals("cunenhua", engine.annotateWord("存恩化")!!.reading)
+        assertEquals(mapOf("cunenhua" to listOf("存嗯化")), saved("存嗯化").readingSnapshot())
+        val typed = listOf("cunenhua")
+        val neither = offered(UserModel(), nine, typed)
+        assertFalse("precondition: 存嗯化 is not offered before it is saved", "存嗯化" in neither)
+        assertFalse("precondition: 存恩化 is not offered before it is saved", "存恩化" in neither)
+        val aliased = offered(saved("存嗯化"), nine, typed)
+        assertTrue("存嗯化 is offered for ${keys(nine, "cunenhua")}: ${aliased.take(40)}", "存嗯化" in aliased)
+        assertFalse("存恩化 is not offered through 存嗯化", "存恩化" in aliased)
+        val plain = offered(saved("存恩化"), nine, typed)
+        assertTrue("存恩化 is offered for ${keys(nine, "cunenhua")}: ${plain.take(40)}", "存恩化" in plain)
+        assertFalse("存嗯化 is not offered through 存恩化", "存嗯化" in plain)
+        val both = offered(saved("存嗯化", "存恩化"), nine, typed)
+        assertTrue("both words are offered: ${both.take(40)}", "存嗯化" in both && "存恩化" in both)
+    }
+
+    @Test fun annotated_word_is_offered_for_its_default_reading_on26key() =
+        annotatedWordIsOfferedForItsDefaultReading(nine = false)
+
+    @Test fun annotated_word_is_offered_for_its_default_reading_on9key() =
+        annotatedWordIsOfferedForItsDefaultReading(nine = true)
+
     @Test fun word_picked_character_by_character_is_learned_under_the_typed_reading_on26key() =
         wordPickedCharacterByCharacterIsLearnedUnderTheTypedReading(nine = false)
 

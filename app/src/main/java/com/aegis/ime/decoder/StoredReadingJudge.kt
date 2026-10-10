@@ -24,7 +24,7 @@ internal class StoredReadingJudge(
     private val readsAs: (word: String, reading: String) -> Boolean,
     private val spell: (word: String, reading: String) -> String,
 ) {
-    private val table: CharReadings by lazy(LazyThreadSafetyMode.NONE) { charReadings() }
+    private val table: CharReadings by lazy(LazyThreadSafetyMode.NONE) { CharReadings.from(dict) }
     private val keys = HashMap<String, String>()
     private val looseSpellings = HashMap<String, List<String>>()
     private var budget = 0
@@ -66,28 +66,7 @@ internal class StoredReadingJudge(
         return true
     }
 
-    private class CharReadings(val codePoints: IntArray, val syllables: Array<List<String>>)
-
-    private fun charReadings(): CharReadings {
-        val weighted = HashMap<Int, MutableList<Pair<String, Int>>>()
-        for (syllable in T9Pinyin.SYLLABLES) {
-            for (wf in dict.exact(syllable)) {
-                val cp = wf.word.codePointAt(0)
-                if (Character.charCount(cp) != wf.word.length) continue
-                weighted.getOrPut(cp) { ArrayList(2) }.add(syllable to wf.freq)
-            }
-        }
-        val codePoints = weighted.keys.toIntArray().apply { sort() }
-        val syllables = Array(codePoints.size) { index ->
-            weighted.getValue(codePoints[index]).sortedByDescending { it.second }.map { it.first }.distinct()
-        }
-        return CharReadings(codePoints, syllables)
-    }
-
-    private fun readings(codePoint: Int): List<String> {
-        val index = table.codePoints.binarySearch(codePoint)
-        return if (index < 0) emptyList() else table.syllables[index]
-    }
+    private fun readings(codePoint: Int): List<String> = table.of(codePoint)
 
     private fun keysOf(syllable: String): String = keys.getOrPut(syllable) { T9Pinyin.toT9(syllable) }
 

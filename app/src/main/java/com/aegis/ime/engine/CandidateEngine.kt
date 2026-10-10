@@ -17,6 +17,7 @@ package com.aegis.ime.engine
 
 import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.Syllable
+import com.aegis.ime.decoder.WordReading
 
 interface CandidateEngine {
     val supportsChinese: Boolean get() = false
@@ -88,6 +89,8 @@ interface CandidateEngine {
     fun spelledReading(word: String, reading: String): String = reading
 
     fun isDictionaryWord(word: String, reading: String): Boolean = false
+
+    fun annotateWord(word: String): WordReading? = null
 
     fun prepareUserWords() {}
 

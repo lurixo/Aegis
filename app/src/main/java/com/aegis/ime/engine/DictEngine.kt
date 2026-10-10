@@ -19,6 +19,8 @@ import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.PinyinDecoder
 import com.aegis.ime.decoder.Syllable
 import com.aegis.ime.decoder.T9Pinyin
+import com.aegis.ime.decoder.WordAnnotator
+import com.aegis.ime.decoder.WordReading
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.dict.DecodeCancellation
@@ -65,6 +67,8 @@ class DictEngine(
             grammarCharPenalty = T9_GRAMMAR_CHAR_PENALTY,
         )
     }
+
+    private val annotator = pinyinDict?.let(::WordAnnotator)
 
     override val supportsChinese: Boolean = decoder != null || t9Decoder != null
 
@@ -231,6 +235,8 @@ class DictEngine(
 
     override fun isDictionaryWord(word: String, reading: String): Boolean =
         pinyinDict?.containsExactWord(reading, word) == true
+
+    override fun annotateWord(word: String): WordReading? = annotator?.annotate(word)
 
     fun storedReadingRepairs(): List<UserModel.ReadingRepair> {
         val model = userModel ?: return emptyList()
