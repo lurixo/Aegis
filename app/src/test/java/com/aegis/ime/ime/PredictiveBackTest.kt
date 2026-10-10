@@ -29,6 +29,7 @@ import android.widget.FrameLayout
 import android.widget.TextView
 import android.window.OnBackInvokedCallback
 import com.aegis.ime.AegisInputMethodService
+import com.aegis.ime.decoder.WordReading
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.user.LiveUserData
@@ -245,6 +246,34 @@ class PredictiveBackTest {
         assertTrue("Back stays claimed while $expected is open", iv.hasOverlay())
         assertEquals(expected, iv.backTargetKindForTest())
         assertTrue("Back reports it closed the top layer", iv.closeTopOverlay())
+    }
+
+    private val polyphonic = WordReading(listOf("xing", "hao"), listOf(listOf("xing", "hang"), listOf("hao")), ambiguous = true)
+
+    @Test fun back_closes_the_word_reading_chooser_over_the_copy_bar_without_adding() {
+        val iv = InputView(ctx)
+        val added = mutableListOf<String>()
+        iv.showCopyBar("行好")
+        iv.showWordReadingChooser("行好", polyphonic) { added += it }
+        backStep(iv, "WORD_READINGS")
+        assertEquals("Back adds nothing", emptyList<String>(), added)
+        assertEquals(null, iv.wordReadingChooserForTest())
+        assertTrue("the copy bar stays", iv.copyBarShown)
+        assertFalse("with the chooser gone Back is the framework's again", iv.hasOverlay())
+    }
+
+    @Test fun back_closes_the_word_reading_chooser_before_the_clipboard_panel() {
+        val iv = InputView(ctx)
+        val panel = phrasePanel()
+        val added = mutableListOf<String>()
+        iv.showPanel(panel)
+        iv.showWordReadingChooser("行好", polyphonic) { added += it }
+        assertTrue("the clipboard panel hosts the chooser", panel.wordReadingChooserForTest() != null)
+        backStep(iv, "PANEL_LAYER")
+        assertEquals(null, panel.wordReadingChooserForTest())
+        assertTrue("the clipboard panel stays open", iv.panelShown)
+        assertEquals("Back adds nothing", emptyList<String>(), added)
+        backStep(iv, "PANEL")
     }
 
     @Test fun back_closes_the_skin_tone_choice_before_the_emoji_panel() {

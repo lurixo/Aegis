@@ -16,6 +16,7 @@
 package com.aegis.ime.ime
 
 import com.aegis.ime.R
+import com.aegis.ime.decoder.WordReading
 import com.aegis.ime.user.ClipEntry
 import com.aegis.ime.user.ClipboardImages
 import android.graphics.Bitmap
@@ -2874,6 +2875,28 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         panel.addView(footer, ll(MP, WC))
         showOverlay(panel, maxWidthDp = 340)
         splitSessionActive = true
+    }
+
+    fun showWordReadingChooser(word: String, reading: WordReading, onAdd: (String) -> Unit) {
+        val chooser = WordReadingChooser(context)
+        chooser.hapticEnabled = hapticEnabled
+        chooser.applyPalette(palette)
+        chooser.bind(word, reading)
+        chooser.onBack = { hideOverlay() }
+        chooser.onAdd = { chosen ->
+            hideOverlay()
+            onAdd(chosen)
+        }
+        showOverlay(chooser, maxWidthDp = 340)
+    }
+
+    internal fun wordReadingChooserForTest(): WordReadingChooser? =
+        overlay.takeIf { it.visibility == VISIBLE }?.let { findChooser(it) }
+
+    private fun findChooser(view: View): WordReadingChooser? = when (view) {
+        is WordReadingChooser -> view
+        is ViewGroup -> (0 until view.childCount).firstNotNullOfOrNull { findChooser(view.getChildAt(it)) }
+        else -> null
     }
 
     internal fun finishSplitSelection() {

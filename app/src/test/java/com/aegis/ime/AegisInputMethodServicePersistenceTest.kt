@@ -26,6 +26,7 @@ import com.aegis.ime.decoder.EngineFixture
 import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.ime.InputView
 import com.aegis.ime.ime.KeyboardController
+import com.aegis.ime.ime.WordReadingChooser
 import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.LiveUserData
@@ -869,8 +870,33 @@ class AegisInputMethodServicePersistenceTest {
         assertTrue(model(service).hasWord("haoyin", "好银"))
         assertTrue("the added word reaches storage", "好银" in userDb.readText())
         add("好银", R.string.copybar_word_exists)
-        add("行好", R.string.copybar_word_added)
-        assertTrue(model(service).hasWord("xinghao", "行好"))
+        fun settle(done: () -> Boolean) {
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+            while (!done() && System.nanoTime() < deadline) {
+                shadowOf(Looper.getMainLooper()).idle()
+                Thread.yield()
+            }
+        }
+        fun choose(word: String): WordReadingChooser {
+            view.showCopyBar(word)
+            requireNotNull(find(view.copyBarForTest(), label)).performClick()
+            settle { view.wordReadingChooserForTest() != null }
+            return requireNotNull(view.wordReadingChooserForTest()) { "$word opens the reading chooser" }
+        }
+
+        choose("行好").let { requireNotNull(find(it, app.getString(R.string.word_readings_back))).performClick() }
+        assertEquals(null, view.wordReadingChooserForTest())
+        assertFalse(model(service).hasWord("xinghao", "行好"))
+        assertFalse(model(service).hasWord("hanghao", "行好"))
+        choose("行好").let {
+            it.pickForTest(0, "hang")
+            requireNotNull(find(it, app.getString(R.string.word_readings_add))).performClick()
+        }
+        val added = app.getString(R.string.copybar_word_added)
+        settle { service.toastTextForTest() == added }
+        assertEquals(added, service.toastTextForTest())
+        assertTrue(model(service).hasWord("hanghao", "行好"))
+        assertFalse(model(service).hasWord("xinghao", "行好"))
         add("银行", R.string.copybar_word_exists)
         assertFalse(model(service).hasWord("yinhang", "银行"))
 

@@ -37,6 +37,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import kotlin.math.roundToInt
 import com.aegis.ime.R
+import com.aegis.ime.decoder.WordReading
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.ime.theme.ImeType
@@ -173,6 +174,7 @@ class InputView(context: Context) : LinearLayout(context) {
         gridView.applyPalette(p)
         editBarView.applyPalette(p)
         translateBarView.applyPalette(p)
+        (currentPanel as? WordReadingChooser)?.applyPalette(p)
     }
 
     fun palette(): ImePalette = palette
@@ -734,6 +736,25 @@ class InputView(context: Context) : LinearLayout(context) {
     }
 
     val copyBarShown: Boolean get() = copyBarView.visibility == VISIBLE
+
+    fun showWordReadingChooser(word: String, reading: WordReading, onAdd: (String) -> Unit) {
+        val clipboard = currentPanel as? ClipboardView
+        if (clipboard != null) {
+            clipboard.showWordReadingChooser(word, reading, onAdd)
+            return
+        }
+        val chooser = WordReadingChooser(context)
+        chooser.applyPalette(palette)
+        chooser.bind(word, reading)
+        chooser.onBack = { if (currentPanel === chooser) showPanel(null) }
+        chooser.onAdd = { chosen ->
+            if (currentPanel === chooser) showPanel(null)
+            onAdd(chosen)
+        }
+        showPanel(chooser)
+    }
+
+    internal fun wordReadingChooserForTest(): WordReadingChooser? = currentPanel as? WordReadingChooser
     internal fun copyBarActiveForTest(): Boolean = copyBarActive
     internal fun copyBarForTest(): CopyBarView = copyBarView
     internal fun coveredBarForTest(): View? = coveredBar()
@@ -1035,7 +1056,7 @@ class InputView(context: Context) : LinearLayout(context) {
         onOverlayChanged()
     }
 
-    private enum class BackKind { NONE, PANEL_CONFIRMATION, TRANSLATE_DIALOG, PANEL_LAYER, PANEL, EDIT_BAR, PREEDIT_EDIT }
+    private enum class BackKind { NONE, PANEL_CONFIRMATION, TRANSLATE_DIALOG, WORD_READINGS, PANEL_LAYER, PANEL, EDIT_BAR, PREEDIT_EDIT }
 
     fun isPreeditEditing(): Boolean = preeditEditingNow
 
@@ -1052,6 +1073,7 @@ class InputView(context: Context) : LinearLayout(context) {
     fun hasOverlay(): Boolean = when {
         visibleConfirmation() != null -> true
         translateBarView.isModeDialogShowing() -> true
+        currentPanel is WordReadingChooser -> true
         copyBarActive && copyBarShown -> false
         else -> currentPanel != null || editBarActive || preeditEditingNow
     }
@@ -1061,6 +1083,7 @@ class InputView(context: Context) : LinearLayout(context) {
         return when {
             confirmation != null -> BackKind.PANEL_CONFIRMATION to confirmation
             translateBarView.isModeDialogShowing() -> BackKind.TRANSLATE_DIALOG to null
+            currentPanel is WordReadingChooser -> BackKind.WORD_READINGS to currentPanel
             copyBarActive && copyBarShown -> BackKind.NONE to null
             editBarActive -> BackKind.EDIT_BAR to editBarView
             (currentPanel as? LayeredPanel)?.hasInnerLayer() == true -> BackKind.PANEL_LAYER to currentPanel
@@ -1076,6 +1099,7 @@ class InputView(context: Context) : LinearLayout(context) {
         return when (kind) {
             BackKind.PANEL_CONFIRMATION -> { (view as PanelConfirmationOverlay).dismiss(); true }
             BackKind.TRANSLATE_DIALOG -> { translateBarView.dismissModeDialog(); true }
+            BackKind.WORD_READINGS -> { showPanel(null); true }
             BackKind.EDIT_BAR -> { onEditCancel(); true }
             BackKind.PANEL_LAYER -> (view as LayeredPanel).closeInnerLayer()
             BackKind.PANEL -> { showPanel(null); true }

@@ -18,6 +18,7 @@ package com.aegis.ime.ime
 import com.aegis.ime.decoder.Cand
 import com.aegis.ime.decoder.Syllable
 import com.aegis.ime.decoder.T9Pinyin
+import com.aegis.ime.decoder.WordReading
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.engine.Calculator
 import com.aegis.ime.engine.InputAssociations
@@ -1139,20 +1140,39 @@ class KeyboardController(
     fun addWordToDictionary(
         word: String,
         add: (reading: String, word: String) -> Boolean,
+        choose: (WordReading) -> Unit,
         done: (WordAddOutcome) -> Unit,
     ) {
         val target = engine
         learnOnWorker {
-            val reading = target.annotateWord(word)?.reading
-            done(
-                when {
-                    reading == null -> WordAddOutcome.UNREADABLE
-                    target.isDictionaryWord(word, reading) || target.isUserWord(word, reading) -> WordAddOutcome.EXISTS
-                    add(reading, word) -> WordAddOutcome.ADDED
-                    else -> WordAddOutcome.FAILED
-                },
-            )
+            val annotated = target.annotateWord(word)
+            when {
+                annotated == null -> done(WordAddOutcome.UNREADABLE)
+                annotated.ambiguous -> choose(annotated)
+                else -> done(fileWord(target, word, annotated.reading, add))
+            }
         }
+    }
+
+    fun addWordReading(
+        word: String,
+        reading: String,
+        add: (reading: String, word: String) -> Boolean,
+        done: (WordAddOutcome) -> Unit,
+    ) {
+        val target = engine
+        learnOnWorker { done(fileWord(target, word, reading, add)) }
+    }
+
+    private fun fileWord(
+        target: CandidateEngine,
+        word: String,
+        reading: String,
+        add: (reading: String, word: String) -> Boolean,
+    ): WordAddOutcome = when {
+        target.isDictionaryWord(word, reading) || target.isUserWord(word, reading) -> WordAddOutcome.EXISTS
+        add(reading, word) -> WordAddOutcome.ADDED
+        else -> WordAddOutcome.FAILED
     }
 
     private fun learnOnWorker(job: () -> Unit) {

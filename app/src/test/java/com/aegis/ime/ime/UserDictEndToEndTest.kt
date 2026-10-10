@@ -18,6 +18,7 @@ package com.aegis.ime.ime
 import com.aegis.ime.decoder.EngineFixture
 import com.aegis.ime.decoder.PinyinDecoder
 import com.aegis.ime.decoder.T9Pinyin
+import com.aegis.ime.decoder.WordReading
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.layout.Key
@@ -249,11 +250,84 @@ class UserDictEndToEndTest {
         assertEquals(setOf("词库", "此库"), um.readingSnapshot().getValue("ciku").toSet())
     }
 
-    private fun addCopied(c: KeyboardController, um: UserModel, word: String): WordAddOutcome? {
+    private fun addCopied(
+        c: KeyboardController,
+        um: UserModel,
+        word: String,
+        choose: (WordReading) -> String? = { null },
+    ): WordAddOutcome? {
         var outcome: WordAddOutcome? = null
-        c.addWordToDictionary(word, { reading, w -> um.addManualWord(reading, w, 1L) }) { outcome = it }
+        val add = { reading: String, w: String -> um.addManualWord(reading, w, 1L) }
+        c.addWordToDictionary(
+            word,
+            add,
+            choose = { annotated -> choose(annotated)?.let { c.addWordReading(word, it, add) { o -> outcome = o } } },
+        ) { outcome = it }
         return outcome
     }
+
+    private val polyphonic = listOf(
+        EngineFixture.Row("xing", "行", 900), EngineFixture.Row("hang", "行", 700),
+        EngineFixture.Row("hang", "航", 950), EngineFixture.Row("hao", "号", 960),
+        EngineFixture.Row("hanghao", "航号", 900),
+    )
+
+    private fun copiedPolyphonicWordAddedUnderTheChosenReading(nine: Boolean) {
+        val um = UserModel()
+        val (c, _) = controller(um, polyphonic)
+        if (nine) switchNine(c) else switchAlpha(c)
+        val keys = if (nine) T9Pinyin.toT9("hanghao") else "hanghao"
+        keys.forEach { c.onKey(out(it.toString())) }
+        assertFalse("precondition: 行好 is not offered before it is added", "行好" in c.candidateWords())
+        clear(c)
+
+        var offered: WordReading? = null
+        assertEquals("an ambiguous word waits for a chosen reading", null, addCopied(c, um, "行好") { offered = it; null })
+        assertEquals(listOf("xing", "hao"), offered?.syllables)
+        assertEquals(listOf(listOf("xing", "hang"), listOf("hao")), offered?.choices)
+        assertTrue("nothing is filed before a reading is chosen", um.readingSnapshot().values.none { "行好" in it })
+
+        assertEquals(WordAddOutcome.ADDED, addCopied(c, um, "行好") { "hanghao" })
+        assertEquals(listOf("行好"), um.readingSnapshot()["hanghao"])
+        assertEquals(null, um.readingSnapshot()["xinghao"])
+        keys.forEach { c.onKey(out(it.toString())) }
+        assertTrue("the chosen reading recalls the word", "行好" in c.candidateWords())
+        clear(c)
+        assertEquals(WordAddOutcome.EXISTS, addCopied(c, um, "行好") { "hanghao" })
+    }
+
+    private val settled = polyphonic + listOf(
+        EngineFixture.Row("chao", "朝", 900), EngineFixture.Row("zhao", "朝", 500),
+        EngineFixture.Row("yin", "银", 800), EngineFixture.Row("yinhang", "银行", 850),
+    )
+
+    private fun copiedWordAddedUnderAReadingChangedFromTheSettledOne(nine: Boolean) {
+        val um = UserModel()
+        val (c, _) = controller(um, settled)
+        if (nine) switchNine(c) else switchAlpha(c)
+
+        var offered: WordReading? = null
+        assertEquals(null, addCopied(c, um, "朝银行") { offered = it; null })
+        assertEquals("the dictionary settles 行 as the default only", listOf("chao", "yin", "hang"), offered?.syllables)
+        assertEquals(listOf(listOf("chao", "zhao"), listOf("yin"), listOf("xing", "hang")), offered?.choices)
+
+        assertEquals(WordAddOutcome.ADDED, addCopied(c, um, "朝银行") { "zhaoyinxing" })
+        assertEquals(listOf("朝银行"), um.readingSnapshot()["zhaoyinxing"])
+        assertEquals(null, um.readingSnapshot()["chaoyinhang"])
+        val keys = if (nine) T9Pinyin.toT9("zhaoyinxing") else "zhaoyinxing"
+        keys.forEach { c.onKey(out(it.toString())) }
+        assertTrue("the changed reading recalls the word", "朝银行" in c.candidateWords())
+    }
+
+    @Test fun copiedWord_addedUnderReadingChangedFromSettled_recalledOn26key() =
+        copiedWordAddedUnderAReadingChangedFromTheSettledOne(nine = false)
+
+    @Test fun copiedWord_addedUnderReadingChangedFromSettled_recalledOn9key() =
+        copiedWordAddedUnderAReadingChangedFromTheSettledOne(nine = true)
+
+    @Test fun copiedPolyphonicWord_addedUnderChosenReading_recalledOn26key() = copiedPolyphonicWordAddedUnderTheChosenReading(nine = false)
+
+    @Test fun copiedPolyphonicWord_addedUnderChosenReading_recalledOn9key() = copiedPolyphonicWordAddedUnderTheChosenReading(nine = true)
 
     @Test fun copiedWord_addedToDictionary_recalledOn26key() {
         val um = UserModel()
@@ -293,7 +367,7 @@ class UserDictEndToEndTest {
         val um = UserModel()
         val (c, _) = controller(um)
         var outcome: WordAddOutcome? = null
-        c.addWordToDictionary("此试", { _, _ -> false }) { outcome = it }
+        c.addWordToDictionary("此试", { _, _ -> false }, choose = {}) { outcome = it }
         assertEquals(WordAddOutcome.FAILED, outcome)
         assertEquals(null, um.readingSnapshot()["cishi"])
     }

@@ -18,6 +18,7 @@ package com.aegis.ime.ime
 import com.aegis.ime.decoder.FullDictTestAssets
 import com.aegis.ime.decoder.PinyinDecoder
 import com.aegis.ime.decoder.T9Pinyin
+import com.aegis.ime.decoder.WordReading
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
 import com.aegis.ime.engine.DictEngine
@@ -135,6 +136,54 @@ class AliasedReadingUserWordTest {
 
     @Test fun annotated_word_is_offered_for_its_default_reading_on9key() =
         annotatedWordIsOfferedForItsDefaultReading(nine = true)
+
+    private fun added(c: KeyboardController, model: UserModel, word: String): Pair<WordReading?, WordAddOutcome?> {
+        var chooser: WordReading? = null
+        var outcome: WordAddOutcome? = null
+        val add = { reading: String, w: String -> model.addManualWord(reading, w, clock) }
+        c.addWordToDictionary(
+            word,
+            add,
+            choose = { annotated ->
+                chooser = annotated
+                c.addWordReading(word, annotated.reading, add) { outcome = it }
+            },
+        ) { outcome = it }
+        return chooser to outcome
+    }
+
+    private fun wordAddedToTheDictionaryIsOfferedForTheAliasItIsTypedWith(nine: Boolean) {
+        val typed = listOf("cunenhua")
+        val model = UserModel()
+        val c = controller(model, nine)
+        val (chooser, outcome) = added(c, model, "存嗯化")
+        assertEquals("the chooser opens on the alias", listOf("cun", "en", "hua"), chooser?.syllables)
+        assertEquals(listOf(listOf("cun"), listOf("en", "n", "ng"), listOf("hua")), chooser?.choices)
+        assertEquals(WordAddOutcome.ADDED, outcome)
+        assertEquals(mapOf("cunenhua" to listOf("存嗯化")), model.readingSnapshot())
+        val aliased = offered(model, nine, typed)
+        assertTrue("存嗯化 is offered for ${keys(nine, "cunenhua")}: ${aliased.take(40)}", "存嗯化" in aliased)
+        assertFalse("存恩化 is not offered through 存嗯化", "存恩化" in aliased)
+        assertEquals(WordAddOutcome.EXISTS, added(c, model, "存嗯化").second)
+        assertEquals("a dictionary entry is not added again", null to WordAddOutcome.EXISTS, added(c, model, "嗯嗯"))
+
+        assertEquals("存恩化 has one reading and needs no chooser", null to WordAddOutcome.ADDED, added(c, model, "存恩化"))
+        assertEquals(mapOf("cunenhua" to listOf("存嗯化", "存恩化")), model.readingSnapshot())
+        val both = offered(model, nine, typed)
+        assertTrue("both words are offered: ${both.take(40)}", "存嗯化" in both && "存恩化" in both)
+
+        val other = UserModel()
+        assertEquals(null to WordAddOutcome.ADDED, added(controller(other, nine), other, "存恩化"))
+        val plain = offered(other, nine, typed)
+        assertTrue("存恩化 is offered for ${keys(nine, "cunenhua")}: ${plain.take(40)}", "存恩化" in plain)
+        assertFalse("存嗯化 is not offered through 存恩化", "存嗯化" in plain)
+    }
+
+    @Test fun word_added_to_the_dictionary_is_offered_for_the_alias_it_is_typed_with_on26key() =
+        wordAddedToTheDictionaryIsOfferedForTheAliasItIsTypedWith(nine = false)
+
+    @Test fun word_added_to_the_dictionary_is_offered_for_the_alias_it_is_typed_with_on9key() =
+        wordAddedToTheDictionaryIsOfferedForTheAliasItIsTypedWith(nine = true)
 
     @Test fun word_picked_character_by_character_is_learned_under_the_typed_reading_on26key() =
         wordPickedCharacterByCharacterIsLearnedUnderTheTypedReading(nine = false)

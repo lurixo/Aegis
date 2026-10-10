@@ -2726,12 +2726,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private fun toast(msg: String) { inputView?.showToast(msg) }
 
     private fun addCopiedWord(word: String) {
-        controller.addWordToDictionary(
-            word,
-            add = { reading, w ->
-                !LiveUserData.restoreInProgress && UserDictEdit.add(userDbFile, w, reading, System.currentTimeMillis())
-            },
-        ) { outcome ->
+        val add = { reading: String, w: String ->
+            !LiveUserData.restoreInProgress && UserDictEdit.add(userDbFile, w, reading, System.currentTimeMillis())
+        }
+        val report: (WordAddOutcome) -> Unit = { outcome ->
             val message = when (outcome) {
                 WordAddOutcome.ADDED -> R.string.copybar_word_added
                 WordAddOutcome.EXISTS -> R.string.copybar_word_exists
@@ -2740,6 +2738,18 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
             }
             mainHandler.post { toast(uiString(message)) }
         }
+        controller.addWordToDictionary(
+            word,
+            add,
+            choose = { annotated ->
+                mainHandler.post {
+                    inputView?.showWordReadingChooser(word, annotated) { reading ->
+                        controller.addWordReading(word, reading, add, report)
+                    }
+                }
+            },
+            done = report,
+        )
     }
 
     internal fun toastTextForTest(): String? = inputView?.toastTextForTest()
