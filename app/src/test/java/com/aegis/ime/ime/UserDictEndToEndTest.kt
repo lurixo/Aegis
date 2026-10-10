@@ -248,4 +248,53 @@ class UserDictEndToEndTest {
         assertEquals(listOf("词库"), um.readingSnapshot()["cigui"])
         assertEquals(setOf("词库", "此库"), um.readingSnapshot().getValue("ciku").toSet())
     }
+
+    private fun addCopied(c: KeyboardController, um: UserModel, word: String): WordAddOutcome? {
+        var outcome: WordAddOutcome? = null
+        c.addWordToDictionary(word, { reading, w -> um.addManualWord(reading, w, 1L) }) { outcome = it }
+        return outcome
+    }
+
+    @Test fun copiedWord_addedToDictionary_recalledOn26key() {
+        val um = UserModel()
+        val (c, _) = controller(um)
+        switchAlpha(c)
+        "cishi".forEach { c.onKey(out(it.toString())) }
+        assertFalse("precondition: 此试 is not offered before it is added", "此试" in c.candidateWords())
+        clear(c)
+
+        assertEquals(WordAddOutcome.ADDED, addCopied(c, um, "此试"))
+        assertEquals(listOf("此试"), um.readingSnapshot()["cishi"])
+        "cishi".forEach { c.onKey(out(it.toString())) }
+        assertTrue("added word recalled on 26-key", "此试" in c.candidateWords())
+        clear(c)
+
+        assertEquals(WordAddOutcome.EXISTS, addCopied(c, um, "此试"))
+        assertEquals(WordAddOutcome.EXISTS, addCopied(c, um, "词库"))
+        assertEquals(null, um.readingSnapshot()["ciku"])
+        assertEquals(WordAddOutcome.UNREADABLE, addCopied(c, um, "此鑫"))
+    }
+
+    @Test fun copiedWord_addedToDictionary_recalledOn9key() {
+        val um = UserModel()
+        val (c, _) = controller(um)
+        switchNine(c)
+        val digits = T9Pinyin.toT9("cishi")
+        digits.forEach { c.onKey(out(it.toString())) }
+        assertFalse("precondition: 此试 is not offered before it is added", "此试" in c.candidateWords())
+        clear(c)
+
+        assertEquals(WordAddOutcome.ADDED, addCopied(c, um, "此试"))
+        digits.forEach { c.onKey(out(it.toString())) }
+        assertTrue("added word recalled on 9-key", "此试" in c.candidateWords())
+    }
+
+    @Test fun copiedWord_notAddedWhenTheStoreRefuses() {
+        val um = UserModel()
+        val (c, _) = controller(um)
+        var outcome: WordAddOutcome? = null
+        c.addWordToDictionary("此试", { _, _ -> false }) { outcome = it }
+        assertEquals(WordAddOutcome.FAILED, outcome)
+        assertEquals(null, um.readingSnapshot()["cishi"])
+    }
 }

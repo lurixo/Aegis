@@ -38,6 +38,8 @@ private enum class Mode { PINYIN, DIRECT }
 
 private enum class StepKind { DIGIT, LITERAL, LOCK, DIGIT_CHOICE, CUT }
 
+enum class WordAddOutcome { ADDED, EXISTS, UNREADABLE, FAILED }
+
 private data class ReadingLock(val reading: String, val start: Int, val end: Int)
 
 private data class MixedPart(val start: Int, val end: Int, val literal: Boolean) {
@@ -1131,6 +1133,25 @@ class KeyboardController(
                 else target.learnWord(spelled, word, assembled)
                 onLearned()
             }
+        }
+    }
+
+    fun addWordToDictionary(
+        word: String,
+        add: (reading: String, word: String) -> Boolean,
+        done: (WordAddOutcome) -> Unit,
+    ) {
+        val target = engine
+        learnOnWorker {
+            val reading = target.annotateWord(word)?.reading
+            done(
+                when {
+                    reading == null -> WordAddOutcome.UNREADABLE
+                    target.isDictionaryWord(word, reading) || target.isUserWord(word, reading) -> WordAddOutcome.EXISTS
+                    add(reading, word) -> WordAddOutcome.ADDED
+                    else -> WordAddOutcome.FAILED
+                },
+            )
         }
     }
 

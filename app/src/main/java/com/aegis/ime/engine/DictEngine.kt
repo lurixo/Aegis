@@ -238,6 +238,9 @@ class DictEngine(
 
     override fun annotateWord(word: String): WordReading? = annotator?.annotate(word)
 
+    override fun isUserWord(word: String, reading: String): Boolean =
+        userModel?.hasWord(reading, word) == true || userLearning?.isFormed(word, reading) == true
+
     fun storedReadingRepairs(): List<UserModel.ReadingRepair> {
         val model = userModel ?: return emptyList()
         val letters = decoder ?: return emptyList()

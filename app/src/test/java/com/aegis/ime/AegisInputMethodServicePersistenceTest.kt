@@ -17,8 +17,15 @@ package com.aegis.ime
 
 import android.content.Context
 import android.os.Looper
+import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
+import android.widget.TextView
 import com.aegis.ime.backup.RestoreJournal
+import com.aegis.ime.decoder.EngineFixture
+import com.aegis.ime.engine.DictEngine
+import com.aegis.ime.ime.InputView
+import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.user.ClipboardStore
 import com.aegis.ime.user.LiveUserDictHost
 import com.aegis.ime.user.LiveUserData
@@ -818,5 +825,57 @@ class AegisInputMethodServicePersistenceTest {
             watermark(service, "userDbMtime"),
         )
         assertEquals(userLearn.lastModified(), watermark(service, "userLearnMtime"))
+    }
+
+    private fun find(view: View, label: String): TextView? = when (view) {
+        is TextView -> view.takeIf { it.text.toString() == label }
+        is ViewGroup -> (0 until view.childCount).firstNotNullOfOrNull { find(view.getChildAt(it), label) }
+        else -> null
+    }
+
+    @Test fun a_word_added_from_the_copy_bar_lands_in_the_live_dictionary_once() {
+        val service = started()
+        shadowOf(Looper.getMainLooper()).idle()
+        val rows = listOf(
+            EngineFixture.Row("yin", "银", 800),
+            EngineFixture.Row("xing", "行", 900), EngineFixture.Row("hang", "行", 700),
+            EngineFixture.Row("hao", "好", 900),
+            EngineFixture.Row("yinhang", "银行", 850),
+        )
+        val controller = service.javaClass.getDeclaredField("controller").run {
+            isAccessible = true
+            get(service) as KeyboardController
+        }
+        controller.setEngine(DictEngine(EngineFixture.build(rows), null, null, model(service), userLearning = learning(service)))
+        service.onStartInput(editor(), false)
+        val view = service.onCreateInputView() as InputView
+        service.onStartInputView(editor(), false)
+        val app = RuntimeEnvironment.getApplication()
+        val label = app.getString(R.string.copybar_add_word)
+
+        fun add(word: String, toast: Int) {
+            view.showCopyBar(word)
+            requireNotNull(find(view.copyBarForTest(), label)).performClick()
+            val expected = app.getString(toast)
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+            while (service.toastTextForTest() != expected && System.nanoTime() < deadline) {
+                shadowOf(Looper.getMainLooper()).idle()
+                Thread.yield()
+            }
+            assertEquals(word, expected, service.toastTextForTest())
+        }
+
+        add("好银", R.string.copybar_word_added)
+        assertTrue(model(service).hasWord("haoyin", "好银"))
+        assertTrue("the added word reaches storage", "好银" in userDb.readText())
+        add("好银", R.string.copybar_word_exists)
+        add("行好", R.string.copybar_word_added)
+        assertTrue(model(service).hasWord("xinghao", "行好"))
+        add("银行", R.string.copybar_word_exists)
+        assertFalse(model(service).hasWord("yinhang", "银行"))
+
+        LiveUserData.restoreInProgress = true
+        add("银好", R.string.user_dict_toast_write_failed)
+        assertFalse(model(service).hasWord("yinhao", "银好"))
     }
 }

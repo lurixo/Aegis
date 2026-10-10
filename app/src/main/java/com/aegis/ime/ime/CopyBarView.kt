@@ -38,6 +38,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
     var onSelectionChanged: (String) -> Unit = {}
     var onSelectionFinished: () -> Unit = {}
     var onDismiss: () -> Unit = {}
+    var onAddWord: (String) -> Unit = {}
 
     private val density = resources.displayMetrics.density
     private fun dp(v: Int) = (v * density).toInt()
@@ -53,6 +54,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         selectionChanged = { onSelectionChanged(it) },
         selectionFinished = { onSelectionFinished() },
         dismiss = { onDismiss() },
+        addWord = { onAddWord(it) },
     )
 
     private val row = LinearLayout(context).apply {
@@ -94,6 +96,9 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         if (!ctl.splitMode) {
             row.addView(contentScroller(ctl.content.orEmpty()), lp(0, WC, 1f))
             row.addView(divider(), lp(dp(1), dp(18)))
+            if (ctl.addableWord != null) {
+                row.addView(pill(context.getString(R.string.copybar_add_word), endDp = 2) { ctl.tapAddWord() }, lp(WC, WC))
+            }
             row.addView(pill(context.getString(R.string.copybar_split)) { toggleSplit() }, lp(WC, WC))
         } else {
             val chips = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
@@ -210,12 +215,17 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         Motion.applyTapFeedback(chip, textColor, radiusDp = ImeShapes.chipRadiusDp)
     }
 
-    private fun pill(label: String, sp: Float = ImeType.body, onClick: () -> Unit): TextView = TextView(context).apply {
+    private fun pill(
+        label: String,
+        sp: Float = ImeType.body,
+        endDp: Int = 10,
+        onClick: () -> Unit,
+    ): TextView = TextView(context).apply {
         text = label
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
         setTextColor(palette.icon)
-        setPadding(dp(10), 0, dp(10), 0)
+        setPadding(dp(10), 0, dp(endDp), 0)
         Motion.applyTapFeedback(this, palette.icon)
         setOnClickListener { onClick() }
         bindImeTapFeedback()

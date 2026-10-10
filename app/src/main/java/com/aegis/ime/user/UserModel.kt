@@ -198,6 +198,9 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
     }
 
     @Synchronized
+    fun hasWord(reading: String, word: String): Boolean = readings[sanitizeReading(reading)]?.contains(word) == true
+
+    @Synchronized
     fun readingSnapshot(): Map<String, List<String>> {
         val out = HashMap<String, List<String>>(readings.size)
         val now = clock()

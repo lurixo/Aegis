@@ -20,6 +20,7 @@ class CopyBarController(
     private val selectionChanged: (String) -> Unit,
     private val selectionFinished: () -> Unit,
     private val dismiss: () -> Unit,
+    private val addWord: (String) -> Unit = {},
 ) {
     var content: String? = null
         private set
@@ -31,6 +32,8 @@ class CopyBarController(
     val blocks: List<String> get() = selection?.blocks.orEmpty()
 
     val active: Boolean get() = content != null
+
+    val addableWord: String? get() = content?.let(::addableWord)
 
     fun show(text: String) {
         if (text.isBlank()) return
@@ -57,6 +60,10 @@ class CopyBarController(
         content?.let { commit(it) }
         clear()
         dismiss()
+    }
+
+    fun tapAddWord() {
+        addableWord?.let(addWord)
     }
 
     fun tapBlock(index: Int): Boolean? {
@@ -86,5 +93,17 @@ class CopyBarController(
         content = null
         splitMode = false
         selection = null
+    }
+
+    companion object {
+        private const val MIN_WORD_CHARS = 2
+        private const val MAX_WORD_CHARS = 32
+
+        fun addableWord(text: String): String? {
+            val word = text.trim()
+            val chars = word.codePoints().toArray()
+            if (chars.size !in MIN_WORD_CHARS..MAX_WORD_CHARS) return null
+            return word.takeIf { chars.all(Character::isIdeographic) }
+        }
     }
 }

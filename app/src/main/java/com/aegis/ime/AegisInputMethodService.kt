@@ -76,6 +76,7 @@ import com.aegis.ime.ime.ChunkedRead
 import com.aegis.ime.ime.EditorSweep
 import com.aegis.ime.ime.EditorUndoHistory
 import com.aegis.ime.ime.WindowedEditorUndoHistory
+import com.aegis.ime.ime.WordAddOutcome
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
@@ -91,6 +92,7 @@ import com.aegis.ime.user.PhraseChange
 import com.aegis.ime.user.PhraseEdit
 import com.aegis.ime.user.SymbolUsageStore
 import com.aegis.ime.user.UserDeletionPromises
+import com.aegis.ime.user.UserDictEdit
 import com.aegis.ime.user.UserDictHot
 import com.aegis.ime.user.UserLearning
 import com.aegis.ime.user.UserModel
@@ -871,6 +873,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 updateSplitSelection(text)
             }
             onCopySelectionFinished = { finishSplitSelection() }
+            onCopyAddWord = { word -> addCopiedWord(word) }
             onCopyDismiss = {
                 controller.expireCandidateChoiceUndo()
                 lastCopy = null
@@ -2721,6 +2724,23 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     }
 
     private fun toast(msg: String) { inputView?.showToast(msg) }
+
+    private fun addCopiedWord(word: String) {
+        controller.addWordToDictionary(
+            word,
+            add = { reading, w ->
+                !LiveUserData.restoreInProgress && UserDictEdit.add(userDbFile, w, reading, System.currentTimeMillis())
+            },
+        ) { outcome ->
+            val message = when (outcome) {
+                WordAddOutcome.ADDED -> R.string.copybar_word_added
+                WordAddOutcome.EXISTS -> R.string.copybar_word_exists
+                WordAddOutcome.UNREADABLE -> R.string.copybar_word_unreadable
+                WordAddOutcome.FAILED -> R.string.user_dict_toast_write_failed
+            }
+            mainHandler.post { toast(uiString(message)) }
+        }
+    }
 
     internal fun toastTextForTest(): String? = inputView?.toastTextForTest()
 

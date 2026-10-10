@@ -69,6 +69,7 @@ class InputView(context: Context) : LinearLayout(context) {
     var onCopySelectionChanged: (String) -> Unit = {}
     var onCopySelectionFinished: () -> Unit = {}
     var onCopyDismiss: () -> Unit = {}
+    var onCopyAddWord: (String) -> Unit = {}
     var onEditConfirm: () -> Unit = {}
     var onEditTextChanged: (String) -> Unit = {}
     var onEditSelectionChanged: (Boolean) -> Unit = {}
@@ -457,6 +458,7 @@ class InputView(context: Context) : LinearLayout(context) {
         copyBarView.onSelectionChanged = { text -> onCopySelectionChanged(text) }
         copyBarView.onSelectionFinished = { onCopySelectionFinished() }
         copyBarView.onDismiss = { hideCopyBar(); onCopyDismiss() }
+        copyBarView.onAddWord = { word -> onCopyAddWord(word) }
         editBarView.onConfirm = { onEditConfirm() }
         editBarView.onCancel = { onEditCancel() }
         editBarView.onTextChanged = { text -> onEditTextChanged(text) }

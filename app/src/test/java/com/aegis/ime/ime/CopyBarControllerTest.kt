@@ -35,11 +35,13 @@ class CopyBarControllerTest {
     private val selectionChanges = mutableListOf<String>()
     private var selectionFinishes = 0
     private var dismissed = 0
+    private val addedWords = mutableListOf<String>()
     private fun ctl() = CopyBarController(
         commit = { commits.add(it) },
         selectionChanged = { selectionChanges.add(it) },
         selectionFinished = { selectionFinishes++ },
         dismiss = { dismissed++ },
+        addWord = { addedWords.add(it) },
     )
 
     private fun labels(view: View): List<String> = when (view) {
@@ -144,5 +146,59 @@ class CopyBarControllerTest {
         assertEquals(1, dismissed)
         assertTrue(commits.isEmpty() && selectionChanges.isEmpty())
         assertFalse(c.active)
+    }
+
+    private fun find(view: View, label: String): TextView? = when (view) {
+        is TextView -> view.takeIf { it.text.toString() == label }
+        is ViewGroup -> (0 until view.childCount).firstNotNullOfOrNull { find(view.getChildAt(it), label) }
+        else -> null
+    }
+
+    @Test fun only_two_to_thirty_two_han_chars_can_be_added_as_a_word() {
+        assertEquals("银行", CopyBarController.addableWord("  银行\n"))
+        assertEquals("\uD840\uDC00行", CopyBarController.addableWord("\uD840\uDC00行"))
+        assertEquals("行".repeat(32), CopyBarController.addableWord("行".repeat(32)))
+        assertEquals(null, CopyBarController.addableWord("行".repeat(33)))
+        assertEquals(null, CopyBarController.addableWord("银"))
+        assertEquals(null, CopyBarController.addableWord("银 行"))
+        assertEquals(null, CopyBarController.addableWord("银行a"))
+        assertEquals(null, CopyBarController.addableWord("银行。"))
+        assertEquals(null, CopyBarController.addableWord("hello"))
+    }
+
+    @Test fun adding_hands_over_the_trimmed_word_and_keeps_the_bar() {
+        val c = ctl()
+        c.show(" 银行\n")
+        assertEquals("银行", c.addableWord)
+        c.tapAddWord()
+        assertEquals(listOf("银行"), addedWords)
+        assertTrue(c.active)
+        assertEquals(0, dismissed)
+        c.show("银行 hello")
+        c.tapAddWord()
+        assertEquals(listOf("银行"), addedWords)
+    }
+
+    @Test fun the_add_action_shows_only_for_an_addable_word_outside_split_mode() {
+        val context = RuntimeEnvironment.getApplication()
+        val label = context.getString(com.aegis.ime.R.string.copybar_add_word)
+        val added = mutableListOf<String>()
+        val view = CopyBarView(context).apply { onAddWord = { added.add(it) } }
+
+        view.show("银行")
+        val action = requireNotNull(find(view, label))
+        action.performClick()
+        assertEquals(listOf("银行"), added)
+        view.toggleSplitForTest()
+        assertEquals(null, find(view, label))
+        view.toggleSplitForTest()
+        assertTrue(find(view, label) != null)
+
+        for (text in listOf("银", "银行a", "read https://x.com now", "行".repeat(33))) {
+            view.show(text)
+            assertEquals(text, null, find(view, label))
+        }
+        view.show("行".repeat(32))
+        assertTrue(find(view, label) != null)
     }
 }

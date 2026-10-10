@@ -92,6 +92,8 @@ interface CandidateEngine {
 
     fun annotateWord(word: String): WordReading? = null
 
+    fun isUserWord(word: String, reading: String): Boolean = false
+
     fun prepareUserWords() {}
 
     fun setFuzzyRules(rules: Set<String>) {}

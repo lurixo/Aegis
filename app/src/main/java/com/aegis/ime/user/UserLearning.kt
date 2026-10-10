@@ -269,6 +269,9 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     }
 
     @Synchronized
+    fun isFormed(word: String, reading: String): Boolean = formedByWord[word]?.containsKey(reading) == true
+
+    @Synchronized
     fun formedEntries(): List<Formed> {
         val now = clock()
         val out = ArrayList<Pair<Formed, Double>>(formedPairs)

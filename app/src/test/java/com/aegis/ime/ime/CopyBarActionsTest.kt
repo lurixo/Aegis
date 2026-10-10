@@ -23,6 +23,7 @@ import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeType
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -94,5 +95,42 @@ class CopyBarActionsTest {
         val title = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, ImeType.title, ctx.resources.displayMetrics)
         assertEquals(title, close.textSize, 0f)
         assertEquals(dp(34), close.width)
+    }
+
+    @Test fun add_word_label_is_the_size_of_the_copied_text() {
+        val measured = HashSet<String>()
+        for (locale in locales) {
+            RuntimeEnvironment.setQualifiers("+$locale")
+            val v = bar("词库")
+            val label = ctx.getString(R.string.copybar_add_word)
+            measured.add(label)
+            assertEquals("$locale: $label", copied(v).textSize, action(v, label).textSize, 0f)
+        }
+        assertEquals("each locale shows its own label", locales.size, measured.size)
+    }
+
+    @Test fun add_word_and_split_labels_sit_twelve_dp_apart() {
+        for (locale in locales) {
+            RuntimeEnvironment.setQualifiers("+$locale")
+            val v = bar("词库")
+            val add = action(v, ctx.getString(R.string.copybar_add_word))
+            val split = action(v, ctx.getString(R.string.copybar_split))
+            assertEquals("$locale: the two actions are neighbours", add.right, split.left)
+            val addInkRight = add.left + add.compoundPaddingLeft + add.layout.getLineRight(0)
+            val splitInkLeft = split.left + split.compoundPaddingLeft + split.layout.getLineLeft(0)
+            assertEquals("$locale: gap between the two labels", dp(12).toFloat(), splitInkLeft - addInkRight, 1f)
+        }
+    }
+
+    @Test fun split_stays_at_least_thirty_two_dp_wide_beside_add_word() {
+        for (locale in locales) {
+            RuntimeEnvironment.setQualifiers("+$locale")
+            val v = bar("词库")
+            val split = action(v, ctx.getString(R.string.copybar_split))
+            assertTrue("$locale: split is ${split.width}px wide", split.width >= dp(32))
+            val close = action(v, "×")
+            assertEquals("$locale: split keeps its gap to the close glyph", dp(10), split.paddingRight)
+            assertEquals("$locale: split and close are neighbours", split.right, close.left)
+        }
     }
 }

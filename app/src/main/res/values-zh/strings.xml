@@ -395,6 +395,10 @@
     <string name="copybar_split">拆</string>
     <string name="copybar_collapse">收</string>
     <string name="copybar_no_splittable_content">无可拆分内容</string>
+    <string name="copybar_add_word">加入词库</string>
+    <string name="copybar_word_added">已加入词库</string>
+    <string name="copybar_word_exists">词库里已有</string>
+    <string name="copybar_word_unreadable">无法确定这个词的读音</string>
     <string name="translate_mode_auto">自动</string>
     <string name="translate_mode_zh_en">中英互译</string>
     <string name="translate_mode_zh_ja">中日互译</string>

@@ -401,4 +401,21 @@ class DictEngineTest {
         assertEquals(listOf(setOf("zhang", "chang"), setOf("le", "yue")), town.choices.map { it.toSet() })
         for (word in listOf(name, officer, town)) assertTrue(word.choices.all { it.size <= 6 })
     }
+
+    @Test
+    fun saved_and_learned_words_are_user_words_under_their_reading() {
+        val model = UserModel().apply { addManualWord("haoyin", "好银", 1_000L) }
+        val learning = UserLearning { 1_000L }
+        repeat(3) {
+            learning.observeCommit(null, "自", "zi", 1_000L)
+            learning.observeCommit("自", "词", "ci", 1_000L)
+            learning.observeBreak()
+        }
+        val engine: CandidateEngine = DictEngine(EngineFixture.build(annotated), null, null, model, userLearning = learning)
+        assertTrue(engine.isUserWord("好银", "haoyin"))
+        assertFalse(engine.isUserWord("好银", "haoyan"))
+        assertTrue(engine.isUserWord("自词", "zici"))
+        assertFalse(engine.isUserWord("银行", "yinhang"))
+        assertFalse(DictEngine(null, null, null).isUserWord("好银", "haoyin"))
+    }
 }
