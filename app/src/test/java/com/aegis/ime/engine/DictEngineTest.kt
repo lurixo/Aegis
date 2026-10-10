@@ -100,4 +100,45 @@ class DictEngineTest {
 
         assertEquals(listOf("甲", "乙", "丙"), engine.predict("前"))
     }
+
+    @Test
+    fun an_exact_entry_of_the_installed_dictionary_is_a_dictionary_word() {
+        val rows = listOf(EngineFixture.Row("ciku", "词库", 850), EngineFixture.Row("ci", "词", 800))
+        val engine: CandidateEngine = DictEngine(EngineFixture.build(rows), null, null)
+        assertTrue(engine.isDictionaryWord("词库", "ciku"))
+        assertTrue(engine.isDictionaryWord("词", "ci"))
+    }
+
+    @Test
+    fun a_word_missing_from_the_dictionary_is_not_a_dictionary_word() {
+        val engine: CandidateEngine = DictEngine(EngineFixture.build(listOf(EngineFixture.Row("ciku", "词库", 850))), null, null)
+        assertFalse(engine.isDictionaryWord("此库", "ciku"))
+        assertFalse(engine.isDictionaryWord("词库好", "cikuhao"))
+    }
+
+    @Test
+    fun a_dictionary_word_under_another_reading_is_not_an_exact_entry() {
+        val engine: CandidateEngine = DictEngine(EngineFixture.build(listOf(EngineFixture.Row("ciku", "词库", 850))), null, null)
+        assertFalse(engine.isDictionaryWord("词库", "cigu"))
+        assertFalse(engine.isDictionaryWord("词库", "ci'ku"))
+        assertFalse(engine.isDictionaryWord("词库", ""))
+    }
+
+    @Test
+    fun without_an_installed_dictionary_nothing_is_a_dictionary_word() {
+        assertFalse(DictEngine(null, null, null).isDictionaryWord("词库", "ciku"))
+        assertFalse(object : CandidateEngine {
+            override fun candidates(composing: String, t9: Boolean): List<String> = emptyList()
+        }.isDictionaryWord("词库", "ciku"))
+    }
+
+    @Test
+    fun nine_key_learning_asks_the_full_pinyin_dictionary_by_spelled_reading() {
+        val rows = listOf(EngineFixture.Row("ciku", "词库", 850))
+        val digits = EngineFixture.build(rows.map { EngineFixture.Row(T9Pinyin.toT9(it.key), it.word, it.freq) })
+        val engine: CandidateEngine = DictEngine(EngineFixture.build(rows), digits, null)
+        assertTrue(engine.isDictionaryWord("词库", "ciku"))
+        assertFalse(engine.isDictionaryWord("词库", T9Pinyin.toT9("ciku")))
+        assertFalse(DictEngine(null, digits, null).isDictionaryWord("词库", "ciku"))
+    }
 }

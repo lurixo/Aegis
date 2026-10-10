@@ -85,6 +85,8 @@ interface CandidateEngine {
 
     fun spelledReading(word: String, reading: String): String = reading
 
+    fun isDictionaryWord(word: String, reading: String): Boolean = false
+
     fun prepareUserWords() {}
 
     fun setFuzzyRules(rules: Set<String>) {}

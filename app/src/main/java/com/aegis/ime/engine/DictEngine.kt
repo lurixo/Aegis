@@ -29,7 +29,7 @@ import com.aegis.ime.user.UserModel
 import com.aegis.ime.user.UserLexicon
 
 class DictEngine(
-    pinyinDict: BinaryDict?,
+    private val pinyinDict: BinaryDict?,
     t9Dict: BinaryDict?,
     lm: CharBigramLM?,
     private val userModel: UserModel? = null,
@@ -224,6 +224,9 @@ class DictEngine(
 
     override fun spelledReading(word: String, reading: String): String =
         decoder?.spelledReading(word, reading) ?: reading
+
+    override fun isDictionaryWord(word: String, reading: String): Boolean =
+        pinyinDict?.containsExactWord(reading, word) == true
 
     fun storedReadingRepairs(): List<UserModel.ReadingRepair> {
         val model = userModel ?: return emptyList()
