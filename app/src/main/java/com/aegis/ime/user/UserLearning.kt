@@ -67,6 +67,9 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     var spelledReading: (word: String, reading: String) -> String = { _, reading -> reading }
 
     @Volatile
+    var isDictionaryWord: (word: String, reading: String) -> Boolean = { _, _ -> false }
+
+    @Volatile
     private var sourceReadable: Boolean = true
 
     @Volatile
@@ -563,6 +566,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
             touch(existing, now, FORMED_HALF_LIFE_MILLIS)
             return
         }
+        if (isDictionaryWord(word, reading)) return
         formedByWord.getOrPut(word) { HashMap() }[reading] = Usage(seed, now)
         formedPairs++
         formedVersion++

@@ -51,6 +51,7 @@ class CrossCommitWordLearningTest {
 
     private val rows = (fiveName + sixteenName).distinct().map { (ch, r) -> EngineFixture.Row(r, ch, 900) } +
         EngineFixture.Row("ouyang", "欧阳", 700) +
+        EngineFixture.Row("qingfeng", "清风", 700) +
         T9Pinyin.SYLLABLES.map { EngineFixture.Row(it, "丌", 1) }
 
     private val lmFile = File("src/main/assets/aegis_lm.bin")
@@ -141,6 +142,19 @@ class CrossCommitWordLearningTest {
         val fragments = learning.formedEntries().map { it.word }.filter { it != name && it in name }
         assertTrue("no part of $name becomes a word of its own: $fragments", fragments.isEmpty())
     }
+
+    private fun dictionaryWordTypedCharByCharIsNotFiled(nine: Boolean) {
+        val learning = UserLearning()
+        val c = controller(learning, nine)
+        repeat(3) { typeCharByChar(c, nine, listOf("清" to "qing", "风" to "feng")) }
+        assertTrue("an installed dictionary word is not formed: ${learning.formedEntries()}", learning.formedEntries().isEmpty())
+        repeat(3) { typeCharByChar(c, nine, listOf("白" to "bai", "云" to "yun")) }
+        assertEquals(listOf(UserLearning.Formed("白云", "baiyun")), learning.formedEntries())
+    }
+
+    @Test fun dictionary_word_typed_char_by_char_is_not_filed_on26key() = dictionaryWordTypedCharByCharIsNotFiled(nine = false)
+
+    @Test fun dictionary_word_typed_char_by_char_is_not_filed_on9key() = dictionaryWordTypedCharByCharIsNotFiled(nine = true)
 
     @Test fun name_assembled_from_a_word_and_characters_leaves_no_fragment_on26key() =
         assembledNameLeavesNoFragmentWord(listOf("欧阳", "明", "月", "华"), nine = false)

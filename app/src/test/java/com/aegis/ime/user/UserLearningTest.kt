@@ -281,6 +281,26 @@ class UserLearningTest {
     }
 
     @Test
+    fun dictionaryWordIsNotFormedAndNeitherAreItsParts() {
+        store.isDictionaryWord = { word, reading -> word == "张伟明" && reading == "zhangweiming" }
+        val name = arrayOf("张" to "zhang", "伟" to "wei", "明" to "ming")
+        repeat(3) { typeRun(store, *name) }
+        assertTrue(store.formedEntries().isEmpty())
+        typeRun(store, *name)
+        assertTrue("its counters were spent", store.formedEntries().isEmpty())
+        repeat(3) { typeRun(store, "李" to "li", "雷" to "lei") }
+        assertEquals(listOf(UserLearning.Formed("李雷", "lilei")), store.formedEntries())
+    }
+
+    @Test
+    fun dictionaryCheckUsesTheSpelledReading() {
+        store.spelledReading = { _, reading -> if (reading == "ouwangming") "ouyangming" else reading }
+        store.isDictionaryWord = { word, reading -> word == "欧阳明" && reading == "ouyangming" }
+        repeat(3) { typeRun(store, "欧" to "ou", "阳" to "wang", "明" to "ming") }
+        assertTrue(store.formedEntries().isEmpty())
+    }
+
+    @Test
     fun anUnusableSpellingKeepsTheTypedReading() {
         store.spelledReading = { _, _ -> "" }
         repeat(3) { typeRun(store, "李" to "li", "雷" to "lei") }

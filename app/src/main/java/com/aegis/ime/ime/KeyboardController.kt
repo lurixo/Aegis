@@ -222,6 +222,7 @@ class KeyboardController(
         set(value) {
             field = value
             value?.spelledReading = { word, reading -> engine.spelledReading(word, reading) }
+            value?.isDictionaryWord = { word, reading -> engine.isDictionaryWord(word, reading) }
         }
 
     var neural: NeuralReranker? = null
