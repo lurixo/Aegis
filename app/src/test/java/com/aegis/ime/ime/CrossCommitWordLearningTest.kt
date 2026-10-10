@@ -39,8 +39,17 @@ class CrossCommitWordLearningTest {
     }
 
     private val threeName = listOf("欧" to "ou", "阳" to "yang", "明" to "ming")
+    private val fiveName = threeName + listOf("月" to "yue", "华" to "hua")
+    private val eightName = listOf(
+        "司" to "si", "马" to "ma", "东" to "dong", "方" to "fang",
+        "明" to "ming", "月" to "yue", "清" to "qing", "风" to "feng",
+    )
+    private val sixteenName = eightName + listOf(
+        "欧" to "ou", "阳" to "yang", "长" to "chang", "空" to "kong",
+        "白" to "bai", "云" to "yun", "苍" to "cang", "狗" to "gou",
+    )
 
-    private val rows = threeName.map { (ch, r) -> EngineFixture.Row(r, ch, 900) } +
+    private val rows = (fiveName + sixteenName).distinct().map { (ch, r) -> EngineFixture.Row(r, ch, 900) } +
         T9Pinyin.SYLLABLES.map { EngineFixture.Row(it, "丌", 1) }
 
     private val lmFile = File("src/main/assets/aegis_lm.bin")
@@ -101,4 +110,22 @@ class CrossCommitWordLearningTest {
 
     @Test fun three_character_name_typed_char_by_char_is_learned_on9key() =
         learnedAfterThresholdAndRecalledAfterReload(threeName, nine = true)
+
+    @Test fun five_character_name_typed_char_by_char_is_learned_on26key() =
+        learnedAfterThresholdAndRecalledAfterReload(fiveName, nine = false)
+
+    @Test fun five_character_name_typed_char_by_char_is_learned_on9key() =
+        learnedAfterThresholdAndRecalledAfterReload(fiveName, nine = true)
+
+    @Test fun eight_character_name_typed_char_by_char_is_learned_on26key() =
+        learnedAfterThresholdAndRecalledAfterReload(eightName, nine = false)
+
+    @Test fun eight_character_name_typed_char_by_char_is_learned_on9key() =
+        learnedAfterThresholdAndRecalledAfterReload(eightName, nine = true)
+
+    @Test fun sixteen_character_name_typed_char_by_char_is_learned_on26key() =
+        learnedAfterThresholdAndRecalledAfterReload(sixteenName, nine = false)
+
+    @Test fun sixteen_character_name_typed_char_by_char_is_learned_on9key() =
+        learnedAfterThresholdAndRecalledAfterReload(sixteenName, nine = true)
 }

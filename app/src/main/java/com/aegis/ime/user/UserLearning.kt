@@ -33,6 +33,8 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
 
     private class Window(val start: Long, val end: Long, val chars: List<String>, val readings: List<String>)
 
+    private class Counted(val end: Long, val key: String)
+
     private val formedByWord = HashMap<String, HashMap<String, Usage>>()
     private var formedPairs = 0
     private val pendingCounts = HashMap<String, Usage>()
@@ -42,6 +44,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     private var chainPos = 0L
     private val ripe = ArrayList<Window>()
     private val coveredRanges = ArrayList<Pair<Long, Long>>()
+    private val counted = ArrayDeque<Counted>()
     private val suffixSources = arrayOfNulls<String>(SUFFIX_CACHE_SIZE)
     private val suffixLists = arrayOfNulls<Array<String>>(SUFFIX_CACHE_SIZE)
     private var suffixCursor = 0
@@ -79,6 +82,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
             chainRun.clear()
             ripe.clear()
             coveredRanges.clear()
+            counted.clear()
             chainPos = 0L
             version++
             formedVersion++
@@ -214,9 +218,9 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         for (i in 0 until SUFFIX_CACHE_SIZE) {
             if (suffixSources[i] === context) return suffixLists[i]!!
         }
-        val out = ArrayList<String>(WINDOW_MAX)
+        val out = ArrayList<String>(MAX_COLLOC_LEN)
         var start = context.length
-        while (start > 0 && out.size < WINDOW_MAX) {
+        while (start > 0 && out.size < MAX_COLLOC_LEN) {
             val cp = context.codePointBefore(start)
             if (!Character.isIdeographic(cp)) break
             start -= Character.charCount(cp)
@@ -302,6 +306,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         chainRun.clear()
         ripe.clear()
         coveredRanges.clear()
+        counted.clear()
         chainPos = 0L
         if (had) {
             dirty = true
@@ -406,6 +411,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         chainRun.clear()
         ripe.clear()
         coveredRanges.clear()
+        counted.clear()
         chainPos = 0L
         formedByWord.putAll(parsed.formed)
         formedPairs = parsed.formed.values.sumOf { it.size }
@@ -429,33 +435,37 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         chainRun.addLast(ch to reading)
         if (chainRun.size > WINDOW_MAX) chainRun.removeFirst()
         chainPos++
+        while (counted.isNotEmpty() && counted.first().end <= chainPos - WINDOW_MAX) counted.removeFirst()
         var changed = false
         val n = chainRun.size
+        val keys = arrayOfNulls<String>(n + 1)
+        var word = chainRun[n - 1].first
+        var joined = chainRun[n - 1].second
         for (len in 2..n) {
-            val chars = ArrayList<String>(len)
-            val readings = ArrayList<String>(len)
-            for (i in n - len until n) {
-                val (c, r) = chainRun[i]
-                chars.add(c)
-                readings.add(r)
-            }
-            val word = chars.joinToString("")
-            val joined = readings.joinToString("")
+            val (c, r) = chainRun[n - len]
+            word = c + word
+            joined = r + joined
             val formedUsage = formedUsage(word, joined)
-            if (formedUsage != null) {
-                touch(formedUsage, now, FORMED_HALF_LIFE_MILLIS)
-                coveredRanges.add((chainPos - len) to chainPos)
-                changed = true
+            if (formedUsage == null) {
+                keys[len] = pendingKey(joined, word)
                 continue
             }
-            val key = pendingKey(joined, word)
+            touch(formedUsage, now, FORMED_HALF_LIFE_MILLIS)
+            coveredRanges.add((chainPos - len) to chainPos)
+            uncountAfter(chainPos - len)
+            changed = true
+        }
+        for (len in 2..n) {
+            val key = keys[len] ?: continue
+            if (splitsFormedWord(chainPos - len)) continue
             val u = pendingCounts[key]
             if (u == null) {
                 pendingCounts[key] = Usage(1.0, now)
             } else {
                 touch(u, now, PENDING_HALF_LIFE_MILLIS)
-                if (u.count >= PROMOTE_AT) ripe.add(Window(chainPos - len, chainPos, chars, readings))
+                if (u.count >= PROMOTE_AT) ripe.add(ripeWindow(len))
             }
+            counted.addLast(Counted(chainPos, key))
             changed = true
         }
         if (ripe.size + coveredRanges.size >= RIPE_CAP) {
@@ -464,14 +474,35 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         return changed
     }
 
+    private fun splitsFormedWord(start: Long): Boolean = coveredRanges.any {
+        it.first < start && start < it.second && (it.second == chainPos || it.second - it.first < WINDOW_MAX)
+    }
+
+    private fun uncountAfter(start: Long) {
+        while (counted.isNotEmpty() && counted.last().end > start) {
+            val key = counted.removeLast().key
+            val u = pendingCounts[key] ?: continue
+            u.count -= 1.0
+            if (u.count < PRUNE_FLOOR) pendingCounts.remove(key)
+        }
+        ripe.removeAll { it.end > start }
+    }
+
+    private fun ripeWindow(len: Int): Window {
+        val run = chainRun.subList(chainRun.size - len, chainRun.size)
+        return Window(chainPos - len, chainPos, run.map { it.first }, run.map { it.second })
+    }
+
     private fun closeChain(now: Long): Boolean {
         var changed = false
         if (ripe.isNotEmpty()) {
             val ordered = ripe.sortedWith(compareByDescending<Window> { it.chars.size }.thenBy { it.start })
+            val overCap = overCapStretches()
             val kept = ArrayList<Window>()
             for (w in ordered) {
                 if (coveredRanges.any { it.first <= w.start && w.end <= it.second }) continue
                 if (kept.any { it.start <= w.start && w.end <= it.end }) continue
+                if (overCap.any { it.first <= w.start && w.end <= it.second && (it.first < w.start || w.chars.size < WINDOW_MAX) }) continue
                 kept.add(w)
             }
             val seen = HashSet<String>()
@@ -488,8 +519,26 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         }
         chainRun.clear()
         coveredRanges.clear()
+        counted.clear()
         chainPos = 0L
         return changed
+    }
+
+    private fun overCapStretches(): List<Pair<Long, Long>> {
+        val capped = ArrayList<Pair<Long, Long>>()
+        for (r in coveredRanges) if (r.second - r.first == WINDOW_MAX.toLong()) capped.add(r)
+        for (w in ripe) if (w.chars.size == WINDOW_MAX) capped.add(w.start to w.end)
+        capped.sortBy { it.first }
+        val stretches = ArrayList<Pair<Long, Long>>()
+        for (r in capped) {
+            val last = stretches.lastOrNull()
+            if (last != null && r.first < last.second) {
+                stretches[stretches.lastIndex] = last.first to maxOf(last.second, r.second)
+            } else {
+                stretches.add(r)
+            }
+        }
+        return stretches.filter { it.second - it.first > WINDOW_MAX }
     }
 
     private fun promote(w: Window, now: Long) {
@@ -615,7 +664,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     )
 
     internal companion object {
-        internal const val WINDOW_MAX = 4
+        internal const val WINDOW_MAX = 16
         private const val SUFFIX_CACHE_SIZE = 16
         internal const val PROMOTE_AT = 2.5
         internal const val FOLLOW_PER_PREV = 8
@@ -625,9 +674,9 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         private const val HEADER = "aegis-userlearn 1"
         private const val MAX_LINE_LENGTH = 4_096
         private const val MAX_COLLOC_LEN = 4
-        private const val MAX_FORMED_READING = 24
+        private const val MAX_FORMED_READING = 6 * WINDOW_MAX
         private const val MAX_COUNT = 1.0e12
-        private const val RIPE_CAP = 64
+        private const val RIPE_CAP = 16 * WINDOW_MAX
         private const val MIN_ACTIVE = 0.25
         private const val PRUNE_FLOOR = 0.0625
         private const val FOLLOW_EVICT_FLOOR = 1.0

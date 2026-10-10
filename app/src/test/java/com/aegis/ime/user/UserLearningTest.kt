@@ -60,6 +60,218 @@ class UserLearningTest {
         assertTrue(store.dirty)
     }
 
+    private fun hanRun(length: Int, firstChar: Int, reading: String = "zhuang"): Array<Pair<String, String>> =
+        Array(length) { String(Character.toChars(firstChar + it)) to reading }
+
+    private fun word(run: Array<Pair<String, String>>) = run.joinToString("") { it.first }
+
+    private fun reading(run: Array<Pair<String, String>>) = run.joinToString("") { it.second }
+
+    private val luoName = arrayOf("罗" to "luo", "三" to "san", "为" to "wei")
+    private val cengName = arrayOf("层" to "ceng", "三" to "san", "为" to "wei")
+
+    private fun formedWords(l: UserLearning) = l.formedEntries().map { it.word }.toSet()
+
+    private fun countingWords(l: UserLearning): Set<String> {
+        val f = tempFile("userlearn-counting")
+        l.save(f)
+        return f.readLines().filter { it.startsWith("P\t") }.map { it.split('\t')[2] }.toSet()
+    }
+
+    @Test
+    fun formedWordTypedAgainAddsNoCountsForItsParts() {
+        repeat(3) { typeRun(store, *luoName) }
+        assertEquals(listOf(UserLearning.Formed("罗三为", "luosanwei")), store.formedEntries())
+        repeat(20) { typeRun(store, *luoName) }
+        assertEquals(listOf(UserLearning.Formed("罗三为", "luosanwei")), store.formedEntries())
+        assertTrue("nothing is left counting: ${countingWords(store)}", countingWords(store).isEmpty())
+    }
+
+    @Test
+    fun partsOfAFormedWordDoNotFormThroughAnotherWord() {
+        repeat(4) { typeRun(store, *luoName) }
+        repeat(2) { typeRun(store, *cengName) }
+        assertEquals(setOf("罗三为"), formedWords(store))
+        typeRun(store, *cengName)
+        assertEquals(setOf("罗三为", "层三为"), formedWords(store))
+    }
+
+    @Test
+    fun formedWordIsCountedAsOnePieceOfALongerStretch() {
+        repeat(3) { typeRun(store, *luoName) }
+        typeRun(store, "我" to "wo", "找" to "zhao", *luoName, "好" to "hao")
+        assertEquals(
+            setOf("我找", "找罗三为", "我找罗三为", "罗三为好", "找罗三为好", "我找罗三为好"),
+            countingWords(store),
+        )
+        repeat(2) { typeRun(store, *luoName, "好" to "hao") }
+        assertEquals(setOf("罗三为", "罗三为好"), formedWords(store))
+    }
+
+    @Test
+    fun stretchThatSplitsAFormedWordDoesNotReachTheThreshold() {
+        repeat(3) { typeRun(store, *luoName) }
+        typeRun(store, "找" to "zhao", *luoName)
+        typeRun(store, "找" to "zhao", "罗" to "luo", "马" to "ma")
+        typeRun(store, "找" to "zhao", "罗" to "luo", "盘" to "pan")
+        assertEquals(setOf("罗三为"), formedWords(store))
+        typeRun(store, "找" to "zhao", "罗" to "luo", "汉" to "han")
+        assertEquals(setOf("罗三为", "找罗"), formedWords(store))
+    }
+
+    @Test
+    fun formedWordFiledUnderItsSpelledReadingIsOnePieceToo() {
+        store.spelledReading = { word, reading -> if (word == "罗三为") "luosanwei" else reading }
+        val keyed = arrayOf("罗" to "kuo", "三" to "pan", "为" to "wei")
+        repeat(8) { typeRun(store, *keyed) }
+        assertEquals(listOf(UserLearning.Formed("罗三为", "luosanwei")), store.formedEntries())
+        assertTrue("nothing is left counting: ${countingWords(store)}", countingWords(store).isEmpty())
+        repeat(3) { typeRun(store, "层" to "beng", "三" to "pan", "为" to "wei") }
+        assertEquals(setOf("罗三为", "层三为"), formedWords(store))
+    }
+
+    @Test
+    fun formedWordAtTheCapTypedAgainAddsNoCountsForItsParts() {
+        val name = hanRun(UserLearning.WINDOW_MAX, 0x4E00)
+        repeat(8) { typeRun(store, *name) }
+        assertEquals(setOf(word(name)), formedWords(store))
+        assertTrue("nothing is left counting: ${countingWords(store)}", countingWords(store).isEmpty())
+    }
+
+    @Test
+    fun pieceSharedByTwoUnformedNamesIsFormedFirstAndThenEachName() {
+        repeat(2) { typeRun(store, *luoName) }
+        typeRun(store, *cengName)
+        assertEquals(setOf("三为"), formedWords(store))
+        repeat(2) { typeRun(store, *cengName) }
+        typeRun(store, *luoName)
+        assertEquals(setOf("三为", "罗三为", "层三为"), formedWords(store))
+    }
+
+    private fun formsLongRunAfterThreshold(length: Int) {
+        val name = hanRun(length, 0x4E00)
+        repeat(2) { typeRun(store, *name) }
+        assertTrue("no promotion before threshold", store.formedEntries().isEmpty())
+        typeRun(store, *name)
+        assertEquals(listOf(word(name)), store.formedWordsFor(reading(name)))
+        assertEquals(listOf(word(name)), store.formedWordsFor(T9Pinyin.toT9(reading(name))))
+        assertEquals("no shorter window is promoted", listOf(word(name)), store.formedEntries().map { it.word })
+
+        val f = tempFile("userlearn-long")
+        store.save(f)
+        val b = UserLearning { now }
+        b.load(f)
+        assertEquals(listOf(word(name)), b.formedWordsFor(reading(name)))
+        assertEquals(listOf(word(name)), b.formedWordsFor(T9Pinyin.toT9(reading(name))))
+    }
+
+    @Test
+    fun formsFiveCharacterRunAndRecallsItAfterReload() = formsLongRunAfterThreshold(5)
+
+    @Test
+    fun formsEightCharacterRunAndRecallsItAfterReload() = formsLongRunAfterThreshold(8)
+
+    @Test
+    fun formsRunAtTheWindowCapAndRecallsItAfterReload() = formsLongRunAfterThreshold(UserLearning.WINDOW_MAX)
+
+    @Test
+    fun runLongerThanTheWindowCapIsNeverFormedWhole() {
+        val name = hanRun(UserLearning.WINDOW_MAX + 1, 0x4E00)
+        repeat(3) { typeRun(store, *name) }
+        assertTrue(store.formedWordsFor(reading(name)).isEmpty())
+        val formed = store.formedEntries()
+        assertTrue("windows past the cap still form", formed.isNotEmpty())
+        assertTrue(formed.all { it.word.codePointCount(0, it.word.length) <= UserLearning.WINDOW_MAX })
+    }
+
+    private fun runPastTheWindowCapFormsOnlyItsFirstWindow(length: Int) {
+        val name = hanRun(length, 0x4E00)
+        val head = name.copyOfRange(0, UserLearning.WINDOW_MAX)
+        repeat(3) { typeRun(store, *name) }
+        assertEquals(listOf(UserLearning.Formed(word(head), reading(head))), store.formedEntries())
+        assertEquals(listOf(word(head)), store.formedWordsFor(T9Pinyin.toT9(reading(head))))
+        repeat(3) { typeRun(store, *name) }
+        assertEquals(
+            "later sightings add no overlapping window",
+            listOf(UserLearning.Formed(word(head), reading(head))),
+            store.formedEntries(),
+        )
+    }
+
+    @Test
+    fun runOneCharacterPastTheWindowCapFormsOnlyItsFirstWindow() =
+        runPastTheWindowCapFormsOnlyItsFirstWindow(UserLearning.WINDOW_MAX + 1)
+
+    @Test
+    fun runTwoCharactersPastTheWindowCapFormsOnlyItsFirstWindow() =
+        runPastTheWindowCapFormsOnlyItsFirstWindow(UserLearning.WINDOW_MAX + 2)
+
+    @Test
+    fun separateRunsAtTheWindowCapThatShareNoCharacterBothForm() {
+        val first = hanRun(UserLearning.WINDOW_MAX, 0x4E00)
+        val second = hanRun(UserLearning.WINDOW_MAX, 0x5E00, "ming")
+        repeat(3) {
+            typeRun(store, *first)
+            typeRun(store, *second)
+        }
+        assertEquals(setOf(word(first), word(second)), store.formedEntries().map { it.word }.toSet())
+    }
+
+    @Test
+    fun pendingLongRunSurvivesReloadAndPromotesOnThirdSighting() {
+        val name = hanRun(8, 0x5E00, "ming")
+        repeat(2) { typeRun(store, *name) }
+        val f = tempFile("userlearn-long-pending")
+        store.save(f)
+        val b = UserLearning { now }
+        b.load(f)
+        assertTrue(b.formedEntries().isEmpty())
+        typeRun(b, *name)
+        assertEquals(listOf(word(name)), b.formedWordsFor("ming".repeat(8)))
+    }
+
+    @Test
+    fun eachSingleCharacterAddsAtMostOneWindowPerLengthUpToTheCap() {
+        val long = hanRun(100, 0x4E00, "ma")
+        typeRun(store, *long)
+        val f = tempFile("userlearn-growth")
+        store.save(f)
+        val pendingRows = f.readLines().count { it.startsWith("P\t") }
+        val expected = (1..long.size).sumOf { minOf(it - 1, UserLearning.WINDOW_MAX - 1) }
+        assertEquals(expected, pendingRows)
+    }
+
+    @Test
+    fun loadsLongFormedAndPendingRowsUpToTheCap() {
+        val cap = hanRun(UserLearning.WINDOW_MAX, 0x4E00)
+        val over = hanRun(UserLearning.WINDOW_MAX + 1, 0x4E00)
+        val good = tempFile("userlearn-long-rows")
+        good.writeText(
+            "aegis-userlearn 1\n" +
+                "F\t${reading(cap)}\t${word(cap)}\t3.0\t$now\n" +
+                "P\t${"ma".repeat(9)}\t${word(hanRun(9, 0x5E00))}\t2.0\t$now\n",
+        )
+        val l = UserLearning { now }
+        l.load(good)
+        assertTrue(l.readable)
+        assertEquals(listOf(word(cap)), l.formedWordsFor(reading(cap)))
+        typeRun(l, *hanRun(9, 0x5E00, "ma"))
+        assertEquals(listOf(word(hanRun(9, 0x5E00))), l.formedWordsFor("ma".repeat(9)))
+
+        for (row in listOf(
+            "F\t${reading(over)}\t${word(over)}\t3.0\t$now",
+            "F\t${reading(cap)}a\t${word(cap)}\t3.0\t$now",
+            "P\t${reading(over)}\t${word(over)}\t2.0\t$now",
+        )) {
+            val bad = tempFile("userlearn-over-cap")
+            bad.writeText("aegis-userlearn 1\n$row\n")
+            val rejected = UserLearning { now }
+            rejected.load(bad)
+            assertFalse("row past the cap is rejected: $row", rejected.readable)
+            assertTrue(rejected.isEmpty())
+        }
+    }
+
     @Test
     fun promotionFilesTheWordUnderItsSpelledReading() {
         store.spelledReading = { word, reading -> if (word == "欧阳明") "ouyangming" else reading }
