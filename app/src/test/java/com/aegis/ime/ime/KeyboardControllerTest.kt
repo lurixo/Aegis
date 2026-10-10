@@ -920,7 +920,7 @@ class KeyboardControllerTest {
         }
     }
 
-    @Test fun deferred_chunks_and_the_final_reading_reach_user_learning() {
+    @Test fun deferred_chunks_reach_collocations_without_forming_a_chained_word() {
         val learning = UserLearning { 1_000L }
         val c = KeyboardController(FakeHost(), stagedLetterLearningEngine())
         c.userLearning = learning
@@ -931,7 +931,8 @@ class KeyboardControllerTest {
             c.onPickCandidate(0)
             c.reset()
         }
-        assertEquals(listOf("你好"), learning.formedWordsFor("nihao"))
+        assertEquals(listOf("好"), learning.follows("你").map { it.first })
+        assertTrue("pieces of one composition do not form a word", learning.formedEntries().isEmpty())
     }
 
     @Test fun sensitive_field_commit_is_not_learned() {

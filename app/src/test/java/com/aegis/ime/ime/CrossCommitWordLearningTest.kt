@@ -50,6 +50,7 @@ class CrossCommitWordLearningTest {
     )
 
     private val rows = (fiveName + sixteenName).distinct().map { (ch, r) -> EngineFixture.Row(r, ch, 900) } +
+        EngineFixture.Row("ouyang", "欧阳", 700) +
         T9Pinyin.SYLLABLES.map { EngineFixture.Row(it, "丌", 1) }
 
     private val lmFile = File("src/main/assets/aegis_lm.bin")
@@ -128,4 +129,28 @@ class CrossCommitWordLearningTest {
 
     @Test fun sixteen_character_name_typed_char_by_char_is_learned_on9key() =
         learnedAfterThresholdAndRecalledAfterReload(sixteenName, nine = true)
+    private fun assembledNameLeavesNoFragmentWord(segments: List<String>, nine: Boolean) {
+        val learning = UserLearning()
+        val c = controller(learning, nine)
+        val name = fiveName.joinToString("") { it.first }
+        repeat(3) {
+            type(c, keys(nine, fiveName.joinToString("") { it.second }))
+            for (segment in segments) pick(c, segment)
+            c.reset(preserveLayout = true)
+        }
+        val fragments = learning.formedEntries().map { it.word }.filter { it != name && it in name }
+        assertTrue("no part of $name becomes a word of its own: $fragments", fragments.isEmpty())
+    }
+
+    @Test fun name_assembled_from_a_word_and_characters_leaves_no_fragment_on26key() =
+        assembledNameLeavesNoFragmentWord(listOf("欧阳", "明", "月", "华"), nine = false)
+
+    @Test fun name_assembled_from_a_word_and_characters_leaves_no_fragment_on9key() =
+        assembledNameLeavesNoFragmentWord(listOf("欧阳", "明", "月", "华"), nine = true)
+
+    @Test fun name_assembled_from_characters_leaves_no_fragment_on26key() =
+        assembledNameLeavesNoFragmentWord(fiveName.map { it.first }, nine = false)
+
+    @Test fun name_assembled_from_characters_leaves_no_fragment_on9key() =
+        assembledNameLeavesNoFragmentWord(fiveName.map { it.first }, nine = true)
 }

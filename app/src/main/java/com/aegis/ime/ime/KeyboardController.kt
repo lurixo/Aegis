@@ -1281,11 +1281,11 @@ class KeyboardController(
             val now = System.currentTimeMillis()
             for (event in deferredLearnEvents) {
                 engine.learn(event.prevWord, event.word)
-                userLearning?.observeCommit(event.prevWord, event.word, event.reading, now)
+                userLearning?.observeCommit(event.prevWord, event.word, "", now)
             }
             if (finalWord != null) {
                 engine.learn(lastWord, finalWord)
-                userLearning?.observeCommit(lastWord, finalWord, finalReading, now)
+                userLearning?.observeCommit(lastWord, finalWord, if (deferredLearnEvents.isEmpty()) finalReading else "", now)
             }
         }
         val learned = !learningBlocked && (finalWord != null || deferredLearnEvents.isNotEmpty())
