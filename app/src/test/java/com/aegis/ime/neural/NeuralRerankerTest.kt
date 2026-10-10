@@ -98,6 +98,72 @@ class NeuralRerankerTest {
         assertEquals(0, NeuralReranker.choose(base, lm, 0.2))
     }
 
+    private val letters = ('a'..'z').joinToString("") + ('A'..'Z').joinToString("")
+
+    private val prose = "我们今天下午三点在学校门口集合，然后一起坐公交车去博物馆参观新开的恐龙化石展览。看完以后大家可以自由活动，五点之前回到门口"
+
+    private fun window(doc: String) = NeuralReranker.contextWindow(doc.takeLast(65), fromStart = doc.length <= 64)
+
+    private fun windowBreaks(doc: String): Int {
+        var previous = ""
+        var breaks = 0
+        for (n in 2..doc.length step 2) {
+            val w = window(doc.take(n))
+            if (!w.startsWith(previous)) breaks++
+            previous = w
+        }
+        return breaks
+    }
+
+    @Test fun an_empty_context_gives_an_empty_window() {
+        assertEquals("", NeuralReranker.contextWindow("", fromStart = true))
+        assertEquals("", NeuralReranker.contextWindow("", fromStart = false))
+    }
+
+    @Test fun text_from_the_start_up_to_the_maximum_is_kept_whole() {
+        assertEquals("今天我想说", NeuralReranker.contextWindow("今天我想说", fromStart = true))
+        val full = prose.take(NeuralReranker.MAX_CONTEXT_CHARS)
+        assertEquals(full, NeuralReranker.contextWindow(full, fromStart = true))
+    }
+
+    @Test fun the_window_starts_after_the_earliest_punctuation_within_the_maximum() {
+        val text = "会议记录已经整理好了。我们今天下午三点在学校门口集合，然后一起坐车去"
+        assertEquals("我们今天下午三点在学校门口集合，然后一起坐车去", NeuralReranker.contextWindow(text, fromStart = false))
+        assertEquals("b".repeat(20), NeuralReranker.contextWindow("a".repeat(20) + "\n" + "b".repeat(20), fromStart = false))
+    }
+
+    @Test fun without_punctuation_the_start_snaps_to_blocks_from_the_document_start() {
+        assertEquals(letters.substring(16, 33), NeuralReranker.contextWindow(letters.take(33), fromStart = true))
+        assertEquals(letters.substring(16, 47), NeuralReranker.contextWindow(letters.take(47), fromStart = true))
+        assertEquals(letters.substring(32, 48), NeuralReranker.contextWindow(letters.take(48), fromStart = true))
+    }
+
+    @Test fun a_recent_punctuation_snaps_the_start_one_block_before_it() {
+        val text = letters.take(30) + "，" + letters.substring(30, 35)
+        assertEquals(text.substring(15), NeuralReranker.contextWindow(text, fromStart = false))
+    }
+
+    @Test fun a_read_without_any_anchor_keeps_the_last_maximum() {
+        assertEquals(letters.substring(8, 40), NeuralReranker.contextWindow(letters.take(40), fromStart = false))
+    }
+
+    @Test fun the_window_is_a_suffix_between_the_minimum_and_the_maximum() {
+        for (doc in listOf(prose.repeat(3), letters.repeat(3))) {
+            for (n in 0..doc.length) {
+                val typed = doc.take(n)
+                val w = window(typed)
+                assertTrue(typed.endsWith(w))
+                assertTrue(w.length <= NeuralReranker.MAX_CONTEXT_CHARS)
+                assertTrue(w.length >= minOf(n, NeuralReranker.MIN_CONTEXT_CHARS))
+            }
+        }
+    }
+
+    @Test fun consecutive_commits_extend_the_previous_window_between_coarse_steps() {
+        assertEquals(16, windowBreaks(prose.repeat(3)))
+        assertEquals(3, windowBreaks(letters.repeat(2).take(64)))
+    }
+
     @Test fun choose_keeps_the_earlier_path_on_a_tie() {
         assertEquals(0, NeuralReranker.choose(doubleArrayOf(-2.0, -1.0), doubleArrayOf(-1.0, -2.0), 1.0))
     }

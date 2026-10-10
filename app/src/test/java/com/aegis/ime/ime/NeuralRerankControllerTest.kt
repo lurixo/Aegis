@@ -215,6 +215,31 @@ class NeuralRerankControllerTest {
         assertEquals(listOf("今天我想说"), scorer.contexts)
     }
 
+    private fun theModelContextStaysStableAcrossCommits(nine: Boolean) {
+        val host = Host().apply { before = "会议记录已经整理好了。我们今天下午三点在学校门口集合，然后一起坐车去" }
+        val scorer = Scorer()
+        val (c, q, _) = setup(host = host, reranker = {
+            NeuralReranker(spec, { scorer }, Executor { r -> it.neuralWorker.add(r) }, Executor { r -> it.neuralMain.add(r) }, it.schedule)
+        })
+        c.switchTextLayoutForTest(nine)
+        val input = if (nine) "64426" else "nihao"
+        repeat(6) {
+            type(c, input)
+            q.decode()
+            q.neural()
+            c.onKey(Key(" ", action = KeyAction.SPACE))
+            q.decode()
+            q.neural()
+        }
+        assertEquals(List(6) { "拟好" }, host.commits)
+        val opening = "我们今天下午三点在学校门口集合，然后一起坐车去"
+        assertEquals(List(5) { opening + "拟好".repeat(it) } + ("然后一起坐车去" + "拟好".repeat(5)), scorer.contexts)
+    }
+
+    @Test fun the_model_context_stays_stable_across_commits_on_26key() = theModelContextStaysStableAcrossCommits(nine = false)
+
+    @Test fun the_model_context_stays_stable_across_commits_on_9key() = theModelContextStaysStableAcrossCommits(nine = true)
+
     @Test fun space_waits_for_the_pending_model_choice() {
         val host = Host()
         val worker = Executors.newSingleThreadExecutor()

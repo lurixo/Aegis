@@ -1284,7 +1284,7 @@ class KeyboardController(
         if (!reranker.ready) return false
         val paths = result.sentences ?: return false
         if (result.candidates.isEmpty()) return false
-        val modelContext = (req.beforeCursor + committedPrefix).takeLast(CALC_SCAN_LEN)
+        val modelContext = NeuralReranker.contextWindow(req.beforeCursor + committedPrefix, req.beforeCursor.length <= CONTEXT_SCAN_LEN)
         heldDecode = result
         reranker.submit(
             context = modelContext,
@@ -1438,7 +1438,7 @@ class KeyboardController(
     }
 
     private fun cursorContext(): String =
-        beforeCursor ?: host.textBeforeCursor(CALC_SCAN_LEN + 1).toString().also { beforeCursor = it }
+        beforeCursor ?: host.textBeforeCursor(CONTEXT_SCAN_LEN + 1).toString().also { beforeCursor = it }
 
     private fun applyDecodeResult(r: DecodeResult) {
         candidatesSuperseded = false
@@ -1495,7 +1495,7 @@ class KeyboardController(
                 words
             }
             req.composingEmpty && req.committedPrefixEmpty -> {
-                val match = if (req.learningBlocked || req.calcDismissed) null else calcMatch(req.beforeCursor)
+                val match = if (req.learningBlocked || req.calcDismissed) null else calcMatch(req.beforeCursor.takeLast(CALC_SCAN_LEN + 1))
                 when {
                     match != null -> {
                         val cand = Cand(match.append, 0)
@@ -2047,6 +2047,7 @@ class KeyboardController(
     private companion object {
         const val NINE_LEFT_MAX = 24
         const val CALC_SCAN_LEN = 32
+        const val CONTEXT_SCAN_LEN = 64
         const val CTX_SCAN_LEN = 16
         const val EMAIL_SCAN_LEN = 256
         const val RERANK_WAIT_MILLIS = 300L

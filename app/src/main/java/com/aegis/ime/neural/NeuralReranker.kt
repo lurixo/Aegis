@@ -239,6 +239,21 @@ class NeuralReranker(
 
     companion object {
         private const val NANOS_PER_MILLI = 1_000_000L
+        const val MAX_CONTEXT_CHARS = 32
+        const val MIN_CONTEXT_CHARS = 16
+        private const val CONTEXT_BOUNDARIES = "\n。！？；，、：!?;,."
+
+        fun contextWindow(text: String, fromStart: Boolean): String {
+            if (fromStart && text.length <= MAX_CONTEXT_CHARS) return text
+            val end = text.length
+            for (i in maxOf(1, end - MAX_CONTEXT_CHARS)..end - MIN_CONTEXT_CHARS) {
+                if (text[i - 1] in CONTEXT_BOUNDARIES) return text.substring(i)
+            }
+            val found = text.indexOfLast { it in CONTEXT_BOUNDARIES } + 1
+            val anchor = if (found > 0 || fromStart) found else return text.takeLast(MAX_CONTEXT_CHARS)
+            val start = anchor + Math.floorDiv(end - anchor - MIN_CONTEXT_CHARS, MIN_CONTEXT_CHARS) * MIN_CONTEXT_CHARS
+            return text.substring(maxOf(0, start))
+        }
 
         fun choose(decoderScores: DoubleArray, lm: DoubleArray, alpha: Double): Int {
             require(decoderScores.size == lm.size) { "score counts differ" }
