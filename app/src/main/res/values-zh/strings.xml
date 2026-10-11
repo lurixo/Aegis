@@ -104,6 +104,7 @@
     <string name="neural_card_runs">已重排 %1$d 次，其中 %2$d 次换了首选</string>
     <string name="neural_card_timing">用时：最近 %1$d 毫秒，平均 %2$d 毫秒，最长 %3$d 毫秒</string>
     <string name="neural_card_queue">排队：最近 %1$d 毫秒，平均 %2$d 毫秒，最长 %3$d 毫秒</string>
+    <string name="neural_card_first_key">首键出字：最近 %1$d 毫秒，平均 %2$d 毫秒，最长 %3$d 毫秒</string>
     <string name="neural_card_timeouts">超时未重排 %1$d 次</string>
     <string name="neural_card_cancelled">被后续按键取消 %1$d 次</string>
 

@@ -383,6 +383,7 @@ class KeyboardController(
     }
 
     fun onKey(key: Key) {
+        if (key.action == KeyAction.COMMIT && composing.isEmpty() && mode() == Mode.PINYIN) neural?.firstKeyDown()
         if (key.action != KeyAction.BACKSPACE) {
             expirePreeditChoiceUndo()
             drillSyllable = -1
@@ -1862,6 +1863,12 @@ class KeyboardController(
         v.showKeyboard(layout, shifted, shiftState == ShiftState.LOCK, lang)
         val readings = expandedReadings()
         val preedit = preeditText()
+        val candidatesPending = decodeLane?.pending == true || heldDecode != null
+        if (composing.isEmpty()) {
+            neural?.firstKeyDropped()
+        } else if (!candidatesPending && candidates.isNotEmpty()) {
+            neural?.firstKeyShown()
+        }
         v.showCandidates(
             candidates.map { it.word },
             preedit,
@@ -1873,7 +1880,7 @@ class KeyboardController(
                 mode() == Mode.PINYIN && composing.isNotEmpty()
             },
             preeditModel = preeditModel(preedit),
-            candidatesPending = decodeLane?.pending == true || heldDecode != null,
+            candidatesPending = candidatesPending,
         )
     }
 

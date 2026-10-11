@@ -16,6 +16,7 @@
 package com.aegis.ime.ui
 
 import android.content.Context
+import android.content.res.Configuration
 import android.os.Looper
 import androidx.activity.compose.setContent
 import androidx.compose.ui.test.assertIsEnabled
@@ -36,6 +37,7 @@ import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
 import java.net.UnknownHostException
 import java.security.MessageDigest
+import java.util.Locale
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
@@ -255,6 +257,7 @@ class NeuralDownloadCardTest {
         compose.onNodeWithText(context.getString(R.string.neural_card_timing, 0L, 0L, 0L)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_queue, 0L, 0L, 0L)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_cancelled, 0)).assertDoesNotExist()
+        compose.onNodeWithText(context.getString(R.string.neural_card_first_key, 0L, 0L, 0L)).assertDoesNotExist()
 
         lateinit var ran: NeuralReranker
         var abortNext = true
@@ -270,8 +273,16 @@ class NeuralDownloadCardTest {
             override fun cancel() {}
             override fun close() {}
         }
-        ran = NeuralReranker(installed.spec, { scorer }, Executor { it.run() }, Executor { it.run() }, { _, _ -> })
+        var now = 0L
+        ran = NeuralReranker(installed.spec, { scorer }, Executor { it.run() }, Executor { it.run() }, { _, _ -> }) { now }
             .apply { start() }
+        ran.firstKeyDown()
+        now = 12_000_000L
+        ran.firstKeyShown()
+        now = 20_000_000L
+        ran.firstKeyDown()
+        now = 50_000_000L
+        ran.firstKeyShown()
         val paths = listOf("甲" to -1.0, "乙" to -2.0)
         ran.submit("", nine = false, waitMillis = 300L, paths = paths) {}
         ran.submit("", nine = false, waitMillis = 300L, paths = paths) {}
@@ -281,6 +292,19 @@ class NeuralDownloadCardTest {
         val snap = ran.snapshot()
         assertEquals(1, snap.runs)
         assertEquals(1, snap.cancelled)
+        assertEquals(2, snap.firstKeys)
+        assertEquals(
+            "First key to candidates: last 30 ms, mean 21 ms, max 30 ms",
+            context.getString(R.string.neural_card_first_key, snap.lastFirstKeyMillis, snap.meanFirstKeyMillis, snap.maxFirstKeyMillis),
+        )
+        compose.onNodeWithText("First key to candidates: last 30 ms, mean 21 ms, max 30 ms").assertExists()
+        val zh = context.createConfigurationContext(
+            Configuration(context.resources.configuration).apply { setLocale(Locale.SIMPLIFIED_CHINESE) },
+        )
+        assertEquals(
+            "首键出字：最近 30 毫秒，平均 21 毫秒，最长 30 毫秒",
+            zh.getString(R.string.neural_card_first_key, snap.lastFirstKeyMillis, snap.meanFirstKeyMillis, snap.maxFirstKeyMillis),
+        )
         compose.onNodeWithText(context.getString(R.string.neural_card_runs, 1, snap.changed)).assertExists()
         compose.onNodeWithText(
             context.getString(R.string.neural_card_timing, snap.lastMillis, snap.meanMillis, snap.maxMillis),

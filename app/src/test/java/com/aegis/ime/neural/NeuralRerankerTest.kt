@@ -439,6 +439,37 @@ class NeuralRerankerTest {
         assertFalse(r.ready)
     }
 
+    @Test fun first_key_time_runs_from_the_key_to_its_candidates() {
+        var now = 0L
+        val r = started(Queues(), FakeScorer(prefersSecond)) { now }
+        r.firstKeyShown()
+        assertEquals(0, r.snapshot().firstKeys)
+        now = 10_000_000L
+        r.firstKeyDown()
+        now = 40_000_000L
+        r.firstKeyShown()
+        now = 90_000_000L
+        r.firstKeyShown()
+        assertEquals(1, r.snapshot().firstKeys)
+        now = 100_000_000L
+        r.firstKeyDown()
+        now = 105_000_000L
+        r.firstKeyDown()
+        now = 115_000_000L
+        r.firstKeyShown()
+        now = 200_000_000L
+        r.firstKeyDown()
+        r.firstKeyDropped()
+        now = 900_000_000L
+        r.firstKeyShown()
+        val snap = r.snapshot()
+        assertEquals(2, snap.firstKeys)
+        assertEquals(10L, snap.lastFirstKeyMillis)
+        assertEquals(20L, snap.meanFirstKeyMillis)
+        assertEquals(30L, snap.maxFirstKeyMillis)
+        assertEquals(0, snap.runs)
+    }
+
     @Test fun timings_are_recorded_per_run() {
         val q = Queues()
         var now = 0L

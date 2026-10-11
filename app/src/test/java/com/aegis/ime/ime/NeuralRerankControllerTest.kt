@@ -398,6 +398,67 @@ class NeuralRerankControllerTest {
     @Test fun short_input_is_not_overwritten_by_an_older_finished_run_on_9key() =
         shortInputIsNotOverwrittenByAnOlderModelChoice(nine = true, scoredFirst = true)
 
+    private fun firstKeyTimeRunsUntilTheCandidatesOfTheCompositionShow(nine: Boolean) {
+        var now = 0L
+        val engine = EveryInputEngine()
+        val (c, q, r) = setup(engine, reranker = {
+            NeuralReranker(spec, { Scorer() }, Executor { r -> it.neuralWorker.add(r) }, Executor { r -> it.neuralMain.add(r) }, it.schedule) { now }
+        })
+        c.switchTextLayoutForTest(nine)
+        val input = if (nine) "644" else "nih"
+
+        now = 100_000_000L
+        type(c, input.take(1))
+        now = 107_000_000L
+        assertEquals("nothing is shown before the decode lands", 0, r.snapshot().firstKeys)
+        q.decode()
+        assertEquals(engine.words(input.take(1)), decoded(c))
+        assertEquals(1, r.snapshot().firstKeys)
+        assertEquals(7L, r.snapshot().lastFirstKeyMillis)
+        now = 200_000_000L
+        type(c, input.substring(1, 2))
+        now = 250_000_000L
+        q.decode()
+        assertEquals("later keys of a composition are not measured", 1, r.snapshot().firstKeys)
+        c.onKey(Key(" ", action = KeyAction.SPACE))
+        q.decode()
+        q.neural()
+
+        now = 1_000_000_000L
+        type(c, input)
+        now = 1_020_000_000L
+        q.decode()
+        assertEquals("a list held for the model is not on screen yet", 1, r.snapshot().firstKeys)
+        now = 1_045_000_000L
+        q.neural()
+        assertEquals(engine.reranked(input), decoded(c))
+        c.onKey(Key(" ", action = KeyAction.SPACE))
+        q.decode()
+        q.neural()
+
+        now = 2_000_000_000L
+        type(c, input.take(1))
+        c.onKey(Key("", action = KeyAction.BACKSPACE))
+        now = 2_500_000_000L
+        q.decode()
+        q.neural()
+        type(c, input.take(1))
+        now = 2_503_000_000L
+        q.decode()
+
+        val snap = r.snapshot()
+        assertEquals("a composition abandoned before its candidates showed is not counted", 3, snap.firstKeys)
+        assertEquals(3L, snap.lastFirstKeyMillis)
+        assertEquals(18L, snap.meanFirstKeyMillis)
+        assertEquals(45L, snap.maxFirstKeyMillis)
+    }
+
+    @Test fun first_key_time_runs_until_the_candidates_of_the_composition_show_on_26key() =
+        firstKeyTimeRunsUntilTheCandidatesOfTheCompositionShow(nine = false)
+
+    @Test fun first_key_time_runs_until_the_candidates_of_the_composition_show_on_9key() =
+        firstKeyTimeRunsUntilTheCandidatesOfTheCompositionShow(nine = true)
+
     private fun nextKeyCancelsAStalePathGeneration(nine: Boolean) {
         val engine = Engine().apply { rankedEntered = CountDownLatch(1) }
         val decodeWorker = Executors.newSingleThreadExecutor()

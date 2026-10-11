@@ -47,6 +47,10 @@ class NeuralReranker(
         val maxQueueMillis: Long,
         val timeouts: Int,
         val cancelled: Int,
+        val firstKeys: Int,
+        val lastFirstKeyMillis: Long,
+        val meanFirstKeyMillis: Long,
+        val maxFirstKeyMillis: Long,
     )
 
     private class Delivery(val gen: Long, val run: () -> Unit)
@@ -74,6 +78,11 @@ class NeuralReranker(
     private var maxQueueMillis = 0L
     private var timeouts = 0
     private var cancelled = 0
+    private var firstKeyAt: Long? = null
+    private var firstKeys = 0
+    private var lastFirstKeyMillis = 0L
+    private var totalFirstKeyMillis = 0L
+    private var maxFirstKeyMillis = 0L
 
     val ready: Boolean get() = phase == Phase.READY
 
@@ -202,6 +211,27 @@ class NeuralReranker(
         return true
     }
 
+    fun firstKeyDown() {
+        val now = nanoTime()
+        synchronized(statsLock) { firstKeyAt = now }
+    }
+
+    fun firstKeyDropped() {
+        synchronized(statsLock) { firstKeyAt = null }
+    }
+
+    fun firstKeyShown() {
+        synchronized(statsLock) {
+            val since = firstKeyAt ?: return
+            firstKeyAt = null
+            val millis = (nanoTime() - since) / NANOS_PER_MILLI
+            firstKeys++
+            lastFirstKeyMillis = millis
+            totalFirstKeyMillis += millis
+            if (millis > maxFirstKeyMillis) maxFirstKeyMillis = millis
+        }
+    }
+
     private fun dropped(gen: Long) {
         if (gen != latest.get()) synchronized(statsLock) { cancelled++ }
     }
@@ -234,6 +264,10 @@ class NeuralReranker(
             maxQueueMillis = maxQueueMillis,
             timeouts = timeouts,
             cancelled = cancelled,
+            firstKeys = firstKeys,
+            lastFirstKeyMillis = lastFirstKeyMillis,
+            meanFirstKeyMillis = if (firstKeys == 0) 0L else totalFirstKeyMillis / firstKeys,
+            maxFirstKeyMillis = maxFirstKeyMillis,
         )
     }
 
