@@ -20,6 +20,19 @@ first mapping. 牴→抵 for all readings: OpenCC's first image for it is 牴 it
 it at the character level and convert it only in the two TSPhrases.txt whole-word entries
 牴牾→抵牾 and 牴觸→抵触.
 
+Phrase rulings (adjudications.tsv rows whose source is longer than one character, reading `*`): the
+phrase keeps the given form wherever it occurs inside a word, ahead of the per-reading rulings. 藉 read
+jiè is simplified to 借 only in the borrowing/pretext sense; the General Standard Chinese Characters
+table keeps 藉 for the comfort and cushion senses, which the reading cannot tell apart, so 慰藉, 蕴藉,
+枕藉 and 眠花藉柳 are kept as written while every other jiè reading still maps to 借.
+
+Both-form rulings (adjudications.tsv rows with reading `+`, target equal to the source): a source row
+whose whole word is the ruled word is kept as written in addition to its normalized form, with the same
+reading and weight; the normalized form merges with existing entries as usual. Decided by the project owner
+on 2026-10-12 for the three rime-wanxiang rows read jiè where neither 藉 nor 借 is certain — the single
+character 藉, 非是藉秋风 and 藉口镇 — so that both spellings can be typed. Words that only contain a
+ruled word are not affected.
+
 Addendum (chain collisions & phrase-protected forms): 苧 is BOTH a traditional form (zhù→苎) and the
 standard simplified image of 薴 (níng) — mapped per reading (zhu→苎, else kept). 於 maps yu→于 but is
 kept for other readings (樊於期/於菟, wū — OpenCC protects these at phrase level). 吒 is kept for all

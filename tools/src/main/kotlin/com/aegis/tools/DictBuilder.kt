@@ -131,22 +131,15 @@ internal fun scanNormalizedDict(
             onRejected(NormalizedRowReject.MALFORMED)
             continue
         }
-        val word = if (t2s == null) rawWord else {
-            val converted = t2s.convert(rawWord, syllables)
-            if (converted.word == null) {
-                onRejected(NormalizedRowReject.NORMALIZATION)
-                continue
-            }
-            converted.word
+        val converted = t2s?.convert(rawWord, syllables)
+        if (converted != null && converted.word == null) {
+            onRejected(NormalizedRowReject.NORMALIZATION)
+            continue
         }
-        onRow(
-            NormalizedDictRow(
-                word,
-                syllables,
-                cols.getOrNull(2)?.trim()?.toIntOrNull() ?: 1,
-                if (t2s != null && word != rawWord) rawWord else "",
-            ),
-        )
+        val word = converted?.word ?: rawWord
+        val freq = cols.getOrNull(2)?.trim()?.toIntOrNull() ?: 1
+        onRow(NormalizedDictRow(word, syllables, freq, if (t2s != null && word != rawWord) rawWord else ""))
+        converted?.written?.let { onRow(NormalizedDictRow(it, syllables, freq, "")) }
     }
 }
 

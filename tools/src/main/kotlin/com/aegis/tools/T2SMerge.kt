@@ -23,7 +23,7 @@ enum class T2SReject {
     INCOMPATIBLE_TARGET_READING,
 }
 
-data class T2SConversion(val word: String?)
+data class T2SConversion(val word: String?, val written: String? = null)
 
 class T2SMerge private constructor(
     private val tsChar: Map<String, String>,
@@ -31,8 +31,12 @@ class T2SMerge private constructor(
     private val variant: Map<String, String>,
     private val overrideExact: Map<String, String>,
     private val overrideAny: Map<String, String>,
+    phraseRulings: List<Pair<String, String>>,
+    private val bothForms: Set<String>,
     private val targetReadings: Map<String, Set<String>>,
 ) {
+    private val overridePhrase = phraseRulings.map { (source, target) -> codePoints(source) to codePoints(target) }
+
     var convertedWords = 0L; private set
     var phraseHits = 0L; private set
     var charHits = 0L; private set
@@ -56,7 +60,15 @@ class T2SMerge private constructor(
             if (rejection != null) return reject(rejection)
             phraseHits++
             if (target != word) convertedWords++
-            return T2SConversion(target)
+            return T2SConversion(target, writtenForm(word, target))
+        }
+        val ruled = arrayOfNulls<String>(source.size)
+        for ((phrase, phraseTarget) in overridePhrase) {
+            for (start in 0..source.size - phrase.size) {
+                if (source.subList(start, start + phrase.size) == phrase) {
+                    for (offset in phrase.indices) ruled[start + offset] = phraseTarget[offset]
+                }
+            }
         }
         val targets = ArrayList<String>(source.size)
         var localCharHits = 0L
@@ -64,7 +76,12 @@ class T2SMerge private constructor(
         for ((idx, c) in source.withIndex()) {
             val syl = syllables.getOrNull(idx)
             val exact = if (syl != null) overrideExact["$c\u0000$syl"] else null
+            val phraseRuling = ruled[idx]
             val target = when {
+                phraseRuling != null -> {
+                    if (phraseRuling != c) localOverrideHits++
+                    phraseRuling
+                }
                 exact != null -> {
                     if (exact != c) localOverrideHits++
                     exact
@@ -92,8 +109,11 @@ class T2SMerge private constructor(
         charHits += localCharHits
         overrideHits += localOverrideHits
         if (targetWord != word) convertedWords++
-        return T2SConversion(targetWord)
+        return T2SConversion(targetWord, writtenForm(word, targetWord))
     }
+
+    private fun writtenForm(word: String, target: String): String? =
+        if (target != word && word in bothForms) word else null
 
     private fun validateChangedMappings(
         source: List<String>,
@@ -146,13 +166,27 @@ class T2SMerge private constructor(
             for ((v, s) in rows("variant_to_simplified.tsv")) variant[v] = s
             val exact = HashMap<String, String>()
             val any = HashMap<String, String>()
+            val phraseRulings = ArrayList<Pair<String, String>>()
+            val bothForms = HashSet<String>()
             for (line in File(dir, "adjudications.tsv").readLines()) {
                 if (line.isBlank() || line.startsWith("#")) continue
                 val c = line.split("\t")
                 if (c.size < 3) continue
-                if (c[1] == "*") any[c[0]] = c[2] else exact["${c[0]}\u0000${c[1]}"] = c[2]
+                val sourceLength = c[0].codePointCount(0, c[0].length)
+                if (c[1] == "+") {
+                    require(c[2] == c[0]) {
+                        "adjudications.tsv: a both-forms ruling repeats its word as the target: $line"
+                    }
+                    bothForms.add(c[0])
+                } else if (sourceLength > 1) {
+                    require(c[1] == "*" && c[2].codePointCount(0, c[2].length) == sourceLength) {
+                        "adjudications.tsv: a phrase ruling covers every reading and keeps its length: $line"
+                    }
+                    phraseRulings.add(c[0] to c[2])
+                } else if (c[1] == "*") any[c[0]] = c[2] else exact["${c[0]}\u0000${c[1]}"] = c[2]
             }
-            return T2SMerge(ts, phrases, variant, exact, any, targetReadings.mapValues { it.value.toSet() })
+            val readings = targetReadings.mapValues { it.value.toSet() }
+            return T2SMerge(ts, phrases, variant, exact, any, phraseRulings, bothForms, readings)
         }
     }
 }

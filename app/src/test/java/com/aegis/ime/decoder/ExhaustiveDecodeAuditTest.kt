@@ -133,6 +133,17 @@ class ExhaustiveDecodeAuditTest {
         }
         out
     }
+    private val bothFormStandalone: Set<String> by lazy {
+        val out = HashSet<String>()
+        for (line in File("../tools/t2s-data/adjudications.tsv").readLines()) {
+            if (line.isBlank() || line.startsWith("#")) continue
+            val cols = line.split("\t")
+            if (cols.size < 3) continue
+            val (source, reading, target) = cols
+            if (reading == "+" && source == target && isStandalone(source)) out.add(source)
+        }
+        out
+    }
 
     private fun isStandalone(word: String): Boolean = word.codePointCount(0, word.length) == 1
 
@@ -171,6 +182,7 @@ class ExhaustiveDecodeAuditTest {
         var probes = 0
         val probed = HashSet<Pair<String, String>>()
         val suppressed = ArrayList<SuppressedArm>()
+        val bothForms = ArrayList<String>()
         val unresolvedKeys = ArrayList<String>()
         val fails = ArrayList<Fail>()
     }
@@ -203,6 +215,12 @@ class ExhaustiveDecodeAuditTest {
                         out.suppressed += SuppressedArm(
                             arm.asset, form, key, denied.sorted(), keep.sorted(),
                         )
+                        continue
+                    }
+                    if (form in bothFormStandalone) {
+                        out.bothForms += "bin=${arm.asset} word=$form " +
+                            "codepoint=${String.format("U+%04X", form.codePointAt(0))} " +
+                            "key=$key mapped_away_reading=$reading"
                         continue
                     }
                     out.fails += Fail(
@@ -547,6 +565,11 @@ class ExhaustiveDecodeAuditTest {
                 "probes — the derived key is also derived by a keep reading the letter dictionary holds for " +
                 "the same form, so that binary cannot flag that form and only the remaining binaries gate it")
             suppressedArms.forEach { appendLine("  $it") }
+            appendLine("reading-scoped both_form_arms: ${readingScoped.bothForms.size} of " +
+                "${readingScoped.probes} probes over ${bothFormStandalone.size} single-character both-form " +
+                "rulings — adjudications.tsv rules the form with reading +, so the build keeps it as written " +
+                "beside its normalized form under the mapped-away reading and the standalone entry is expected")
+            readingScoped.bothForms.sorted().forEach { appendLine("  $it") }
             appendLine("reading-scoped probe keys the binary holds entries at: " +
                 "${readingScoped.probes - readingScoped.unresolvedKeys.size} of ${readingScoped.probes}; " +
                 "the probe count alone counts loop passes, so it does not establish that an arm can fail")
