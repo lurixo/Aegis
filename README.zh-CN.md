@@ -206,7 +206,7 @@ build-info 和更新 manifest，才能成为 `dict-latest` 的发布候选；上
 
 ## 许可与致谢
 
-Aegis 自身代码为 **GPL-3.0**（见 [`LICENSE`](LICENSE)）。Aegis 采用**自研解码器**（净室 Kotlin），是一个**独立项目，与 RIME 项目无从属关系**——不链接任何 librime 代码，唯一的原生代码是基于 llama.cpp 的重排打分器。它立足于 **amzxyz** 的
+Aegis 自身代码为 **GPL-3.0**（见 [`LICENSE`](LICENSE)）。Aegis 采用**自研解码器**（净室 Kotlin），是一个**独立项目，与 RIME 项目无从属关系**——不链接任何 librime 代码，APK 中的原生代码只有基于 llama.cpp 的重排打分器和 AndroidX 自带的 `libandroidx.graphics.path.so`。它立足于 **amzxyz** 的
 **万象（wanxiang）** 项目所提供的开放数据，在此致以最深的谢意。下述第三方署名与相同方式共享义务不因 Aegis 自身许可而被免除。
 
 **rime-wanxiang 词库** —— © amzxyz 及 rime-wanxiang 贡献者，**CC BY 4.0**，见

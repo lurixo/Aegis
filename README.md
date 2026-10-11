@@ -335,7 +335,7 @@ does not substitute a historical model or silently select another dictionary pac
 
 Aegis's own code is **GPL-3.0** (see [`LICENSE`](LICENSE)). Aegis ships a **self-built decoder**
 (clean-room Kotlin) and is an **independent project, not affiliated with the RIME project**; it
-links no librime code, and its only native code is the reranking scorer built on llama.cpp. It stands on open data from the **wanxiang** project by **amzxyz**,
+links no librime code, and the only native code in the APK is the reranking scorer built on llama.cpp and the `libandroidx.graphics.path.so` library that comes with AndroidX. It stands on open data from the **wanxiang** project by **amzxyz**,
 with our deepest thanks. The third-party attribution / ShareAlike obligations below are not waived
 by Aegis's own license.
 

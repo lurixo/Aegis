@@ -8,8 +8,9 @@ carries a `NOTICE.txt` repeating the dictionary attribution. The full text of ev
 below is reproduced in the appendices.
 
 Aegis ships a **self-built decoder** (clean-room Kotlin), links no rime / librime code, and is an
-independent project not affiliated with the RIME project. Its only native code is the
-sentence-reranking scorer, which statically links llama.cpp (section 9).
+independent project not affiliated with the RIME project. The only native code in the
+APK is the sentence-reranking scorer, which statically links llama.cpp (section 9), and the
+`libandroidx.graphics.path.so` library that comes with AndroidX (section 6).
 
 ---
 
