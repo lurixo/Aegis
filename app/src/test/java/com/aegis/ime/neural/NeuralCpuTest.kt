@@ -44,7 +44,30 @@ class NeuralCpuTest {
         assertFalse(NeuralCpu.supports("aarch64", ""))
     }
 
+    private fun x86Cpuinfo(vararg flags: String) = flags.withIndex().joinToString("\n\n") { (i, f) ->
+        "processor\t: $i\nvendor_id\t: AuthenticAMD\nflags\t\t: $f\nbogomips\t: 7585.40"
+    }
+
+    @Test fun anX86CoreWithAvx2IsSupported() {
+        val v3 = "fpu sse sse2 ssse3 fma cx16 sse4_1 sse4_2 movbe popcnt aes xsave avx f16c rdrand bmi1 avx2 bmi2"
+        assertTrue(NeuralCpu.supports("x86_64", x86Cpuinfo(v3, v3)))
+    }
+
+    @Test fun anX86CoreWithoutAvx2IsNotSupported() {
+        val avx = "fpu sse sse2 ssse3 cx16 sse4_1 sse4_2 popcnt aes xsave avx"
+        assertFalse(NeuralCpu.supports("x86_64", x86Cpuinfo(avx)))
+    }
+
+    @Test fun anX86CoreWithoutFmaIsNotSupported() {
+        val noFma = "fpu sse sse2 ssse3 cx16 sse4_1 sse4_2 movbe popcnt aes xsave avx f16c rdrand bmi1 avx2 bmi2"
+        assertFalse(NeuralCpu.supports("x86_64", x86Cpuinfo(noFma)))
+    }
+
+    @Test fun anUnreadableX86CpuListIsNotSupported() {
+        assertFalse(NeuralCpu.supports("x86_64", ""))
+    }
+
     @Test fun otherArchitecturesAreNotChecked() {
-        assertTrue(NeuralCpu.supports("x86_64", ""))
+        assertTrue(NeuralCpu.supports("riscv64", ""))
     }
 }

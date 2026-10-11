@@ -45,7 +45,7 @@ class NativeSentenceScorer private constructor(private var handle: Long) : Sente
 
     companion object {
         fun open(path: String, threads: Int): NativeSentenceScorer {
-            if (!NeuralCpu.supported) throw UnsupportedOperationException("the CPU lacks the dot product and FP16 instructions")
+            if (!NeuralCpu.supported) throw UnsupportedOperationException("the CPU lacks instructions the native library is built for")
             System.loadLibrary("aegis_neural")
             return NativeSentenceScorer(nativeOpenPath(path, threads))
         }

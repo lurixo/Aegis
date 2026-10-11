@@ -18,19 +18,24 @@ package com.aegis.ime.neural
 import java.io.File
 
 object NeuralCpu {
-    private val REQUIRED = setOf("fp", "asimd", "atomics", "asimdrdm", "crc32", "fphp", "asimdhp", "asimddp")
+    private val REQUIRED_ARM64 = setOf("fp", "asimd", "atomics", "asimdrdm", "crc32", "fphp", "asimdhp", "asimddp")
+    private val REQUIRED_X86_64 = setOf("sse4_2", "avx", "f16c", "fma", "bmi2", "avx2")
 
     val supported: Boolean by lazy {
         supports(System.getProperty("os.arch").orEmpty(), runCatching { File("/proc/cpuinfo").readText() }.getOrDefault(""))
     }
 
     internal fun supports(arch: String, cpuinfo: String): Boolean {
-        if (arch != "aarch64" && arch != "arm64") return true
+        val (key, required) = when (arch) {
+            "aarch64", "arm64" -> "Features" to REQUIRED_ARM64
+            "x86_64" -> "flags" to REQUIRED_X86_64
+            else -> return true
+        }
         val cores = cpuinfo.lineSequence()
-            .filter { it.substringBefore(':').trim() == "Features" }
+            .filter { it.substringBefore(':').trim() == key }
             .map { it.substringAfter(':').trim().split(WHITESPACE).toSet() }
             .toList()
-        return cores.isNotEmpty() && cores.all { it.containsAll(REQUIRED) }
+        return cores.isNotEmpty() && cores.all { it.containsAll(required) }
     }
 
     private val WHITESPACE = Regex("\\s+")
