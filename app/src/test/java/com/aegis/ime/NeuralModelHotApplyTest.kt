@@ -17,18 +17,23 @@ package com.aegis.ime
 
 import android.content.Context
 import android.os.Looper
+import android.os.Message
+import android.os.MessageQueue
 import com.aegis.ime.ime.KeyboardController
 import com.aegis.ime.neural.NeuralModelDownload
 import com.aegis.ime.neural.NeuralModelSpec
 import com.aegis.ime.neural.NeuralReranker
 import com.aegis.ime.neural.NeuralRuntime
 import java.util.concurrent.ExecutorService
+import java.util.concurrent.TimeUnit
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -125,6 +130,39 @@ class NeuralModelHotApplyTest {
 
         assertNull(controllerOf(service).neural)
         assertNull(NeuralRuntime.active)
+    }
+
+    private fun queuedRerankMessages(): List<Message> {
+        val head = MessageQueue::class.java.getDeclaredField("mMessages").apply { isAccessible = true }
+        val next = Message::class.java.getDeclaredField("next").apply { isAccessible = true }
+        return generateSequence(head.get(Looper.getMainLooper().queue) as Message?) { next.get(it) as Message? }
+            .filter { it.callback?.javaClass?.name?.startsWith(NeuralReranker::class.java.name) == true }
+            .toList()
+    }
+
+    @Test fun a_model_choice_reaches_the_main_thread_as_an_asynchronous_message() {
+        record("e", alphaLetters = 3.0)
+        val service = startKeyboard()
+        val worker = service.javaClass.getDeclaredField("neuralWorker").apply { isAccessible = true }
+            .get(service) as ExecutorService
+        val reranker = controllerOf(service).neural!!
+        worker.submit {}.get(10, TimeUnit.SECONDS)
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (System.nanoTime() < deadline && Thread.getAllStackTraces().keys.any { it.name == "aegis-dict-load" && it.isAlive }) Thread.yield()
+        drain()
+        assertTrue(queuedRerankMessages().isEmpty())
+
+        var delivered = false
+        reranker.submit("", nine = false, waitMillis = 60_000L, paths = listOf("甲" to -1.0, "乙" to -2.0)) { delivered = true }
+        worker.submit {}.get(10, TimeUnit.SECONDS)
+
+        val queued = queuedRerankMessages()
+        assertEquals("the choice is queued for the main thread", 1, queued.size)
+        assertFalse(delivered)
+        assertTrue("it is not held back behind a frame's sync barrier", queued.single().isAsynchronous)
+        drain()
+        assertTrue(delivered)
+        assertTrue(queuedRerankMessages().isEmpty())
     }
 
     @Test fun a_record_without_its_model_file_leaves_reranking_off() {

@@ -109,6 +109,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private val mainHandler = Handler(Looper.getMainLooper())
     private val mainLane = java.util.concurrent.Executor { r -> mainHandler.post(r) }
     private val decodeResults = Handler.createAsync(Looper.getMainLooper())
+    private val rerankResults = Handler.createAsync(Looper.getMainLooper())
     private val decodeWorker: java.util.concurrent.ExecutorService =
         java.util.concurrent.Executors.newSingleThreadExecutor { r ->
             Thread({
@@ -671,7 +672,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 installed.spec,
                 { NativeSentenceScorer.open(path, threads) },
                 neuralWorker,
-                mainLane,
+                java.util.concurrent.Executor { r -> rerankResults.post(r) },
                 { millis, task -> neuralTimer.schedule(Runnable { task() }, millis, java.util.concurrent.TimeUnit.MILLISECONDS) },
             ).also {
                 NeuralRuntime.active = it
