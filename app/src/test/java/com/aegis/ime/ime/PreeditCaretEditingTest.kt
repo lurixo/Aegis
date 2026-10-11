@@ -306,9 +306,12 @@ class PreeditCaretEditingTest {
         c.onKey(act(KeyAction.BACKSPACE))
         assertEquals("n'hao", c.preeditForTest())
         c.onPreeditEditDone()
-        assertEquals(T9Pinyin.preedit("6426"), c.preeditForTest())
+        val whole = controller(engine(), true, "6426").second.preeditForTest()
+        assertEquals("6426", T9Pinyin.toT9(whole.replace("'", "")))
+        assertNotEquals("n'hao", whole)
+        assertEquals(whole, c.preeditForTest())
         c.onPreeditTap()
-        assertEquals(T9Pinyin.preedit("6426"), c.preeditForTest())
+        assertEquals(whole, c.preeditForTest())
     }
 
     @Test fun caret_edits_of_the_committed_prefix_are_ignored() {

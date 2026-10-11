@@ -293,4 +293,49 @@ class T9PinyinTest {
         assertEquals(T9Pinyin.guessLetters("64426"), T9Pinyin.reviseLetters("nihaoo", "64426", 9, 1, 0))
         assertEquals(T9Pinyin.guessLetters("64426"), T9Pinyin.reviseLetters("nih", "64426", 3, 0, 2))
     }
+
+    @Test fun a_carried_label_extends_its_open_syllable_or_starts_a_new_one() {
+        assertEquals("zhang", T9Pinyin.carryPreedit("zhan", "9426", "94264", emptySet()))
+        assertEquals("ni'hao'w", T9Pinyin.carryPreedit("ni'hao", "64426", "644269", emptySet()))
+        assertEquals("ni'hao'wo", T9Pinyin.carryPreedit("ni'hao", "64426", "6442696", emptySet()))
+        assertEquals("zhan'g", T9Pinyin.carryPreedit("zhan", "9426", "94264", setOf(4)))
+        assertEquals("xi'" + T9Pinyin.preedit("26"), T9Pinyin.carryPreedit("xi'", "94", "9426", setOf(2)))
+    }
+
+    @Test fun a_carried_label_keeps_the_letters_that_survive_a_backspace() {
+        assertEquals("ni'ha", T9Pinyin.carryPreedit("ni'hao", "64426", "6442", emptySet()))
+        assertEquals("ni", T9Pinyin.carryPreedit("ni'hao", "64426", "64", emptySet()))
+        assertEquals("ni'", T9Pinyin.carryPreedit("ni'hao", "64426", "64", setOf(2)))
+        assertEquals("ni'ha'j", T9Pinyin.carryPreedit("ni'hao", "64426", "64425", emptySet()))
+    }
+
+    @Test fun a_carried_label_respells_an_open_syllable_that_cannot_grow() {
+        assertEquals(T9Pinyin.preedit("94"), T9Pinyin.carryPreedit("w", "9", "94", emptySet()))
+        assertEquals("ni'" + T9Pinyin.preedit("94"), T9Pinyin.carryPreedit("ni'w", "649", "6494", emptySet()))
+    }
+
+    @Test fun a_carried_label_falls_back_to_the_static_one_without_a_shared_prefix() {
+        assertEquals(T9Pinyin.preedit("64426"), T9Pinyin.carryPreedit("zhan", "9426", "64426", emptySet()))
+        assertEquals(T9Pinyin.preedit("9426"), T9Pinyin.carryPreedit("", "", "9426", emptySet()))
+        assertEquals(T9Pinyin.preedit("9426"), T9Pinyin.carryPreedit("zha", "9426", "9426", emptySet()))
+        assertEquals(T9Pinyin.preedit("9426", setOf(2)), T9Pinyin.carryPreedit("zhan", "9426", "9426", setOf(2)))
+    }
+
+    @Test fun a_carried_label_always_shows_one_letter_per_digit() {
+        val priors = listOf("zhan" to "9426", "ni'hao" to "64426", "x'a" to "92", "kong'z" to "56649", "w" to "9")
+        val tails = listOf("", "2", "4", "6", "9", "26", "464", "7426", "55")
+        for ((prior, priorDigits) in priors) for (keep in 1..priorDigits.length) for (tail in tails) {
+            val digits = priorDigits.substring(0, keep) + tail
+            for (cuts in listOf(emptySet(), setOf(keep), setOf(digits.length))) {
+                val carried = T9Pinyin.carryPreedit(prior, priorDigits, digits, cuts)
+                assertEquals("$prior -> $digits $cuts gave $carried", digits, T9Pinyin.toT9(carried.replace("'", "")))
+                assertTrue("$prior -> $digits $cuts gave $carried", cuts.all { cut ->
+                    var letters = 0
+                    var index = 0
+                    while (letters < cut) { if (carried[index] != '\'') letters++; index++ }
+                    carried.getOrNull(index) == '\''
+                })
+            }
+        }
+    }
 }

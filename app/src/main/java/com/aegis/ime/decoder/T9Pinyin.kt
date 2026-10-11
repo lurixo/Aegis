@@ -288,6 +288,52 @@ object T9Pinyin {
         return sb.toString()
     }
 
+    fun carryPreedit(prior: String, priorDigits: String, digits: String, cuts: Set<Int>): String {
+        var keep = 0
+        while (keep < priorDigits.length && keep < digits.length && priorDigits[keep] == digits[keep]) keep++
+        if (keep == 0 || prior.count { it != '\'' } != priorDigits.length) return preedit(digits, cuts)
+        val breaks = HashSet<Int>()
+        var letters = 0
+        var end = 0
+        while (letters < keep) {
+            if (prior[end] == '\'') breaks.add(letters) else letters++
+            end++
+        }
+        if (cuts.any { it in 1 until keep && it !in breaks }) return preedit(digits, cuts)
+        val kept = prior.substring(0, end)
+        if (toT9(kept.replace("'", "")) != digits.substring(0, keep)) return preedit(digits, cuts)
+        fun tail(from: Int): String {
+            val rest = digits.substring(from)
+            val restCuts = cuts.mapNotNullTo(HashSet()) { cut -> (cut - from).takeIf { it > 0 } }
+            return when {
+                rest.isNotEmpty() -> "'" + preedit(rest, restCuts)
+                from in cuts -> "'"
+                else -> ""
+            }
+        }
+        if (keep == digits.length || keep in cuts || prior.getOrNull(end) == '\'') return kept + tail(keep)
+        val openStart = kept.lastIndexOf('\'') + 1
+        val open = kept.substring(openStart)
+        val openFrom = keep - open.length
+        val reach = cuts.filter { it > keep }.minOrNull()?.coerceAtMost(digits.length) ?: digits.length
+        var grown = open
+        while (openFrom + grown.length < reach) {
+            val at = openFrom + grown.length
+            val guess = guessLetters(digits.substring(openFrom, at + 1))
+            val agreed = guess.takeIf { it.length == grown.length + 1 && it.startsWith(grown) }?.last()
+            val next = agreed?.takeIf { syllabic(grown + it) }
+                ?: KEY_LETTERS[digits[at]].orEmpty().firstOrNull { syllabic(grown + it) }
+                ?: break
+            grown += next
+        }
+        val head = kept.substring(0, openStart)
+        if (grown.length == open.length && open !in SYLLABLES) {
+            val restCuts = cuts.mapNotNullTo(HashSet()) { cut -> (cut - openFrom).takeIf { it > 0 } }
+            return head + preedit(digits.substring(openFrom), restCuts)
+        }
+        return head + grown + tail(openFrom + grown.length)
+    }
+
     fun preeditLetters(letters: String): String {
         if (letters.isEmpty()) return ""
         val parts = letters.split('\'')

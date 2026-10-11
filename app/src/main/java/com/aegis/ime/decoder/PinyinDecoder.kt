@@ -210,6 +210,65 @@ class PinyinDecoder(
         else -> guessReading(word, T9Pinyin.toT9(reading), false, ReadingLookup(aliasSource))
     }
 
+    private val partReadings by lazy { ReadingLookup(aliasSource) }
+
+    internal fun readingParts(word: String, digits: String, cuts: Set<Int>): List<String> {
+        if (word.isEmpty() || digits.isEmpty() || digits.any { it !in '2'..'9' }) return emptyList()
+        val chars = word.codePoints().toArray().map { String(Character.toChars(it)) }
+        val lookup = partReadings
+        class Path(val parts: List<String>, val stored: String, val covered: Int, val clipped: Int, val score: Double)
+        val order = compareBy<Path> { it.clipped }.thenByDescending { it.score }
+        var paths = listOf(Path(emptyList(), "", 0, 0, 0.0))
+        val whole = ArrayList<Path>()
+        for (char in chars) {
+            val next = ArrayList<Path>()
+            for (path in paths) {
+                val limit = minOf(
+                    digits.length,
+                    path.covered + MAX_SYLLABLE_KEY_LEN,
+                    cuts.filter { it > path.covered }.minOrNull() ?: digits.length,
+                )
+                for (end in path.covered + 1..limit) {
+                    val key = digits.substring(path.covered, end)
+                    for (reading in T9_SPELLINGS[key].orEmpty()) {
+                        val frequency = lookup.frequency(reading, char) ?: continue
+                        next.add(Path(path.parts + reading, path.stored + reading, end, path.clipped,
+                            path.score + ln(frequency.toDouble().coerceAtLeast(1.0))))
+                    }
+                    for ((typed, readings) in T9_ALIAS_SPELLINGS[key].orEmpty()) {
+                        if (lookup.frequency(typed, char) != null) continue
+                        for (reading in readings) {
+                            val frequency = lookup.frequency(reading, char) ?: continue
+                            next.add(Path(path.parts + typed, path.stored + reading, end, path.clipped,
+                                path.score + ln(frequency.toDouble().coerceAtLeast(1.0)) - ALIAS_PENALTY))
+                        }
+                    }
+                    for (reading in T9_CLIPPED_SPELLINGS[key].orEmpty()) {
+                        val frequency = lookup.frequency(reading, char) ?: continue
+                        next.add(Path(path.parts + reading.take(key.length), path.stored + reading, end, path.clipped + 1,
+                            path.score + ln(frequency.toDouble().coerceAtLeast(1.0))))
+                    }
+                }
+            }
+            val kept = next.groupBy { it.covered }.values.flatMap { group -> group.sortedWith(order).take(8) }
+            whole.addAll(kept.filter { it.covered == digits.length })
+            paths = kept.filter { it.covered < digits.length }
+            if (paths.isEmpty()) break
+        }
+        val ref = aliasSource
+        return whole
+            .sortedWith(
+                compareBy<Path> { it.clipped }
+                    .thenByDescending { it.parts.size }
+                    .thenByDescending {
+                        it.clipped == 0 && it.parts.size == chars.size &&
+                            ref.containsExactWord(it.stored, word)
+                    }
+                    .thenByDescending { it.score },
+            )
+            .firstOrNull()?.parts.orEmpty()
+    }
+
     internal fun storedReadingRepairs(rows: List<Pair<String, String>>): List<UserModel.ReadingRepair> {
         val singles = HashMap<String, Set<String>>()
         var lookup = ReadingLookup(aliasSource)
@@ -1896,6 +1955,11 @@ class PinyinDecoder(
     internal companion object {
         private val READING_KEYS = T9Pinyin.SYLLABLES.map { it to T9Pinyin.toT9(it) }
         private val T9_SPELLINGS: Map<String, List<String>> = READING_KEYS.groupBy({ it.second }, { it.first })
+        private val T9_CLIPPED_SPELLINGS: Map<String, List<String>> = buildMap<String, MutableList<String>> {
+            for ((reading, digits) in READING_KEYS) {
+                for (length in 1 until digits.length) getOrPut(digits.substring(0, length)) { ArrayList() }.add(reading)
+            }
+        }
         const val SEP = '\''
         const val BOS = -1
         const val NO_CTX = Int.MIN_VALUE
@@ -1960,5 +2024,7 @@ class PinyinDecoder(
         val INPUT_ALIASES = mapOf("en" to listOf("ng"))
         val T9_INPUT_ALIASES: Map<String, List<String>> =
             INPUT_ALIASES.entries.associate { (k, v) -> T9Pinyin.toT9(k) to v }
+        private val T9_ALIAS_SPELLINGS: Map<String, List<Pair<String, List<String>>>> =
+            INPUT_ALIASES.toList().groupBy { T9Pinyin.toT9(it.first) }
     }
 }

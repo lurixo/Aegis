@@ -159,6 +159,10 @@ class KeyboardController(
 
     private var shownRequest: DecodeRequest? = null
     private var latestRequest: DecodeRequest? = null
+    private var nineLabelTop: Cand? = null
+    private var nineLabelDigits = ""
+    private var nineLabelCuts: Set<Int> = emptySet()
+    private var nineLabel = ""
 
     private val drillChoices = HashMap<Int, String>()
 
@@ -561,8 +565,8 @@ class KeyboardController(
         drillChoices.clear()
         preeditCaret = rawIndex.coerceIn(0, composing.length)
         nineChainAt = -1
-        if (layoutId == LayoutId.NINE && nineEditLetters == null) nineEditLetters = nineDisplayLetters()
         if (hadDrill) refreshCandidates()
+        if (layoutId == LayoutId.NINE && nineEditLetters == null) nineEditLetters = nineDisplayLetters()
         render()
     }
 
@@ -584,7 +588,7 @@ class KeyboardController(
             if (lockedReadings[i].length != lockedInputLengths[i]) return null
             sb.append(lockedReadings[i])
         }
-        sb.append(T9Pinyin.guessLetters(activeInput()))
+        sb.append(nineActivePreedit().replace("'", ""))
         return sb.toString().takeIf { it.length == composing.length }
     }
 
@@ -826,6 +830,12 @@ class KeyboardController(
         val shown = shownRequest ?: return false
         val latest = latestRequest ?: return false
         return shown.extendedBy(latest)
+    }
+
+    private fun candidatesMatchInput(): Boolean {
+        val shown = shownRequest ?: return false
+        val latest = latestRequest ?: return false
+        return shown.extendedBy(latest) && latest.extendedBy(shown)
     }
 
     private fun mode(): Mode = when {
@@ -1128,7 +1138,7 @@ class KeyboardController(
         }
         val prefix = committedPrefix.toString()
         if (composing.isNotEmpty()) {
-            host.commitText(prefix + rawComposingText())
+            host.commitText(prefix + shownComposingText())
             applyDeferredLearning()
             clearComposingState()
         } else if (prefix.isNotEmpty()) {
@@ -1206,9 +1216,17 @@ class KeyboardController(
         }
     }
 
+    private fun shownComposingText(): String =
+        if (layoutId == LayoutId.NINE && lang == Lang.CN && literalIndices.isEmpty()) {
+            lockedReadings.joinToString("") + nineActivePreedit().replace("'", "")
+        } else {
+            rawComposingText()
+        }
+
     private fun clearComposingState() {
         decodeLane?.markSatisfiedSynchronously()
         heldDecode = null
+        nineLabelDigits = ""
         composing.setLength(0)
         literalIndices.clear()
         candidates = emptyList()
@@ -1812,7 +1830,7 @@ class KeyboardController(
             val rest = when {
                 layoutId != LayoutId.NINE -> T9Pinyin.preeditLetters(activeInput(), activeCuts().toSet())
                 sticky != null -> T9Pinyin.preeditLetters(sticky.substring(activeStart), activeCuts().toSet())
-                else -> T9Pinyin.preedit(activeInput(), activeCuts().toSet())
+                else -> nineActivePreedit()
             }
             when {
                 locked.isEmpty() -> rest
@@ -1821,6 +1839,37 @@ class KeyboardController(
             }
         } else composing.toString()
         return prefix + tail
+    }
+
+    private fun nineActivePreedit(): String {
+        val digits = activeInput()
+        val cuts = activeCuts().toSet()
+        if (lockedReadings.isNotEmpty() || digits.isEmpty()) return T9Pinyin.preedit(digits, cuts)
+        val settled = candidatesMatchInput() && drillSyllable < 0
+        if (!settled) return T9Pinyin.carryPreedit(nineLabel, nineLabelDigits, digits, cuts)
+        val top = candidates.firstOrNull()
+        if (top !== nineLabelTop || digits != nineLabelDigits || cuts != nineLabelCuts) {
+            nineLabel = topReadingPreedit(top, digits, cuts) ?: T9Pinyin.preedit(digits, cuts)
+            nineLabelTop = top
+            nineLabelDigits = digits
+            nineLabelCuts = cuts
+        }
+        return nineLabel
+    }
+
+    private fun topReadingPreedit(top: Cand?, digits: String, cuts: Set<Int>): String? {
+        if (top == null || top in directCommitCands || top.coveredLen !in 1..digits.length) return null
+        val covered = digits.substring(0, top.coveredLen)
+        val parts = engine.readingParts(top.word, covered, cuts.filterTo(HashSet()) { it < top.coveredLen })
+        if (T9Pinyin.toT9(parts.joinToString("")) != covered) return null
+        val rest = digits.substring(top.coveredLen)
+        val restCuts = cuts.mapNotNullTo(HashSet()) { cut -> (cut - top.coveredLen).takeIf { it > 0 } }
+        val head = parts.joinToString("'")
+        return when {
+            rest.isNotEmpty() -> "$head'${T9Pinyin.preedit(rest, restCuts)}"
+            digits.length in cuts -> "$head'"
+            else -> head
+        }
     }
 
     private fun mixedPreeditTail(): String {

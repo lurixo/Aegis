@@ -57,6 +57,8 @@ interface CandidateEngine {
     fun homophonesAt(composing: String, t9: Boolean, index: Int, cuts: Set<Int>): List<String> =
         homophonesAt(composing, t9, index)
 
+    fun readingParts(word: String, digits: String, cuts: Set<Int>): List<String> = emptyList()
+
     fun syllablesForReading(letters: String): List<Syllable> = emptyList()
 
     fun syllablesForReading(letters: String, cuts: Set<Int>): List<Syllable> = syllablesForReading(letters)

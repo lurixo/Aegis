@@ -132,6 +132,9 @@ class DictEngine(
         return (if (t9) t9Decoder else decoder)?.homophonesAt(composing, index, cuts) ?: emptyList()
     }
 
+    override fun readingParts(word: String, digits: String, cuts: Set<Int>): List<String> =
+        (decoder ?: t9Decoder)?.readingParts(word, digits, cuts) ?: emptyList()
+
     override fun syllablesForReading(letters: String): List<Syllable> =
         syllablesForReading(letters, emptySet())
 
