@@ -68,13 +68,13 @@ GRAMMAR_REPO_HTTPS = "https://github.com/amzxyz/RIME-LMDG"
 GRAMMAR_RELEASE_API = "https://api.github.com/repos/amzxyz/RIME-LMDG/releases/tags/LTS"
 
 
-def attribution_text(repo_https, source_tag, source_branch, source_commit):
+def attribution_text(repo_https, source_tag, source_branch, source_commit, supplement_sources=None):
     """The pack's third-party attribution, deterministic (no timestamps — only the pinned source
     coordinates vary), so the ZIP stays byte-reproducible. ASCII-only for maximum unzip compatibility.
     Wording mirrors the repository README's acknowledgments."""
     ref = f"tag {source_tag}" if source_tag else f"branch {source_branch}"
     tables = " ".join(TABLES)
-    return (
+    text = (
         "Aegis downloadable dictionary pack - third-party attribution\n"
         "===========================================================\n"
         "\n"
@@ -102,6 +102,28 @@ def attribution_text(repo_https, source_tag, source_branch, source_commit):
         "is licensed GPL-3.0-only; this notice concerns the bundled third-party dictionary\n"
         "data only. The repository's THIRD_PARTY_LICENSES.md carries the full license texts.\n"
     )
+    if not supplement_sources:
+        return text
+    text += (
+        "\n"
+        "Supplementary entries\n"
+        "---------------------\n"
+        "\n"
+        "The three dictionaries (aegis_dict.bin / aegis_t9.bin / aegis_jianpin.bin) also\n"
+        "contain entries taken from the sources listed below. Aegis filtered these\n"
+        "entries by the same row rules as the tables above, removed every word those\n"
+        "tables already contain, and repacked the rest into its own binary format. They\n"
+        "do not contribute to the language model (aegis_lm.bin).\n"
+    )
+    for source in supplement_sources:
+        text += (
+            "\n"
+            f"  Source:   {source['name']}\n"
+            f"  URL:      {source['url']}\n"
+            f"  License:  {source['license']}\n"
+            f"  Version:  {source['version']}\n"
+        )
+    return text
 
 
 def run(cmd, cwd, env=None):
@@ -383,6 +405,8 @@ def load_supplement_sources(supplement):
             value = source.get(field)
             if not isinstance(value, str) or not value.strip():
                 raise SystemExit(f"supplement source entry has no {field}: {source!r}")
+            if not (value.isascii() and value.isprintable()):
+                raise SystemExit(f"supplement source {field} is not one printable ASCII line: {source!r}")
         rows = source.get("rows")
         if isinstance(rows, bool) or not isinstance(rows, int) or rows < 0:
             raise SystemExit(f"supplement source entry has no row count: {source!r}")
@@ -987,7 +1011,13 @@ def main(argv):
     source_commit = output(["git", "rev-parse", "HEAD"], cwd=source)
     notice_path = staging_dir / NOTICE_NAME
     notice_path.write_bytes(
-        attribution_text(args.source_repo_https, args.source_tag, args.source_branch, source_commit).encode("utf-8")
+        attribution_text(
+            args.source_repo_https,
+            args.source_tag,
+            args.source_branch,
+            source_commit,
+            supplement_sources,
+        ).encode("utf-8")
     )
     zip_entries = [(NOTICE_NAME, notice_path)] + [
         (name, staging_dir / name) for name in PACK_ENTRIES[1:]

@@ -61,6 +61,25 @@ def deflate_witness() -> bytes:
     return "".join(lines).encode("ascii")
 
 
+SUPPLEMENT_SOURCES = [
+    {
+        "name": "Example Wiki",
+        "url": "https://wiki.example.org/",
+        "license": "CC BY-NC-SA 4.0",
+        "version": "2026-10-01",
+        "rows": 3,
+    },
+    {
+        "name": "Example word list",
+        "url": "https://example.org/words",
+        "license": "unlicensed",
+        "version": "r7",
+        "rows": 2,
+        "note": "kept verbatim",
+    },
+]
+
+
 class AttributionTextTest(unittest.TestCase):
     def notice(self, tag="v16.0.1", branch="wanxiang", commit=COMMIT):
         return bp.attribution_text(REPO, tag, branch, commit)
@@ -96,6 +115,45 @@ class AttributionTextTest(unittest.TestCase):
         text = self.notice()
         self.assertIn("this full pack keeps every entry (min-freq 1).", text)
         self.assertNotIn("seed", text.lower(), "the app ships no dictionary, so the pack may not claim one")
+
+    def test_supplement_sources_are_attributed_after_the_unchanged_notice(self):
+        base = self.notice()
+        self.assertEqual(base, bp.attribution_text(REPO, "v16.0.1", "wanxiang", COMMIT, None))
+        self.assertEqual(base, bp.attribution_text(REPO, "v16.0.1", "wanxiang", COMMIT, []))
+        text = bp.attribution_text(REPO, "v16.0.1", "wanxiang", COMMIT, SUPPLEMENT_SOURCES)
+        self.assertTrue(text.startswith(base))
+        self.assertEqual(
+            "\n"
+            "Supplementary entries\n"
+            "---------------------\n"
+            "\n"
+            "The three dictionaries (aegis_dict.bin / aegis_t9.bin / aegis_jianpin.bin) also\n"
+            "contain entries taken from the sources listed below. Aegis filtered these\n"
+            "entries by the same row rules as the tables above, removed every word those\n"
+            "tables already contain, and repacked the rest into its own binary format. They\n"
+            "do not contribute to the language model (aegis_lm.bin).\n"
+            "\n"
+            "  Source:   Example Wiki\n"
+            "  URL:      https://wiki.example.org/\n"
+            "  License:  CC BY-NC-SA 4.0\n"
+            "  Version:  2026-10-01\n"
+            "\n"
+            "  Source:   Example word list\n"
+            "  URL:      https://example.org/words\n"
+            "  License:  unlicensed\n"
+            "  Version:  r7\n",
+            text[len(base):],
+        )
+        text.encode("ascii")
+        self.assertEqual(1, text.count("\n\nCC BY 4.0 requires this attribution"))
+        self.assertEqual(1, text.count("  Source tables (14): "))
+        for needle in (
+            "rime-wanxiang",
+            "CC BY 4.0",
+            "Modifications by Aegis",
+            "derived character unigram and bigram statistics",
+        ):
+            self.assertIn(needle, text)
 
     def test_notice_name_is_never_mistaken_for_a_runtime_bin(self):
         low = bp.NOTICE_NAME.lower()
@@ -319,23 +377,6 @@ class CurrentLanguageModelBuildTest(unittest.TestCase):
         verify.assert_called_once_with(repo, environment)
 
 
-SUPPLEMENT_SOURCES = [
-    {
-        "name": "Example Wiki",
-        "url": "https://wiki.example.org/",
-        "license": "CC BY-NC-SA 4.0",
-        "version": "2026-10-01",
-        "rows": 3,
-    },
-    {
-        "name": "Example word list",
-        "url": "https://example.org/words",
-        "license": "unlicensed",
-        "version": "r7",
-        "rows": 2,
-        "note": "kept verbatim",
-    },
-]
 SUPPLEMENT_STATISTICS = {
     "rows_read": 9,
     "rows_rejected": 2,
@@ -497,6 +538,22 @@ class SupplementDictionaryInputTest(unittest.TestCase):
             self.assertEqual(["repo", "ref_type", "tag", "branch", "commit"], list(built.update["source"]))
             bp.validate_update_document(built.info, built.update)
 
+    def pack_notice(self, built):
+        with zipfile.ZipFile(built.output_dir / "aegis_dict_pack_dict-latest.zip") as archive:
+            self.assertEqual(bp.PACK_ENTRIES, archive.namelist())
+            return archive.read(bp.NOTICE_NAME).decode("utf-8")
+
+    def test_the_pack_notice_attributes_the_supplement_sources_only_when_a_supplement_is_built(self):
+        with tempfile.TemporaryDirectory() as plain_directory, tempfile.TemporaryDirectory() as directory:
+            plain = self.pack_notice(self.build(Path(plain_directory)))
+            supplemented = self.pack_notice(self.build(Path(directory), default_supplement="---\n...\n"))
+        self.assertEqual(bp.attribution_text(REPO, None, "wanxiang", COMMIT), plain)
+        self.assertEqual(
+            bp.attribution_text(REPO, None, "wanxiang", COMMIT, SUPPLEMENT_SOURCES),
+            supplemented,
+        )
+        self.assertNotEqual(plain, supplemented)
+
     def test_a_supplement_without_a_valid_source_list_stops_the_build(self):
         valid = SUPPLEMENT_SOURCES[0]
         cases = {
@@ -510,6 +567,8 @@ class SupplementDictionaryInputTest(unittest.TestCase):
             "has no version": [{**valid, "version": 7}],
             "has no row count": [{**valid, "rows": True}],
             "has no row count ": [{**valid, "rows": -1}],
+            "name is not one printable ASCII line": [{**valid, "name": "\u840c\u5a18\u767e\u79d1"}],
+            "license is not one printable ASCII line": [{**valid, "license": "CC BY 4.0\n\nCC BY 4.0 requires"}],
         }
         for message, sources in cases.items():
             with self.subTest(message=message), tempfile.TemporaryDirectory() as directory:
@@ -548,13 +607,16 @@ class FinalizePackTest(unittest.TestCase):
         ):
             return bp.finalize_main(args)
 
-    def write_intermediate(self, root: Path):
+    def write_intermediate(self, root: Path, supplement_sources=None):
         root.mkdir(parents=True)
         staging = root / "staging"
         staging.mkdir()
         files = {}
         notice = staging / bp.NOTICE_NAME
-        notice.write_text(bp.attribution_text(REPO, "v17.0.3", "wanxiang", COMMIT), encoding="utf-8")
+        notice.write_text(
+            bp.attribution_text(REPO, "v17.0.3", "wanxiang", COMMIT, supplement_sources),
+            encoding="utf-8",
+        )
         files[bp.NOTICE_NAME] = notice
         for index, (zip_entry, _runtime, _key_type) in enumerate(bp.OUTPUTS, start=1):
             path = staging / zip_entry
@@ -652,7 +714,11 @@ class FinalizePackTest(unittest.TestCase):
             "sources": SUPPLEMENT_SOURCES,
         }
         with tempfile.TemporaryDirectory() as directory:
-            pack, build_info_path, update_path = self.write_intermediate(Path(directory) / "one")
+            pack, build_info_path, update_path = self.write_intermediate(
+                Path(directory) / "one", SUPPLEMENT_SOURCES
+            )
+            with zipfile.ZipFile(pack) as archive:
+                self.assertIn("Supplementary entries", archive.read(bp.NOTICE_NAME).decode("utf-8"))
             intermediate = json.loads(build_info_path.read_text(encoding="utf-8"))
             intermediate["resources"][0]["source"]["supplement"] = supplement
             build_info_path.write_text(json.dumps(intermediate), encoding="utf-8")
