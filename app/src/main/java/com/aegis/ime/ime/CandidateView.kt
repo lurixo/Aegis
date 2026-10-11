@@ -499,6 +499,7 @@ class CandidateView(context: Context) : View(context), KeyHapticsAware {
                 barActionArmed = false
                 if (dragging) {
                     dragging = false
+                    fling.onUp(event.eventTime)
                     layoutCellsTo(fling.predictFinalOffset(scrollX) + expandRect().left)
                     if (fling.fling(scrollX, maxScroll())) postInvalidateOnAnimation()
                     return true

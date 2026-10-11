@@ -19,6 +19,7 @@ import android.app.Activity
 import android.os.Looper
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
@@ -149,6 +150,54 @@ class KeyboardViewInteractionTest {
         v.send(MotionEvent.ACTION_UP, x, v.regTop() + v.cellH() * 2.5f, 500)
         assertFalse("a paused-before-release drag must not fling", v.isFlingingForTest())
         assertTrue("but it did scroll while dragging", v.scrollOffsetForTest() > 0f)
+    }
+
+    @Test fun a_fast_drag_held_still_without_move_events_does_not_fling_on_release() {
+        val v = longComboView()
+        var picked: Key? = null
+        v.onKey = { picked = it }
+        val x = v.cx()
+        v.send(MotionEvent.ACTION_DOWN, x, v.regTop() + v.cellH() * 3.5f, 0)
+        v.send(MotionEvent.ACTION_MOVE, x, v.regTop() + v.cellH() * 2.5f, 8)
+        v.send(MotionEvent.ACTION_MOVE, x, v.regTop() + v.cellH() * 1.5f, 16)
+        v.send(MotionEvent.ACTION_UP, x, v.regTop() + v.cellH() * 1.5f, 416)
+        assertFalse("a finger that rested before lifting must not fling", v.isFlingingForTest())
+        assertEquals("the column stays where the finger left it", v.cellH() * 2f, v.scrollOffsetForTest(), 0.5f)
+        v.computeScroll()
+        assertEquals("the next frame does not move it either", v.cellH() * 2f, v.scrollOffsetForTest(), 0.5f)
+        v.tap(x, v.colCellY(0))
+        assertEquals("the next tap picks the row under it", "p3", picked?.label)
+    }
+
+    private fun KeyboardView.dragUpThenLiftAt(liftAt: Long) {
+        val x = cx()
+        send(MotionEvent.ACTION_DOWN, x, regTop() + cellH() * 3.5f, 0)
+        send(MotionEvent.ACTION_MOVE, x, regTop() + cellH() * 2.5f, 16)
+        send(MotionEvent.ACTION_MOVE, x, regTop() + cellH() * 1.5f, 32)
+        send(MotionEvent.ACTION_UP, x, regTop() + cellH() * 1.5f, liftAt)
+    }
+
+    @Test fun a_lift_39_ms_after_the_last_move_flings_exactly_like_an_immediate_lift() {
+        val immediate = longComboView().apply { dragUpThenLiftAt(32) }
+        val late = longComboView().apply { dragUpThenLiftAt(71) }
+        assertTrue("precondition: an immediate lift flings", immediate.isFlingingForTest())
+        assertTrue(
+            "precondition: the flick stays below the velocity clamp",
+            kotlin.math.abs(immediate.flingVelocityForTest()) <
+                ViewConfiguration.get(context).scaledMaximumFlingVelocity,
+        )
+        assertTrue("a lift just under the rest threshold still flings", late.isFlingingForTest())
+        assertEquals("at the same velocity", immediate.flingVelocityForTest(), late.flingVelocityForTest(), 0f)
+        assertEquals("to the same place", immediate.flingFinalForTest(), late.flingFinalForTest(), 0f)
+    }
+
+    @Test fun a_lift_40_ms_after_the_last_move_does_not_fling() {
+        val v = longComboView().apply { dragUpThenLiftAt(72) }
+        assertFalse("a lift at the rest threshold must not fling", v.isFlingingForTest())
+        assertEquals("no velocity is left to fling with", 0f, v.flingVelocityForTest(), 0f)
+        assertEquals("the column stays where the finger left it", v.cellH() * 2f, v.scrollOffsetForTest(), 0.5f)
+        v.computeScroll()
+        assertEquals("the next frame does not move it either", v.cellH() * 2f, v.scrollOffsetForTest(), 0.5f)
     }
 
     @Test fun tap_letter_key_outside_scroll_column_still_works() {

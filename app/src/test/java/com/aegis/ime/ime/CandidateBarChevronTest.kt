@@ -25,6 +25,7 @@ import android.os.Looper
 import android.view.HapticFeedbackConstants
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.widget.FrameLayout
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.ime.theme.ImePalette
@@ -819,6 +820,67 @@ class CandidateBarChevronTest {
         v.dispatchTouchEvent(MotionEvent.obtain(0, t, MotionEvent.ACTION_UP, startX - 80f, y, 0))
         assertTrue("a flick on the candidate strip starts a horizontal fling", v.isFlingingForTest())
         assertTrue("the windowed velocity reflects the leftward flick", v.flingVelocityForTest() < -300f)
+    }
+
+
+    private fun stripDraggedThenLiftedAt(liftAt: Long): CandidateView {
+        val v = CandidateView(ctx)
+        v.setContent(List(40) { "候选$it" }, "ni")
+        v.measure(
+            View.MeasureSpec.makeMeasureSpec((360 * density).toInt(), View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.makeMeasureSpec((44 * density).toInt(), View.MeasureSpec.EXACTLY),
+        )
+        v.layout(0, 0, v.measuredWidth, v.measuredHeight)
+        assertTrue("the candidate list overflows past the drag distance", v.maxScrollForTest() > 200f)
+        val y = v.height / 2f
+        val startX = v.expandControlBoundsForTest().left - 1f
+        v.dispatchTouchEvent(MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, startX, y, 0))
+        for (k in 1..5) {
+            v.dispatchTouchEvent(MotionEvent.obtain(0, 16L * k, MotionEvent.ACTION_MOVE, startX - 40f * k, y, 0))
+        }
+        v.dispatchTouchEvent(MotionEvent.obtain(0, liftAt, MotionEvent.ACTION_UP, startX - 200f, y, 0))
+        return v
+    }
+
+    @Test fun a_fast_drag_held_still_without_move_events_does_not_fling_on_release() {
+        val v = stripDraggedThenLiftedAt(480)
+        var picked = -1
+        v.onPick = { picked = it }
+        assertFalse("a finger that rested before lifting must not fling", v.isFlingingForTest())
+        assertEquals("the strip stays where the finger left it", 200f, v.scrollXForTest(), 0.5f)
+        v.computeScroll()
+        assertEquals("the next frame does not move it either", 200f, v.scrollXForTest(), 0.5f)
+
+        val visible = (0 until 40).first { i ->
+            val cx = requireNotNull(v.centerOfCandidateForTest(i)).first
+            cx > v.width * 0.25f && cx < v.width * 0.6f
+        }
+        val (cx, cy) = requireNotNull(v.centerOfCandidateForTest(visible))
+        v.dispatchTouchEvent(MotionEvent.obtain(1000, 1000, MotionEvent.ACTION_DOWN, cx, cy, 0))
+        v.dispatchTouchEvent(MotionEvent.obtain(1000, 1010, MotionEvent.ACTION_UP, cx, cy, 0))
+        assertEquals("the next tap picks the candidate under it", visible, picked)
+    }
+
+    @Test fun a_lift_39_ms_after_the_last_move_flings_exactly_like_an_immediate_lift() {
+        val immediate = stripDraggedThenLiftedAt(80)
+        val late = stripDraggedThenLiftedAt(119)
+        assertTrue("precondition: an immediate lift flings", immediate.isFlingingForTest())
+        assertTrue(
+            "precondition: the flick stays below the velocity clamp",
+            abs(immediate.flingVelocityForTest()) < ViewConfiguration.get(ctx).scaledMaximumFlingVelocity,
+        )
+        assertTrue("a lift just under the rest threshold still flings", late.isFlingingForTest())
+        assertEquals("at the same velocity", immediate.flingVelocityForTest(), late.flingVelocityForTest(), 0f)
+        assertEquals("to the same place", immediate.flingFinalForTest(), late.flingFinalForTest(), 0f)
+    }
+
+    @Test fun a_lift_40_ms_after_the_last_move_does_not_fling() {
+        val v = stripDraggedThenLiftedAt(120)
+        assertFalse("a lift at the rest threshold must not fling", v.isFlingingForTest())
+        assertEquals("no velocity is left to fling with", 0f, v.flingVelocityForTest(), 0f)
+        assertEquals("the strip stays where the finger left it", 200f, v.scrollXForTest(), 0.5f)
+        v.computeScroll()
+        assertEquals("the next frame does not move it either", 200f, v.scrollXForTest(), 0.5f)
     }
 
 

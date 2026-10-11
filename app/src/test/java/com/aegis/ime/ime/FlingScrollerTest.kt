@@ -115,4 +115,30 @@ class FlingScrollerTest {
         f.addSample(100, 90f)
         assertEquals("velocity resets to 0 after onDown until ≥2 new samples", 0f, f.velocity(), 0f)
     }
+
+    @Test fun aLiftAtTheRestThresholdDropsTheVelocity() {
+        val f = FlingScroller(ctx)
+        steadyFlick(f)
+        f.onUp(120)
+        assertEquals("a pointer that rested 40ms before lifting has no velocity", 0f, f.velocity(), 0f)
+        assertFalse("so it does not hand off to a fling", f.fling(start = 0f, max = 1000f))
+        assertEquals("nor predict any travel", 250f, f.predictFinalOffset(start = 250f), 0f)
+    }
+
+    @Test fun aLiftJustUnderTheRestThresholdKeepsTheVelocityUntouched() {
+        val f = FlingScroller(ctx)
+        steadyFlick(f)
+        val before = f.velocity()
+        f.onUp(119)
+        assertEquals("a lift 39ms after the last sample leaves the window alone", before, f.velocity(), 0f)
+        assertTrue("and still hands off to a fling", f.fling(start = 0f, max = 1000f))
+    }
+
+    @Test fun aLiftWithoutSamplesIsANoOp() {
+        val f = FlingScroller(ctx)
+        f.onUp(1000)
+        assertEquals(0f, f.velocity(), 0f)
+        steadyFlick(f)
+        assertEquals("samples added afterwards measure as usual", -1000f, f.velocity(), 80f)
+    }
 }

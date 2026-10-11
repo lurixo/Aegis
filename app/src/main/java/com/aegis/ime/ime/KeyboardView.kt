@@ -1040,7 +1040,7 @@ class KeyboardView(context: Context) : View(context) {
             MotionEvent.ACTION_POINTER_UP -> {
                 val id = event.getPointerId(event.actionIndex)
                 if (id == scrollPointerId) {
-                    endScroll(event.getY(event.actionIndex))
+                    endScroll(event.getY(event.actionIndex), event.eventTime)
                     scrollPointerId = MotionEvent.INVALID_POINTER_ID
                 } else if (id == activePointerId) {
                     val ai = event.actionIndex
@@ -1051,7 +1051,7 @@ class KeyboardView(context: Context) : View(context) {
             MotionEvent.ACTION_UP -> {
                 if (scrollPointerId != MotionEvent.INVALID_POINTER_ID) {
                     val si = event.findPointerIndex(scrollPointerId)
-                    endScroll(if (si >= 0) event.getY(si) else event.y)
+                    endScroll(if (si >= 0) event.getY(si) else event.y, event.eventTime)
                     scrollPointerId = MotionEvent.INVALID_POINTER_ID
                 }
                 if (activePointerId != MotionEvent.INVALID_POINTER_ID) {
@@ -1364,9 +1364,10 @@ class KeyboardView(context: Context) : View(context) {
         scrollLastY = y
     }
 
-    private fun endScroll(y: Float) {
+    private fun endScroll(y: Float, eventTime: Long) {
         val col = scrollColumn
         if (scrolling) {
+            fling.onUp(eventTime)
             if (col != null && fling.fling(scrollY, maxScroll())) postInvalidateOnAnimation()
         } else if (col != null && !fling.stopArmed) {
             val idx = scrollIndexAt(y)
@@ -1554,6 +1555,12 @@ class FlingScroller(context: Context) {
         if (count < SAMPLES) count++
     }
 
+    fun onUp(t: Long) {
+        if (count == 0) return
+        val newest = (head - 1 + SAMPLES) % SAMPLES
+        if (t - sampleT[newest] >= REST_MS) { count = 0; head = 0 }
+    }
+
     fun velocity(): Float {
         if (count < 2) return 0f
         val newest = (head - 1 + SAMPLES) % SAMPLES
@@ -1594,5 +1601,6 @@ class FlingScroller(context: Context) {
     private companion object {
         const val SAMPLES = 12
         const val WINDOW_MS = 100L
+        const val REST_MS = 40L
     }
 }
