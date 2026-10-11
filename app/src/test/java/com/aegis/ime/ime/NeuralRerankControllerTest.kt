@@ -81,11 +81,27 @@ class NeuralRerankControllerTest {
             if (key(composing, t9)) listOfNotNull(leading, "你好", "拟好", "你") else emptyList()
     }
 
+    private class EveryInputEngine(private val paths: Int = 3) : CandidateEngine {
+        val rankedCalls = ArrayList<String>()
+        override val supportsChinese: Boolean = true
+        override fun candidates(composing: String, t9: Boolean): List<String> = words(composing)
+        override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+            words(composing).map { Cand(it, composing.length) }
+        override fun rankedSentences(composing: String, t9: Boolean, context: CharSequence, limit: Int): List<Pair<String, Double>> {
+            rankedCalls.add("$composing|$t9")
+            return listOf("你好" to -10.0, "拟好" to -11.0, "你号" to -12.0).take(paths).map { tag(it.first, composing) to it.second }
+        }
+        fun words(composing: String): List<String> =
+            if (composing.isEmpty()) emptyList() else listOf("你好", "拟好", "你").map { tag(it, composing) }
+        fun reranked(composing: String): List<String> = listOf("拟好", "你好", "你").map { tag(it, composing) }
+        private fun tag(word: String, composing: String) = word + composing.length
+    }
+
     private class Scorer : SentenceScorer {
         val contexts = ArrayList<String>()
         override fun score(context: String, candidates: List<String>): DoubleArray {
             contexts.add(context)
-            return DoubleArray(candidates.size) { if (candidates[it] == "拟好") -1.0 else -5.0 }
+            return DoubleArray(candidates.size) { if (candidates[it].startsWith("拟好")) -1.0 else -5.0 }
         }
         override fun cancel() {}
         override fun close() {}
@@ -121,7 +137,7 @@ class NeuralRerankControllerTest {
     private val spec = NeuralModelSpec("test", alphaLetters = 5.0, alphaNine = 5.0, candidates = 10)
 
     private fun setup(
-        engine: Engine = Engine(),
+        engine: CandidateEngine = Engine(),
         host: Host = Host(),
         q: Queues = Queues(),
         view: InputView = InputView(ctx),
@@ -136,6 +152,8 @@ class NeuralRerankControllerTest {
         c.neural = r
         return Triple(c, q, r)
     }
+
+    private fun decoded(c: KeyboardController): List<String> = c.candidateWords().filter { it.last().isDigit() }
 
     private fun type(c: KeyboardController, s: String) = s.forEach { c.onKey(Key(it.toString(), output = it.toString())) }
 
@@ -276,6 +294,109 @@ class NeuralRerankControllerTest {
     @Test fun the_decode_carries_the_paths_the_model_scores_on_26key() = theDecodeCarriesThePathsTheModelScores(nine = false)
 
     @Test fun the_decode_carries_the_paths_the_model_scores_on_9key() = theDecodeCarriesThePathsTheModelScores(nine = true)
+
+    private fun inputOfOneOrTwoKeysIsShownWithoutTheModel(nine: Boolean) {
+        val engine = EveryInputEngine()
+        val scorer = Scorer()
+        val view = InputView(ctx)
+        val (c, q, r) = setup(engine, view = view, reranker = {
+            NeuralReranker(spec, { scorer }, Executor { r -> it.neuralWorker.add(r) }, Executor { r -> it.neuralMain.add(r) }, it.schedule)
+        })
+        c.switchTextLayoutForTest(nine)
+        val input = if (nine) "644" else "nih"
+        for (keys in 1..2) {
+            type(c, input.substring(keys - 1, keys))
+            q.decode()
+            assertEquals("$keys keys", engine.words(input.take(keys)), decoded(c))
+            assertFalse("$keys keys", view.candidatesPendingForTest())
+            assertTrue("$keys keys", q.neuralWorker.isEmpty() && q.neuralMain.isEmpty() && q.timers.isEmpty())
+        }
+        assertTrue("no paths are generated for input the model never sees", engine.rankedCalls.isEmpty())
+        type(c, input.substring(2))
+        q.decode()
+        assertEquals("the third key is held for the model", engine.words(input.take(2)), decoded(c))
+        assertTrue(view.candidatesPendingForTest())
+        assertEquals(listOf("$input|$nine"), engine.rankedCalls)
+        assertEquals(1, q.neuralWorker.size)
+        q.neural()
+        assertEquals(engine.reranked(input), decoded(c))
+        assertFalse(view.candidatesPendingForTest())
+        assertEquals(1, scorer.contexts.size)
+        assertEquals(1, r.snapshot().runs)
+    }
+
+    @Test fun input_of_one_or_two_keys_is_shown_without_the_model_on_26key() =
+        inputOfOneOrTwoKeysIsShownWithoutTheModel(nine = false)
+
+    @Test fun input_of_one_or_two_keys_is_shown_without_the_model_on_9key() =
+        inputOfOneOrTwoKeysIsShownWithoutTheModel(nine = true)
+
+    private fun aDecodeWithFewerThanTwoPathsIsShownWithoutTheModel(nine: Boolean) {
+        val input = if (nine) "64426" else "nihao"
+        for (paths in 0..1) {
+            val engine = EveryInputEngine(paths)
+            val view = InputView(ctx)
+            val (c, q, r) = setup(engine, view = view)
+            c.switchTextLayoutForTest(nine)
+            type(c, input)
+            q.decode()
+            assertEquals("$paths paths", listOf("$input|$nine"), engine.rankedCalls)
+            assertEquals("$paths paths", engine.words(input), decoded(c))
+            assertFalse("$paths paths", view.candidatesPendingForTest())
+            assertTrue("$paths paths", q.neuralWorker.isEmpty() && q.neuralMain.isEmpty() && q.timers.isEmpty())
+            assertEquals(0, r.snapshot().runs)
+        }
+    }
+
+    @Test fun a_decode_with_fewer_than_two_paths_is_shown_without_the_model_on_26key() =
+        aDecodeWithFewerThanTwoPathsIsShownWithoutTheModel(nine = false)
+
+    @Test fun a_decode_with_fewer_than_two_paths_is_shown_without_the_model_on_9key() =
+        aDecodeWithFewerThanTwoPathsIsShownWithoutTheModel(nine = true)
+
+    private fun shortInputIsNotOverwrittenByAnOlderModelChoice(nine: Boolean, scoredFirst: Boolean) {
+        val engine = EveryInputEngine()
+        val scorer = Scorer()
+        val view = InputView(ctx)
+        val (c, q, r) = setup(engine, view = view, reranker = {
+            NeuralReranker(spec, { scorer }, Executor { r -> it.neuralWorker.add(r) }, Executor { r -> it.neuralMain.add(r) }, it.schedule)
+        })
+        c.switchTextLayoutForTest(nine)
+        val input = if (nine) "644" else "nih"
+        type(c, input)
+        q.decode()
+        assertTrue(view.candidatesPendingForTest())
+        assertEquals(1, q.neuralWorker.size)
+        if (scoredFirst) {
+            q.neuralWorker.removeFirst().run()
+            assertEquals(1, q.neuralMain.size)
+        }
+        c.onKey(Key("", action = KeyAction.BACKSPACE))
+        q.decode()
+        val shown = engine.words(input.take(2))
+        assertEquals(shown, decoded(c))
+        assertFalse(view.candidatesPendingForTest())
+        q.neural()
+        q.fireTimers()
+        q.neural()
+        assertEquals(shown, decoded(c))
+        assertFalse(view.candidatesPendingForTest())
+        assertEquals(if (scoredFirst) 1 else 0, scorer.contexts.size)
+        assertEquals(if (scoredFirst) 0 else 1, r.snapshot().cancelled)
+        assertEquals(0, r.snapshot().timeouts)
+    }
+
+    @Test fun short_input_is_not_overwritten_by_an_older_queued_run_on_26key() =
+        shortInputIsNotOverwrittenByAnOlderModelChoice(nine = false, scoredFirst = false)
+
+    @Test fun short_input_is_not_overwritten_by_an_older_queued_run_on_9key() =
+        shortInputIsNotOverwrittenByAnOlderModelChoice(nine = true, scoredFirst = false)
+
+    @Test fun short_input_is_not_overwritten_by_an_older_finished_run_on_26key() =
+        shortInputIsNotOverwrittenByAnOlderModelChoice(nine = false, scoredFirst = true)
+
+    @Test fun short_input_is_not_overwritten_by_an_older_finished_run_on_9key() =
+        shortInputIsNotOverwrittenByAnOlderModelChoice(nine = true, scoredFirst = true)
 
     private fun nextKeyCancelsAStalePathGeneration(nine: Boolean) {
         val engine = Engine().apply { rankedEntered = CountDownLatch(1) }

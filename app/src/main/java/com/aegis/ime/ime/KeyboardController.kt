@@ -1273,7 +1273,7 @@ class KeyboardController(
     private fun rerankSentenceLimit(req: DecodeRequest): Int {
         val reranker = neural ?: return 0
         if (!reranker.ready) return 0
-        if (req.composingEmpty || req.mode != Mode.PINYIN || req.literalIndices.isNotEmpty() || req.lockedNonEmpty ||
+        if (req.composingLen < RERANK_MIN_KEYS || req.mode != Mode.PINYIN || req.literalIndices.isNotEmpty() || req.lockedNonEmpty ||
             req.drillSyllable >= 0 || req.forcedCuts.isNotEmpty() || req.emailContext != null
         ) return 0
         return reranker.spec.candidates * RERANK_SEARCH_FACTOR
@@ -1283,7 +1283,7 @@ class KeyboardController(
         val reranker = neural ?: return false
         if (!reranker.ready) return false
         val paths = result.sentences ?: return false
-        if (result.candidates.isEmpty()) return false
+        if (paths.size < RERANK_MIN_PATHS || result.candidates.isEmpty()) return false
         val modelContext = NeuralReranker.contextWindow(req.beforeCursor + committedPrefix, req.beforeCursor.length <= CONTEXT_SCAN_LEN)
         heldDecode = result
         reranker.submit(
@@ -2052,6 +2052,8 @@ class KeyboardController(
         const val EMAIL_SCAN_LEN = 256
         const val RERANK_WAIT_MILLIS = 300L
         const val RERANK_SEARCH_FACTOR = 2
+        const val RERANK_MIN_KEYS = 3
+        const val RERANK_MIN_PATHS = 2
     }
 }
 
