@@ -143,7 +143,7 @@ class LockedReadingCandidatesTest {
         assertTrue("buffer fully consumed", c.candidateWords().isEmpty())
     }
 
-    @Test fun ni_shuo_de_dui_uses_the_three_row_phrase_policy_in_every_layout_and_lock_state() {
+    @Test fun ni_shuo_de_dui_uses_the_four_row_phrase_policy_in_every_layout_and_lock_state() {
         data class Case(val nine: Boolean, val input: String, val lockFirstReading: Boolean)
         val cases = listOf(
             Case(nine = true, "64748633384", lockFirstReading = false),
@@ -171,7 +171,7 @@ class LockedReadingCandidatesTest {
                 rendered.filter { GraphemeText.clusterCount(it) == 1 },
             )
             assertTrue(
-                "rows after the third contain only single items for $caseLabel",
+                "rows after the fourth contain only single items for $caseLabel",
                 grid.rowTextsForTest().drop(CandidateProjectionPolicy.PINYIN.maxPhraseRows).flatten()
                     .all { GraphemeText.clusterCount(it) == 1 },
             )

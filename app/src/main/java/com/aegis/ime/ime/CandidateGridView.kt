@@ -61,7 +61,7 @@ data class CandidateProjectionPolicy(val maxPhraseRows: Int, val kept: Set<Strin
     }
 
     companion object {
-        val PINYIN = CandidateProjectionPolicy(maxPhraseRows = 3)
+        val PINYIN = CandidateProjectionPolicy(maxPhraseRows = 4)
     }
 }
 

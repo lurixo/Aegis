@@ -426,7 +426,7 @@ class CandidateGridViewTest {
         assertEquals(words.indices.toList(), picked)
     }
 
-    @Test fun pinyin_projection_limits_phrases_to_three_rows_and_keeps_every_single_item() {
+    @Test fun pinyin_projection_limits_phrases_to_four_rows_and_keeps_every_single_item() {
         val phrases = List(22) { "词${('A'.code + it).toChar()}" }
         val singles = List(18) { (0x4e00 + it).toChar().toString() } + listOf("𰻞", "❤️", "👨‍👩‍👧")
         val source = ArrayList<String>().apply {
@@ -443,9 +443,9 @@ class CandidateGridViewTest {
         val rows = v.rowTextsForTest()
         val rendered = v.renderedCandidateTextsForTest()
         val shownPhrases = rendered.filter { GraphemeText.clusterCount(it) > 1 }
-        assertEquals("the Pinyin product policy is three phrase rows", 3, policy.maxPhraseRows)
+        assertEquals("the Pinyin product policy is four phrase rows", 4, policy.maxPhraseRows)
         assertEquals(
-            "these two-grapheme phrases each take one track, so three rows hold twelve",
+            "these two-grapheme phrases each take one track, so four rows hold sixteen",
             policy.maxPhraseRows * CandidateGridView.COLUMNS,
             shownPhrases.size,
         )
@@ -510,7 +510,7 @@ class CandidateGridViewTest {
         val widePhraseCount = v.renderedCandidateTextsForTest().count { GraphemeText.clusterCount(it) > 1 }
 
         assertTrue(
-            "a wider table needs fewer tracks per phrase, so three rows carry more of them: " +
+            "a wider table needs fewer tracks per phrase, so four rows carry more of them: " +
                 "$narrowPhraseCount then $widePhraseCount",
             widePhraseCount > narrowPhraseCount,
         )
@@ -519,6 +519,75 @@ class CandidateGridViewTest {
             v.rowTextsForTest().drop(CandidateProjectionPolicy.PINYIN.maxPhraseRows).flatten()
                 .all { GraphemeText.clusterCount(it) == 1 },
         )
+    }
+
+    private fun sized(widthDp: Int, heightDp: Int, source: List<String>, policy: CandidateProjectionPolicy): CandidateGridView =
+        CandidateGridView(ctx).apply {
+            setCandidates(source, projection = policy)
+            measure(
+                View.MeasureSpec.makeMeasureSpec(dp(widthDp), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(dp(heightDp), View.MeasureSpec.EXACTLY),
+            )
+            layout(0, 0, measuredWidth, measuredHeight)
+        }
+
+    @Test fun pinyin_projection_fills_the_first_screen_with_four_phrase_rows_in_portrait_and_landscape() {
+        val phrases = List(40) { "候选词组${(0x4e00 + it).toChar()}" }
+        val singles = List(12) { (0x4e40 + it).toChar().toString() }
+        val source = singles.take(3) + phrases + singles.drop(3)
+        for ((widthDp, heightDp) in listOf(360 to 250, 853 to 180)) {
+            val label = "${widthDp}x${heightDp}dp"
+            val v = sized(widthDp, heightDp, source, CandidateProjectionPolicy.PINYIN)
+            val picked = ArrayList<Int>()
+            v.onPick = picked::add
+
+            val rows = v.rowTextsForTest()
+            val rendered = v.renderedCandidateTextsForTest()
+            val shownPhrases = rows.take(4).flatten()
+            assertEquals("$label: the first four rows carry the leading phrases", phrases.take(shownPhrases.size), shownPhrases)
+            assertTrue("$label: the source has more phrases than four rows hold", shownPhrases.size < phrases.size)
+            assertEquals("$label: every row behind the fourth carries single items", singles, rows.drop(4).flatten())
+            assertEquals("$label: nothing else is rendered", shownPhrases + singles, rendered)
+
+            val visible = v.visibleCandidateRowsForTest()
+            assertEquals("$label: the panel shows four rows at a time", CandidateGridView.ROWS, visible.size)
+            assertEquals("$label: the first row starts at the top", 0, visible.first().top)
+            assertTrue("$label: the four rows fill the panel height", visible.last().bottom >= dp(heightDp))
+            assertTrue("$label: the single items are reached by scrolling", v.gridCanScrollForwardForTest())
+
+            for (i in rendered.indices) assertTrue(v.tapCandidateForTest(i))
+            assertEquals("$label: each chip picks its own controller index", rendered, picked.map(source::get))
+
+            assertTrue(v.singlesButtonForTest().performClick())
+            assertEquals("$label: the singles filter lists the single items alone", singles, v.renderedCandidateTextsForTest())
+        }
+    }
+
+    @Test fun pinyin_projection_keeps_stored_phrases_behind_the_fourth_row_in_engine_order() {
+        val phrases = List(40) { "候选词组${(0x4e00 + it).toChar()}" }
+        val singles = List(12) { (0x4e40 + it).toChar().toString() }
+        val source = singles.take(3) + phrases + singles.drop(3)
+        val stored = setOf(phrases[36], phrases[1], phrases[30])
+        for ((widthDp, heightDp) in listOf(360 to 250, 853 to 180)) {
+            val label = "${widthDp}x${heightDp}dp"
+            val plain = sized(widthDp, heightDp, source, CandidateProjectionPolicy.PINYIN)
+            val kept = sized(widthDp, heightDp, source, CandidateProjectionPolicy.PINYIN.copy(kept = stored))
+
+            val head = plain.rowTextsForTest().take(4).flatten()
+            assertTrue("$label: one stored phrase already sits inside the four rows", phrases[1] in head)
+            assertFalse("$label: the other stored phrases sit behind them", phrases[30] in head || phrases[36] in head)
+            assertEquals(
+                "$label: the stored phrases follow the four rows in engine order, ahead of the single items",
+                head + listOf(phrases[30], phrases[36]) + singles,
+                kept.renderedCandidateTextsForTest(),
+            )
+            assertEquals("$label: the four rows themselves are unchanged", head, kept.rowTextsForTest().take(4).flatten())
+            assertEquals(
+                "$label: each chip keeps its controller index",
+                kept.renderedCandidateTextsForTest(),
+                kept.renderedSourceIndicesForTest().map(source::get),
+            )
+        }
     }
 
     @Test fun removing_the_projection_restores_the_complete_engine_order() {

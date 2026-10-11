@@ -64,7 +64,7 @@ class LongUserWordRecallTest {
         val grammar: OctagramReader,
     )
 
-    private class Shown(val source: List<String>, val rendered: List<String>)
+    private class Shown(val source: List<String>, val rendered: List<String>, val rows: List<List<String>>)
 
     private val pool = listOf(
         "和" to "he", "都" to "du", "海" to "hai", "会" to "hui", "长" to "zhang", "中" to "zhong", "性" to "xing", "了" to "le",
@@ -104,7 +104,8 @@ class LongUserWordRecallTest {
         before(c)
         typed.forEach { c.onKey(Key(it.toString(), output = it.toString())) }
         view.showExpandedCandidates()
-        return Shown(c.candidateWords(), view.expandedGridForTest().renderedCandidateTextsForTest())
+        val grid = view.expandedGridForTest()
+        return Shown(c.candidateWords(), grid.renderedCandidateTextsForTest(), grid.rowTextsForTest())
     }
 
     private fun storedWordsAreShown(
@@ -170,21 +171,36 @@ class LongUserWordRecallTest {
         override fun storedWords(composing: String, t9: Boolean): List<String> = if (stored) listOf(WORD) else emptyList()
     }
 
-    private fun wordBehindThreeRowsIsShownOnlyWhenStored(nine: Boolean) {
+    private fun wordBehindFourRowsIsShownOnlyWhenStored(nine: Boolean) {
         val typed = keys("heduhaihuizhangzhongxingledezhe", nine)
         val plain = shown(Crowded(stored = false), nine, typed)
         val kept = shown(Crowded(stored = true), nine, typed)
         assertEquals("the candidates themselves do not depend on the stored words", plain.source, kept.source)
         assertTrue("the word is offered", WORD in plain.source)
-        assertFalse("a phrase behind the third row is left out", WORD in plain.rendered)
+        assertFalse("a phrase behind the fourth row is left out", WORD in plain.rendered)
         val phrases = plain.rendered.filter { GraphemeText.clusterCount(it) > 1 }
-        assertEquals("the stored word follows the three rows of phrases", phrases + WORD, kept.rendered.take(phrases.size + 1))
+        assertEquals("the phrases shown are the four leading rows", phrases, plain.rows.take(4).flatten())
+        assertEquals("the four rows keep the engine ranking", AHEAD.take(phrases.size), phrases)
+        assertEquals("the stored word follows the four rows of phrases", phrases + WORD, kept.rendered.take(phrases.size + 1))
         assertEquals("only the stored word is added", plain.rendered, kept.rendered - WORD)
+        assertEquals(
+            "the single items keep the engine order",
+            SINGLES,
+            kept.rendered.filter { GraphemeText.clusterCount(it) == 1 },
+        )
     }
 
-    @Test fun stored_word_behind_the_third_phrase_row_is_shown_on26key() = wordBehindThreeRowsIsShownOnlyWhenStored(nine = false)
+    @Test fun stored_word_behind_the_fourth_phrase_row_is_shown_on26key() = wordBehindFourRowsIsShownOnlyWhenStored(nine = false)
 
-    @Test fun stored_word_behind_the_third_phrase_row_is_shown_on9key() = wordBehindThreeRowsIsShownOnlyWhenStored(nine = true)
+    @Test fun stored_word_behind_the_fourth_phrase_row_is_shown_on9key() = wordBehindFourRowsIsShownOnlyWhenStored(nine = true)
+
+    @Config(qualifiers = LANDSCAPE)
+    @Test fun stored_word_behind_the_fourth_phrase_row_is_shown_on26key_in_landscape() =
+        wordBehindFourRowsIsShownOnlyWhenStored(nine = false)
+
+    @Config(qualifiers = LANDSCAPE)
+    @Test fun stored_word_behind_the_fourth_phrase_row_is_shown_on9key_in_landscape() =
+        wordBehindFourRowsIsShownOnlyWhenStored(nine = true)
 
     @Test fun engine_lists_the_words_stored_under_typed_keys() {
         val rows = listOf(
@@ -210,7 +226,8 @@ class LongUserWordRecallTest {
 
     private companion object {
         const val WORD = "和都海会长中性了的这"
-        val AHEAD = List(12) { "整句候选占满一行第${('甲'.code + it).toChar()}条" }
+        const val LANDSCAPE = "w853dp-h388dp-land-hdpi"
+        val AHEAD = List(20) { "整句候选占满一行第${('甲'.code + it).toChar()}条" }
         val BEHIND = List(6) { "后面的词${('子'.code + it).toChar()}" }
         val SINGLES = List(8) { (0x4e00 + it).toChar().toString() }
         var cached: Shipped? = null
