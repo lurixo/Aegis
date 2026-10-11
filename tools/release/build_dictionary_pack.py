@@ -52,6 +52,7 @@ TOOL_EXECUTABLE_RELATIVE = TOOL_DISTRIBUTION_RELATIVE / "bin/tools"
 TOOL_LIBRARY_RELATIVE = TOOL_DISTRIBUTION_RELATIVE / "lib/tools.jar"
 PACK_ENTRIES = [NOTICE_NAME] + [item[0] for item in OUTPUTS] + [LM_ENTRY]
 DANGEROUS_NEW_ENTRY_SUBSTRINGS = ("dict", "t9", "jianpin")
+SUPPLEMENT_RELATIVE = Path("tools/release/domain/aegis-domain.dict.yaml")
 GRAMMAR_NAME = "wanxiang-lts-zh-hans.gram"
 GRAMMAR_REPO_HTTPS = "https://github.com/amzxyz/RIME-LMDG"
 GRAMMAR_RELEASE_API = "https://api.github.com/repos/amzxyz/RIME-LMDG/releases/tags/LTS"
@@ -346,6 +347,16 @@ def ensure_source_checkout(args, work_dir):
         cwd=work_dir,
     )
     return source
+
+
+def resolve_supplement(args, repo_root):
+    if args.supplement_dict:
+        supplement = Path(args.supplement_dict).resolve()
+        if not supplement.is_file():
+            raise SystemExit(f"supplement dictionary does not exist: {supplement}")
+        return supplement
+    supplement = repo_root / SUPPLEMENT_RELATIVE
+    return supplement if supplement.is_file() else None
 
 
 def lm_command(tool_bin, output_path, t2s_dir, source):
@@ -813,6 +824,7 @@ def main(argv):
     parser.add_argument("--source-branch", default="wanxiang")
     parser.add_argument("--source-tag", help="Upstream release tag to pin (records source.tag and clones this tag instead of the branch HEAD). Prefer the latest stable tag that carries the dicts/ tables.")
     parser.add_argument("--asset-name", help="Dictionary ZIP asset name. Defaults to a name derived from the release tag.")
+    parser.add_argument("--supplement-dict", help=f"Supplement table in the upstream .dict.yaml format, merged into the three dictionaries but not the language model. Defaults to {SUPPLEMENT_RELATIVE} when that file exists.")
     parser.add_argument("--grammar-release-api", default=GRAMMAR_RELEASE_API)
     parser.add_argument("--grammar-release-json")
     args = parser.parse_args(argv)
@@ -831,6 +843,7 @@ def main(argv):
     missing = [str(path) for path in input_paths if not path.exists()]
     if missing:
         raise SystemExit("missing source tables:\n" + "\n".join(missing))
+    supplement = resolve_supplement(args, repo_root)
 
     tool_environment = fixed_tool_environment()
     verify_toolchain(repo_root, tool_environment)
@@ -865,6 +878,7 @@ def main(argv):
                 key_type,
                 "--t2s-data",
                 str(t2s_dir),
+                *(["--supplement", str(supplement)] if supplement else []),
                 *[str(path) for path in input_paths],
             ],
             cwd=repo_root,

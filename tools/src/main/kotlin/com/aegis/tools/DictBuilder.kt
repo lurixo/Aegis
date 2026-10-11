@@ -34,6 +34,7 @@ fun main(rawArgs: Array<String>) {
     val maxPerKey = args.optional("--max-per-key")?.toInt() ?: Int.MAX_VALUE
     val keepSyllableSingles = args.optional("--keep-syllable-singles")?.toInt() ?: 0
     val t2s = args.optional("--t2s-data")?.let { T2SMerge.load(File(it), collectSourceReadings(inputs)) }
+    val supplement = args.optional("--supplement")?.let { SupplementTable(File(it), t2s, minFreq) }
     val syllablesOut = args.optional("--syllables")?.let { File(it) }
     val coverageOut = args.optional("--coverage")?.let { File(it) }
 
@@ -52,7 +53,7 @@ fun main(rawArgs: Array<String>) {
     tmpRecords.bufferedWriter().use { w ->
         for (file in inputs) {
             println("parsing ${file.name} ...")
-            file.bufferedReader().use { r -> parseDict(r, w, minFreq, keyType, syllableCounts, completeness, t2s) { kind ->
+            file.bufferedReader().use { r -> parseDict(r, w, minFreq, keyType, syllableCounts, completeness, t2s, supplement) { kind ->
                 when (kind) {
                     Skip.ROW -> totalRows++
                     Skip.KEPT -> kept++
@@ -63,12 +64,14 @@ fun main(rawArgs: Array<String>) {
                 }
             } }
         }
+        supplement?.emit(w, keyType, syllableCounts)
         completeness?.emitTopUps(w, keyType)
     }
     println(
         "parsed rows=$totalRows kept=$kept skippedNonAscii=$skippedNonAscii " +
             "skippedMalformed=$skippedMalformed skippedNormalization=$skippedNormalization skippedLowFreq=$skippedLowFreq"
     )
+    supplement?.let { println(it.summary()) }
 
     val tmpByWord = File.createTempFile("aegis-dict-byword-", ".tsv").apply { deleteOnExit() }
     val tmpMerged = File.createTempFile("aegis-dict-merged-", ".tsv").apply { deleteOnExit() }
@@ -151,9 +154,11 @@ private fun parseDict(
     syllableCounts: HashMap<String, Long>,
     completeness: SyllableCompleteness?,
     t2s: T2SMerge?,
+    supplement: SupplementTable?,
     tally: (Skip) -> Unit,
 ) {
     scanNormalizedDict(r, t2s, { row ->
+        supplement?.noteMainWord(row.word)
         tally(Skip.ROW)
         val freq = row.freq.coerceAtLeast(1)
         if (freq < minFreq) {
@@ -162,12 +167,7 @@ private fun parseDict(
         } else {
             completeness?.noteKept(row.syllables, row.word)
             for (s in row.syllables) syllableCounts.merge(s, 1L, Long::plus)
-            val letterKey = row.syllables.joinToString("")
-            val key = when (keyType) {
-                "digit" -> Pinyin.toT9(letterKey)
-                "initials" -> row.syllables.joinToString("") { it.substring(0, 1) }
-                else -> letterKey
-            }
+            val key = recordKey(keyType, row.syllables)
             w.write(key); w.write("\t"); w.write(row.word); w.write("\t"); w.write(freq.toString())
             if (row.sourceTag.isNotEmpty()) { w.write("\t"); w.write(row.sourceTag) }
             w.write("\n")
@@ -183,6 +183,85 @@ private fun parseDict(
             }
         )
     })
+}
+
+private fun recordKey(keyType: String, syllables: List<String>): String {
+    val letterKey = syllables.joinToString("")
+    return when (keyType) {
+        "digit" -> Pinyin.toT9(letterKey)
+        "initials" -> syllables.joinToString("") { it.substring(0, 1) }
+        else -> letterKey
+    }
+}
+
+internal class SupplementTable(file: File, t2s: T2SMerge?, minFreq: Int) {
+    private class Reading(val syllables: List<String>, val freq: Int)
+
+    private class Word {
+        var rows = 0L
+        val readings = LinkedHashMap<String, Reading>()
+    }
+
+    private val name = file.name
+    private val words = LinkedHashMap<String, Word>()
+    private val mainWords = HashSet<String>()
+
+    var rowsRead = 0L; private set
+    var rowsRejected = 0L; private set
+    var rowsFolded = 0L; private set
+    var duplicateWords = 0L; private set
+    var duplicateRows = 0L; private set
+    var addedWords = 0L; private set
+    var addedRows = 0L; private set
+
+    init {
+        require(file.isFile) { "supplement dict file not found: ${file.path}" }
+        println("parsing supplement ${file.name} ...")
+        file.bufferedReader().use { r ->
+            scanNormalizedDict(r, t2s, { row ->
+                rowsRead++
+                val freq = row.freq.coerceAtLeast(1)
+                if (row.sourceTag.isNotEmpty() || freq < minFreq) {
+                    rowsRejected++
+                } else {
+                    val word = words.getOrPut(row.word) { Word() }
+                    word.rows++
+                    val letterKey = row.syllables.joinToString("")
+                    val known = word.readings[letterKey]
+                    if (known == null || freq > known.freq) word.readings[letterKey] = Reading(row.syllables, freq)
+                }
+            }, {
+                rowsRead++
+                rowsRejected++
+            })
+        }
+    }
+
+    fun noteMainWord(word: String) {
+        if (word in words) mainWords.add(word)
+    }
+
+    fun emit(w: BufferedWriter, keyType: String, syllableCounts: HashMap<String, Long>) {
+        for ((text, word) in words) {
+            if (text in mainWords) {
+                duplicateWords++
+                duplicateRows += word.rows
+                continue
+            }
+            addedWords++
+            addedRows += word.readings.size
+            rowsFolded += word.rows - word.readings.size
+            for (reading in word.readings.values) {
+                for (s in reading.syllables) syllableCounts.merge(s, 1L, Long::plus)
+                w.write(recordKey(keyType, reading.syllables)); w.write("\t"); w.write(text); w.write("\t")
+                w.write(reading.freq.toString()); w.write("\n")
+            }
+        }
+    }
+
+    fun summary(): String =
+        "supplement $name: rows=$rowsRead rejected=$rowsRejected duplicateWords=$duplicateWords " +
+            "duplicateRows=$duplicateRows folded=$rowsFolded addedWords=$addedWords addedRows=$addedRows"
 }
 
 internal fun collectSourceReadings(inputs: List<File>): Map<String, Set<String>> {

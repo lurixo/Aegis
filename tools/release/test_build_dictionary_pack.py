@@ -319,6 +319,97 @@ class CurrentLanguageModelBuildTest(unittest.TestCase):
         verify.assert_called_once_with(repo, environment)
 
 
+class SupplementDictionaryInputTest(unittest.TestCase):
+    def build(self, root: Path, arguments=(), default_supplement=None):
+        repo_root = root / "repo"
+        (repo_root / "tools/t2s-data").mkdir(parents=True)
+        if default_supplement is not None:
+            path = repo_root / bp.SUPPLEMENT_RELATIVE
+            path.parent.mkdir(parents=True)
+            path.write_text(default_supplement, encoding="utf-8")
+        source = root / "source"
+        (source / "dicts").mkdir(parents=True)
+        for table in bp.TABLES:
+            (source / "dicts" / f"{table}.dict.yaml").write_text(f"{table} fixture\n")
+        output_dir = root / "output"
+        calls = []
+
+        def build(command, cwd, env=None):
+            calls.append(command)
+            if "--out" in command:
+                target = Path(command[command.index("--out") + 1])
+                target.write_bytes(minimal_language_model() if "lm" in command else b"AEGD fixture")
+
+        with mock.patch.object(bp, "__file__", str(repo_root / "tools/release/build_dictionary_pack.py")), mock.patch.object(
+            bp, "ensure_source_checkout", return_value=source
+        ), mock.patch.object(bp, "fixed_tool_environment", return_value={}), mock.patch.object(
+            bp, "verify_toolchain", return_value={"schema_version": 1}
+        ), mock.patch.object(
+            bp, "current_tooling_identity", return_value={"schema_version": 1}
+        ), mock.patch.object(bp, "run", side_effect=build), mock.patch.object(
+            bp, "output", return_value=COMMIT
+        ), mock.patch.object(bp, "tree_dirt", return_value=[]), mock.patch.object(
+            bp, "load_grammar_reference", return_value={"fixture": "grammar"}
+        ), contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(
+                0, bp.main(["--release-tag", "dict-latest", "--output-dir", str(output_dir), *arguments])
+            )
+        tables = [str(source / "dicts" / f"{table}.dict.yaml") for table in bp.TABLES]
+        return SimpleNamespace(repo_root=repo_root, output_dir=output_dir, calls=calls, tables=tables)
+
+    def dictionary_commands(self, built):
+        self.assertEqual(5, len(built.calls))
+        return built.calls[1:4]
+
+    def test_no_supplement_file_keeps_every_builder_command_unchanged(self):
+        with tempfile.TemporaryDirectory() as directory:
+            built = self.build(Path(directory))
+            tool = str(built.repo_root / bp.TOOL_EXECUTABLE_RELATIVE)
+            t2s = str(built.repo_root / "tools/t2s-data")
+            self.assertEqual(
+                [
+                    [tool, "--out", str(built.output_dir / "staging" / zip_entry), "--min-freq", "1",
+                     "--keytype", key_type, "--t2s-data", t2s, *built.tables]
+                    for zip_entry, _runtime, key_type in bp.OUTPUTS
+                ],
+                self.dictionary_commands(built),
+            )
+
+    def test_the_repository_supplement_reaches_the_three_dictionaries_but_not_the_language_model(self):
+        with tempfile.TemporaryDirectory() as directory:
+            built = self.build(Path(directory), default_supplement="---\n...\n")
+            supplement = str(built.repo_root / "tools/release/domain/aegis-domain.dict.yaml")
+            for command in self.dictionary_commands(built):
+                self.assertEqual(
+                    ["--supplement", supplement, *built.tables],
+                    command[command.index("--t2s-data") + 2:],
+                )
+            self.assertEqual(
+                [str(built.repo_root / bp.TOOL_EXECUTABLE_RELATIVE),
+                 "lm", "--out", str(built.output_dir / "staging" / bp.LM_ENTRY), "--min-bigram", "1",
+                 "--t2s-data", str(built.repo_root / "tools/t2s-data"), *built.tables],
+                built.calls[-1],
+            )
+
+    def test_an_explicit_supplement_path_replaces_the_repository_default(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            explicit = root / "elsewhere.dict.yaml"
+            explicit.write_text("---\n...\n", encoding="utf-8")
+            built = self.build(
+                root, ["--supplement-dict", str(explicit)], default_supplement="---\n...\n"
+            )
+            for command in self.dictionary_commands(built):
+                self.assertEqual(str(explicit.resolve()), command[command.index("--supplement") + 1])
+            self.assertNotIn("--supplement", built.calls[-1])
+
+    def test_a_missing_explicit_supplement_stops_the_build(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            with self.assertRaisesRegex(SystemExit, "supplement dictionary does not exist"):
+                self.build(root, ["--supplement-dict", str(root / "absent.dict.yaml")])
+
+
 class FinalizePackTest(unittest.TestCase):
     def tooling_identity(self):
         return {"schema_version": 1, "fixture": "fixed-tooling"}
