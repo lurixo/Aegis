@@ -133,6 +133,16 @@ class DictEngine(
         return decoder?.decodeCoveredAtomic(letters, MAX_CANDIDATES, cuts, context) ?: emptyList()
     }
 
+    override fun candidatesForLockedDigitsCovered(
+        digits: String,
+        readings: List<String>,
+        cuts: Set<Int>,
+        context: CharSequence,
+    ): List<Cand> {
+        val out = t9Decoder?.decodeLockedCovered(digits, readings, cuts, context) ?: emptyList()
+        return out.filterNot { c -> c.word.all { it.code < 128 } }
+    }
+
     override fun guessLockedWords(
         lockedLetters: String,
         active: String,

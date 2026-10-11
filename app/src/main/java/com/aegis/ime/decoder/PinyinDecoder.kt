@@ -774,6 +774,50 @@ class PinyinDecoder(
         }
     }
 
+    fun decodeLockedCovered(input: String, readings: List<String>, cuts: Set<Int>, context: CharSequence = ""): List<Cand> {
+        if (readings.isEmpty() || input.any { it !in '2'..'9' }) return emptyList()
+        if (readings.any { it !in T9Pinyin.SYLLABLES }) return emptyList()
+        val interior = cuts.filterTo(HashSet()) { it in 1 until input.length }
+        val bounds = atomicBounds(input, interior)
+        var end = 0
+        for ((index, reading) in readings.withIndex()) {
+            val start = end
+            end += reading.length
+            if (bounds.getOrNull(index + 1) != end || T9Pinyin.toT9(reading) != input.substring(start, end)) return emptyList()
+        }
+        val rules = fuzzyRules
+        val locks = SyllableLocks(readings, rules)
+        return withFuzzyReadings(input, decodeAtomic(input, interior, parseContext(context), interior.isNotEmpty(), rules, locks))
+    }
+
+    private inner class SyllableLocks(private val readings: List<String>, private val rules: Set<String>) {
+        private val ref = aliasDict ?: dict
+        private val singles = arrayOfNulls<Set<String>>(readings.size)
+
+        private fun spellings(letters: String): List<String> =
+            if (rules.isEmpty()) listOf(letters) else listOf(letters) + Fuzzy.variants(letters, rules)
+
+        private fun singlesAt(index: Int): Set<String> = singles[index]
+            ?: spellings(readings[index]).flatMapTo(HashSet()) { singlesOf(ref, it) }.also { singles[index] = it }
+
+        fun admits(word: String, from: Int, to: Int): Boolean {
+            if (from >= readings.size) return true
+            if (to <= readings.size && to - from > 1 &&
+                spellings(readings.subList(from, to).joinToString("")).any { ref.containsExactWord(it, word) }
+            ) {
+                return true
+            }
+            if (word.codePointCount(0, word.length) != to - from) return false
+            var offset = 0
+            for (index in from until minOf(to, readings.size)) {
+                val cp = word.codePointAt(offset)
+                if (String(Character.toChars(cp)) !in singlesAt(index)) return false
+                offset += Character.charCount(cp)
+            }
+            return true
+        }
+    }
+
     private fun withFuzzyReadings(input: String, candidates: List<Cand>): List<Cand> {
         val rules = fuzzyRules
         if (rules.isEmpty()) return candidates
@@ -944,6 +988,7 @@ class PinyinDecoder(
         ctx: Ctx,
         staged: Boolean,
         rules: Set<String> = fuzzyRules,
+        locks: SyllableLocks? = null,
     ): List<Cand> {
         val ctxId = resolveCtxId(ctx.cp)
         val condMemo = CondMemo()
@@ -951,7 +996,7 @@ class PinyinDecoder(
         val nSyl = B.size - 1
 
         val singlesCache = HashMap<String, Set<String>>()
-        val sentences = byUsage(atomicSentences(input, B, interior, ctx, singlesCache, rules))
+        val sentences = byUsage(atomicSentences(input, B, interior, ctx, singlesCache, rules, locks))
         DecodeCancellation.checkpoint()
 
         val best = sentences.firstOrNull()?.text
@@ -969,6 +1014,7 @@ class PinyinDecoder(
             }
             for (wf in preferredExact(dict, input.substring(0, B[j]))) if (!isSingleChar(wf.word)) {
                 if (!admissibleUnderCuts(wf.word, 0, B[j], interior, input, singlesCache)) continue
+                if (locks != null && !locks.admits(wf.word, 0, j)) continue
                 if (leadFreq.put(wf.word, wf.freq.toDouble()) == null) leadCov[wf.word] = B[j]
             }
         }
@@ -978,6 +1024,7 @@ class PinyinDecoder(
             if (uw in leadFreq || uw.codePointCount(0, uw.length) < 2) continue
             if (uw !in handAdded && allHan(uw) && !readsAsInput(uw, input, spelledSingles)) continue
             if (!admissibleUnderCuts(uw, 0, input.length, interior, input, singlesCache)) continue
+            if (locks != null && !locks.admits(uw, 0, nSyl)) continue
             val f = userWordFreq(uw, input).toInt().coerceAtLeast(1)
             if (leadFreq.put(uw, f.toDouble()) == null) leadCov[uw] = input.length
         }
@@ -986,6 +1033,7 @@ class PinyinDecoder(
         for (j in 2..nSyl) {
             if (firstInitial in 0 until j) break
             for (wf in fuzzySpanWords(input, 0, B[j], false, interior, rules, fuzzySingles)) {
+                if (locks != null && !locks.admits(wf.word, 0, j)) continue
                 if (leadFreq.putIfAbsent(wf.word, wf.freq.toDouble()) != null) continue
                 leadCov[wf.word] = B[j]
                 fuzzyLead.add(wf.word)
@@ -996,7 +1044,9 @@ class PinyinDecoder(
 
         val sylCharFreq = Array(nSyl) { i ->
             val m = HashMap<String, Double>()
-            for ((w, f) in segmentSingleFreqs(input.substring(B[i], B[i + 1]))) m.putIfAbsent(w, f)
+            for ((w, f) in segmentSingleFreqs(input.substring(B[i], B[i + 1]))) {
+                if (locks == null || locks.admits(w, i, i + 1)) m.putIfAbsent(w, f)
+            }
             m
         }
         fun commonnessFreq(word: String, coveredSyls: Int, carried: Double): Double {
@@ -1044,7 +1094,9 @@ class PinyinDecoder(
             }
         }
         for (sentence in sentences) offerTail(sentence.text, input.length, nSyl, 1.0)
-        for ((w, _) in segmentSingleFreqs(input.substring(0, B[1]))) offerTail(w, B[1], 1, 0.0)
+        for ((w, _) in segmentSingleFreqs(input.substring(0, B[1]))) {
+            if (locks == null || locks.admits(w, 0, 1)) offerTail(w, B[1], 1, 0.0)
+        }
         DecodeCancellation.checkpoint()
         val tailRanked = tailCand.values.sortedWith(
             compareBy<Cand> { isSingleChar(it.word) }
@@ -1258,6 +1310,7 @@ class PinyinDecoder(
         ctx: Ctx,
         singlesCache: HashMap<String, Set<String>>,
         rules: Set<String>,
+        locks: SyllableLocks?,
     ): List<SentencePath> {
         val fuzzySingles = HashMap<String, Set<String>>()
         val model = lm
@@ -1282,18 +1335,21 @@ class PinyinDecoder(
                 else if (j == i + 1) raw.filter { isSingleChar(it.word) }
                 else raw.filterNot { isSingleChar(it.word) }
                     .filter { admissibleUnderCuts(it.word, B[i], B[j], interior, input, singlesCache) }
-                val edges = eligible.take(SENTENCE_EDGE_N).toMutableList()
+                val admitted = if (locks == null) eligible else eligible.filter { locks.admits(it.word, i, j) }
+                val edges = admitted.take(SENTENCE_EDGE_N).toMutableList()
                 val present = edges.mapTo(HashSet()) { it.word }
                 for ((word, freq) in learnedExactWordFreqs(seg)) {
                     if (!present.add(word)) continue
                     if (j == i + 1 && !isSingleChar(word)) continue
                     if (j > i + 1 && isSingleChar(word)) continue
                     if (j > i + 1 && !admissibleUnderCuts(word, B[i], B[j], interior, input, singlesCache)) continue
+                    if (locks != null && !locks.admits(word, i, j)) { present.remove(word); continue }
                     edges.add(BinaryDict.WordFreq(word, freq))
                 }
                 val exactEdges = edges.size
                 if (!initialSpan && exactEdges < SENTENCE_EDGE_N) {
                     for (wf in fuzzySpanWords(input, B[i], B[j], j == i + 1, interior, rules, fuzzySingles)) {
+                        if (locks != null && !locks.admits(wf.word, i, j)) continue
                         if (present.add(wf.word)) edges.add(wf)
                         if (edges.size >= SENTENCE_EDGE_N) break
                     }

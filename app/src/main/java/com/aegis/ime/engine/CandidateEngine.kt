@@ -29,6 +29,13 @@ interface CandidateEngine {
     fun candidatesForLockedReadingCovered(letters: String, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
         emptyList()
 
+    fun candidatesForLockedDigitsCovered(
+        digits: String,
+        readings: List<String>,
+        cuts: Set<Int> = emptySet(),
+        context: CharSequence = "",
+    ): List<Cand> = emptyList()
+
     fun guessLockedWords(
         lockedLetters: String,
         active: String,

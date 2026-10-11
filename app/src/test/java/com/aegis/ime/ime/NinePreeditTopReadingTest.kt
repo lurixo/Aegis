@@ -185,7 +185,8 @@ class NinePreeditTopReadingTest {
         val partial = controller()
         partial.type("9426")
         partial.lock("xi")
-        assertEquals("xi'" + T9Pinyin.preedit("26"), partial.preeditForTest())
+        assertEquals("西安", firstCandidate(partial)?.word)
+        assertEquals("xi'an", partial.preeditForTest())
     }
 
     @Test fun a_first_candidate_without_a_reading_falls_back_to_the_static_label() {
@@ -687,6 +688,21 @@ class NinePreeditTopReadingTest {
             assertEquals("存嗯化", firstCandidate(cut)?.word)
             assertEquals("cun'en'hua", cut.preeditForTest())
         }
+    }
+
+    @Test fun an_input_alias_keeps_its_spelling_after_a_locked_reading() {
+        val locked = controller(learnedAliasEngine())
+        locked.type("28636482")
+        locked.lock("cun")
+        assertEquals("存嗯化", firstCandidate(locked)?.word)
+        assertEquals("cun'en'hua", locked.preeditForTest())
+
+        val both = controller(learnedAliasEngine())
+        both.type("28636482")
+        both.lock("cun")
+        both.lock("en")
+        assertEquals("存嗯化", firstCandidate(both)?.word)
+        assertEquals("cun'en'hua", both.preeditForTest())
     }
 
     @Test fun the_alpha_label_shows_an_input_alias_and_its_stored_reading_as_typed() {

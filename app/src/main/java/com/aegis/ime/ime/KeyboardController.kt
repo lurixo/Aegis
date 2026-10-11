@@ -1668,14 +1668,15 @@ class KeyboardController(
         if (req.composingEmpty || req.mode != Mode.PINYIN || req.literalIndices.isNotEmpty()) return emptyList()
         val context = req.beforeCursor.takeLast(CTX_SCAN_LEN)
         return if (req.lockedNonEmpty) {
-            val c = req.engine.candidatesForLockedReadingCovered(req.full, req.readingCuts, context)
-                .map {
-                    Cand(
-                        it.word,
-                        req.bounds[it.coveredLen] ?: it.coveredLen.coerceAtMost(req.composingLen),
-                        it.correctedReading,
-                    )
-                }
+            val c = lockedNineCandidates(req, context)
+                ?: req.engine.candidatesForLockedReadingCovered(req.full, req.readingCuts, context)
+                    .map {
+                        Cand(
+                            it.word,
+                            req.bounds[it.coveredLen] ?: it.coveredLen.coerceAtMost(req.composingLen),
+                            it.correctedReading,
+                        )
+                    }
             if (c.any { it.coveredLen >= req.composingLen }) return c
             val guesses = req.engine.guessLockedWords(req.lockedLetters, req.active, req.isNine, req.lockCuts, context)
                 .map { Cand(it.word, req.composingLen, it.correctedReading) }
@@ -1695,6 +1696,14 @@ class KeyboardController(
             }
             c
         }
+    }
+
+    private fun lockedNineCandidates(req: DecodeRequest, context: CharSequence): List<Cand>? {
+        if (!req.isNine) return null
+        val locked = req.readingLocks.last().end
+        val cuts = req.readingLocks.mapTo(HashSet()) { it.end } + req.forcedCuts
+        val c = req.engine.candidatesForLockedDigitsCovered(req.raw, req.readingLocks.map { it.reading }, cuts, context)
+        return c.takeIf { list -> list.any { it.coveredLen > locked } }
     }
 
     private fun computeDrill(req: DecodeRequest): List<Cand> {
@@ -1844,7 +1853,8 @@ class KeyboardController(
     private fun nineActivePreedit(): String {
         val digits = activeInput()
         val cuts = activeCuts().toSet()
-        if (lockedReadings.isNotEmpty() || digits.isEmpty()) return T9Pinyin.preedit(digits, cuts)
+        val pinned = lockedReadings.isNotEmpty() && (literalIndices.isNotEmpty() || drillSyllable >= 0)
+        if (pinned || digits.isEmpty()) return T9Pinyin.preedit(digits, cuts)
         val settled = candidatesMatchInput() && drillSyllable < 0
         if (!settled) return T9Pinyin.carryPreedit(nineLabel, nineLabelDigits, digits, cuts)
         val top = candidates.firstOrNull()
@@ -1858,12 +1868,16 @@ class KeyboardController(
     }
 
     private fun topReadingPreedit(top: Cand?, digits: String, cuts: Set<Int>): String? {
-        if (top == null || top in directCommitCands || top.coveredLen !in 1..digits.length) return null
-        val covered = digits.substring(0, top.coveredLen)
-        val parts = engine.readingParts(top.word, covered, cuts.filterTo(HashSet()) { it < top.coveredLen })
+        if (top == null || top in directCommitCands) return null
+        val coveredLen = top.coveredLen - activeStart
+        val locked = lockedReadings.size
+        if (coveredLen !in 1..digits.length || top.word.codePointCount(0, top.word.length) <= locked) return null
+        val word = top.word.substring(top.word.offsetByCodePoints(0, locked))
+        val covered = digits.substring(0, coveredLen)
+        val parts = engine.readingParts(word, covered, cuts.filterTo(HashSet()) { it < coveredLen })
         if (T9Pinyin.toT9(parts.joinToString("")) != covered) return null
-        val rest = digits.substring(top.coveredLen)
-        val restCuts = cuts.mapNotNullTo(HashSet()) { cut -> (cut - top.coveredLen).takeIf { it > 0 } }
+        val rest = digits.substring(coveredLen)
+        val restCuts = cuts.mapNotNullTo(HashSet()) { cut -> (cut - coveredLen).takeIf { it > 0 } }
         val head = parts.joinToString("'")
         return when {
             rest.isNotEmpty() -> "$head'${T9Pinyin.preedit(rest, restCuts)}"
