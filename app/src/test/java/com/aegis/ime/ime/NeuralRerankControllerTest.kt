@@ -538,6 +538,347 @@ class NeuralRerankControllerTest {
 
     @Test fun input_the_model_never_ranks_is_not_warmed_on_9key() = inputTheModelNeverRanksIsNotWarmed(nine = true)
 
+    private fun outrunInput(nine: Boolean) = if (nine) "6442664" else "nihaoma"
+
+    private fun outrun(nine: Boolean): Outrun {
+        val engine = EveryInputEngine()
+        val scorer = Scorer()
+        val view = InputView(ctx)
+        val host = Host()
+        val (c, q, r) = setup(engine, host, view = view, reranker = { scoring(it, scorer) })
+        c.switchTextLayoutForTest(nine)
+        val input = outrunInput(nine)
+        type(c, input.take(2))
+        q.decode()
+        q.neural()
+        type(c, input.substring(2, 3))
+        q.decode()
+        assertEquals("the third key waits for the model", engine.words(input.take(2)), decoded(c))
+        assertTrue(view.candidatesPendingForTest())
+        return Outrun(c, q, r, engine, scorer, view, host, input)
+    }
+
+    private class Outrun(
+        val c: KeyboardController,
+        val q: Queues,
+        val r: NeuralReranker,
+        val engine: EveryInputEngine,
+        val scorer: Scorer,
+        val view: InputView,
+        val host: Host,
+        val input: String,
+    ) {
+        val lists = arrayListOf(shown())
+        fun key(keys: Int) = step { c.onKey(Key(input.substring(keys - 1, keys), output = input.substring(keys - 1, keys))) }
+        fun backspace() = step { c.onKey(Key("", action = KeyAction.BACKSPACE)) }
+        fun shift() = step { c.onKey(Key("", action = KeyAction.SHIFT)) }
+        fun space() = step { c.onKey(Key(" ", action = KeyAction.SPACE)) }
+        fun pick(index: Int) = step { c.onPickCandidate(index) }
+        fun decode() = drain(q.decodeWorker, q.decodeMain)
+        fun neural() = drain(q.neuralWorker, q.neuralMain)
+        fun score() = drain(q.neuralWorker)
+        fun deliver() = drain(q.neuralMain)
+        fun expire() = step { q.fireTimers() }
+        fun words(keys: Int) = engine.words(input.take(keys))
+        fun reranked(keys: Int) = engine.reranked(input.take(keys))
+        fun shown() = c.candidateWords().filter { it.last().isDigit() }
+        private fun drain(vararg queues: ArrayDeque<Runnable>) {
+            while (true) {
+                val next = queues.firstOrNull { it.isNotEmpty() } ?: return
+                step { next.removeFirst().run() }
+            }
+        }
+        private fun step(action: () -> Unit) {
+            action()
+            val now = shown()
+            if (lists.last() != now) lists.add(now)
+        }
+    }
+
+    private fun aKeyThatOutrunsTheModelShowsTheListItSuperseded(nine: Boolean) {
+        val t = outrun(nine)
+        t.key(4)
+        assertEquals("the fourth key shows the list of the third", t.words(3), t.shown())
+        assertTrue(t.view.candidatesPendingForTest())
+        t.decode()
+        assertEquals("the list of the fourth key waits for the model", t.words(3), t.shown())
+        assertTrue(t.view.candidatesPendingForTest())
+        t.key(5)
+        assertEquals(t.words(4), t.shown())
+        t.key(6)
+        t.decode()
+        assertEquals("a key whose decode never landed has no list to show", t.words(4), t.shown())
+        assertTrue(t.view.candidatesPendingForTest())
+        assertTrue("no model answer and no expired wait moved the list", t.scorer.contexts.isEmpty())
+        assertEquals(0, t.r.snapshot().timeouts)
+
+        t.neural()
+        assertEquals("the last key shows once, in the model order", t.reranked(6), t.shown())
+        assertFalse(t.view.candidatesPendingForTest())
+
+        t.key(7)
+        t.decode()
+        assertEquals("a key after an answered model waits as before", t.reranked(6), t.shown())
+        assertTrue(t.view.candidatesPendingForTest())
+        t.neural()
+        assertEquals(t.reranked(7), t.shown())
+        assertFalse(t.view.candidatesPendingForTest())
+
+        t.space()
+        assertEquals(listOf(t.reranked(7).first()), t.host.commits)
+        assertEquals(
+            "every list shows once and keeps its order",
+            listOf(t.words(2), t.words(3), t.words(4), t.reranked(6), t.reranked(7), emptyList()),
+            t.lists,
+        )
+        val snap = t.r.snapshot()
+        assertEquals(2, snap.runs)
+        assertEquals(2, snap.cancelled)
+        assertEquals(0, snap.timeouts)
+    }
+
+    @Test fun a_key_that_outruns_the_model_shows_the_list_it_superseded_on_26key() =
+        aKeyThatOutrunsTheModelShowsTheListItSuperseded(nine = false)
+
+    @Test fun a_key_that_outruns_the_model_shows_the_list_it_superseded_on_9key() =
+        aKeyThatOutrunsTheModelShowsTheListItSuperseded(nine = true)
+
+    private fun keysTheModelKeepsUpWithAreShownOnce(nine: Boolean) {
+        val t = outrun(nine)
+        t.neural()
+        assertEquals(t.reranked(3), t.shown())
+        for (keys in 4..t.input.length) {
+            t.key(keys)
+            t.decode()
+            assertEquals("$keys keys wait for the model", t.reranked(keys - 1), t.shown())
+            assertTrue("$keys keys", t.view.candidatesPendingForTest())
+            t.neural()
+            assertEquals("$keys keys", t.reranked(keys), t.shown())
+            assertFalse("$keys keys", t.view.candidatesPendingForTest())
+        }
+        t.space()
+        assertEquals(listOf(t.reranked(t.input.length).first()), t.host.commits)
+        assertEquals(listOf(t.words(2)) + (3..t.input.length).map { t.reranked(it) } + listOf(emptyList()), t.lists)
+        val snap = t.r.snapshot()
+        assertEquals(t.input.length - 2, snap.runs)
+        assertEquals(0, snap.cancelled)
+        assertEquals(0, snap.timeouts)
+    }
+
+    @Test fun keys_the_model_keeps_up_with_are_shown_once_on_26key() = keysTheModelKeepsUpWithAreShownOnce(nine = false)
+
+    @Test fun keys_the_model_keeps_up_with_are_shown_once_on_9key() = keysTheModelKeepsUpWithAreShownOnce(nine = true)
+
+    private fun repeatedBackspaceThatOutrunsTheModelShowsEachSupersededList(nine: Boolean) {
+        val t = outrun(nine)
+        for (keys in 4..t.input.length) t.key(keys)
+        t.decode()
+        t.neural()
+        val full = t.reranked(t.input.length)
+        assertEquals(full, t.shown())
+        t.backspace()
+        t.decode()
+        assertEquals("the first backspace waits for the model", full, t.shown())
+        assertTrue(t.view.candidatesPendingForTest())
+        for (keys in t.input.length - 2 downTo 2) {
+            t.backspace()
+            assertEquals("$keys keys", t.words(keys + 1), t.shown())
+            assertTrue("$keys keys", t.view.candidatesPendingForTest())
+            t.decode()
+            assertEquals("$keys keys", t.words(if (keys > 2) keys + 1 else keys), t.shown())
+            assertEquals("$keys keys", keys > 2, t.view.candidatesPendingForTest())
+        }
+        t.neural()
+        t.expire()
+        t.neural()
+        assertEquals(t.words(2), t.shown())
+        assertFalse(t.view.candidatesPendingForTest())
+        assertEquals(
+            listOf(t.words(2), t.words(3), full) + (t.input.length - 1 downTo 2).map { t.words(it) },
+            t.lists,
+        )
+        val snap = t.r.snapshot()
+        assertEquals(1, snap.runs)
+        assertEquals(t.input.length - 2, snap.cancelled)
+        assertEquals(0, snap.timeouts)
+    }
+
+    @Test fun repeated_backspace_that_outruns_the_model_shows_each_superseded_list_on_26key() =
+        repeatedBackspaceThatOutrunsTheModelShowsEachSupersededList(nine = false)
+
+    @Test fun repeated_backspace_that_outruns_the_model_shows_each_superseded_list_on_9key() =
+        repeatedBackspaceThatOutrunsTheModelShowsEachSupersededList(nine = true)
+
+    private fun aSupersededListIsNotReorderedByItsOwnModelChoice(nine: Boolean, scoredFirst: Boolean) {
+        val t = outrun(nine)
+        if (scoredFirst) {
+            t.score()
+            assertEquals(1, t.q.neuralMain.size)
+        }
+        t.key(4)
+        assertEquals(t.words(3), t.shown())
+        t.score()
+        t.expire()
+        t.deliver()
+        assertEquals("the model choice for superseded input does not move its list", t.words(3), t.shown())
+        t.decode()
+        assertEquals(t.words(3), t.shown())
+        assertTrue(t.view.candidatesPendingForTest())
+        t.neural()
+        assertEquals(t.reranked(4), t.shown())
+        assertFalse(t.view.candidatesPendingForTest())
+        assertEquals(listOf(t.words(2), t.words(3), t.reranked(4)), t.lists)
+        val snap = t.r.snapshot()
+        assertEquals(if (scoredFirst) 2 else 1, snap.runs)
+        assertEquals(if (scoredFirst) 0 else 1, snap.cancelled)
+        assertEquals(0, snap.timeouts)
+    }
+
+    @Test fun a_superseded_list_is_not_reordered_by_its_queued_run_on_26key() =
+        aSupersededListIsNotReorderedByItsOwnModelChoice(nine = false, scoredFirst = false)
+
+    @Test fun a_superseded_list_is_not_reordered_by_its_queued_run_on_9key() =
+        aSupersededListIsNotReorderedByItsOwnModelChoice(nine = true, scoredFirst = false)
+
+    @Test fun a_superseded_list_is_not_reordered_by_its_finished_run_on_26key() =
+        aSupersededListIsNotReorderedByItsOwnModelChoice(nine = false, scoredFirst = true)
+
+    @Test fun a_superseded_list_is_not_reordered_by_its_finished_run_on_9key() =
+        aSupersededListIsNotReorderedByItsOwnModelChoice(nine = true, scoredFirst = true)
+
+    private fun theListAfterASupersededOneKeepsTheDecoderOrderWhenTheModelMissesTheWait(nine: Boolean, space: Boolean) {
+        val t = outrun(nine)
+        t.key(4)
+        t.decode()
+        assertEquals(t.words(3), t.shown())
+        if (space) {
+            t.space()
+            assertEquals(listOf(t.words(4).first()), t.host.commits)
+        }
+        t.expire()
+        t.neural()
+        if (space) {
+            assertEquals(listOf(t.words(4).first()), t.host.commits)
+            assertEquals(listOf(t.words(2), t.words(3), emptyList()), t.lists)
+        } else {
+            assertEquals("a late model choice does not move the shown list", t.words(4), t.shown())
+            assertFalse(t.view.candidatesPendingForTest())
+            assertEquals(listOf(t.words(2), t.words(3), t.words(4)), t.lists)
+            t.space()
+            assertEquals(listOf(t.words(4).first()), t.host.commits)
+        }
+        assertEquals(1, t.r.snapshot().timeouts)
+    }
+
+    @Test fun the_list_after_a_superseded_one_keeps_the_decoder_order_when_the_model_misses_the_wait_on_26key() =
+        theListAfterASupersededOneKeepsTheDecoderOrderWhenTheModelMissesTheWait(nine = false, space = false)
+
+    @Test fun the_list_after_a_superseded_one_keeps_the_decoder_order_when_the_model_misses_the_wait_on_9key() =
+        theListAfterASupersededOneKeepsTheDecoderOrderWhenTheModelMissesTheWait(nine = true, space = false)
+
+    @Test fun space_after_a_superseded_list_falls_back_to_the_decoder_sentence_when_the_model_never_answers_on_26key() =
+        theListAfterASupersededOneKeepsTheDecoderOrderWhenTheModelMissesTheWait(nine = false, space = true)
+
+    @Test fun space_after_a_superseded_list_falls_back_to_the_decoder_sentence_when_the_model_never_answers_on_9key() =
+        theListAfterASupersededOneKeepsTheDecoderOrderWhenTheModelMissesTheWait(nine = true, space = true)
+
+    private fun spaceAfterASupersededListTakesTheFinishedModelChoice(nine: Boolean) {
+        val t = outrun(nine)
+        t.key(4)
+        t.decode()
+        assertEquals(t.words(3), t.shown())
+        t.score()
+        t.space()
+        assertEquals(listOf(t.reranked(4).first()), t.host.commits)
+        t.decode()
+        t.neural()
+        t.expire()
+        t.neural()
+        assertEquals(listOf(t.reranked(4).first()), t.host.commits)
+        assertEquals(listOf(t.words(2), t.words(3), emptyList()), t.lists)
+        assertEquals(0, t.r.snapshot().timeouts)
+    }
+
+    @Test fun space_after_a_superseded_list_takes_the_finished_model_choice_on_26key() =
+        spaceAfterASupersededListTakesTheFinishedModelChoice(nine = false)
+
+    @Test fun space_after_a_superseded_list_takes_the_finished_model_choice_on_9key() =
+        spaceAfterASupersededListTakesTheFinishedModelChoice(nine = true)
+
+    private fun aSupersededListIsNotPickedFrom(nine: Boolean) {
+        val t = outrun(nine)
+        t.key(4)
+        assertEquals(t.words(3), t.shown())
+        t.pick(0)
+        t.decode()
+        t.pick(0)
+        assertTrue("a list for superseded input commits nothing", t.host.commits.isEmpty())
+        assertEquals("", t.c.composingPrefix())
+        assertEquals(t.input.take(4), t.c.rawComposingForTest())
+        assertEquals(t.words(3), t.shown())
+        t.neural()
+        assertEquals(t.reranked(4), t.shown())
+        t.pick(0)
+        assertEquals(listOf(t.reranked(4).first()), t.host.commits)
+        assertEquals(listOf(t.words(2), t.words(3), t.reranked(4), emptyList()), t.lists)
+    }
+
+    @Test fun a_superseded_list_is_not_picked_from_on_26key() = aSupersededListIsNotPickedFrom(nine = false)
+
+    @Test fun a_superseded_list_is_not_picked_from_on_9key() = aSupersededListIsNotPickedFrom(nine = true)
+
+    private fun aRefreshThatLeavesTheInputUnchangedKeepsWaiting(nine: Boolean) {
+        val t = outrun(nine)
+        t.shift()
+        assertEquals(t.words(2), t.shown())
+        assertTrue(t.view.candidatesPendingForTest())
+        t.decode()
+        assertEquals(t.words(2), t.shown())
+        t.neural()
+        assertEquals(t.reranked(3), t.shown())
+        assertFalse(t.view.candidatesPendingForTest())
+        assertEquals(listOf(t.words(2), t.reranked(3)), t.lists)
+    }
+
+    @Test fun a_refresh_that_leaves_the_input_unchanged_keeps_waiting_on_26key() =
+        aRefreshThatLeavesTheInputUnchangedKeepsWaiting(nine = false)
+
+    @Test fun a_refresh_that_leaves_the_input_unchanged_keeps_waiting_on_9key() =
+        aRefreshThatLeavesTheInputUnchangedKeepsWaiting(nine = true)
+
+    private fun firstKeyTimeStopsWhenASupersededListShows(nine: Boolean) {
+        var now = 0L
+        val engine = EveryInputEngine()
+        val (c, q, r) = setup(engine, reranker = {
+            NeuralReranker(spec, { Scorer() }, Executor { r -> it.neuralWorker.add(r) }, Executor { r -> it.neuralMain.add(r) }, it.schedule) { now }
+        })
+        c.switchTextLayoutForTest(nine)
+        val input = outrunInput(nine)
+
+        now = 100_000_000L
+        type(c, input.take(3))
+        now = 120_000_000L
+        q.decode()
+        assertEquals("a list held for the model is not on screen yet", 0, r.snapshot().firstKeys)
+        now = 130_000_000L
+        type(c, input.substring(3, 4))
+        assertEquals(engine.words(input.take(3)), decoded(c))
+        assertEquals(1, r.snapshot().firstKeys)
+        assertEquals(30L, r.snapshot().lastFirstKeyMillis)
+        now = 190_000_000L
+        q.decode()
+        q.neural()
+        assertEquals(engine.reranked(input.take(4)), decoded(c))
+        assertEquals("a composition is measured once", 1, r.snapshot().firstKeys)
+        assertEquals(30L, r.snapshot().maxFirstKeyMillis)
+    }
+
+    @Test fun first_key_time_stops_when_a_superseded_list_shows_on_26key() =
+        firstKeyTimeStopsWhenASupersededListShows(nine = false)
+
+    @Test fun first_key_time_stops_when_a_superseded_list_shows_on_9key() =
+        firstKeyTimeStopsWhenASupersededListShows(nine = true)
+
     private fun firstKeyTimeRunsUntilTheCandidatesOfTheCompositionShow(nine: Boolean) {
         var now = 0L
         val engine = EveryInputEngine()

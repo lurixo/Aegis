@@ -119,6 +119,7 @@ class KeyboardController(
     private var settlingDecode = false
     private var settlingRerank = false
     private var heldDecode: DecodeResult? = null
+    private var heldInput = ""
 
     private val committedPrefix = StringBuilder()
 
@@ -1249,7 +1250,13 @@ class KeyboardController(
 
     private fun refreshCandidates() {
         neural?.invalidate()
+        val superseded = heldDecode
         heldDecode = null
+        if (superseded != null && composing.isNotEmpty() && heldInput != composing.toString()) {
+            applyDecodeResult(superseded)
+            candidatesSuperseded = true
+            neural?.firstKeyShown()
+        }
         val req = buildDecodeRequest()
         val lane = decodeLane
         if (lane == null) {
@@ -1297,6 +1304,7 @@ class KeyboardController(
         val paths = result.sentences ?: return false
         if (paths.size < RERANK_MIN_PATHS || result.candidates.isEmpty()) return false
         heldDecode = result
+        heldInput = req.raw
         reranker.submit(
             context = rerankContext(req),
             nine = req.isNine,
