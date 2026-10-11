@@ -805,27 +805,123 @@ class NeuralRerankControllerTest {
     @Test fun space_after_a_superseded_list_takes_the_finished_model_choice_on_9key() =
         spaceAfterASupersededListTakesTheFinishedModelChoice(nine = true)
 
-    private fun aSupersededListIsNotPickedFrom(nine: Boolean) {
+    private fun Outrun.state() = "${host.commits}|${c.composingPrefix()}|${c.rawComposingForTest()}"
+
+    private fun aSupersededListPicksTheStartOfTheInput(nine: Boolean, held: Boolean) {
         val t = outrun(nine)
         t.key(4)
+        if (held) t.decode()
         assertEquals(t.words(3), t.shown())
+        assertTrue(t.view.candidatesPendingForTest())
         t.pick(0)
+        val rest = t.input.substring(3, 4)
+        assertEquals("the pick takes the keys its list was decoded from", "[]|${t.words(3).first()}|$rest", t.state())
         t.decode()
-        t.pick(0)
-        assertTrue("a list for superseded input commits nothing", t.host.commits.isEmpty())
-        assertEquals("", t.c.composingPrefix())
-        assertEquals(t.input.take(4), t.c.rawComposingForTest())
-        assertEquals(t.words(3), t.shown())
         t.neural()
-        assertEquals(t.reranked(4), t.shown())
+        assertEquals(t.engine.words(rest), t.shown())
         t.pick(0)
-        assertEquals(listOf(t.reranked(4).first()), t.host.commits)
-        assertEquals(listOf(t.words(2), t.words(3), t.reranked(4), emptyList()), t.lists)
+        assertEquals(listOf(t.words(3).first() + t.engine.words(rest).first()), t.host.commits)
     }
 
-    @Test fun a_superseded_list_is_not_picked_from_on_26key() = aSupersededListIsNotPickedFrom(nine = false)
+    @Test fun a_superseded_list_picks_the_start_of_the_input_while_the_next_key_decodes_on_26key() =
+        aSupersededListPicksTheStartOfTheInput(nine = false, held = false)
 
-    @Test fun a_superseded_list_is_not_picked_from_on_9key() = aSupersededListIsNotPickedFrom(nine = true)
+    @Test fun a_superseded_list_picks_the_start_of_the_input_while_the_next_key_decodes_on_9key() =
+        aSupersededListPicksTheStartOfTheInput(nine = true, held = false)
+
+    @Test fun a_superseded_list_picks_the_start_of_the_input_while_the_next_key_waits_for_the_model_on_26key() =
+        aSupersededListPicksTheStartOfTheInput(nine = false, held = true)
+
+    @Test fun a_superseded_list_picks_the_start_of_the_input_while_the_next_key_waits_for_the_model_on_9key() =
+        aSupersededListPicksTheStartOfTheInput(nine = true, held = true)
+
+    private fun aSupersededListForLongerInputIsNotPickedFrom(nine: Boolean) {
+        val t = outrun(nine)
+        t.backspace()
+        assertEquals(t.words(3), t.shown())
+        t.pick(0)
+        assertEquals("a list for input that was deleted commits nothing", "[]||${t.input.take(2)}", t.state())
+        assertEquals(t.words(3), t.shown())
+        t.decode()
+        assertEquals(t.words(2), t.shown())
+        t.pick(0)
+        assertEquals(listOf(t.words(2).first()), t.host.commits)
+        assertEquals(listOf(t.words(2), t.words(3), t.words(2), emptyList()), t.lists)
+    }
+
+    @Test fun a_superseded_list_for_longer_input_is_not_picked_from_on_26key() =
+        aSupersededListForLongerInputIsNotPickedFrom(nine = false)
+
+    @Test fun a_superseded_list_for_longer_input_is_not_picked_from_on_9key() =
+        aSupersededListForLongerInputIsNotPickedFrom(nine = true)
+
+    private fun aListPicksTheStartOfTheInputWhileTheNextKeyWaitsForTheModel(nine: Boolean) {
+        val t = outrun(nine)
+        t.neural()
+        assertEquals(t.reranked(3), t.shown())
+        t.key(4)
+        t.decode()
+        assertTrue(t.view.candidatesPendingForTest())
+        assertEquals(t.reranked(3), t.shown())
+        t.pick(0)
+        val rest = t.input.substring(3, 4)
+        assertEquals("the pick takes the keys its list was decoded from", "[]|${t.reranked(3).first()}|$rest", t.state())
+        t.decode()
+        t.neural()
+        assertEquals(t.engine.words(rest), t.shown())
+    }
+
+    @Test fun a_list_picks_the_start_of_the_input_while_the_next_key_waits_for_the_model_on_26key() =
+        aListPicksTheStartOfTheInputWhileTheNextKeyWaitsForTheModel(nine = false)
+
+    @Test fun a_list_picks_the_start_of_the_input_while_the_next_key_waits_for_the_model_on_9key() =
+        aListPicksTheStartOfTheInputWhileTheNextKeyWaitsForTheModel(nine = true)
+
+    private fun aListIsNotPickedFromWhileABackspaceWaitsForTheModel(nine: Boolean) {
+        val t = outrun(nine)
+        t.neural()
+        t.key(4)
+        t.decode()
+        t.neural()
+        assertEquals(t.reranked(4), t.shown())
+        t.backspace()
+        t.pick(0)
+        t.decode()
+        assertTrue(t.view.candidatesPendingForTest())
+        assertEquals(t.reranked(4), t.shown())
+        t.pick(0)
+        assertEquals("a list for input that was deleted commits nothing", "[]||${t.input.take(3)}", t.state())
+        assertEquals(t.reranked(4), t.shown())
+        t.neural()
+        assertEquals(t.reranked(3), t.shown())
+        t.pick(0)
+        assertEquals(listOf(t.reranked(3).first()), t.host.commits)
+        assertEquals(listOf(t.words(2), t.reranked(3), t.reranked(4), t.reranked(3), emptyList()), t.lists)
+    }
+
+    @Test fun a_list_is_not_picked_from_while_a_backspace_waits_for_the_model_on_26key() =
+        aListIsNotPickedFromWhileABackspaceWaitsForTheModel(nine = false)
+
+    @Test fun a_list_is_not_picked_from_while_a_backspace_waits_for_the_model_on_9key() =
+        aListIsNotPickedFromWhileABackspaceWaitsForTheModel(nine = true)
+
+    private fun aListIsPickedFromWhileUnchangedInputWaitsForTheModelAgain(nine: Boolean) {
+        val t = outrun(nine)
+        t.neural()
+        assertEquals(t.reranked(3), t.shown())
+        t.shift()
+        t.decode()
+        assertTrue(t.view.candidatesPendingForTest())
+        assertEquals(t.reranked(3), t.shown())
+        t.pick(0)
+        assertEquals("the list on screen is still for the whole input", "[${t.reranked(3).first()}]||", t.state())
+    }
+
+    @Test fun a_list_is_picked_from_while_unchanged_input_waits_for_the_model_again_on_26key() =
+        aListIsPickedFromWhileUnchangedInputWaitsForTheModelAgain(nine = false)
+
+    @Test fun a_list_is_picked_from_while_unchanged_input_waits_for_the_model_again_on_9key() =
+        aListIsPickedFromWhileUnchangedInputWaitsForTheModelAgain(nine = true)
 
     private fun aRefreshThatLeavesTheInputUnchangedKeepsWaiting(nine: Boolean) {
         val t = outrun(nine)

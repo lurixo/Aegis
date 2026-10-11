@@ -157,7 +157,8 @@ class KeyboardController(
     private var nineEditLetters: String? = null
     private var nineChainAt = -1
 
-    private var candidatesSuperseded = false
+    private var shownRequest: DecodeRequest? = null
+    private var latestRequest: DecodeRequest? = null
 
     private val drillChoices = HashMap<Int, String>()
 
@@ -761,12 +762,11 @@ class KeyboardController(
     }
 
     fun onPickCandidate(index: Int) {
-        if (candidatesSuperseded) return
+        if (!candidatesFitInput()) return
         if (index !in candidates.indices) return
         if (drillSyllable >= 0) {
             pickDrilledHomophone(candidates[index].word)
             refreshCandidates()
-            if (decodeLane?.pending == true) candidatesSuperseded = true
             render()
             return
         }
@@ -820,6 +820,12 @@ class KeyboardController(
         }
         refreshCandidates()
         render()
+    }
+
+    private fun candidatesFitInput(): Boolean {
+        val shown = shownRequest ?: return false
+        val latest = latestRequest ?: return false
+        return shown.extendedBy(latest)
     }
 
     private fun mode(): Mode = when {
@@ -1254,10 +1260,10 @@ class KeyboardController(
         heldDecode = null
         if (superseded != null && composing.isNotEmpty() && heldInput != composing.toString()) {
             applyDecodeResult(superseded)
-            candidatesSuperseded = true
             neural?.firstKeyShown()
         }
         val req = buildDecodeRequest()
+        latestRequest = req
         val lane = decodeLane
         if (lane == null) {
             applyDecodeResult(computeDecode(req))
@@ -1357,6 +1363,7 @@ class KeyboardController(
         val beforeCursor: String,
         val composingEmpty: Boolean,
         val committedPrefixEmpty: Boolean,
+        val committedPrefix: String,
         val mode: Mode,
         val drillSyllable: Int,
         val raw: String,
@@ -1383,6 +1390,13 @@ class KeyboardController(
     ) {
         val idle: Boolean
             get() = emailContext == null && composingEmpty && committedPrefixEmpty && englishTyped.isEmpty()
+
+        fun extendedBy(next: DecodeRequest): Boolean =
+            mode == next.mode && isNine == next.isNine && drillSyllable == next.drillSyllable &&
+                committedPrefix == next.committedPrefix && readingLocks == next.readingLocks &&
+                next.raw.startsWith(raw) && next.englishTyped.startsWith(englishTyped) &&
+                literalIndices == next.literalIndices.filterTo(HashSet()) { it < composingLen } &&
+                forcedCuts == next.forcedCuts.filterTo(HashSet()) { it <= composingLen }
     }
 
     private class DecodeResult(
@@ -1398,6 +1412,7 @@ class KeyboardController(
         val emailCands: Set<Cand> = emptySet(),
         val emailContext: String? = null,
         val sentences: List<Pair<String, Double>>? = null,
+        val request: DecodeRequest? = null,
     )
 
     private fun emptyDecodeResult(): DecodeResult =
@@ -1430,6 +1445,7 @@ class KeyboardController(
             beforeCursor = if (readsContext) cursorContext() else "",
             composingEmpty = composing.isEmpty(),
             committedPrefixEmpty = committedPrefix.isEmpty(),
+            committedPrefix = committedPrefix.toString(),
             mode = mode(),
             drillSyllable = drillSyllable,
             raw = composing.toString(),
@@ -1460,7 +1476,7 @@ class KeyboardController(
         beforeCursor ?: host.textBeforeCursor(CONTEXT_SCAN_LEN + 1).toString().also { beforeCursor = it }
 
     private fun applyDecodeResult(r: DecodeResult) {
-        candidatesSuperseded = false
+        shownRequest = r.request
         candidates = r.candidates
         directCommitCands = r.directCommitCands
         compositeCands = r.compositeCands
@@ -1532,7 +1548,7 @@ class KeyboardController(
             }
             else -> base
         }
-        DecodeResult(out, directCommit, composite, literal, prediction, calcC, calcE, calcR, english, email, req.emailContext, sentences)
+        DecodeResult(out, directCommit, composite, literal, prediction, calcC, calcE, calcR, english, email, req.emailContext, sentences, req)
     }
 
     private class MixedCandidates(
@@ -1723,7 +1739,6 @@ class KeyboardController(
         deferredLearnEvents.clear(); deferredLearnEvents.addAll(snap.deferredLearnEvents)
         lastWord = snap.lastWord
         leavePreeditEditing()
-        if (decodeLane != null) candidatesSuperseded = true
         return true
     }
 
