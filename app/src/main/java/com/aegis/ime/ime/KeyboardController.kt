@@ -68,29 +68,42 @@ class KeyboardController(
 
     private var beforeCursor: String? = null
 
+    private val ownTail = StringBuilder()
+
     private val host: ImeHost = object : ImeHost by editor {
         override fun commitText(text: CharSequence) {
             beforeCursor = null
+            if (text.isEmpty()) {
+                ownTail.setLength(0)
+            } else {
+                ownTail.append(text)
+                if (ownTail.length > CALC_SCAN_LEN) ownTail.delete(0, ownTail.length - CALC_SCAN_LEN)
+                if (Character.isLowSurrogate(ownTail[0])) ownTail.deleteCharAt(0)
+            }
             editor.commitText(text)
         }
 
         override fun commitSymbol(symbol: CharSequence) {
             beforeCursor = null
+            ownTail.setLength(0)
             editor.commitSymbol(symbol)
         }
 
         override fun deleteBackward() {
             beforeCursor = null
+            ownTail.setLength(0)
             editor.deleteBackward()
         }
 
         override fun deleteSelection() {
             beforeCursor = null
+            ownTail.setLength(0)
             editor.deleteSelection()
         }
 
         override fun performEnter() {
             beforeCursor = null
+            ownTail.setLength(0)
             editor.performEnter()
         }
     }
@@ -111,6 +124,10 @@ class KeyboardController(
     private val literalIndices = sortedSetOf<Int>()
     private var candidates: List<Cand> = emptyList()
     private var lastWord: String? = null
+        set(value) {
+            field = value
+            if (value == null && userLearning?.observeBreak() == true) onLearned()
+        }
 
     private var engineSupportsChinese: Boolean = engine.supportsChinese
 
@@ -311,6 +328,7 @@ class KeyboardController(
 
     fun onEditorContextChanged() {
         beforeCursor = null
+        endRunIfEditedOutside()
         if (!emailAssociationsEnabled || hasComposingToClear()) return
         val context = currentEmailContext()
         if (context == emailContext) return
@@ -320,6 +338,13 @@ class KeyboardController(
 
     fun onInputTargetChanged() {
         beforeCursor = null
+        endRunIfEditedOutside()
+    }
+
+    private fun endRunIfEditedOutside() {
+        if (ownTail.isEmpty() || cursorContext().endsWith(ownTail)) return
+        ownTail.setLength(0)
+        if (userLearning?.observeBreak() == true) onLearned()
     }
 
     fun onUserLexiconChanged() {
@@ -344,6 +369,7 @@ class KeyboardController(
         heldDecode = null
         drainLearning()
         beforeCursor = null
+        ownTail.setLength(0)
         composing.setLength(0)
         literalIndices.clear()
         candidates = emptyList()

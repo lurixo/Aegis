@@ -111,12 +111,14 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     }
 
     @Synchronized
-    fun observeBreak() {
-        if (!enabled) return
-        if (closeChain(clock())) {
+    fun observeBreak(): Boolean {
+        if (!enabled) return false
+        val changed = closeChain(clock())
+        if (changed) {
             dirty = true
             version++
         }
+        return changed
     }
 
     @Synchronized
@@ -329,9 +331,7 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
     private fun saveImage(file: File): SaveImage {
         if (unreadableSource == file.absolutePath) throw IOException("learning store could not be read")
         val now = clock()
-        var mutated = closeChain(now)
-        if (sweep(now)) mutated = true
-        if (mutated) version++
+        if (sweep(now)) version++
         val formed = ArrayList<Triple<String, String, Pair<Double, Long>>>(formedPairs)
         for ((word, m) in formedByWord) {
             for ((reading, u) in m) formed.add(Triple(word, reading, u.count to u.lastSeen))

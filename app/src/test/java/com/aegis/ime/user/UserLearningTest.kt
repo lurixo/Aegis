@@ -603,16 +603,42 @@ class UserLearningTest {
     }
 
     @Test
-    fun saveClosesOpenChainAndPromotes() {
-        repeat(2) { typeRun(store, "张" to "zhang", "伟" to "wei") }
-        store.observeCommit(null, "张", "zhang", now)
-        store.observeCommit("张", "伟", "wei", now)
-        val f = tempFile("userlearn-close")
+    fun saveLeavesAnOpenRunToGrowIntoTheWholeWord() {
+        val name = arrayOf("张" to "zhang", "伟" to "wei", "明" to "ming")
+        val f = tempFile("userlearn-open")
+        repeat(3) {
+            var prev: String? = null
+            for ((word, reading) in name) {
+                store.observeCommit(prev, word, reading, now)
+                prev = word
+                store.save(f)
+            }
+            assertTrue("nothing forms while the run is open", store.formedEntries().isEmpty())
+            assertEquals(it == 2, store.observeBreak())
+        }
+        assertEquals(listOf(UserLearning.Formed("张伟明", "zhangweiming")), store.formedEntries())
         store.save(f)
-        assertEquals(listOf("张伟"), store.formedWordsFor("zhangwei"))
         val b = UserLearning { now }
         b.load(f)
-        assertEquals(listOf("张伟"), b.formedWordsFor("zhangwei"))
+        assertEquals(listOf(UserLearning.Formed("张伟明", "zhangweiming")), b.formedEntries())
+    }
+
+    @Test
+    fun runLeftOpenAtASaveStillFormsAfterAReload() {
+        val name = arrayOf("张" to "zhang", "伟" to "wei", "明" to "ming")
+        repeat(2) { typeRun(store, *name) }
+        var prev: String? = null
+        for ((word, reading) in name) {
+            store.observeCommit(prev, word, reading, now)
+            prev = word
+        }
+        val f = tempFile("userlearn-ripe")
+        store.save(f)
+        val b = UserLearning { now }
+        b.load(f)
+        assertTrue(b.formedEntries().isEmpty())
+        typeRun(b, *name)
+        assertEquals(listOf(UserLearning.Formed("张伟明", "zhangweiming")), b.formedEntries())
     }
 
     @Test
