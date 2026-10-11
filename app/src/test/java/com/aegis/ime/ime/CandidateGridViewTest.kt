@@ -22,10 +22,11 @@ import android.graphics.RectF
 import android.graphics.drawable.ColorDrawable
 import android.graphics.drawable.Drawable
 import android.os.Looper
-import android.text.TextUtils
+import android.util.TypedValue
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
+import android.widget.HorizontalScrollView
 import android.widget.TextView
 import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
@@ -59,6 +60,18 @@ class CandidateGridViewTest {
     private fun sideWidth() = (KeyboardView.nineColumnBoundary((360 * density).toInt(), density) - inset()).roundToInt()
     private fun actionWidth() = minOf(sideWidth(), dp(Layouts.CANDIDATE_ACTION_WIDTH_DP))
     private fun tableWidth() = (360 * density).toInt() - 2 * inset() - sideWidth() - actionWidth()
+
+    private fun CandidateGridView.chipTextSizeSp(index: Int): Float {
+        var first = 0
+        rowTextsForTest().forEachIndexed { row, texts ->
+            if (index < first + texts.size) {
+                val chip = candidateRowViewForTest(row).getChildAt(index - first) as TextView
+                return chip.textSize / TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, 1f, resources.displayMetrics)
+            }
+            first += texts.size
+        }
+        throw AssertionError("no candidate at $index")
+    }
 
     private fun measured(v: CandidateGridView = CandidateGridView(ctx)): CandidateGridView = v.apply {
         measure(
@@ -392,7 +405,7 @@ class CandidateGridViewTest {
             listOf(2, 1, 1, 3, 1),
             (0..4).map { v.chipSpanForTest(it) },
         )
-        for (i in 0..4) assertEquals("merging keeps candidate $i at base size", 18f, v.chipTextSizeSpForTest(i), 0.01f)
+        for (i in 0..4) assertEquals("merging keeps candidate $i at base size", 18f, v.chipTextSizeSp(i), 0.01f)
         val tableW = tableWidth()
         assertEquals("a merged row still spans the table exactly", tableW, (0..2).sumOf { v.chipCellWidthForTest(it) })
     }
@@ -412,7 +425,7 @@ class CandidateGridViewTest {
             listOf(2, 2, 4),
             (0..2).map { v.chipSpanForTest(it) },
         )
-        for (i in 0..2) assertEquals(18f, v.chipTextSizeSpForTest(i), 0.01f)
+        for (i in 0..2) assertEquals(18f, v.chipTextSizeSp(i), 0.01f)
     }
 
     @Test fun engine_order_is_preserved_and_picks_stay_global_across_rows() {
@@ -668,7 +681,7 @@ class CandidateGridViewTest {
 
         assertEquals(listOf(4, 4, 4, 2), v.rowColumnCountsForTest())
         for (i in 4..13) {
-            assertEquals(v.chipTextSizeSpForTest(0), v.chipTextSizeSpForTest(i), 0.01f)
+            assertEquals(v.chipTextSizeSp(0), v.chipTextSizeSp(i), 0.01f)
         }
     }
 
@@ -691,14 +704,14 @@ class CandidateGridViewTest {
         v.setCandidates(listOf("一", "二二", "三三三"))
         assertEquals(listOf(listOf("一", "二二", "三三三")), v.rowTextsForTest())
         assertEquals("only the three-grapheme candidate needs a second track", listOf(1, 1, 2), (0..2).map { v.chipSpanForTest(it) })
-        for (i in 0..2) assertEquals("cell $i keeps base size, never shrunk", 18f, v.chipTextSizeSpForTest(i), 0.01f)
+        for (i in 0..2) assertEquals("cell $i keeps base size, never shrunk", 18f, v.chipTextSizeSp(i), 0.01f)
     }
 
     @Test fun an_under_filled_row_keeps_the_base_size_and_still_fills_the_width() {
         val v = measured()
         v.setCandidates(listOf("优", "沃", "卧", "奏", "窝"))
         assertEquals("four single-grapheme candidates fill a row and the fifth stands alone", listOf(4, 1), v.rowColumnCountsForTest())
-        for (i in 0..4) assertEquals("under-filled candidate $i stays at base 18sp, never enlarged", 18f, v.chipTextSizeSpForTest(i), 0.01f)
+        for (i in 0..4) assertEquals("under-filled candidate $i stays at base 18sp, never enlarged", 18f, v.chipTextSizeSp(i), 0.01f)
         val tableW = tableWidth()
         assertEquals("the sparse row still spreads edge to edge with no trailing empty cell", tableW, (0..3).sumOf { v.chipCellWidthForTest(it) })
     }
@@ -708,15 +721,34 @@ class CandidateGridViewTest {
         v.setCandidates(listOf("你让我说什么说", "你"))
         assertEquals(listOf(listOf("你让我说什么说", "你")), v.rowTextsForTest())
         assertEquals("the long candidate merges three tracks", listOf(3, 1), (0..1).map { v.chipSpanForTest(it) })
-        assertEquals("merging leaves it at base size", 18f, v.chipTextSizeSpForTest(0), 0.01f)
-        assertEquals("its row-mate keeps base size too", 18f, v.chipTextSizeSpForTest(1), 0.01f)
+        assertEquals("merging leaves it at base size", 18f, v.chipTextSizeSp(0), 0.01f)
+        assertEquals("its row-mate keeps base size too", 18f, v.chipTextSizeSp(1), 0.01f)
     }
 
-    @Test fun overlong_candidates_shrink_to_the_floor_and_ellipsize() {
-        val v = measured()
-        v.setCandidates(listOf("超".repeat(80)))
-        assertEquals(10f, v.chipTextSizeSpForTest(0), 0.01f)
-        assertEquals(TextUtils.TruncateAt.END, v.chipEllipsizeForTest(0))
+    @Test fun an_overlong_candidate_keeps_the_base_size_and_scrolls_in_a_row_of_its_own() {
+        val overlong = "超".repeat(80)
+        val v = measured(CandidateGridView(ctx).apply { setCandidates(listOf("一", overlong, "二")) })
+
+        assertEquals(listOf(listOf("一"), listOf(overlong), listOf("二")), v.rowTextsForTest())
+        assertEquals(CandidateGridView.COLUMNS, v.chipSpanForTest(1))
+        val row = v.candidateRowViewForTest(1) as HorizontalScrollView
+        val chip = row.getChildAt(0) as TextView
+        assertEquals("the overlong candidate is not shrunk", 18f, v.chipTextSizeSp(1), 0.01f)
+        assertNull("the overlong candidate is not ellipsized", chip.ellipsize)
+        assertEquals("its text stays on one line", 1, chip.layout.lineCount)
+        assertEquals(0, chip.layout.getEllipsisCount(0))
+        assertEquals("the row keeps the table width", tableWidth(), row.width)
+        assertEquals("the row keeps the common row height", v.candidateRowHeightForTest(), row.height)
+        assertEquals(
+            "the cell is as wide as its whole text",
+            chip.paint.measureText(overlong) + chip.paddingLeft + chip.paddingRight,
+            chip.width.toFloat(),
+            1f,
+        )
+        assertEquals("the row opens on the start of the candidate", 0, row.scrollX)
+        assertTrue("the rest of the candidate is reachable by scrolling the row", row.canScrollHorizontally(1))
+        assertEquals("candidates that fit keep the grid row", 18f, v.chipTextSizeSp(0), 0.01f)
+        assertFalse(v.candidateRowViewForTest(0) is HorizontalScrollView)
     }
 
     @Test fun the_fourth_action_toggles_between_all_candidates_and_singles_only() {
