@@ -17,9 +17,13 @@ package com.aegis.ime.ime
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Paint
+import android.os.Looper
+import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -27,7 +31,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
+import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
+import java.time.Duration
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -152,5 +158,62 @@ class CandidateBarCompletenessTest {
             checked++
         }
         assertTrue("the end of the strip shows several candidates", checked >= 2)
+    }
+
+    @Test fun a_candidate_many_strips_wide_is_laid_out_whole_and_scrolls_to_its_end() {
+        val long = "很长的候选".repeat(120) + "abc"
+        val items = listOf("你好", long, "末")
+        val v = bar(items)
+        var picked = -1
+        v.onPick = { picked = it }
+        val visibleRight = v.expandControlBoundsForTest().left
+        val padding = 14f * density
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, ImeType.candidate, ctx.resources.displayMetrics)
+        }
+
+        val (firstCenter, y) = v.centerOfCandidateForTest(0)!!
+        val firstWidth = firstCenter * 2f
+        val longWidth = (v.centerOfCandidateForTest(1)!!.first - firstWidth) * 2f
+        val lastWidth = paint.measureText("末") + padding * 2f
+        assertEquals("the cell spans the whole candidate", paint.measureText(long) + padding * 2f, longWidth, 0.5f)
+        assertTrue("the candidate is wider than the strip lays out ahead", longWidth > visibleRight * 8f)
+        v.tapAt(firstWidth + padding, y)
+        assertEquals("the start of the long candidate picks it", 1, picked)
+
+        v.dragToEnd()
+        assertEquals(
+            "the strip scrolls by everything that did not fit",
+            firstWidth + longWidth + lastWidth - visibleRight,
+            v.maxScrollForTest(),
+            1f,
+        )
+        assertEquals(v.maxScrollForTest(), v.scrollXForTest(), 0.01f)
+        val longRight = firstWidth + longWidth - v.scrollXForTest()
+        assertTrue("the end of the long candidate is on screen: $longRight", longRight > 0f && longRight < visibleRight)
+        assertEquals("the last candidate follows it", longRight + lastWidth / 2f, v.centerOfCandidateForTest(2)!!.first, 1f)
+
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(600))
+        val shot = Bitmap.createBitmap(v.width, v.height, Bitmap.Config.ARGB_8888)
+        v.draw(Canvas(shot))
+        fun ink(from: Float, to: Float): Int {
+            var count = 0
+            for (x in from.toInt() until to.toInt()) {
+                for (py in 0 until shot.height) if (shot.getPixel(x, py) != ImePalette.STATIC_LIGHT.keyboardBg) count++
+            }
+            return count
+        }
+        val textRight = longRight - padding
+        assertTrue(
+            "the last characters are painted at the end of the cell",
+            ink(textRight - paint.measureText("abc"), textRight) > 0,
+        )
+        assertEquals("nothing is painted in the padding after them", 0, ink(textRight + 2f, longRight - 2f))
+
+        picked = -1
+        v.tapAt(longRight - padding, y)
+        assertEquals("the end of the long candidate picks it", 1, picked)
+        v.tapAt(longRight + lastWidth / 2f, y)
+        assertEquals("the candidate after it is picked on its own cell", 2, picked)
     }
 }
