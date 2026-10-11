@@ -1265,6 +1265,9 @@ class InputView(context: Context) : LinearLayout(context) {
     internal fun preeditSurfaceBoundsInWindow(): Rect = boundsInWindow(preeditView)
 
     internal fun preeditTabForTest(): RectF = preeditView.tabBounds()
+    internal fun preeditTextSizeForTest(): Float = preeditView.textSizeForTest()
+    internal fun preeditTextStartForTest(): Float = preeditView.textStartForTest()
+    internal fun preeditFlingingForTest(): Boolean = preeditView.isFlingingForTest()
     internal fun preeditBoundaryXForTest(position: Int): Float = preeditView.boundaryXForTest(position)
     internal fun preeditDoneLeftForTest(): Float = preeditView.doneLeftForTest()
     internal fun preeditDoneLabelForTest(): String = preeditView.doneLabelForTest()

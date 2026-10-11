@@ -22,6 +22,7 @@ import android.graphics.RectF
 import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
 import com.aegis.ime.ime.theme.ImeShapes
@@ -42,6 +43,12 @@ open class PreeditView(context: Context) : View(context) {
     private val tab = RectF()
     private var downX = Float.NaN
     private var downY = Float.NaN
+    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+    private var scrollRange = 0f
+    private var draggedOffset = Float.NaN
+    private var downOffset = 0f
+    private var dragging = false
+    private val fling = FlingScroller(context)
 
     var onTap: () -> Unit = {}
     var onCaret: (Int) -> Unit = {}
@@ -98,29 +105,51 @@ open class PreeditView(context: Context) : View(context) {
         val was = model
         model = m
         if (was == null && m == null) return
+        if (was?.text != m?.text || was?.caret != m?.caret) followText()
         invalidate()
     }
 
     private fun editingModel(): PreeditModel? = model?.takeIf { it.text == shownText }
 
     private fun layoutTab() {
+        scrollRange = 0f
         if (shownText.isEmpty()) { tab.setEmpty(); return }
         val r = ImeShapes.cardRadiusDp * density
         val corner = ImeShapes.surfaceTopRadiusDp * density
         val left = maxOf(leftInset + edgeInset, corner)
-        if (editingModel() != null) {
+        val m = editingModel()
+        if (m != null) {
             val right = minOf(width - rightInset - edgeInset, width - corner).coerceAtLeast(textLeft + doneWidth + pad)
             tab.set(left, 0f, right, height.toFloat() + r)
+            scrollRange = (editTextPaint.measureText(m.text) - (right - doneWidth - pad - textLeft)).coerceAtLeast(0f)
         } else {
             val limit = if (width > 0) minOf(width - rightInset - edgeInset, width - corner) else Float.MAX_VALUE
-            tab.set(left, 0f, minOf(textLeft + textPaint.measureText(shownText) + pad, limit), height.toFloat() + r)
+            val wanted = textLeft + textPaint.measureText(shownText) + pad
+            tab.set(left, 0f, minOf(wanted, limit), height.toFloat() + r)
+            scrollRange = (wanted - limit).coerceAtLeast(0f)
         }
     }
 
-    private fun textOffset(m: PreeditModel): Float {
+    private fun textOffset(m: PreeditModel?): Float {
+        if (!draggedOffset.isNaN()) return draggedOffset.coerceIn(0f, scrollRange)
+        if (m == null) return scrollRange
         val caretX = editTextPaint.measureText(m.text, 0, m.displayCaret())
         val visible = tab.right - doneWidth - pad - textLeft
         return (caretX - visible).coerceAtLeast(0f)
+    }
+
+    private fun followText() {
+        draggedOffset = Float.NaN
+        val held = dragging || fling.stopArmed
+        fling.forceFinish()
+        if (!held) return
+        dragging = false
+        downX = Float.NaN
+        downY = Float.NaN
+    }
+
+    override fun computeScroll() {
+        fling.computeOffset()?.let { draggedOffset = it; postInvalidateOnAnimation() }
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -132,11 +161,28 @@ open class PreeditView(context: Context) : View(context) {
                 playImeTapFeedback()
                 downX = event.x
                 downY = event.y
+                downOffset = textOffset(editingModel())
+                dragging = false
+                fling.onDown()
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (downX.isNaN()) return true
+                fling.addSample(event.eventTime, event.x)
+                val dx = event.x - downX
+                if (!dragging && scrollRange > 0f && kotlin.math.abs(dx) > touchSlop) dragging = true
+                if (dragging) {
+                    draggedOffset = (downOffset - dx).coerceIn(0f, scrollRange)
+                    invalidate()
+                }
                 return true
             }
             MotionEvent.ACTION_UP -> {
                 val slop = 24f * density
-                val moved = downX.isNaN() || kotlin.math.abs(event.x - downX) > slop || kotlin.math.abs(event.y - downY) > slop
+                val moved = dragging || fling.stopArmed || downX.isNaN() || kotlin.math.abs(event.x - downX) > slop || kotlin.math.abs(event.y - downY) > slop
+                fling.onUp(event.eventTime)
+                if (dragging && fling.fling(draggedOffset, scrollRange)) postInvalidateOnAnimation()
+                dragging = false
                 downX = Float.NaN
                 downY = Float.NaN
                 if (moved || !tab.contains(event.x, event.y)) return true
@@ -149,6 +195,7 @@ open class PreeditView(context: Context) : View(context) {
                 return true
             }
             MotionEvent.ACTION_CANCEL -> {
+                dragging = false
                 downX = Float.NaN
                 downY = Float.NaN
                 return true
@@ -171,9 +218,14 @@ open class PreeditView(context: Context) : View(context) {
 
     internal fun boundaryXForTest(position: Int): Float {
         layoutTab()
-        val offset = editingModel()?.let(::textOffset) ?: 0f
-        return textLeft - offset + editTextPaint.measureText(shownText, 0, position.coerceIn(0, shownText.length))
+        return textLeft - textOffset(editingModel()) + editTextPaint.measureText(shownText, 0, position.coerceIn(0, shownText.length))
     }
+
+    internal fun textSizeForTest(): Float = textPaint.textSize
+
+    internal fun textStartForTest(): Float { layoutTab(); return textLeft - textOffset(editingModel()) }
+
+    internal fun isFlingingForTest(): Boolean = !fling.isFinished
 
     internal fun doneLeftForTest(): Float { layoutTab(); return tab.right - doneWidth }
 
@@ -191,14 +243,17 @@ open class PreeditView(context: Context) : View(context) {
         when {
             appearing -> {
                 shownText = s
+                followText()
                 Motion.showNow(this)
             }
             disappearing -> Motion.hideNow(this, endVisibility = VISIBLE) {
                 shownText = ""
+                fling.forceFinish()
                 invalidate()
             }
             else -> {
                 shownText = s
+                followText()
                 invalidate()
             }
         }
@@ -208,6 +263,7 @@ open class PreeditView(context: Context) : View(context) {
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
+        fling.forceFinish()
         if (text.isEmpty() && shownText.isNotEmpty()) {
             shownText = ""
             invalidate()
@@ -236,7 +292,7 @@ open class PreeditView(context: Context) : View(context) {
         val baseline = height / 2f - (textPaint.descent() + textPaint.ascent()) / 2
         canvas.save()
         canvas.clipRect(tab.left, 0f, tab.right - pad, height.toFloat())
-        canvas.drawText(shownText, textLeft, baseline, textPaint)
+        canvas.drawText(shownText, textLeft - textOffset(null), baseline, textPaint)
         canvas.restore()
     }
 
