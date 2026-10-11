@@ -319,14 +319,51 @@ class CurrentLanguageModelBuildTest(unittest.TestCase):
         verify.assert_called_once_with(repo, environment)
 
 
+SUPPLEMENT_SOURCES = [
+    {
+        "name": "Example Wiki",
+        "url": "https://wiki.example.org/",
+        "license": "CC BY-NC-SA 4.0",
+        "version": "2026-10-01",
+        "rows": 3,
+    },
+    {
+        "name": "Example word list",
+        "url": "https://example.org/words",
+        "license": "unlicensed",
+        "version": "r7",
+        "rows": 2,
+        "note": "kept verbatim",
+    },
+]
+SUPPLEMENT_STATISTICS = {
+    "rows_read": 9,
+    "rows_rejected": 2,
+    "duplicate_words": 2,
+    "duplicate_rows": 3,
+    "rows_folded": 1,
+    "added_words": 2,
+    "added_rows": 3,
+}
+
+
 class SupplementDictionaryInputTest(unittest.TestCase):
-    def build(self, root: Path, arguments=(), default_supplement=None):
+    def build(
+        self,
+        root: Path,
+        arguments=(),
+        default_supplement=None,
+        sources=SUPPLEMENT_SOURCES,
+        statistics=None,
+    ):
         repo_root = root / "repo"
         (repo_root / "tools/t2s-data").mkdir(parents=True)
         if default_supplement is not None:
             path = repo_root / bp.SUPPLEMENT_RELATIVE
             path.parent.mkdir(parents=True)
             path.write_text(default_supplement, encoding="utf-8")
+            if sources is not None:
+                (path.parent / "sources.json").write_text(json.dumps(sources), encoding="utf-8")
         source = root / "source"
         (source / "dicts").mkdir(parents=True)
         for table in bp.TABLES:
@@ -339,6 +376,10 @@ class SupplementDictionaryInputTest(unittest.TestCase):
             if "--out" in command:
                 target = Path(command[command.index("--out") + 1])
                 target.write_bytes(minimal_language_model() if "lm" in command else b"AEGD fixture")
+            if "--supplement-stats" in command:
+                key_type = command[command.index("--keytype") + 1]
+                report = (statistics or {}).get(key_type, SUPPLEMENT_STATISTICS)
+                Path(command[command.index("--supplement-stats") + 1]).write_text(json.dumps(report))
 
         with mock.patch.object(bp, "__file__", str(repo_root / "tools/release/build_dictionary_pack.py")), mock.patch.object(
             bp, "ensure_source_checkout", return_value=source
@@ -355,7 +396,14 @@ class SupplementDictionaryInputTest(unittest.TestCase):
                 0, bp.main(["--release-tag", "dict-latest", "--output-dir", str(output_dir), *arguments])
             )
         tables = [str(source / "dicts" / f"{table}.dict.yaml") for table in bp.TABLES]
-        return SimpleNamespace(repo_root=repo_root, output_dir=output_dir, calls=calls, tables=tables)
+        return SimpleNamespace(
+            repo_root=repo_root,
+            output_dir=output_dir,
+            calls=calls,
+            tables=tables,
+            info=json.loads((output_dir / "aegis-build-info.json").read_text()),
+            update=json.loads((output_dir / "aegis-dictionary-update.json").read_text()),
+        )
 
     def dictionary_commands(self, built):
         self.assertEqual(5, len(built.calls))
@@ -379,9 +427,10 @@ class SupplementDictionaryInputTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             built = self.build(Path(directory), default_supplement="---\n...\n")
             supplement = str(built.repo_root / "tools/release/domain/aegis-domain.dict.yaml")
-            for command in self.dictionary_commands(built):
+            for command, (_entry, _runtime, key_type) in zip(self.dictionary_commands(built), bp.OUTPUTS):
                 self.assertEqual(
-                    ["--supplement", supplement, *built.tables],
+                    ["--supplement", supplement, "--supplement-stats",
+                     str(built.output_dir / "work" / f"supplement-{key_type}.json"), *built.tables],
                     command[command.index("--t2s-data") + 2:],
                 )
             self.assertEqual(
@@ -394,20 +443,93 @@ class SupplementDictionaryInputTest(unittest.TestCase):
     def test_an_explicit_supplement_path_replaces_the_repository_default(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            explicit = root / "elsewhere.dict.yaml"
+            explicit = root / "elsewhere" / "trial.dict.yaml"
+            explicit.parent.mkdir()
             explicit.write_text("---\n...\n", encoding="utf-8")
+            (explicit.parent / "sources.json").write_text(json.dumps(SUPPLEMENT_SOURCES[:1]), encoding="utf-8")
             built = self.build(
                 root, ["--supplement-dict", str(explicit)], default_supplement="---\n...\n"
             )
             for command in self.dictionary_commands(built):
                 self.assertEqual(str(explicit.resolve()), command[command.index("--supplement") + 1])
             self.assertNotIn("--supplement", built.calls[-1])
+            recorded = built.info["resources"][0]["source"]["supplement"]
+            self.assertEqual("trial.dict.yaml", recorded["name"])
+            self.assertEqual(SUPPLEMENT_SOURCES[:1], recorded["sources"])
 
     def test_a_missing_explicit_supplement_stops_the_build(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             with self.assertRaisesRegex(SystemExit, "supplement dictionary does not exist"):
                 self.build(root, ["--supplement-dict", str(root / "absent.dict.yaml")])
+
+    def test_build_info_records_the_supplement_identity_statistics_and_sources(self):
+        text = "---\nname: aegis-domain\n...\n\u94f6\u884c\tyin hang\t10\n"
+        with tempfile.TemporaryDirectory() as plain_directory, tempfile.TemporaryDirectory() as directory:
+            plain = self.build(Path(plain_directory))
+            built = self.build(Path(directory), default_supplement=text)
+            resource = built.info["resources"][0]
+            self.assertEqual(1, len(built.info["resources"]))
+            self.assertEqual(
+                {
+                    "name": "aegis-domain.dict.yaml",
+                    "sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+                    "size_bytes": len(text.encode("utf-8")),
+                    **SUPPLEMENT_STATISTICS,
+                    "sources": SUPPLEMENT_SOURCES,
+                },
+                resource["source"]["supplement"],
+            )
+            plain_source = plain.info["resources"][0]["source"]
+            self.assertEqual(
+                ["repo", "ref_type", "tag", "branch", "commit", "license", "attribution_file_in_pack",
+                 "tables", "input_yaml_sha256"],
+                list(plain_source),
+            )
+            self.assertEqual([*plain_source, "supplement"], list(resource["source"]))
+            self.assertEqual(plain_source, {name: resource["source"][name] for name in plain_source})
+            self.assertEqual(
+                plain.info["resources"][0]["build"]["full_pack_parameters"],
+                resource["build"]["full_pack_parameters"],
+            )
+            self.assertEqual(["schema_version", "kind", "asset", "source"], list(built.update))
+            self.assertEqual(plain.update["source"], built.update["source"])
+            self.assertEqual(["repo", "ref_type", "tag", "branch", "commit"], list(built.update["source"]))
+            bp.validate_update_document(built.info, built.update)
+
+    def test_a_supplement_without_a_valid_source_list_stops_the_build(self):
+        valid = SUPPLEMENT_SOURCES[0]
+        cases = {
+            "source list is missing": None,
+            "non-empty JSON array": {"sources": [valid]},
+            "non-empty JSON array ": [],
+            "not an object": ["Example Wiki"],
+            "has no name": [{**valid, "name": " "}],
+            "has no url": [{key: value for key, value in valid.items() if key != "url"}],
+            "has no license": [{**valid, "license": None}],
+            "has no version": [{**valid, "version": 7}],
+            "has no row count": [{**valid, "rows": True}],
+            "has no row count ": [{**valid, "rows": -1}],
+        }
+        for message, sources in cases.items():
+            with self.subTest(message=message), tempfile.TemporaryDirectory() as directory:
+                with self.assertRaisesRegex(SystemExit, message.strip()):
+                    self.build(Path(directory), default_supplement="---\n...\n", sources=sources)
+
+    def test_inconsistent_supplement_statistics_stop_the_build(self):
+        cases = {
+            "differ between dictionary key types": {"digit": {**SUPPLEMENT_STATISTICS, "added_rows": 4, "rows_read": 10}},
+            "do not account for every row": {
+                key_type: {**SUPPLEMENT_STATISTICS, "rows_read": 10} for key_type in ("letter", "digit", "initials")
+            },
+            "are malformed": {
+                key_type: {**SUPPLEMENT_STATISTICS, "added_words": "2"} for key_type in ("letter", "digit", "initials")
+            },
+        }
+        for message, statistics in cases.items():
+            with self.subTest(message=message), tempfile.TemporaryDirectory() as directory:
+                with self.assertRaisesRegex(ValueError, message):
+                    self.build(Path(directory), default_supplement="---\n...\n", statistics=statistics)
 
 
 class FinalizePackTest(unittest.TestCase):
@@ -520,6 +642,30 @@ class FinalizePackTest(unittest.TestCase):
                 ),
             )
         return pack, build_info, update
+
+    def test_finalization_keeps_a_recorded_supplement_and_the_manifest_shape(self):
+        supplement = {
+            "name": "aegis-domain.dict.yaml",
+            "sha256": "5" * 64,
+            "size_bytes": 64,
+            **SUPPLEMENT_STATISTICS,
+            "sources": SUPPLEMENT_SOURCES,
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            pack, build_info_path, update_path = self.write_intermediate(Path(directory) / "one")
+            intermediate = json.loads(build_info_path.read_text(encoding="utf-8"))
+            intermediate["resources"][0]["source"]["supplement"] = supplement
+            build_info_path.write_text(json.dumps(intermediate), encoding="utf-8")
+            arguments = self.finalize_args(pack, build_info_path, update_path)
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(0, self.invoke(arguments))
+                self.assertEqual(0, self.invoke(arguments))
+            build_info = json.loads(build_info_path.read_text(encoding="utf-8"))
+            update = json.loads(update_path.read_text(encoding="utf-8"))
+            self.assertEqual("final", build_info["resources"][0]["build"]["pack_state"])
+            self.assertEqual(supplement, build_info["resources"][0]["source"]["supplement"])
+            self.assertEqual(["repo", "ref_type", "tag", "branch", "commit"], list(update["source"]))
+            bp.validate_update_document(build_info, update)
 
     def finalize_args(self, pack: Path, build_info: Path, update: Path):
         return [

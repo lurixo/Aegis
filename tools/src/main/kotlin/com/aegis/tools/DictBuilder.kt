@@ -93,6 +93,9 @@ fun main(rawArgs: Array<String>) {
     val (numKeys, numEntries) = writeBinary(tmpSorted, out, maxPerKey, t2s?.mappedSourceForms())
     println("wrote ${out.path}: keys=$numKeys entries=$numEntries size=${out.length()} bytes")
 
+    args.optional("--supplement-stats")?.let { path ->
+        File(path).writeText(checkNotNull(supplement) { "--supplement-stats requires --supplement" }.statsJson())
+    }
     syllablesOut?.let { writeSyllables(it, syllableCounts) }
     coverageOut?.let { writeCoverage(it, syllableCounts) }
 }
@@ -258,6 +261,11 @@ internal class SupplementTable(file: File, t2s: T2SMerge?, minFreq: Int) {
             }
         }
     }
+
+    fun statsJson(): String =
+        "{\"rows_read\":$rowsRead,\"rows_rejected\":$rowsRejected,\"duplicate_words\":$duplicateWords," +
+            "\"duplicate_rows\":$duplicateRows,\"rows_folded\":$rowsFolded,\"added_words\":$addedWords," +
+            "\"added_rows\":$addedRows}\n"
 
     fun summary(): String =
         "supplement $name: rows=$rowsRead rejected=$rowsRejected duplicateWords=$duplicateWords " +

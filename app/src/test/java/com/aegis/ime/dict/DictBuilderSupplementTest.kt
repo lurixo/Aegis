@@ -115,6 +115,31 @@ class DictBuilderSupplementTest {
         }
     }
 
+    @Test fun supplement_statistics_account_for_every_row_identically_for_every_key_type() {
+        val fixture = fixture(fullSupplement)
+        for (keyType in listOf("letter", "digit", "initials")) {
+            val statistics = File(fixture.root, "statistics-$keyType.json")
+            com.aegis.tools.main(
+                arrayOf(
+                    "--out", File(fixture.root, "statistics-$keyType.bin").path,
+                    "--min-freq", "1",
+                    "--keytype", keyType,
+                    "--t2s-data", fixture.t2s.path,
+                    "--supplement", fixture.supplement.path,
+                    "--supplement-stats", statistics.path,
+                    fixture.source.path,
+                ),
+            )
+
+            assertEquals(
+                keyType,
+                "{\"rows_read\":9,\"rows_rejected\":3,\"duplicate_words\":1,\"duplicate_rows\":2," +
+                    "\"rows_folded\":1,\"added_words\":2,\"added_rows\":3}\n",
+                statistics.readText(),
+            )
+        }
+    }
+
     private fun build(fixture: Fixture, keyType: String, supplement: File?): BinaryDict {
         val output = File(fixture.root, "aegis-$keyType-${supplement != null}.bin")
         run(fixture, keyType, supplement, output)

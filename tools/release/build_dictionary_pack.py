@@ -53,6 +53,16 @@ TOOL_LIBRARY_RELATIVE = TOOL_DISTRIBUTION_RELATIVE / "lib/tools.jar"
 PACK_ENTRIES = [NOTICE_NAME] + [item[0] for item in OUTPUTS] + [LM_ENTRY]
 DANGEROUS_NEW_ENTRY_SUBSTRINGS = ("dict", "t9", "jianpin")
 SUPPLEMENT_RELATIVE = Path("tools/release/domain/aegis-domain.dict.yaml")
+SUPPLEMENT_SOURCES_NAME = "sources.json"
+SUPPLEMENT_STATISTICS = (
+    "rows_read",
+    "rows_rejected",
+    "duplicate_words",
+    "duplicate_rows",
+    "rows_folded",
+    "added_words",
+    "added_rows",
+)
 GRAMMAR_NAME = "wanxiang-lts-zh-hans.gram"
 GRAMMAR_REPO_HTTPS = "https://github.com/amzxyz/RIME-LMDG"
 GRAMMAR_RELEASE_API = "https://api.github.com/repos/amzxyz/RIME-LMDG/releases/tags/LTS"
@@ -359,6 +369,51 @@ def resolve_supplement(args, repo_root):
     return supplement if supplement.is_file() else None
 
 
+def load_supplement_sources(supplement):
+    path = supplement.parent / SUPPLEMENT_SOURCES_NAME
+    if not path.is_file():
+        raise SystemExit(f"supplement source list is missing: {path}")
+    sources = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(sources, list) or not sources:
+        raise SystemExit(f"supplement source list must be a non-empty JSON array: {path}")
+    for source in sources:
+        if not isinstance(source, dict):
+            raise SystemExit(f"supplement source entry is not an object: {source!r}")
+        for field in ("name", "url", "license", "version"):
+            value = source.get(field)
+            if not isinstance(value, str) or not value.strip():
+                raise SystemExit(f"supplement source entry has no {field}: {source!r}")
+        rows = source.get("rows")
+        if isinstance(rows, bool) or not isinstance(rows, int) or rows < 0:
+            raise SystemExit(f"supplement source entry has no row count: {source!r}")
+    return sources
+
+
+def read_supplement_statistics(paths):
+    reports = [json.loads(path.read_text(encoding="utf-8")) for path in paths]
+    statistics = reports[0]
+    if not isinstance(statistics, dict) or set(statistics) != set(SUPPLEMENT_STATISTICS):
+        raise ValueError("supplement statistics are malformed")
+    if any(isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in statistics.values()):
+        raise ValueError("supplement statistics are malformed")
+    if any(report != statistics for report in reports[1:]):
+        raise ValueError("supplement statistics differ between dictionary key types")
+    accounted = sum(statistics[name] for name in ("rows_rejected", "duplicate_rows", "rows_folded", "added_rows"))
+    if statistics["rows_read"] != accounted:
+        raise ValueError("supplement statistics do not account for every row")
+    return {name: statistics[name] for name in SUPPLEMENT_STATISTICS}
+
+
+def supplement_info(supplement, sources, statistics):
+    return {
+        "name": supplement.name,
+        "sha256": sha256_file(supplement),
+        "size_bytes": supplement.stat().st_size,
+        **statistics,
+        "sources": sources,
+    }
+
+
 def lm_command(tool_bin, output_path, t2s_dir, source):
     input_paths = [source / "dicts" / f"{table}.dict.yaml" for table in TABLES]
     return [
@@ -394,6 +449,7 @@ def build_info(
     grammar_info,
     pack_state="intermediate",
     tooling=None,
+    supplement=None,
 ):
     if not isinstance(tooling, dict) or tooling.get("schema_version") != 1:
         raise ValueError("fixed builder tooling identity is missing")
@@ -403,7 +459,7 @@ def build_info(
     dirt = tree_dirt(repo_root)
     generated_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
-    return {
+    info = {
         "schema_version": 1,
         "schema_name": "aegis.resource-build-info",
         "generated_at": generated_at,
@@ -483,6 +539,9 @@ def build_info(
         ],
         "external_resource_references": [grammar_info],
     }
+    if supplement is not None:
+        info["resources"][0]["source"]["supplement"] = supplement
+    return info
 
 
 def update_payload(build_info_json):
@@ -844,6 +903,7 @@ def main(argv):
     if missing:
         raise SystemExit("missing source tables:\n" + "\n".join(missing))
     supplement = resolve_supplement(args, repo_root)
+    supplement_sources = load_supplement_sources(supplement) if supplement else None
 
     tool_environment = fixed_tool_environment()
     verify_toolchain(repo_root, tool_environment)
@@ -865,8 +925,18 @@ def main(argv):
         raise SystemExit(f"t2s data dir missing: {t2s_dir}")
 
     bin_infos = []
+    supplement_reports = []
     for zip_entry, runtime_name, key_type in OUTPUTS:
         out_path = staging_dir / zip_entry
+        supplement_arguments = []
+        if supplement:
+            supplement_reports.append(work_dir / f"supplement-{key_type}.json")
+            supplement_arguments = [
+                "--supplement",
+                str(supplement),
+                "--supplement-stats",
+                str(supplement_reports[-1]),
+            ]
         run(
             [
                 str(tool_bin),
@@ -878,7 +948,7 @@ def main(argv):
                 key_type,
                 "--t2s-data",
                 str(t2s_dir),
-                *(["--supplement", str(supplement)] if supplement else []),
+                *supplement_arguments,
                 *[str(path) for path in input_paths],
             ],
             cwd=repo_root,
@@ -945,6 +1015,11 @@ def main(argv):
         load_grammar_reference(args),
         pack_state="intermediate",
         tooling=tooling,
+        supplement=(
+            supplement_info(supplement, supplement_sources, read_supplement_statistics(supplement_reports))
+            if supplement
+            else None
+        ),
     )
     (output_dir / "aegis-build-info.json").write_text(json.dumps(info, ensure_ascii=True, indent=2) + "\n")
     (output_dir / "aegis-dictionary-update.json").write_text(json.dumps(update_payload(info), ensure_ascii=True, indent=2) + "\n")
