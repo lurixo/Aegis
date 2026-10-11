@@ -190,7 +190,8 @@ class PinyinDecoder(
             while (q <= n && q - p <= MAX_SYLLABLE_KEY_LEN) {
                 val readable = spellings(reading.substring(p, q)).any { key ->
                     val known = singles(key)
-                    cps[i] in known || (known.isEmpty() && key in T9Pinyin.SYLLABLES)
+                    cps[i] in known || (known.isEmpty() && key in T9Pinyin.SYLLABLES) ||
+                        INPUT_ALIASES[key].orEmpty().any { cps[i] in singles(it) }
                 }
                 if (readable) dp[q][i + 1] = true
                 q++
@@ -1929,7 +1930,9 @@ class PinyinDecoder(
             for (path in paths) {
                 val remaining = input.substring(path.covered)
                 for ((reading, key) in cache.matching(remaining, t9, prefix)) {
-                    val frequency = cache.frequency(reading, char) ?: continue
+                    val frequency = cache.frequency(reading, char)
+                        ?: INPUT_ALIASES[reading].orEmpty().firstNotNullOfOrNull { cache.frequency(it, char) }
+                        ?: continue
                     next.add(Path(path.reading + reading, (path.covered + key.length).coerceAtMost(input.length),
                         path.score + ln(frequency.toDouble().coerceAtLeast(1.0))))
                 }

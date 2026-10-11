@@ -124,8 +124,8 @@ class SingleCharacterWordReadingTest {
     }
 
     private fun nameWithAnAliasedCharacterKeepsItsOtherReadings(d: Dictionaries, nine: Boolean) {
-        assertEquals("cengluanen", formedReading(d, nine, listOf("层" to "ceng", "峦" to "luan", "嗯" to "en")))
-        assertEquals("cunenhua", formedReading(d, nine, listOf("存" to "cun", "嗯" to "en", "化" to "hua")))
+        assertEquals("cengluanen", formedReading(d, nine, listOf("层" to "ceng", "峦" to "luan", "嗯" to "en"), offered = true))
+        assertEquals("cunenhua", formedReading(d, nine, listOf("存" to "cun", "嗯" to "en", "化" to "hua"), offered = true))
     }
 
     private fun bareNasalReadingsAreKeptOnTheShippedDictionary(nine: Boolean) {
