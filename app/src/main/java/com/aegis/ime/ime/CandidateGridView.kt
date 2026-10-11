@@ -55,7 +55,7 @@ import com.aegis.ime.layout.Layouts
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-data class CandidateProjectionPolicy(val maxPhraseRows: Int) {
+data class CandidateProjectionPolicy(val maxPhraseRows: Int, val kept: Set<String> = emptySet()) {
     init {
         require(maxPhraseRows >= 0)
     }
@@ -534,6 +534,9 @@ class CandidateGridView(context: Context) : LinearLayout(context), ResettablePan
         val phraseCount = if (starts.size > policy.maxPhraseRows) starts[policy.maxPhraseRows] else phrases.size
         return ArrayList<Int>(phraseCount + singleIndices.size).apply {
             addAll(phraseIndices.subList(0, phraseCount))
+            for (i in phraseCount until phraseIndices.size) {
+                if (candidates[phraseIndices[i]] in policy.kept) add(phraseIndices[i])
+            }
             addAll(singleIndices)
         }
     }

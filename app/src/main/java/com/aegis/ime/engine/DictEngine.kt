@@ -252,6 +252,9 @@ class DictEngine(
         t9Decoder?.prepareUserIndex()
     }
 
+    override fun storedWords(composing: String, t9: Boolean): List<String> =
+        (if (t9) t9Decoder else decoder)?.storedWords(composing).orEmpty()
+
     override fun setFuzzyRules(rules: Set<String>) {
         decoder?.setFuzzyRules(rules)
         t9Decoder?.setFuzzyRules(rules)

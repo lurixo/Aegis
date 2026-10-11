@@ -196,6 +196,7 @@ class KeyboardController(
     private var compositeCands: Set<Cand> = emptySet()
     private var literalCands: Set<Cand> = emptySet()
     private var predictionCands: Set<Cand> = emptySet()
+    private var storedWords: Set<String> = emptySet()
     private var englishCands: Set<Cand> = emptySet()
     private var calcCand: Cand? = null
     private var calcExpr = ""
@@ -1516,6 +1517,7 @@ class KeyboardController(
         val emailContext: String? = null,
         val sentences: List<Pair<String, Double>>? = null,
         val request: DecodeRequest? = null,
+        val storedWords: Set<String> = emptySet(),
     )
 
     private fun emptyDecodeResult(): DecodeResult =
@@ -1591,6 +1593,7 @@ class KeyboardController(
         englishCands = r.englishCands
         emailCands = r.emailCands
         emailContext = r.emailContext
+        storedWords = r.storedWords
     }
 
     private fun computeDecode(req: DecodeRequest, sentenceLimit: Int = 0): DecodeResult = synchronized(decodeLock) {
@@ -1651,7 +1654,15 @@ class KeyboardController(
             }
             else -> base
         }
-        DecodeResult(out, directCommit, composite, literal, prediction, calcC, calcE, calcR, english, email, req.emailContext, sentences, req)
+        val stored = when {
+            base.isEmpty() -> emptySet()
+            req.lockedNonEmpty -> req.engine.storedWords(req.full, false).toSet()
+            else -> req.engine.storedWords(req.raw, req.isNine).toSet()
+        }
+        DecodeResult(
+            out, directCommit, composite, literal, prediction, calcC, calcE, calcR, english, email, req.emailContext,
+            sentences, req, stored,
+        )
     }
 
     private class MixedCandidates(
@@ -2057,7 +2068,7 @@ class KeyboardController(
             selectedExpandedReadingIndex(readings, highlight),
             chineseGateActive(),
             restoreNotice(),
-            candidateProjection = CandidateProjectionPolicy.PINYIN.takeIf {
+            candidateProjection = CandidateProjectionPolicy.PINYIN.copy(kept = storedWords).takeIf {
                 mode() == Mode.PINYIN && composing.isNotEmpty()
             },
             preeditModel = preeditModel(preedit),

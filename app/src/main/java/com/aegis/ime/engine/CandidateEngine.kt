@@ -96,5 +96,7 @@ interface CandidateEngine {
 
     fun prepareUserWords() {}
 
+    fun storedWords(composing: String, t9: Boolean): List<String> = emptyList()
+
     fun setFuzzyRules(rules: Set<String>) {}
 }
