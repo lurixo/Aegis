@@ -66,7 +66,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         orientation = HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         background = capsuleBg()
-        setPadding(edgeInset + dp(6), 0, edgeInset + dp(6), 0)
+        setPadding(edgeInset + dp(6), 0, edgeInset, 0)
         addView(row, lp(LayoutParams.MATCH_PARENT, LayoutParams.MATCH_PARENT))
     }
 
@@ -78,7 +78,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
     fun applyPalette(p: ImePalette) {
         palette = p
         background = capsuleBg()
-        setPadding(edgeInset + dp(6), 0, edgeInset + dp(6), 0)
+        setPadding(edgeInset + dp(6), 0, edgeInset, 0)
         render()
     }
 
@@ -99,7 +99,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
             if (ctl.addableWord != null) {
                 row.addView(pill(context.getString(R.string.copybar_add_word), endDp = 2) { ctl.tapAddWord() }, lp(WC, WC))
             }
-            row.addView(pill(context.getString(R.string.copybar_split)) { toggleSplit() }, lp(WC, WC))
+            row.addView(pill(context.getString(R.string.copybar_split), endDp = 7) { toggleSplit() }, lp(WC, WC))
         } else {
             val chips = LinearLayout(context).apply { orientation = HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
             if (ctl.blocks.isEmpty()) chips.addView(TextView(context).apply {
@@ -108,9 +108,9 @@ class CopyBarView(context: Context) : LinearLayout(context) {
             })
             for ((index, block) in ctl.blocks.withIndex()) chips.addView(chip(index, block))
             row.addView(HorizontalScrollView(context).apply { isHorizontalScrollBarEnabled = false; addView(chips) }, lp(0, WC, 1f))
-            row.addView(pill(context.getString(R.string.copybar_collapse)) { toggleSplit() }, lp(WC, WC))
+            row.addView(pill(context.getString(R.string.copybar_collapse), endDp = 7) { toggleSplit() }, lp(WC, WC))
         }
-        row.addView(pill("×", ImeType.title) { ctl.close() }, lp(dp(34), WC))
+        row.addView(pill("×", ImeType.title, startDp = 5, endDp = 12) { ctl.close() }, lp(WC, WC))
     }
 
     private fun contentScroller(s: String): HorizontalScrollView {
@@ -218,6 +218,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
     private fun pill(
         label: String,
         sp: Float = ImeType.body,
+        startDp: Int = 10,
         endDp: Int = 10,
         onClick: () -> Unit,
     ): TextView = TextView(context).apply {
@@ -225,7 +226,7 @@ class CopyBarView(context: Context) : LinearLayout(context) {
         gravity = Gravity.CENTER
         setTextSize(TypedValue.COMPLEX_UNIT_SP, sp)
         setTextColor(palette.icon)
-        setPadding(dp(10), 0, dp(endDp), 0)
+        setPadding(dp(startDp), 0, dp(endDp), 0)
         Motion.applyTapFeedback(this, palette.icon)
         setOnClickListener { onClick() }
         bindImeTapFeedback()

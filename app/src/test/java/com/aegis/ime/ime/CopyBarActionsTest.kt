@@ -21,6 +21,7 @@ import android.view.ViewGroup
 import android.widget.TextView
 import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.ime.theme.ImeShapes
 import com.aegis.ime.ime.theme.ImeType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -89,12 +90,40 @@ class CopyBarActionsTest {
         assertEquals("each locale shows its own label", locales.size, measured.size)
     }
 
-    @Test fun close_glyph_keeps_its_size_and_width() {
+    @Test fun close_glyph_keeps_its_size() {
         val v = bar("one two")
         val close = action(v, "×")
         val title = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, ImeType.title, ctx.resources.displayMetrics)
         assertEquals(title, close.textSize, 0f)
-        assertEquals(dp(34), close.width)
+    }
+
+    @Test fun close_reaches_the_end_of_the_bar_surface() {
+        val v = bar("one two")
+        val close = action(v, "×")
+        val edgeInset = (ImeShapes.edgeInsetDp * ctx.resources.displayMetrics.density).toInt()
+        assertEquals(edgeInset, v.paddingRight)
+        assertEquals(v.width - edgeInset, (close.parent as View).left + close.right)
+        assertEquals(dp(12), close.paddingRight)
+    }
+
+    private fun gapToClose(v: CopyBarView, label: String): Float {
+        val neighbour = action(v, label)
+        val close = action(v, "×")
+        assertEquals("$label and close are neighbours", neighbour.right, close.left)
+        val inkRight = neighbour.left + neighbour.compoundPaddingLeft + neighbour.layout.getLineRight(0)
+        val inkLeft = close.left + close.compoundPaddingLeft + close.layout.getLineLeft(0)
+        return inkLeft - inkRight
+    }
+
+    @Test fun split_and_collapse_labels_sit_twelve_dp_from_the_close_glyph() {
+        for (locale in locales) {
+            RuntimeEnvironment.setQualifiers("+$locale")
+            val v = bar("one two")
+            assertEquals("$locale: split", dp(12).toFloat(), gapToClose(v, ctx.getString(R.string.copybar_split)), 1f)
+            v.toggleSplitForTest()
+            lay(v)
+            assertEquals("$locale: collapse", dp(12).toFloat(), gapToClose(v, ctx.getString(R.string.copybar_collapse)), 1f)
+        }
     }
 
     @Test fun add_word_label_is_the_size_of_the_copied_text() {
@@ -129,7 +158,6 @@ class CopyBarActionsTest {
             val split = action(v, ctx.getString(R.string.copybar_split))
             assertTrue("$locale: split is ${split.width}px wide", split.width >= dp(32))
             val close = action(v, "×")
-            assertEquals("$locale: split keeps its gap to the close glyph", dp(10), split.paddingRight)
             assertEquals("$locale: split and close are neighbours", split.right, close.left)
         }
     }

@@ -149,7 +149,7 @@ class ImeVisualPolishTest {
         assertEquals(inset, padding.left)
         assertEquals(inset, padding.right)
         assertEquals("the content keeps its 6dp gap inside the capsule", inset + (6 * density).toInt(), view.paddingLeft)
-        assertEquals(inset + (6 * density).toInt(), view.paddingRight)
+        assertEquals("the close action reaches the end of the capsule", inset, view.paddingRight)
     }
 
     @Test fun copy_bar_split_blocks_press_in_their_own_corners() {
