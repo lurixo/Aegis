@@ -152,9 +152,10 @@ sentence-reranking scorer, which statically links llama.cpp (section 9).
   The `llama`, `ggml`, `ggml-base` and `ggml-cpu` libraries are linked statically; the upstream
   `vendor/hash` library is built but not linked. `src/unicode-data.cpp` holds tables generated from
   the Unicode Character Database (Unicode License, Appendix C).
-- **Modifications:** none to the upstream source. Built as static libraries with the CPU backend
-  only; OpenMP, dynamic backends and the upstream common code, tools, tests and examples are
-  disabled.
+- **Modifications:** `app/src/main/cpp/llama_qwen3.cmake` patches the fetched `src/llama-model.cpp`
+  at build time so that the model factory rejects every architecture other than Qwen3, which lets
+  the linker drop the other architectures. Built as static libraries with the CPU backend only;
+  OpenMP, dynamic backends and the upstream common code, tools, tests and examples are disabled.
 
 ## 10. Qwen3-0.6B-Base reranking model — Apache-2.0
 

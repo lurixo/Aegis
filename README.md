@@ -363,8 +363,9 @@ reranking model, converted to GGUF and quantized to Q8_0; fetched from the `mode
 on explicit opt-in, **not** bundled in the APK.
 
 **llama.cpp / ggml:** (c) The ggml authors, **MIT** ([llama.cpp](https://github.com/ggml-org/llama.cpp),
-tag `v0.5.0`), including llamafile matrix code (c) 2024 Mozilla Foundation, MIT. Statically linked,
-unmodified, into the reranking scorer `libaegis_neural.so`.
+tag `v0.5.0`), including llamafile matrix code (c) 2024 Mozilla Foundation, MIT. Statically linked
+into the reranking scorer `libaegis_neural.so`, patched at build time to accept only the Qwen3 model
+architecture.
 
 **Other:** AndroidX / Jetpack Compose / Material 3 / Kotlin stdlib: Apache-2.0; JUnit: EPL (test
 scope only, not distributed). Algorithm references (not vendored): AOSP PinyinIME (Apache-2.0),

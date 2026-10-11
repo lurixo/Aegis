@@ -225,7 +225,8 @@ Aegis 自身代码为 **GPL-3.0**（见 [`LICENSE`](LICENSE)）。Aegis 采用**
 
 **llama.cpp / ggml** —— © The ggml authors，**MIT**，见
 [llama.cpp](https://github.com/ggml-org/llama.cpp)（tag `v0.5.0`）；其中的 llamafile 矩阵运算代码
-© 2024 Mozilla Foundation，MIT。未作修改，静态链接进重排打分器 `libaegis_neural.so`。
+© 2024 Mozilla Foundation，MIT。静态链接进重排打分器 `libaegis_neural.so`，
+构建时打补丁，只接受 Qwen3 模型架构。
 
 **其他：**AndroidX、Jetpack Compose、Material 3、Kotlin 标准库 —— Apache-2.0；JUnit —— EPL
 （仅测试范围，不随包分发）。算法参考（未内联引入）：AOSP PinyinIME（Apache-2.0）、

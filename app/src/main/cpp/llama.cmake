@@ -31,5 +31,6 @@ endif()
 FetchContent_Declare(llama_cpp
     URL https://github.com/ggml-org/llama.cpp/archive/refs/tags/v0.5.0.tar.gz
     URL_HASH SHA256=fef9ed754f4e031fb5c663c29260feda4ebc241abb68d64a81c0f1df5f1748e2
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+    PATCH_COMMAND ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_LIST_DIR}/llama_qwen3.cmake)
 FetchContent_MakeAvailable(llama_cpp)
