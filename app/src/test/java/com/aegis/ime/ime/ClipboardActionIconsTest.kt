@@ -27,6 +27,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
 import com.aegis.ime.ime.theme.ImePalette
+import com.aegis.ime.R
 import com.aegis.ime.ime.theme.ImeType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -272,5 +273,24 @@ class ClipboardActionIconsTest {
         move.draw(moveCanvas)
         assertTrue("no char glyph is drawn for the move action", moveCanvas.texts.isEmpty())
         assertTrue(inkBox(renderView(move), 0, 0, move.width, move.height) != null)
+    }
+
+    private fun body(v: ClipboardView, entry: String): TextView =
+        allViews(v).filterIsInstance<TextView>().single { it.text?.toString() == entry && it.maxLines == 2 }
+
+    @Test fun expanded_card_has_no_padding_between_its_text_and_its_actions() {
+        val delete = ctx.getString(R.string.clip_delete)
+        for ((view, entry) in listOf(clipView(listOf("第一条")) to "第一条", phraseView(listOf("你好")) to "你好")) {
+            layout(view)
+            assertEquals("$entry: a collapsed card keeps its padding under the text", dp(12), body(view, entry).paddingBottom)
+            view.expandForTest(entry)
+            layout(view)
+            val action = allViews(view).filterIsInstance<TextView>().single { it.text?.toString() == delete && it.hasOnClickListeners() }
+            val row = action.parent as ViewGroup
+            assertEquals("$entry: under the text", 0, body(view, entry).paddingBottom)
+            assertEquals("$entry: above the actions", 0, row.paddingTop)
+            assertEquals("$entry: under the actions", 0, row.paddingBottom)
+            assertEquals("$entry: the actions keep their touch height", dp(48), action.height)
+        }
     }
 }

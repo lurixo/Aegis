@@ -1320,7 +1320,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
             ellipsize = android.text.TextUtils.TruncateAt.END
             setTextSize(TypedValue.COMPLEX_UNIT_SP, ImeType.body)
             setTextColor(TEXT_DARK)
-            setPadding(dp(14), dp(12), dp(4), dp(12))
+            setPadding(dp(14), dp(12), dp(4), if (expanded) 0 else dp(12))
         }).apply {
             foreground = cardPressFeedback(leftSide = true, squareBottom = expanded)
             setOnClickListener {
@@ -1455,7 +1455,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         orientation = LinearLayout.HORIZONTAL
         layoutDirection = View.LAYOUT_DIRECTION_LTR
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(8), dp(4), dp(8), dp(8))
+        setPadding(dp(8), 0, dp(8), 0)
         if (entryIsImage(text)) {
             addActionButton(glyphAction(context.getString(R.string.clip_image_copy), render = { c, p, x, y, s -> Glyphs.drawCopy(c, p, x, y, s) }) { copyImage(text) })
             addActionButton(glyphAction(context.getString(R.string.clip_delete), render = { c, p, x, y, s -> Glyphs.drawTrash(c, p, x, y, s) }) { confirmDelete(listOf(text)) })
@@ -1478,7 +1478,7 @@ class ClipboardView(context: Context) : FrameLayout(context), ResettablePanel, C
         orientation = LinearLayout.HORIZONTAL
         layoutDirection = View.LAYOUT_DIRECTION_LTR
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(8), dp(4), dp(8), dp(8))
+        setPadding(dp(8), 0, dp(8), 0)
         addActionButton(glyphAction(context.getString(R.string.clip_edit), render = { c, p, x, y, s -> Glyphs.drawEditSquare(c, p, x, y, s) }) { onEditPhrase(category, text) })
         addActionButton(glyphAction(context.getString(R.string.clip_note), render = { c, p, x, y, s -> Glyphs.drawTag(c, p, x, y, s) }) { onEditNote(category, text) })
         val moveClick = {
