@@ -22,8 +22,14 @@ object NeuralCpu {
     private val REQUIRED_X86_64 = setOf("sse4_2", "avx", "f16c", "fma", "bmi2", "avx2")
 
     val supported: Boolean by lazy {
-        supports(System.getProperty("os.arch").orEmpty(), runCatching { File("/proc/cpuinfo").readText() }.getOrDefault(""))
+        supports(
+            System.getProperty("java.vm.name").orEmpty(),
+            System.getProperty("os.arch").orEmpty(),
+            runCatching { File("/proc/cpuinfo").readText() }.getOrDefault(""),
+        )
     }
+
+    internal fun supports(vm: String, arch: String, cpuinfo: String): Boolean = vm != ANDROID_VM || supports(arch, cpuinfo)
 
     internal fun supports(arch: String, cpuinfo: String): Boolean {
         val (key, required) = when (arch) {
@@ -38,5 +44,6 @@ object NeuralCpu {
         return cores.isNotEmpty() && cores.all { it.containsAll(required) }
     }
 
+    private const val ANDROID_VM = "Dalvik"
     private val WHITESPACE = Regex("\\s+")
 }

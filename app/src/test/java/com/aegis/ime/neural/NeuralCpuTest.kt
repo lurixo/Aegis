@@ -70,4 +70,25 @@ class NeuralCpuTest {
     @Test fun otherArchitecturesAreNotChecked() {
         assertTrue(NeuralCpu.supports("riscv64", ""))
     }
+
+    @Test fun theAndroidRuntimeChecksTheArmInstructions() {
+        val v82 = "fp asimd evtstrm aes pmull sha1 sha2 crc32 atomics fphp asimdhp cpuid asimdrdm lrcpc dcpop asimddp"
+        assertTrue(NeuralCpu.supports("Dalvik", "aarch64", cpuinfo(v82)))
+        assertFalse(NeuralCpu.supports("Dalvik", "aarch64", cpuinfo("fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid")))
+        assertFalse(NeuralCpu.supports("Dalvik", "aarch64", ""))
+    }
+
+    @Test fun theAndroidRuntimeChecksTheX86Instructions() {
+        val v3 = "fpu sse sse2 ssse3 fma cx16 sse4_1 sse4_2 movbe popcnt aes xsave avx f16c rdrand bmi1 avx2 bmi2"
+        assertTrue(NeuralCpu.supports("Dalvik", "x86_64", x86Cpuinfo(v3)))
+        assertFalse(NeuralCpu.supports("Dalvik", "x86_64", x86Cpuinfo("fpu sse sse2 ssse3 cx16 sse4_1 sse4_2 popcnt aes xsave avx")))
+        assertFalse(NeuralCpu.supports("Dalvik", "x86_64", ""))
+    }
+
+    @Test fun aHostJvmIsNotChecked() {
+        assertTrue(NeuralCpu.supports("OpenJDK 64-Bit Server VM", "aarch64", ""))
+        assertTrue(NeuralCpu.supports("OpenJDK 64-Bit Server VM", "aarch64", cpuinfo("fp asimd evtstrm aes pmull sha1 sha2 crc32 cpuid")))
+        assertTrue(NeuralCpu.supports("OpenJDK 64-Bit Server VM", "x86_64", ""))
+        assertTrue(NeuralCpu.supports("OpenJDK 64-Bit Server VM", "amd64", ""))
+    }
 }
