@@ -84,7 +84,7 @@
     <string name="dict_gate_verifying">Verifying…</string>
     <string name="dict_gate_failed">Download failed — tap to retry</string>
 
-    <string name="neural_card_title">Reranking model (Qwen3)</string>
+    <string name="neural_card_title">Reranking model</string>
     <string name="neural_card_description">Optional download — whole-sentence candidates become more accurate; needs the enhancement model above</string>
     <string name="neural_source_link">Model source: Qwen/Qwen3-0.6B-Base ↗</string>
     <string name="neural_status_enabled">✅ Enabled (about %1$d MB)</string>

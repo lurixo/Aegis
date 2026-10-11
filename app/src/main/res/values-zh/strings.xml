@@ -84,7 +84,7 @@
     <string name="dict_gate_verifying">正在校验安装…</string>
     <string name="dict_gate_failed">下载失败，点按重试</string>
 
-    <string name="neural_card_title">重排模型（千问 Qwen3）</string>
+    <string name="neural_card_title">重排模型</string>
     <string name="neural_card_description">可选下载，整句候选更准；需先启用上方的增强模型</string>
     <string name="neural_source_link">模型来源：Qwen/Qwen3-0.6B-Base ↗</string>
     <string name="neural_status_enabled">✅ 已启用（约 %1$d MB）</string>
