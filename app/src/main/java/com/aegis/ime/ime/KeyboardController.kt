@@ -1257,6 +1257,7 @@ class KeyboardController(
             if (req.idle) req.engine.prepareUserWords()
         } else {
             val sentenceLimit = rerankSentenceLimit(req)
+            warmRerankContext(req)
             lane.submit(
                 compute = { computeDecode(req, sentenceLimit) },
                 apply = { result ->
@@ -1273,22 +1274,31 @@ class KeyboardController(
 
     private fun rerankSentenceLimit(req: DecodeRequest): Int {
         val reranker = neural ?: return 0
-        if (!reranker.ready) return 0
-        if (req.composingLen < RERANK_MIN_KEYS || req.mode != Mode.PINYIN || req.literalIndices.isNotEmpty() || req.lockedNonEmpty ||
-            req.drillSyllable >= 0 || req.forcedCuts.isNotEmpty() || req.emailContext != null
-        ) return 0
+        if (req.composingLen < RERANK_MIN_KEYS || !rerankApplies(reranker, req)) return 0
         return reranker.spec.candidates * RERANK_SEARCH_FACTOR
     }
+
+    private fun rerankApplies(reranker: NeuralReranker, req: DecodeRequest): Boolean =
+        reranker.ready && req.mode == Mode.PINYIN && req.literalIndices.isEmpty() && !req.lockedNonEmpty &&
+            req.drillSyllable < 0 && req.forcedCuts.isEmpty() && req.emailContext == null
+
+    private fun warmRerankContext(req: DecodeRequest) {
+        val reranker = neural ?: return
+        if (req.composingLen !in 1 until RERANK_MIN_KEYS || !rerankApplies(reranker, req)) return
+        reranker.warm(rerankContext(req))
+    }
+
+    private fun rerankContext(req: DecodeRequest): String =
+        NeuralReranker.contextWindow(req.beforeCursor + committedPrefix, req.beforeCursor.length <= CONTEXT_SCAN_LEN)
 
     private fun holdForRerank(req: DecodeRequest, result: DecodeResult): Boolean {
         val reranker = neural ?: return false
         if (!reranker.ready) return false
         val paths = result.sentences ?: return false
         if (paths.size < RERANK_MIN_PATHS || result.candidates.isEmpty()) return false
-        val modelContext = NeuralReranker.contextWindow(req.beforeCursor + committedPrefix, req.beforeCursor.length <= CONTEXT_SCAN_LEN)
         heldDecode = result
         reranker.submit(
-            context = modelContext,
+            context = rerankContext(req),
             nine = req.isNine,
             waitMillis = RERANK_WAIT_MILLIS,
             paths = paths,

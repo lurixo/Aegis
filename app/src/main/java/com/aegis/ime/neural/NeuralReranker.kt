@@ -55,6 +55,11 @@ class NeuralReranker(
 
     private class Delivery(val gen: Long, val run: () -> Unit)
 
+    private class Warmup(val context: String) {
+        @Volatile var done = false
+    }
+
+    @Volatile private var warmup: Warmup? = null
     @Volatile private var phase = Phase.LOADING
     @Volatile private var error: String? = null
     @Volatile private var scorer: SentenceScorer? = null
@@ -112,6 +117,25 @@ class NeuralReranker(
 
     fun invalidate() {
         latest.incrementAndGet()
+        cancelUnlessWarming(null)
+    }
+
+    fun warm(context: String) {
+        if (phase != Phase.READY || warmup?.context == context) return
+        val next = Warmup(context)
+        warmup = next
+        scorer?.cancel()
+        worker.execute { load(next) }
+    }
+
+    private fun load(next: Warmup) {
+        if (warmup === next && phase == Phase.READY) runCatching { scorer?.warm(next.context) }
+        next.done = true
+    }
+
+    private fun cancelUnlessWarming(context: String?) {
+        val active = warmup
+        if (active != null && !active.done && (context == null || active.context == context)) return
         scorer?.cancel()
     }
 
@@ -124,7 +148,8 @@ class NeuralReranker(
     ) {
         val gen = latest.incrementAndGet()
         pendingGen = gen
-        scorer?.cancel()
+        cancelUnlessWarming(context)
+        if (warmup?.context != context) warmup = null
         val queued = nanoTime()
         worker.execute { run(gen, queued, context, nine, paths, apply) }
         schedule(waitMillis) { expire(gen, apply) }
@@ -134,7 +159,7 @@ class NeuralReranker(
         if (gen != latest.get()) return
         deliver(gen) {
             synchronized(statsLock) { timeouts++ }
-            scorer?.cancel()
+            cancelUnlessWarming(null)
             apply(null)
         }
     }

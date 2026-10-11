@@ -35,6 +35,8 @@ class NeuralRerankerTest {
     ) : SentenceScorer {
         val contexts = ArrayList<String>()
         val batches = ArrayList<List<String>>()
+        val calls = ArrayList<String>()
+        var warmFails = false
         var cancels = 0
         var aborted = false
         var closed = false
@@ -42,12 +44,16 @@ class NeuralRerankerTest {
         override fun score(context: String, candidates: List<String>): DoubleArray? {
             contexts.add(context)
             batches.add(candidates)
+            calls.add("score:$context")
             elapse()
             if (aborted) return null
             return DoubleArray(candidates.size) { scores.getValue(candidates[it]) }
         }
 
-        override fun warm(context: String) {}
+        override fun warm(context: String) {
+            calls.add("warm:$context")
+            if (warmFails) error("bad prefix")
+        }
 
         override fun cancel() {
             cancels++
@@ -418,6 +424,137 @@ class NeuralRerankerTest {
         assertEquals(listOf(NONE), chosen)
         q.runMain()
         assertEquals(listOf(NONE), chosen)
+    }
+
+    @Test fun a_warm_loads_the_context_once_outside_the_statistics() {
+        val q = Queues()
+        val scorer = FakeScorer(prefersSecond)
+        val r = started(q, scorer)
+        r.warm("上文")
+        r.warm("上文")
+        assertEquals(1, q.worker.size)
+        assertTrue(q.timers.isEmpty())
+        assertTrue(r.settle(1_000L))
+        q.runWorker()
+        r.warm("上文")
+        assertTrue(q.worker.isEmpty())
+        assertTrue(q.main.isEmpty())
+        assertEquals(listOf("warm:上文"), scorer.calls)
+        val snap = r.snapshot()
+        assertEquals(0, snap.runs)
+        assertEquals(0, snap.timeouts)
+        assertEquals(0, snap.cancelled)
+        assertNull(snap.error)
+    }
+
+    private fun jobForTheWarmedContextRunsBehindTheWarm(nine: Boolean) {
+        val q = Queues()
+        val scorer = FakeScorer(prefersSecond)
+        val r = started(q, scorer)
+        r.warm("上文")
+        val cancels = scorer.cancels
+        r.invalidate()
+        r.warm("上文")
+        r.invalidate()
+        val chosen = ArrayList<String>()
+        r.submit("上文", nine = nine, waitMillis = WAIT, paths = paths) { chosen.add(it?.best ?: NONE) }
+        assertEquals("later keys leave the warm running", cancels, scorer.cancels)
+        assertEquals(2, q.worker.size)
+        q.runWorker(); q.runMain()
+        assertEquals(listOf("warm:上文", "score:上文"), scorer.calls)
+        assertEquals(listOf("拟好"), chosen)
+        assertEquals(1, r.snapshot().runs)
+        assertEquals(0, r.snapshot().cancelled)
+        r.invalidate()
+        assertEquals("a finished warm no longer shields the scorer", cancels + 1, scorer.cancels)
+    }
+
+    @Test fun a_job_for_the_warmed_context_runs_behind_the_warm_on_26key() = jobForTheWarmedContextRunsBehindTheWarm(nine = false)
+
+    @Test fun a_job_for_the_warmed_context_runs_behind_the_warm_on_9key() = jobForTheWarmedContextRunsBehindTheWarm(nine = true)
+
+    @Test fun a_warm_for_another_context_replaces_the_one_in_flight() {
+        val q = Queues()
+        val scorer = FakeScorer(prefersSecond)
+        val r = started(q, scorer)
+        r.warm("旧")
+        val cancels = scorer.cancels
+        r.invalidate()
+        r.warm("新")
+        assertEquals(cancels + 1, scorer.cancels)
+        q.runWorker()
+        assertEquals(listOf("warm:新"), scorer.calls)
+        assertEquals(0, r.snapshot().cancelled)
+    }
+
+    private fun jobForAnotherContextCancelsTheWarm(nine: Boolean) {
+        val q = Queues()
+        val scorer = FakeScorer(prefersSecond)
+        val r = started(q, scorer)
+        r.warm("旧")
+        val cancels = scorer.cancels
+        r.invalidate()
+        val chosen = ArrayList<String>()
+        r.submit("新", nine = nine, waitMillis = WAIT, paths = paths) { chosen.add(it?.best ?: NONE) }
+        assertEquals(cancels + 1, scorer.cancels)
+        q.runWorker(); q.runMain()
+        assertEquals(listOf("score:新"), scorer.calls)
+        assertEquals(listOf("拟好"), chosen)
+        r.warm("旧")
+        q.runWorker()
+        assertEquals(listOf("score:新", "warm:旧"), scorer.calls)
+        assertEquals(0, r.snapshot().cancelled)
+    }
+
+    @Test fun a_job_for_another_context_cancels_the_warm_on_26key() = jobForAnotherContextCancelsTheWarm(nine = false)
+
+    @Test fun a_job_for_another_context_cancels_the_warm_on_9key() = jobForAnotherContextCancelsTheWarm(nine = true)
+
+    @Test fun a_wait_that_runs_out_behind_a_warm_leaves_the_warm_running() {
+        val q = Queues()
+        val scorer = FakeScorer(prefersSecond)
+        val r = started(q, scorer)
+        r.warm("上文")
+        val chosen = ArrayList<String>()
+        r.submit("上文", nine = false, waitMillis = WAIT, paths = paths) { chosen.add(it?.best ?: NONE) }
+        val cancels = scorer.cancels
+        q.fireTimers()
+        q.runMain()
+        assertEquals(listOf(NONE), chosen)
+        assertEquals(1, r.snapshot().timeouts)
+        assertEquals(cancels, scorer.cancels)
+    }
+
+    @Test fun a_failed_warm_is_silent_and_scoring_still_works() {
+        val q = Queues()
+        val scorer = FakeScorer(prefersSecond).apply { warmFails = true }
+        val r = started(q, scorer)
+        r.warm("上文")
+        q.runWorker(); q.runMain()
+        assertNull(r.snapshot().error)
+        assertTrue(r.ready)
+        val chosen = ArrayList<String>()
+        r.submit("上文", nine = false, waitMillis = WAIT, paths = paths) { chosen.add(it?.best ?: NONE) }
+        q.runWorker(); q.runMain()
+        assertEquals(listOf("拟好"), chosen)
+        assertEquals(listOf("warm:上文", "score:上文"), scorer.calls)
+    }
+
+    @Test fun a_reranker_that_is_not_ready_does_not_warm() {
+        val q = Queues()
+        val scorer = FakeScorer(prefersSecond)
+        val r = NeuralReranker(spec, { scorer }, Executor { q.worker.add(it) }, Executor { q.main.add(it) }, q.schedule)
+        r.start()
+        r.warm("上文")
+        assertEquals(1, q.worker.size)
+        q.runWorker()
+        r.warm("上文")
+        r.close()
+        q.runWorker()
+        assertTrue(scorer.calls.isEmpty())
+        assertTrue(scorer.closed)
+        r.warm("上文")
+        assertTrue(q.worker.isEmpty())
     }
 
     @Test fun a_failed_load_reports_the_error_and_never_scores() {

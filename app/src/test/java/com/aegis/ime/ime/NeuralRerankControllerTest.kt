@@ -99,12 +99,19 @@ class NeuralRerankControllerTest {
 
     private class Scorer : SentenceScorer {
         val contexts = ArrayList<String>()
+        val calls = ArrayList<String>()
+        var cancels = 0
         override fun score(context: String, candidates: List<String>): DoubleArray {
             contexts.add(context)
+            calls.add("score:$context")
             return DoubleArray(candidates.size) { if (candidates[it].startsWith("拟好")) -1.0 else -5.0 }
         }
-        override fun warm(context: String) {}
-        override fun cancel() {}
+        override fun warm(context: String) {
+            calls.add("warm:$context")
+        }
+        override fun cancel() {
+            cancels++
+        }
         override fun close() {}
     }
 
@@ -310,7 +317,8 @@ class NeuralRerankControllerTest {
             q.decode()
             assertEquals("$keys keys", engine.words(input.take(keys)), decoded(c))
             assertFalse("$keys keys", view.candidatesPendingForTest())
-            assertTrue("$keys keys", q.neuralWorker.isEmpty() && q.neuralMain.isEmpty() && q.timers.isEmpty())
+            assertEquals("$keys keys", 1, q.neuralWorker.size)
+            assertTrue("$keys keys", q.neuralMain.isEmpty() && q.timers.isEmpty())
         }
         assertTrue("no paths are generated for input the model never sees", engine.rankedCalls.isEmpty())
         type(c, input.substring(2))
@@ -318,7 +326,7 @@ class NeuralRerankControllerTest {
         assertEquals("the third key is held for the model", engine.words(input.take(2)), decoded(c))
         assertTrue(view.candidatesPendingForTest())
         assertEquals(listOf("$input|$nine"), engine.rankedCalls)
-        assertEquals(1, q.neuralWorker.size)
+        assertEquals(2, q.neuralWorker.size)
         q.neural()
         assertEquals(engine.reranked(input), decoded(c))
         assertFalse(view.candidatesPendingForTest())
@@ -339,7 +347,10 @@ class NeuralRerankControllerTest {
             val view = InputView(ctx)
             val (c, q, r) = setup(engine, view = view)
             c.switchTextLayoutForTest(nine)
-            type(c, input)
+            type(c, input.take(2))
+            q.decode()
+            q.neural()
+            type(c, input.substring(2))
             q.decode()
             assertEquals("$paths paths", listOf("$input|$nine"), engine.rankedCalls)
             assertEquals("$paths paths", engine.words(input), decoded(c))
@@ -364,7 +375,10 @@ class NeuralRerankControllerTest {
         })
         c.switchTextLayoutForTest(nine)
         val input = if (nine) "644" else "nih"
-        type(c, input)
+        type(c, input.take(2))
+        q.decode()
+        q.neural()
+        type(c, input.substring(2))
         q.decode()
         assertTrue(view.candidatesPendingForTest())
         assertEquals(1, q.neuralWorker.size)
@@ -398,6 +412,131 @@ class NeuralRerankControllerTest {
 
     @Test fun short_input_is_not_overwritten_by_an_older_finished_run_on_9key() =
         shortInputIsNotOverwrittenByAnOlderModelChoice(nine = true, scoredFirst = true)
+
+    private fun scoring(q: Queues, scorer: Scorer) =
+        NeuralReranker(spec, { scorer }, Executor { r -> q.neuralWorker.add(r) }, Executor { r -> q.neuralMain.add(r) }, q.schedule)
+
+    private fun shortInputWarmsTheContextTheThirdKeyScores(nine: Boolean) {
+        val host = Host().apply { before = "今天我想说" }
+        val engine = EveryInputEngine()
+        val scorer = Scorer()
+        val view = InputView(ctx)
+        val (c, q, r) = setup(engine, host, view = view, reranker = { scoring(it, scorer) })
+        c.switchTextLayoutForTest(nine)
+        val input = if (nine) "644" else "nih"
+        type(c, input.take(1))
+        q.decode()
+        assertEquals(1, q.neuralWorker.size)
+        val cancels = scorer.cancels
+        type(c, input.substring(1, 2))
+        q.decode()
+        assertEquals("the second key does not warm again", 1, q.neuralWorker.size)
+        assertEquals("the second key leaves the warm running", cancels, scorer.cancels)
+        assertTrue(q.neuralMain.isEmpty() && q.timers.isEmpty())
+        assertFalse(view.candidatesPendingForTest())
+        type(c, input.substring(2))
+        q.decode()
+        assertEquals("the third key leaves the warm running", cancels, scorer.cancels)
+        assertEquals(2, q.neuralWorker.size)
+        assertTrue(view.candidatesPendingForTest())
+        q.neural()
+        assertEquals(listOf("warm:今天我想说", "score:今天我想说"), scorer.calls)
+        assertEquals(engine.reranked(input), decoded(c))
+        assertFalse(view.candidatesPendingForTest())
+        val snap = r.snapshot()
+        assertEquals(1, snap.runs)
+        assertEquals(0, snap.cancelled)
+        assertEquals(0, snap.timeouts)
+    }
+
+    @Test fun short_input_warms_the_context_the_third_key_scores_on_26key() =
+        shortInputWarmsTheContextTheThirdKeyScores(nine = false)
+
+    @Test fun short_input_warms_the_context_the_third_key_scores_on_9key() =
+        shortInputWarmsTheContextTheThirdKeyScores(nine = true)
+
+    private fun spaceOnShortInputDoesNotWaitForTheWarm(nine: Boolean) {
+        val host = Host()
+        val engine = EveryInputEngine()
+        val scorer = Scorer()
+        val (c, q, r) = setup(engine, host, reranker = { scoring(it, scorer) })
+        c.switchTextLayoutForTest(nine)
+        val input = if (nine) "64" else "ni"
+        type(c, input)
+        q.decode()
+        assertEquals(1, q.neuralWorker.size)
+        c.onKey(Key(" ", action = KeyAction.SPACE))
+        assertEquals(listOf(engine.words(input).first()), host.commits)
+        q.decode()
+        q.neural()
+        assertEquals("the text committed from short input is not warmed", listOf("warm:"), scorer.calls)
+        val snap = r.snapshot()
+        assertEquals(0, snap.runs)
+        assertEquals(0, snap.cancelled)
+        assertEquals(0, snap.timeouts)
+    }
+
+    @Test fun space_on_short_input_does_not_wait_for_the_warm_on_26key() = spaceOnShortInputDoesNotWaitForTheWarm(nine = false)
+
+    @Test fun space_on_short_input_does_not_wait_for_the_warm_on_9key() = spaceOnShortInputDoesNotWaitForTheWarm(nine = true)
+
+    private fun changedContextCancelsTheWarmAndWarmsAgain(nine: Boolean) {
+        val host = Host().apply { before = "今天" }
+        val scorer = Scorer()
+        val (c, q, r) = setup(EveryInputEngine(), host, reranker = { scoring(it, scorer) })
+        c.switchTextLayoutForTest(nine)
+        val input = if (nine) "64" else "ni"
+        type(c, input.take(1))
+        q.decode()
+        val cancels = scorer.cancels
+        host.before = "明天"
+        c.onEditorContextChanged()
+        type(c, input.substring(1))
+        q.decode()
+        assertEquals(cancels + 1, scorer.cancels)
+        assertEquals(2, q.neuralWorker.size)
+        q.neural()
+        assertEquals(listOf("warm:明天"), scorer.calls)
+        assertEquals(0, r.snapshot().cancelled)
+    }
+
+    @Test fun a_changed_context_cancels_the_warm_and_warms_again_on_26key() = changedContextCancelsTheWarmAndWarmsAgain(nine = false)
+
+    @Test fun a_changed_context_cancels_the_warm_and_warms_again_on_9key() = changedContextCancelsTheWarmAndWarmsAgain(nine = true)
+
+    private fun inputTheModelNeverRanksIsNotWarmed(nine: Boolean) {
+        val input = if (nine) "64" else "ni"
+        val host = Host().apply { before = "今天" }
+        val scorer = Scorer()
+        val (c, q, _) = setup(EveryInputEngine(), host, reranker = { scoring(it, scorer) })
+        c.switchTextLayoutForTest(nine)
+        type(c, input.take(1))
+        q.decode()
+        q.neural()
+        assertEquals(listOf("warm:今天"), scorer.calls)
+        c.onKey(Key("", action = KeyAction.SEGMENT))
+        host.before = "明天"
+        c.onEditorContextChanged()
+        type(c, input.substring(1))
+        q.decode()
+        assertTrue("input with a forced cut is not warmed", q.neuralWorker.isEmpty())
+        assertEquals(listOf("warm:今天"), scorer.calls)
+
+        val loading = Queues()
+        val idle = Scorer()
+        val unready = KeyboardController(Host(), EveryInputEngine(), loading.lane).apply { attachView(InputView(ctx)) }
+        unready.neural = scoring(loading, idle).apply { start() }
+        unready.switchTextLayoutForTest(nine)
+        type(unready, input)
+        loading.decode()
+        assertEquals("only the model load is queued", 1, loading.neuralWorker.size)
+        loading.neural()
+        assertTrue(idle.calls.isEmpty())
+    }
+
+    @Test fun input_the_model_never_ranks_is_not_warmed_on_26key() = inputTheModelNeverRanksIsNotWarmed(nine = false)
+
+    @Test fun input_the_model_never_ranks_is_not_warmed_on_9key() = inputTheModelNeverRanksIsNotWarmed(nine = true)
 
     private fun firstKeyTimeRunsUntilTheCandidatesOfTheCompositionShow(nine: Boolean) {
         var now = 0L
