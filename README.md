@@ -279,7 +279,10 @@ tools/release/build_dictionary_pack.py --release-tag dict-latest
 
 The command clones `amzxyz/rime-wanxiang` — the `wanxiang` branch by default, `--source-tag` to pin
 a release tag instead, `--source-dir` to use an existing checkout — builds the 14 verified tables
-with `tools/DictBuilder` at `--min-freq 1` and no per-key cap. It writes an **intermediate** pack ZIP,
+with `tools/DictBuilder` at `--min-freq 1` and no per-key cap. It also merges the game and anime terms
+of `tools/release/domain/aegis-domain.dict.yaml` into the three Chinese dictionaries, though not into
+the language model, after dropping every word the 14 tables already contain; `sources.json` beside
+that table lists where the terms come from. It writes an **intermediate** pack ZIP,
 `aegis-build-info.json`, and `aegis-dictionary-update.json` under `build/release-dictionary/`. The
 intermediate pack contains four runtime components — three Chinese dictionaries and the character
 language model — and **must not be published**.
@@ -347,6 +350,21 @@ stripped (`ü` -> `v`), syllables concatenated into toneless keys, traditional/v
 to Simplified (OpenCC tables), repacked into Aegis's binary format; the pack keeps every entry
 (`--min-freq 1`).
 
+**Community game and anime word sources:** `aegis_{dict,t9,jianpin}.bin` also contain game and anime
+terms taken from community dictionaries, wiki page titles and game data files, among them the
+Moegirlpedia dictionary published by [mw2fcitx](https://github.com/outloudvi/mw2fcitx)
+(**CC BY-NC-SA 3.0**), word lists and page titles from the PRTS, Mooncell, GFwiki, BWIKI, Oxygen Not
+Included and Terraria wikis (**CC BY-NC-SA 4.0**, except the Identity V BWIKI, for which no license
+was confirmed), page titles from the Stardew Valley Wiki (**CC BY-NC-SA 3.0** in its site API rights
+statement, **CC BY-SA 3.0** in its page footer), Rime dictionary repositories on GitHub, and Sogou
+cell dictionaries. Licenses differ per source, and for many of them none is stated or confirmed.
+[`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) (section 11),
+`tools/release/domain/sources.json` and each pack's `NOTICE.txt` list every source with its URL, the
+license it states and the version used. **Changes:** entries of two to eight Chinese characters
+selected, given toneless readings drawn from or checked against the rime-wanxiang character table,
+given the same weight, stripped of every word the 14 tables already contain, and repacked into
+Aegis's binary format; they do not feed `aegis_lm.bin`.
+
 **wanxiang octagram model** (`wanxiang-lts-zh-hans.gram`): (c) amzxyz, **CC BY 4.0**
 ([RIME-LMDG](https://github.com/amzxyz/RIME-LMDG)). The optional top-tier context model behind next-word /
 whole-sentence ranking; fetched only on explicit opt-in, **not** bundled in the APK.
@@ -372,5 +390,5 @@ scope only, not distributed). Algorithm references (not vendored): AOSP PinyinIM
 darts-clone (BSD-2-Clause).
 
 The full list, with the modifications made to each work, is in
-[`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md); the app shows the same list under
-**Settings → About & enable → Open-source licenses**.
+[`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md); the app shows the same list, except the
+community word sources, under **Settings → About & enable → Open-source licenses**.
