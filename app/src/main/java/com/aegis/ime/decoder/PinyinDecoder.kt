@@ -879,14 +879,20 @@ class PinyinDecoder(
         for (c in rare) out[write++] = c
     }
 
-    private fun decodeAtomic(input: String, interior: Set<Int>, ctx: Ctx, staged: Boolean): List<Cand> {
+    private fun decodeAtomic(
+        input: String,
+        interior: Set<Int>,
+        ctx: Ctx,
+        staged: Boolean,
+        rules: Set<String> = fuzzyRules,
+    ): List<Cand> {
         val ctxId = resolveCtxId(ctx.cp)
         val condMemo = CondMemo()
         val B = atomicBounds(input, interior)
         val nSyl = B.size - 1
 
         val singlesCache = HashMap<String, Set<String>>()
-        val sentences = byUsage(atomicSentences(input, B, interior, ctx, singlesCache))
+        val sentences = byUsage(atomicSentences(input, B, interior, ctx, singlesCache, rules))
         DecodeCancellation.checkpoint()
 
         val best = sentences.firstOrNull()?.text
@@ -916,6 +922,18 @@ class PinyinDecoder(
             val f = userWordFreq(uw, input).toInt().coerceAtLeast(1)
             if (leadFreq.put(uw, f.toDouble()) == null) leadCov[uw] = input.length
         }
+        val fuzzyLead = HashSet<String>()
+        val fuzzySingles = HashMap<String, Set<String>>()
+        for (j in 2..nSyl) {
+            if (firstInitial in 0 until j) break
+            for (wf in fuzzySpanWords(input, 0, B[j], false, interior, rules, fuzzySingles)) {
+                if (leadFreq.putIfAbsent(wf.word, wf.freq.toDouble()) != null) continue
+                leadCov[wf.word] = B[j]
+                fuzzyLead.add(wf.word)
+            }
+        }
+        fun leadModelScore(word: String, frequency: Double): Double =
+            wordModelScore(word, frequency, ctxId, ctx, condMemo) - if (word in fuzzyLead) fuzzyPenalty else 0.0
 
         val sylCharFreq = Array(nSyl) { i ->
             val m = HashMap<String, Double>()
@@ -990,7 +1008,7 @@ class PinyinDecoder(
         }
         if (staged) {
             val leadScore = HashMap<String, Double>(leadFreq.size * 2)
-            for ((w, f) in leadFreq) leadScore[w] = wordModelScore(w, f, ctxId, ctx, condMemo)
+            for ((w, f) in leadFreq) leadScore[w] = leadModelScore(w, f)
             val stagedRealWords = leadFreq.keys.sortedWith(
                 compareByDescending<String> { leadCov.getValue(it) }
                     .thenByDescending { leadScore.getValue(it) }
@@ -1009,7 +1027,7 @@ class PinyinDecoder(
         best?.let { rest.add(it) }
         rest.addAll(choices)
         val leadRank = HashMap<String, Double>(leadFreq.size * 2)
-        for ((w, f) in leadFreq) leadRank[w] = wordModelScore(w, f, ctxId, ctx, condMemo)
+        for ((w, f) in leadFreq) leadRank[w] = leadModelScore(w, f)
         for (w in leadFreq.keys.sortedByDescending { leadRank.getValue(it) }) {
             if (w !in rest) rest.add(w)
         }
@@ -1025,7 +1043,7 @@ class PinyinDecoder(
         for (c in merged) classTotal[c.coveredLen] = (classTotal[c.coveredLen] ?: 0.0) + candFrequency(c)
         val mergedRank = HashMap<String, Double>(merged.size * 2)
         for (c in merged) {
-            val raw = tailScore[c.word] ?: wordModelScore(c.word, candFrequency(c), ctxId, ctx, condMemo)
+            val raw = tailScore[c.word] ?: leadModelScore(c.word, candFrequency(c))
             mergedRank[c.word] = raw + lnTotal - ln((classTotal[c.coveredLen] ?: 1.0).coerceAtLeast(1.0))
         }
         merged.sortWith(
@@ -1044,6 +1062,7 @@ class PinyinDecoder(
         cuts: Set<Int>,
         input: String,
         singlesCache: HashMap<String, Set<String>>,
+        rules: Set<String> = emptySet(),
     ): Boolean {
         var hasInner = false
         for (c in cuts) if (c > spanStart && c < spanEnd) { hasInner = true; break }
@@ -1061,6 +1080,11 @@ class PinyinDecoder(
         fun singles(k: String): Set<String> = singlesCache.getOrPut(k) {
             val out = HashSet<String>()
             for (wf in cachedExact(dict, k)) if (isSingleChar(wf.word)) out.add(wf.word)
+            if (rules.isNotEmpty()) {
+                for (variant in cachedFuzzyVariants(k, rules)) {
+                    for (wf in cachedExact(dict, variant)) if (isSingleChar(wf.word)) out.add(wf.word)
+                }
+            }
             out
         }
         fun parses(respectCuts: Boolean): Boolean {
@@ -1082,6 +1106,28 @@ class PinyinDecoder(
         }
         if (parses(respectCuts = true)) return true
         return !parses(respectCuts = false)
+    }
+
+    private fun fuzzySpanWords(
+        input: String,
+        spanStart: Int,
+        spanEnd: Int,
+        single: Boolean,
+        cuts: Set<Int>,
+        rules: Set<String>,
+        fuzzySingles: HashMap<String, Set<String>>,
+    ): List<BinaryDict.WordFreq> {
+        if (rules.isEmpty()) return emptyList()
+        val out = ArrayList<BinaryDict.WordFreq>()
+        for (variant in cachedFuzzyVariants(input.substring(spanStart, spanEnd), rules)) {
+            for (wf in preferredExact(dict, variant)) {
+                if (isSingleChar(wf.word) != single) continue
+                if (!single && !admissibleUnderCuts(wf.word, spanStart, spanEnd, cuts, input, fuzzySingles, rules)) continue
+                out.add(wf)
+            }
+        }
+        out.sortByDescending { it.freq }
+        return out
     }
 
     private fun initialSegments(input: String, B: List<Int>): BooleanArray =
@@ -1152,7 +1198,9 @@ class PinyinDecoder(
         interior: Set<Int>,
         ctx: Ctx,
         singlesCache: HashMap<String, Set<String>>,
+        rules: Set<String>,
     ): List<SentencePath> {
+        val fuzzySingles = HashMap<String, Set<String>>()
         val model = lm
         val grammar = octagram
         val condMemo = CondMemo()
@@ -1184,13 +1232,21 @@ class PinyinDecoder(
                     if (j > i + 1 && !admissibleUnderCuts(word, B[i], B[j], interior, input, singlesCache)) continue
                     edges.add(BinaryDict.WordFreq(word, freq))
                 }
-                for (wf in edges) {
+                val exactEdges = edges.size
+                if (!initialSpan && exactEdges < SENTENCE_EDGE_N) {
+                    for (wf in fuzzySpanWords(input, B[i], B[j], j == i + 1, interior, rules, fuzzySingles)) {
+                        if (present.add(wf.word)) edges.add(wf)
+                        if (edges.size >= SENTENCE_EDGE_N) break
+                    }
+                }
+                for ((index, wf) in edges.withIndex()) {
+                    val edgePenalty = if (index < exactEdges) penalty else penalty + fuzzyPenalty
                     val w = wf.word
                     val firstCp = w.codePointAt(0)
                     val idFirst = model?.charId(firstCp) ?: -1
                     val lastCp = w.codePointBefore(w.length)
-                    val uni = if (grammar != null) ln(wf.freq.toDouble()) - LN_GRAMMAR_WEIGHT_SCALE - grammarCharPenalty * w.codePointCount(0, w.length) - penalty
-                    else ln(wf.freq.toDouble()) - lnTotal - penalty
+                    val uni = if (grammar != null) ln(wf.freq.toDouble()) - LN_GRAMMAR_WEIGHT_SCALE - grammarCharPenalty * w.codePointCount(0, w.length) - edgePenalty
+                    else ln(wf.freq.toDouble()) - lnTotal - edgePenalty
                     val boost = sentenceUsageBoost(w, i == 0 && j == nSyl) +
                         (learn?.formedWeight(w) ?: 0.0)
                     val inner = if (grammar != null || model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model, condMemo)
@@ -1828,7 +1884,7 @@ class PinyinDecoder(
             val full = locked + gv.letters
             if (full.isEmpty() || gv.letters.any { it !in 'a'..'z' }) continue
             val interior = lockedCuts.filter { it in 1 until full.length }.toSet()
-            for (c in decodeAtomic(full, interior, ctx, interior.isNotEmpty())) {
+            for (c in decodeAtomic(full, interior, ctx, interior.isNotEmpty(), emptySet())) {
                 if (c.coveredLen != full.length) continue
                 out.putIfAbsent(c.word, full)
                 if (out.size >= limit) return out.map { (word, reading) -> Cand(word, active.length, reading) }
