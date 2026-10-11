@@ -449,6 +449,15 @@ object T9Pinyin {
         return letters
     }
 
+    fun initialSpellings(digits: String): List<String> {
+        var out = listOf("")
+        for (digit in digits) {
+            val letters = KEY_LETTERS[digit]?.filterNot { it in NON_INITIAL_LETTERS } ?: return emptyList()
+            out = out.flatMap { head -> letters.map { head + it } }
+        }
+        return out
+    }
+
     fun longestDecodablePrefix(digits: String): String {
         for (p in digits.length downTo 1) {
             if (segment(digits.substring(0, p)) != null) return digits.substring(0, p)

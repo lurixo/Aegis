@@ -21,6 +21,7 @@ import com.aegis.ime.decoder.Syllable
 import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.dict.DecodeCancellation
 import com.aegis.ime.dict.EnglishKey
 import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.user.UserLearning
@@ -33,7 +34,7 @@ class DictEngine(
     lm: CharBigramLM?,
     private val userModel: UserModel? = null,
     fuzzyRules: Set<String> = emptySet(),
-    initialsDict: BinaryDict? = null,
+    private val initialsDict: BinaryDict? = null,
     octagram: OctagramReader? = null,
     private val userLearning: UserLearning? = null,
     private val englishDict: BinaryDict? = null,
@@ -74,7 +75,35 @@ class DictEngine(
         if (composing.isEmpty()) return emptyList()
         val d = if (t9) t9Decoder else decoder
         val out = d?.decodeCovered(composing, MAX_CANDIDATES, cuts, context) ?: emptyList()
-        return if (t9) out.filterNot { c -> c.word.all { it.code < 128 } } else out
+        return if (t9) nineCandidates(composing, out, context) else out
+    }
+
+    private fun nineCandidates(digits: String, decoded: List<Cand>, context: CharSequence): List<Cand> =
+        decoded.filterNot { c -> c.word.all { it.code < 128 } }.ifEmpty { initialCandidates(digits, context) }
+
+    private fun initialCandidates(digits: String, context: CharSequence): List<Cand> {
+        val source = initialsDict ?: return emptyList()
+        val nine = t9Decoder ?: return emptyList()
+        if (digits.length < 2 || digits.any { it !in '2'..'9' }) return emptyList()
+        val out = ArrayList<Cand>()
+        val seen = HashSet<String>()
+        for (length in minOf(digits.length, MAX_INITIALS) downTo 2) {
+            val hits = ArrayList<BinaryDict.WordFreq>()
+            for (key in T9Pinyin.initialSpellings(digits.substring(0, length))) {
+                DecodeCancellation.checkpoint()
+                hits.addAll(source.exact(key, INITIAL_WORDS))
+            }
+            hits.sortByDescending { it.freq }
+            var taken = 0
+            for (hit in hits) {
+                if (taken == INITIAL_WORDS) break
+                if (seen.add(hit.word)) { out.add(Cand(hit.word, length)); taken++ }
+            }
+        }
+        for (c in nine.decodeCovered(digits.substring(0, 1), MAX_CANDIDATES, emptySet(), context)) {
+            if (c.word.any { it.code >= 128 } && seen.add(c.word)) out.add(c)
+        }
+        return out
     }
 
     override fun rankedSentences(composing: String, t9: Boolean, context: CharSequence, limit: Int): List<Pair<String, Double>> {
@@ -92,7 +121,7 @@ class DictEngine(
         val d = (if (t9) t9Decoder else decoder) ?: return emptyList<Cand>() to emptyList()
         val sink = PinyinDecoder.PathSink(sentenceLimit)
         val out = d.decodeCovered(composing, MAX_CANDIDATES, context, sink)
-        val candidates = if (t9) out.filterNot { c -> c.word.all { it.code < 128 } } else out
+        val candidates = if (t9) nineCandidates(composing, out, context) else out
         return candidates to sentencePairs(sink.paths, t9)
     }
 
@@ -205,6 +234,8 @@ class DictEngine(
     private companion object {
         const val MAX_CANDIDATES = 30
         const val MAX_GUESSES = 3
+        const val MAX_INITIALS = 6
+        const val INITIAL_WORDS = 20
         const val MAX_PREDICTIONS = 8
         const val ENGLISH_SUPPLY = 128
     }
