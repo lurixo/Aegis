@@ -1263,6 +1263,7 @@ class KeyboardController(
             neural?.firstKeyShown()
         }
         val req = buildDecodeRequest()
+        val continues = latestRequest?.let(req::continues) == true
         latestRequest = req
         val lane = decodeLane
         if (lane == null) {
@@ -1280,6 +1281,14 @@ class KeyboardController(
                     }
                 },
                 onError = { applyDecodeResult(emptyDecodeResult()); if (!settlingDecode) render() },
+                continues = continues,
+                overtaken = { result ->
+                    if (composing.isNotEmpty() && result.request?.raw != composing.toString()) {
+                        applyDecodeResult(result)
+                        if (candidates.isNotEmpty()) neural?.firstKeyShown()
+                        render()
+                    }
+                },
             )
             if (req.idle) lane.execute { synchronized(decodeLock) { req.engine.prepareUserWords() } }
         }
@@ -1397,6 +1406,9 @@ class KeyboardController(
                 next.raw.startsWith(raw) && next.englishTyped.startsWith(englishTyped) &&
                 literalIndices == next.literalIndices.filterTo(HashSet()) { it < composingLen } &&
                 forcedCuts == next.forcedCuts.filterTo(HashSet()) { it <= composingLen }
+
+        fun continues(previous: DecodeRequest): Boolean =
+            raw.isNotEmpty() && previous.raw.isNotEmpty() && (previous.extendedBy(this) || extendedBy(previous))
     }
 
     private class DecodeResult(

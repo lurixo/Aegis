@@ -1043,7 +1043,10 @@ class NeuralRerankControllerTest {
             val (c, q, _) = setup(engine, q = Queues(decodeWorker))
             c.switchTextLayoutForTest(nine)
             val input = if (nine) "64426" else "nihao"
-            type(c, input)
+            type(c, input.dropLast(1))
+            decodeWorker.submit {}.get(15, TimeUnit.SECONDS)
+            q.decode()
+            type(c, input.takeLast(1))
             assertTrue(engine.rankedEntered!!.await(5, TimeUnit.SECONDS))
             val before = System.nanoTime()
             type(c, input.take(1))

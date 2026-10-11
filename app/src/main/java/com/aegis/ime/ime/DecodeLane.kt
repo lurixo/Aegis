@@ -34,6 +34,8 @@ class DecodeLane(
     private val seq = AtomicLong(0L)
     @Volatile private var lastRequested = 0L
     @Volatile private var lastApplied = 0L
+    @Volatile private var lastShown = 0L
+    @Volatile private var chainStart = 0L
     private val finishedLock = ReentrantLock()
     private val finishedChanged = finishedLock.newCondition()
     private var finished: Delivery? = null
@@ -42,20 +44,35 @@ class DecodeLane(
 
     private fun stale(gen: Long): Boolean = gen != lastRequested || gen <= lastApplied
 
-    fun <R> submit(compute: () -> R, apply: (R) -> Unit, onError: () -> Unit = {}) {
+    private fun overdue(gen: Long): Boolean = gen >= chainStart && gen - lastShown >= OVERDUE_AFTER
+
+    fun <R> submit(
+        compute: () -> R,
+        apply: (R) -> Unit,
+        onError: () -> Unit = {},
+        continues: Boolean = false,
+        overtaken: (R) -> Unit = {},
+    ) {
         val gen = seq.incrementAndGet()
+        if (!continues) chainStart = gen
         lastRequested = gen
         worker.execute {
             if (stale(gen)) return@execute
             val started = System.nanoTime()
-            val result = DecodeCancellation.attempt({ stale(gen) }, compute)
+            val result = DecodeCancellation.attempt({ stale(gen) && !overdue(gen) }, compute)
             workDone(System.nanoTime() - started)
             if (result == null) return@execute
             result.exceptionOrNull()?.let(logError)
             val delivery = Delivery(gen) {
                 if (gen == lastRequested && gen > lastApplied) {
                     lastApplied = gen
+                    lastShown = gen
                     result.fold(onSuccess = apply, onFailure = { onError() })
+                } else if (overdue(gen)) {
+                    result.onSuccess {
+                        lastShown = gen
+                        overtaken(it)
+                    }
                 }
             }
             finishedLock.withLock {
@@ -72,6 +89,7 @@ class DecodeLane(
 
     fun settle(): Boolean {
         val gen = lastRequested
+        chainStart = gen
         if (gen <= lastApplied) return true
         var remaining = TimeUnit.MILLISECONDS.toNanos(settleMillis)
         val delivery = finishedLock.withLock {
@@ -84,9 +102,11 @@ class DecodeLane(
 
     fun markSatisfiedSynchronously() {
         lastApplied = lastRequested
+        lastShown = lastRequested
     }
 
     companion object {
         const val SETTLE_MILLIS = 150L
+        const val OVERDUE_AFTER = 2L
     }
 }

@@ -232,6 +232,186 @@ class DecodeLaneTest {
         }
     }
 
+    private class Slow(private val name: String) {
+        val running = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val completed = AtomicInteger(0)
+        fun compute(): String {
+            running.countDown()
+            while (!release.await(1, TimeUnit.MILLISECONDS)) DecodeCancellation.checkpoint()
+            completed.incrementAndGet()
+            return name
+        }
+    }
+
+    private class RealLane(settleMillis: Long = DecodeLane.SETTLE_MILLIS) {
+        val exec = Executors.newSingleThreadExecutor()
+        val posted = ConcurrentLinkedQueue<Runnable>()
+        val lane = DecodeLane(exec, Executor { posted.add(it) }, settleMillis = settleMillis)
+        val applied = ConcurrentLinkedQueue<String>()
+        val overtaken = ConcurrentLinkedQueue<String>()
+        fun submit(slow: Slow, continues: Boolean) =
+            lane.submit(compute = slow::compute, apply = { applied.add(it) }, continues = continues, overtaken = { overtaken.add(it) })
+        fun drain() {
+            exec.submit {}.get(5, TimeUnit.SECONDS)
+            while (posted.isNotEmpty()) posted.poll().run()
+        }
+    }
+
+    @Test fun a_compute_two_requests_past_the_last_delivery_runs_to_its_end_and_is_handed_over() {
+        val real = RealLane()
+        try {
+            val first = Slow("first")
+            val second = Slow("second")
+            val third = Slow("third")
+            real.submit(first, continues = false)
+            assertTrue(first.running.await(5, TimeUnit.SECONDS))
+            real.submit(second, continues = true)
+            assertTrue("one request past the last delivery is still given up", second.running.await(5, TimeUnit.SECONDS))
+            real.submit(third, continues = true)
+            assertFalse("the newest request waits for the compute that is kept", third.running.await(50, TimeUnit.MILLISECONDS))
+            second.release.countDown()
+            assertTrue("the newest request starts as soon as the kept one ends", third.running.await(5, TimeUnit.SECONDS))
+            while (real.posted.isNotEmpty()) real.posted.poll().run()
+            assertEquals(listOf("second"), real.overtaken.toList())
+            assertTrue(real.lane.pending)
+            third.release.countDown()
+            real.drain()
+            assertEquals(listOf("third"), real.applied.toList())
+            assertEquals(listOf("second"), real.overtaken.toList())
+            assertEquals(0, first.completed.get())
+            assertFalse(real.lane.pending)
+        } finally {
+            real.exec.shutdownNow()
+        }
+    }
+
+    @Test fun a_request_that_does_not_continue_the_last_one_cancels_a_kept_compute() {
+        val real = RealLane()
+        try {
+            val first = Slow("first")
+            val second = Slow("second")
+            val third = Slow("third")
+            val fourth = Slow("fourth")
+            real.submit(first, continues = false)
+            assertTrue(first.running.await(5, TimeUnit.SECONDS))
+            real.submit(second, continues = true)
+            assertTrue(second.running.await(5, TimeUnit.SECONDS))
+            real.submit(third, continues = true)
+            assertFalse(third.running.await(50, TimeUnit.MILLISECONDS))
+            real.submit(fourth, continues = false)
+            assertTrue("the unrelated request runs once the kept compute yields", fourth.running.await(5, TimeUnit.SECONDS))
+            fourth.release.countDown()
+            real.drain()
+            assertEquals(listOf("fourth"), real.applied.toList())
+            assertTrue(real.overtaken.isEmpty())
+            assertEquals(0, second.completed.get())
+        } finally {
+            real.exec.shutdownNow()
+        }
+    }
+
+    @Test fun settle_cancels_a_kept_compute_and_waits_only_for_the_latest_request() {
+        val real = RealLane(settleMillis = 10_000L)
+        try {
+            val first = Slow("first")
+            val second = Slow("second")
+            val third = Slow("third")
+            real.submit(first, continues = false)
+            assertTrue(first.running.await(5, TimeUnit.SECONDS))
+            real.submit(second, continues = true)
+            assertTrue(second.running.await(5, TimeUnit.SECONDS))
+            real.submit(third, continues = true)
+            third.release.countDown()
+            val started = System.nanoTime()
+            assertTrue(real.lane.settle())
+            assertTrue(TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started) < 5_000L)
+            assertEquals(listOf("third"), real.applied.toList())
+            real.drain()
+            assertTrue(real.overtaken.isEmpty())
+            assertEquals(0, second.completed.get())
+        } finally {
+            real.exec.shutdownNow()
+        }
+    }
+
+    @Test fun marking_satisfied_cancels_a_kept_compute() {
+        val real = RealLane()
+        try {
+            val first = Slow("first")
+            val second = Slow("second")
+            val third = Slow("third")
+            real.submit(first, continues = false)
+            assertTrue(first.running.await(5, TimeUnit.SECONDS))
+            real.submit(second, continues = true)
+            assertTrue(second.running.await(5, TimeUnit.SECONDS))
+            real.submit(third, continues = true)
+            real.lane.markSatisfiedSynchronously()
+            real.drain()
+            assertTrue(real.applied.isEmpty())
+            assertTrue(real.overtaken.isEmpty())
+            assertEquals(0, second.completed.get())
+            assertEquals(0, third.completed.get())
+        } finally {
+            real.exec.shutdownNow()
+        }
+    }
+
+    @Test fun a_finished_result_overtaken_before_its_delivery_is_handed_over_two_requests_past_the_last_delivery() {
+        val applied = ArrayList<Int>()
+        val overtaken = ArrayList<Int>()
+        fun submit(i: Int) = lane.submit(compute = { i }, apply = { applied.add(it) }, continues = i > 1, overtaken = { overtaken.add(it) })
+        submit(1)
+        runWorker()
+        submit(2)
+        runMain()
+        assertTrue("one request past the last delivery is dropped", overtaken.isEmpty())
+        runWorker()
+        submit(3)
+        runMain()
+        assertEquals(listOf(2), overtaken)
+        runWorker()
+        submit(4)
+        runMain()
+        assertEquals("the handed-over result counts as the last delivery", listOf(2), overtaken)
+        runWorker()
+        runMain()
+        assertEquals(listOf(4), applied)
+    }
+
+    @Test fun an_overtaken_result_is_dropped_once_a_newer_one_was_delivered() {
+        val applied = ArrayList<Int>()
+        val overtaken = ArrayList<Int>()
+        fun submit(i: Int) = lane.submit(compute = { i }, apply = { applied.add(it) }, continues = i > 1, overtaken = { overtaken.add(it) })
+        submit(1)
+        submit(2)
+        runWorker()
+        submit(3)
+        runWorker()
+        mainQ.removeLast().run()
+        mainQ.removeLast().run()
+        assertEquals(listOf(3), applied)
+        assertTrue(overtaken.isEmpty())
+    }
+
+    @Test fun a_failed_compute_that_was_overtaken_is_logged_and_not_handed_over() {
+        val logged = ArrayList<Throwable>()
+        val failing = DecodeLane(worker, main, logError = { logged.add(it) })
+        val applied = ArrayList<Int>()
+        val overtaken = ArrayList<Int>()
+        val errors = ArrayList<Unit>()
+        failing.submit(compute = { 1 }, apply = { applied.add(it) })
+        failing.submit<Int>(compute = { error("boom") }, apply = { applied.add(it) }, onError = { errors.add(Unit) }, continues = true, overtaken = { overtaken.add(it) })
+        runWorker()
+        failing.submit(compute = { 3 }, apply = { applied.add(it) }, continues = true, overtaken = { overtaken.add(it) })
+        runWorker()
+        runMain()
+        assertEquals(1, logged.size)
+        assertTrue(overtaken.isEmpty())
+        assertTrue(errors.isEmpty())
+        assertEquals(listOf(3), applied)
+    }
+
     @Test fun worker_tasks_run_in_submission_order_and_are_never_skipped() {
         val order = ArrayList<String>()
         lane.submit(compute = { order.add("decode 1") }, apply = { })
