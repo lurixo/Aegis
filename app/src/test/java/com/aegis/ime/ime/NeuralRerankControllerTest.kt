@@ -103,6 +103,7 @@ class NeuralRerankControllerTest {
             contexts.add(context)
             return DoubleArray(candidates.size) { if (candidates[it].startsWith("拟好")) -1.0 else -5.0 }
         }
+        override fun warm(context: String) {}
         override fun cancel() {}
         override fun close() {}
     }

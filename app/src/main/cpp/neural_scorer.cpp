@@ -262,6 +262,24 @@ struct NeuralScorer::Impl {
         prefix = want;
         return Status::Ok;
     }
+
+    bool contextPrefix(const std::string & context, std::vector<llama_token> * want) const {
+        std::vector<llama_token> contextTokens;
+        if (!tokenize(context, &contextTokens)) return false;
+        if (contextTokens.size() > static_cast<size_t>(kMaxContextTokens)) {
+            contextTokens.erase(contextTokens.begin(), contextTokens.end() - kMaxContextTokens);
+        }
+        want->clear();
+        want->reserve(contextTokens.size() + 1);
+        want->push_back(start);
+        want->insert(want->end(), contextTokens.begin(), contextTokens.end());
+        return true;
+    }
+
+    Status ensurePrefix(const std::vector<llama_token> & want) {
+        if (want == prefix && !afterPrefix.empty()) return Status::Ok;
+        return loadPrefix(want);
+    }
 };
 
 NeuralScorer::NeuralScorer(Impl * impl) : impl_(impl) {}
@@ -356,15 +374,8 @@ NeuralScorer::Status NeuralScorer::score(const std::string & context,
     if (candidates.empty()) return Status::Ok;
     if (candidates.size() > static_cast<size_t>(kMaxCandidates)) return Status::Failed;
 
-    std::vector<llama_token> contextTokens;
-    if (!m.tokenize(context, &contextTokens)) return Status::Failed;
-    if (contextTokens.size() > static_cast<size_t>(kMaxContextTokens)) {
-        contextTokens.erase(contextTokens.begin(), contextTokens.end() - kMaxContextTokens);
-    }
     std::vector<llama_token> want;
-    want.reserve(contextTokens.size() + 1);
-    want.push_back(m.start);
-    want.insert(want.end(), contextTokens.begin(), contextTokens.end());
+    if (!m.contextPrefix(context, &want)) return Status::Failed;
 
     std::vector<std::vector<llama_token>> tokens(candidates.size());
     for (size_t i = 0; i < candidates.size(); ++i) {
@@ -372,10 +383,8 @@ NeuralScorer::Status NeuralScorer::score(const std::string & context,
         (*tokenCounts)[i] = static_cast<int>(tokens[i].size());
     }
 
-    if (want != m.prefix || m.afterPrefix.empty()) {
-        const Status status = m.loadPrefix(want);
-        if (status != Status::Ok) return status;
-    }
+    const Status loaded = m.ensurePrefix(want);
+    if (loaded != Status::Ok) return loaded;
     const int base = static_cast<int>(m.prefix.size());
     const int room = std::min(kBatchTokens, kContextCells - base);
 
@@ -435,6 +444,14 @@ NeuralScorer::Status NeuralScorer::score(const std::string & context,
         }
     }
     return Status::Ok;
+}
+
+NeuralScorer::Status NeuralScorer::warm(const std::string & context) {
+    Impl & m = *impl_;
+    m.abort.store(false, std::memory_order_relaxed);
+    std::vector<llama_token> want;
+    if (!m.contextPrefix(context, &want)) return Status::Failed;
+    return m.ensurePrefix(want);
 }
 
 }  // namespace aegis

@@ -18,5 +18,7 @@ package com.aegis.ime.neural
 interface SentenceScorer : AutoCloseable {
     fun score(context: String, candidates: List<String>): DoubleArray?
 
+    fun warm(context: String)
+
     fun cancel()
 }

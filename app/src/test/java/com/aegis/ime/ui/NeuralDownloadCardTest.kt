@@ -270,6 +270,7 @@ class NeuralDownloadCardTest {
                 }
                 return DoubleArray(candidates.size) { -it.toDouble() }
             }
+            override fun warm(context: String) {}
             override fun cancel() {}
             override fun close() {}
         }

@@ -39,6 +39,8 @@ public:
                  std::vector<double> * logprobs,
                  std::vector<int> * tokenCounts);
 
+    Status warm(const std::string & context);
+
     void cancel();
 
     struct Impl;

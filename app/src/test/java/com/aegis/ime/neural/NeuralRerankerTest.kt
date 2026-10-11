@@ -47,6 +47,8 @@ class NeuralRerankerTest {
             return DoubleArray(candidates.size) { scores.getValue(candidates[it]) }
         }
 
+        override fun warm(context: String) {}
+
         override fun cancel() {
             cancels++
         }
@@ -279,6 +281,7 @@ class NeuralRerankerTest {
                 }
                 return DoubleArray(candidates.size) { prefersSecond.getValue(candidates[it]) }
             }
+            override fun warm(context: String) {}
             override fun cancel() {}
             override fun close() {}
         }
