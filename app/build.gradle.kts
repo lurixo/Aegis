@@ -289,6 +289,7 @@ tasks.register("verifyExternalModelsNotPackaged") {
                     if (
                         basename in exactForbidden ||
                         basename.endsWith(".gram") ||
+                        basename.endsWith(".gguf") ||
                         basename.startsWith("aegis_en")
                     ) {
                         leaked += name
@@ -296,7 +297,7 @@ tasks.register("verifyExternalModelsNotPackaged") {
                 }
             }
             check(leaked.isEmpty()) { "external test models leaked into ${apk.name}: $leaked" }
-            logger.lifecycle("verified ${apk.name}: no external dictionary, English, or grammar model files on any entry path")
+            logger.lifecycle("verified ${apk.name}: no external dictionary, English, grammar, or reranking model files on any entry path")
         }
     }
 }
