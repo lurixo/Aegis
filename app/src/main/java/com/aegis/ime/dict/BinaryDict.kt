@@ -159,6 +159,24 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         return sortedPrefixHits(top)
     }
 
+    fun exactAmong(choices: List<String>, limit: Int): List<WordFreq> {
+        if (choices.isEmpty() || limit <= 0 || numKeys == 0) return emptyList()
+        val letters = Array(choices.size) { choices[it].toByteArray(Charsets.US_ASCII) }
+        val entries = ArrayList<Int>()
+        collectAmong(letters, 0, 0, numKeys, limit, entries)
+        entries.sortByDescending { buf.getInt(entryArrOff + it * 12 + 8) }
+        val out = ArrayList<WordFreq>(minOf(limit, entries.size))
+        val seen = HashSet<String>()
+        for (j in entries) {
+            val entryOff = entryArrOff + j * 12
+            val word = readWord(buf.getInt(entryOff), buf.getInt(entryOff + 4))
+            if (!seen.add(word)) continue
+            out.add(WordFreq(word, buf.getInt(entryOff + 8)))
+            if (out.size == limit) break
+        }
+        return out
+    }
+
     fun query(input: String, limit: Int): List<String> {
         if (input.isEmpty() || numKeys == 0) return emptyList()
         val q = input.toByteArray(Charsets.US_ASCII)
@@ -208,6 +226,47 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         }
         return true
     }
+
+    private fun collectAmong(
+        letters: Array<ByteArray>,
+        depth: Int,
+        lo: Int,
+        hi: Int,
+        limit: Int,
+        out: MutableList<Int>,
+    ) {
+        DecodeCancellation.checkpoint()
+        for (letter in letters[depth]) {
+            val b = letter.toInt() and 0xFF
+            val from = keyByteBound(lo, hi, depth, b)
+            val to = keyByteBound(from, hi, depth, b + 1)
+            if (from == to) continue
+            if (depth + 1 < letters.size) {
+                collectAmong(letters, depth + 1, from, to, limit, out)
+            } else if (keyLen(from) == letters.size) {
+                val es = entryStart(from)
+                val ee = if (from + 1 < numKeys) entryStart(from + 1) else numEntries
+                var j = es
+                while (j < ee && j - es < limit) {
+                    out.add(j)
+                    j++
+                }
+            }
+        }
+    }
+
+    private fun keyByteBound(lo: Int, hi: Int, at: Int, b: Int): Int {
+        var l = lo
+        var h = hi
+        while (l < h) {
+            val mid = (l + h) ushr 1
+            if (keyByteAt(mid, at) < b) l = mid + 1 else h = mid
+        }
+        return l
+    }
+
+    private fun keyByteAt(i: Int, at: Int): Int =
+        if (keyLen(i) <= at) -1 else buf.get(keyBlobOff + keyOffset(i) + at).toInt() and 0xFF
 
     private fun addWords(i: Int, out: MutableSet<String>, limit: Int) {
         val es = entryStart(i)

@@ -40,6 +40,9 @@ object T9Pinyin {
         '6' to "mno", '7' to "pqrs", '8' to "tuv", '9' to "wxyz",
     )
 
+    private val INITIAL_LETTERS: Map<Char, String> =
+        KEY_LETTERS.mapValues { (_, letters) -> letters.filterNot { it in NON_INITIAL_LETTERS } }
+
     internal val SYLLABLES: Set<String> = com.aegis.ime.dict.PinyinSyllables.ALL
 
     private val NASAL_CODAS: Set<String> = setOf("ng", "n", "m")
@@ -449,10 +452,16 @@ object T9Pinyin {
         return letters
     }
 
+    fun initialLetters(digits: String): List<String> {
+        val out = ArrayList<String>(digits.length)
+        for (digit in digits) out.add(INITIAL_LETTERS[digit] ?: return emptyList())
+        return out
+    }
+
     fun initialSpellings(digits: String): List<String> {
         var out = listOf("")
         for (digit in digits) {
-            val letters = KEY_LETTERS[digit]?.filterNot { it in NON_INITIAL_LETTERS } ?: return emptyList()
+            val letters = INITIAL_LETTERS[digit] ?: return emptyList()
             out = out.flatMap { head -> letters.map { head + it } }
         }
         return out

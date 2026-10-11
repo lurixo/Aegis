@@ -29,6 +29,22 @@ class T9PinyinTest {
         assertEquals("ni'de", pre)
     }
 
+    @Test fun each_digit_lists_the_letters_that_can_start_a_syllable() {
+        assertEquals(
+            listOf("abc", "def", "gh", "jkl", "mno", "pqrs", "t", "wxyz"),
+            T9Pinyin.initialLetters("23456789"),
+        )
+        assertEquals(emptyList<String>(), T9Pinyin.initialLetters(""))
+        assertEquals(emptyList<String>(), T9Pinyin.initialLetters("91"))
+        assertEquals(emptyList<String>(), T9Pinyin.initialLetters("9a"))
+        for (digits in listOf("9", "84", "799", "2468")) {
+            val spelled = T9Pinyin.initialLetters(digits).fold(listOf("")) { heads, letters ->
+                heads.flatMap { head -> letters.map { head + it } }
+            }
+            assertEquals(digits, spelled, T9Pinyin.initialSpellings(digits))
+        }
+    }
+
     @Test fun nihao_segments() {
         assertEquals("64426", T9Pinyin.toT9("nihao"))
         assertEquals("ni'hao", T9Pinyin.preedit("64426"))

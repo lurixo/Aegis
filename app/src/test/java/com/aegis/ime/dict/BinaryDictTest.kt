@@ -307,4 +307,100 @@ class BinaryDictTest {
         )
         assertEquals("a small limit still returns the leading slice", everyHit.take(3), dict.prefixByFreq("sh", 3))
     }
+
+    private val initialRows = listOf(
+        EngineFixture.Row("w", "我", 990), EngineFixture.Row("wx", "无限", 610),
+        EngineFixture.Row("wx", "微信", 900), EngineFixture.Row("wxh", "无限好", 300),
+        EngineFixture.Row("wz", "位置", 700), EngineFixture.Row("wz", "文字", 640),
+        EngineFixture.Row("xw", "希望", 880), EngineFixture.Row("xx", "学习", 950),
+        EngineFixture.Row("xx", "谢谢", 940), EngineFixture.Row("xxw", "新希望", 200),
+        EngineFixture.Row("xy", "需要", 930), EngineFixture.Row("yw", "因为", 960),
+        EngineFixture.Row("yx", "游戏", 870), EngineFixture.Row("yx", "无限", 955),
+        EngineFixture.Row("zw", "作为", 820), EngineFixture.Row("zz", "正在", 910),
+        EngineFixture.Row("zzz", "做作者", 100), EngineFixture.Row("gh", "更好", 800),
+        EngineFixture.Row("tg", "通过", 850), EngineFixture.Row("tgs", "通过式", 50),
+        EngineFixture.Row("wxhn", "我喜欢你", 400), EngineFixture.Row("ydbw", "原地不我", 10),
+    )
+
+    private fun exhaustive(dict: BinaryDict, choices: List<String>, limit: Int): List<Pair<String, Int>> {
+        val keys = choices.fold(listOf("")) { heads, letters -> heads.flatMap { head -> letters.map { head + it } } }
+        val seen = HashSet<String>()
+        return keys.flatMap { dict.exact(it) }.sortedByDescending { it.freq }
+            .filter { seen.add(it.word) }.take(limit).map { it.word to it.freq }
+    }
+
+    @Test
+    fun exactAmongMergesEveryKeySpelledFromTheChoicesByFrequency() {
+        val dict = EngineFixture.build(initialRows)
+        assertEquals(
+            listOf("因为" to 960, "无限" to 955, "学习" to 950, "谢谢" to 940, "需要" to 930, "正在" to 910, "微信" to 900),
+            dict.exactAmong(listOf("wxyz", "wxyz"), 7).map { it.word to it.freq },
+        )
+        assertEquals(
+            listOf("微信" to 900, "位置" to 700, "文字" to 640, "无限" to 610),
+            dict.exactAmong(listOf("w", "zx"), 10).map { it.word to it.freq },
+        )
+    }
+
+    @Test
+    fun exactAmongAgreesWithLookingUpEverySpelling() {
+        val dict = EngineFixture.build(initialRows)
+        val digitLetters = listOf("abc", "def", "gh", "jkl", "mno", "pqrs", "t", "wxyz")
+        var compared = 0
+        fun compare(choices: List<String>) {
+            for (limit in listOf(1, 3, 20, Int.MAX_VALUE)) {
+                assertEquals(
+                    "$choices limit $limit",
+                    exhaustive(dict, choices, limit),
+                    dict.exactAmong(choices, limit).map { it.word to it.freq },
+                )
+                compared++
+            }
+        }
+        fun all(head: List<String>, depth: Int) {
+            if (head.isNotEmpty()) compare(head)
+            if (depth > 0) for (letters in digitLetters) all(head + letters, depth - 1)
+        }
+        all(emptyList(), 3)
+        compare(listOf("wxyz", "wxyz", "gh", "mno"))
+        compare(listOf("wxyz", "def", "abc", "wxyz"))
+        assertEquals((8 + 64 + 512 + 2) * 4, compared)
+    }
+
+    @Test
+    fun exactAmongOnlyAnswersKeysAsLongAsTheChoices() {
+        val dict = EngineFixture.build(initialRows)
+        assertEquals(listOf("我"), dict.exactAmong(listOf("wxyz"), 20).map { it.word })
+        assertEquals(listOf("通过"), dict.exactAmong(listOf("t", "gh"), 20).map { it.word })
+        assertEquals(
+            listOf("无限好", "新希望", "做作者"),
+            dict.exactAmong(listOf("wxyz", "wxyz", "ghwxyz"), 20).map { it.word },
+        )
+        assertEquals(listOf("通过式"), dict.exactAmong(listOf("t", "gh", "pqrs"), 20).map { it.word })
+    }
+
+    @Test
+    fun exactAmongKeepsAWordFiledUnderSeveralKeysOnceAtItsHighestFrequency() {
+        val dict = EngineFixture.build(initialRows)
+        val hits = dict.exactAmong(listOf("wxyz", "wxyz"), Int.MAX_VALUE)
+        assertEquals(hits.size, hits.map { it.word }.toSet().size)
+        assertEquals(955, hits.single { it.word == "无限" }.freq)
+        assertEquals(listOf("无限" to 955), dict.exactAmong(listOf("wy", "x"), 1).map { it.word to it.freq })
+        assertEquals(
+            listOf("微信" to 900, "无限" to 610),
+            dict.exactAmong(listOf("ww", "x"), 5).map { it.word to it.freq },
+        )
+    }
+
+    @Test
+    fun exactAmongIsEmptyWhenNothingCanMatch() {
+        val dict = EngineFixture.build(initialRows)
+        assertEquals(emptyList<BinaryDict.WordFreq>(), dict.exactAmong(emptyList(), 20))
+        assertEquals(emptyList<BinaryDict.WordFreq>(), dict.exactAmong(listOf("wxyz", "wxyz"), 0))
+        assertEquals(emptyList<BinaryDict.WordFreq>(), dict.exactAmong(listOf("wxyz", ""), 20))
+        assertEquals(emptyList<BinaryDict.WordFreq>(), dict.exactAmong(listOf("jkl", "wxyz"), 20))
+        assertEquals(emptyList<BinaryDict.WordFreq>(), dict.exactAmong(listOf("t", "gh", "t"), 20))
+        assertEquals(emptyList<BinaryDict.WordFreq>(), dict.exactAmong(listOf("wxyz", "jkl", "wxyz", "mno"), 20))
+        assertEquals(emptyList<BinaryDict.WordFreq>(), BinaryDict.fromFile(dictBytes()).exactAmong(listOf("wxyz"), 20))
+    }
 }
