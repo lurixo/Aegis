@@ -64,6 +64,7 @@ class DictEngine(
             fuzzyVariants = { s, rules -> T9Pinyin.fuzzyVariants(s, rules) },
             fuzzyPenalty = T9_FUZZY_PENALTY,
             grammarCharPenalty = T9_GRAMMAR_CHAR_PENALTY,
+            digitInitialsDict = initialsDict,
         )
     }
 
@@ -89,6 +90,14 @@ class DictEngine(
         if (digits.length < 2) return emptyList()
         val supply = CandidateEngine.WHOLE_INITIALS + CandidateEngine.SPELLED_BEFORE_INITIALS
         return source.exactAmong(T9Pinyin.initialLetters(digits), supply).map { Cand(it.word, digits.length) }
+    }
+
+    override fun candidatesWithInitials(digits: String, context: CharSequence): List<Cand> {
+        val decoded = t9Decoder?.decodeCoveredWithInitials(digits, MAX_CANDIDATES, context) ?: return emptyList()
+        val spelled = decoded.filterNot { c -> c.word.all { it.code < 128 } }
+        if (spelled.isEmpty()) return emptyList()
+        val words = spelled.mapTo(HashSet()) { it.word }
+        return spelled + initialCandidates(digits, context).filterNot { it.word in words }
     }
 
     private fun initialCandidates(digits: String, context: CharSequence): List<Cand> {

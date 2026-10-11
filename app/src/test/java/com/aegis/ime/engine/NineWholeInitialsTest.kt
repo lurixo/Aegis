@@ -317,7 +317,12 @@ class NineWholeInitialsTest {
             val host = Host()
             val c = nine(e, host)
             c.type(digits)
-            assertEquals(digits, e.whole(digits).map { it.word }, c.candidateWords())
+            val shown = e.candidatesWithInitials(digits, "").ifEmpty { e.candidatesCovered(digits, true) }
+            assertEquals(
+                digits,
+                CandidateEngine.withInitialWords(shown, e.initialWords(digits)).map { it.word },
+                c.candidateWords(),
+            )
             c.onPickCandidate(c.candidateWords().indexOf(word))
             assertEquals(digits, listOf(word), host.commits)
             assertEquals(digits, "", c.rawComposingForTest())

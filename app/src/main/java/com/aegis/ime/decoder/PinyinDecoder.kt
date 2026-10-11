@@ -51,6 +51,7 @@ class PinyinDecoder(
     private val fuzzyVariants: (String, Set<String>) -> List<String> = { s, rules -> Fuzzy.variants(s, rules).filter { it != s } },
     private val fuzzyPenalty: Double = FUZZY_PENALTY,
     private val grammarCharPenalty: Double = 0.0,
+    private val digitInitialsDict: BinaryDict? = null,
 ) {
     private val grading = TghGrading.bundled
     private val lnTotal = ln(dict.totalFreq.coerceAtLeast(1).toDouble())
@@ -388,7 +389,7 @@ class PinyinDecoder(
         map
     }
 
-    private fun edgesFor(sub: String): List<Edge> {
+    private fun edgesFor(sub: String, digitInitials: Boolean = false): List<Edge> {
         val out = ArrayList<Edge>(edgeN)
         val seen = HashSet<String>()
         val exactFull = addExactEdges(dict, sub, 0.0, out, seen)
@@ -419,6 +420,12 @@ class PinyinDecoder(
         }
         initialsDict?.let { id ->
             for (wf in preferredExact(id, sub, edgeN + seen.size)) {
+                if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, INITIALS_PENALTY, abbreviated = true))
+                if (out.size >= edgeN) break
+            }
+        }
+        if (digitInitials) digitInitialsDict?.let { id ->
+            for (wf in preferredAmong(id, sub, edgeN + seen.size)) {
                 if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, INITIALS_PENALTY, abbreviated = true))
                 if (out.size >= edgeN) break
             }
@@ -665,7 +672,7 @@ class PinyinDecoder(
 
     private val initialSingleSets = ConcurrentHashMap<String, Set<String>>()
 
-    private enum class DictLookup { EXACT, PREFERRED, PREFIX }
+    private enum class DictLookup { EXACT, PREFERRED, PREFIX, AMONG }
 
     private data class DictQuery(val lookup: DictLookup, val source: BinaryDict, val key: String, val limit: Int)
 
@@ -689,6 +696,12 @@ class PinyinDecoder(
         val preferred = preferredWordFreqs(source.exact(key, scanLimit))
         return if (preferred.size <= limit) preferred else preferred.subList(0, limit).toList()
     }
+
+    private fun preferredAmong(source: BinaryDict, digits: String, limit: Int): List<BinaryDict.WordFreq> =
+        dictResults.getOrPut(DictQuery(DictLookup.AMONG, source, digits, limit)) {
+            val preferred = preferredWordFreqs(source.exactAmong(T9Pinyin.initialLetters(digits), limit + EXACT_TIE_LOOKAHEAD))
+            if (preferred.size <= limit) preferred else preferred.subList(0, limit).toList()
+        }
 
     private class VariantCache(val rules: Set<String>) {
         val variants = BoundedLru<String, List<String>>(VARIANT_CACHE_WEIGHT) { it.size + 1 }
@@ -738,6 +751,14 @@ class PinyinDecoder(
 
     internal fun decodeCovered(input: String, limit: Int, context: CharSequence, pathSink: PathSink): List<Cand> =
         withFuzzyReadings(input, decodeCoveredLayered(input, limit, emptySet(), context, pathSink = pathSink).first)
+
+    fun decodeCoveredWithInitials(input: String, limit: Int, context: CharSequence = ""): List<Cand> {
+        if (digitInitialsDict == null || limit <= 0 || !spellsNoSyllables(input)) return emptyList()
+        return withFuzzyReadings(input, decodeCoveredClean(input, limit, emptySet(), context, false, digitInitials = true).first)
+    }
+
+    private fun spellsNoSyllables(digits: String): Boolean =
+        digits.isNotEmpty() && digits[0] in '2'..'9' && PinyinCorrection.classifies(digits) && !PinyinCorrection.acceptable(digits)
 
     internal fun decodeCoveredLayered(
         input: String,
@@ -852,6 +873,7 @@ class PinyinDecoder(
         staged: Boolean,
         guessSink: MutableList<String>? = null,
         pathSink: PathSink? = null,
+        digitInitials: Boolean = false,
     ): Pair<List<Cand>, Int> {
         val ctx = parseContext(context)
         val interior = cuts.filter { it in 1 until input.length }.toSortedSet()
@@ -861,7 +883,7 @@ class PinyinDecoder(
         val condMemo = CondMemo()
         val cover = LinkedHashMap<String, Int>()
         val completionCap = completionCap(limit)
-        val sentences = bestSentences(input, ctx, pathSink)
+        val sentences = bestSentences(input, ctx, pathSink, digitInitials)
         val sentence =sentences.firstOrNull()?.text?.also { cover[it] = input.length }
         DecodeCancellation.checkpoint()
         val pool = ArrayList<RankedWord>()
@@ -1690,11 +1712,16 @@ class PinyinDecoder(
 
     private class Cell(val score: Double, val prevPos: Int, val prevState: SentenceState?, val prevRank: Int, val word: String)
 
-    private fun bestSentences(input: String, ctx: Ctx, pathSink: PathSink? = null): List<SentencePath> {
+    private fun bestSentences(
+        input: String,
+        ctx: Ctx,
+        pathSink: PathSink? = null,
+        digitInitials: Boolean = false,
+    ): List<SentencePath> {
         val condMemo = spareCondMemo.getAndSet(null) ?: CondMemo()
         val choices = if (octagram != null) SENTENCE_CHOICES else 1
         val ranked = if (octagram != null && pathSink != null) pathSink.limit else 0
-        val lattice = sentenceLattice(input, ctx, maxOf(choices, ranked), condMemo = condMemo)
+        val lattice = sentenceLattice(input, ctx, maxOf(choices, ranked), condMemo = condMemo, digitInitials = digitInitials)
         spareCondMemo.set(condMemo)
         if (ranked > 0) pathSink?.paths = byUsage(lattice.paths(ranked))
         return byUsage(lattice.paths(choices))
@@ -1772,6 +1799,7 @@ class PinyinDecoder(
         edgeMemo: MutableMap<String, List<Edge>>? = null,
         condMemo: CondMemo = CondMemo(),
         pruned: Boolean = false,
+        digitInitials: Boolean = false,
     ): SentenceLattice {
         val model = lm
         val grammar = octagram
@@ -1791,7 +1819,7 @@ class PinyinDecoder(
                 val from = dp[p]
                 if (from.isEmpty()) continue
                 val sub = input.substring(p, q)
-                val edges = if (edgeMemo == null) edgesFor(sub) else edgeMemo.getOrPut(sub) { edgesFor(sub) }
+                val edges = if (edgeMemo == null) edgesFor(sub, digitInitials) else edgeMemo.getOrPut(sub) { edgesFor(sub) }
                 if (edges.isEmpty()) continue
                 for (e in edges) {
                     if (e.abbreviated && !abbreviations) continue

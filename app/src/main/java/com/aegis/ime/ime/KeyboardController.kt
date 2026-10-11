@@ -1778,7 +1778,11 @@ class KeyboardController(
             val guessed = guesses.mapTo(HashSet()) { it.word }
             guesses + c.filterNot { it.word in guessed }
         } else {
-            var c = if (sentences == null) {
+            val spelled =
+                if (req.isNine && req.forcedCuts.isEmpty()) req.engine.candidatesWithInitials(req.raw, context) else emptyList()
+            var c = if (spelled.isNotEmpty()) {
+                spelled
+            } else if (sentences == null) {
                 req.engine.candidatesCovered(req.raw, req.isNine, req.forcedCuts, context)
             } else {
                 val (decoded, paths) = req.engine.candidatesCoveredWithSentences(req.raw, req.isNine, context, sentenceLimit)

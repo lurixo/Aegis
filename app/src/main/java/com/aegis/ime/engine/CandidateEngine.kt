@@ -58,6 +58,8 @@ interface CandidateEngine {
 
     fun initialWords(digits: String): List<Cand> = emptyList()
 
+    fun candidatesWithInitials(digits: String, context: CharSequence): List<Cand> = emptyList()
+
     fun syllables(composing: String, t9: Boolean): List<Syllable> = emptyList()
 
     fun syllables(composing: String, t9: Boolean, cuts: Set<Int>): List<Syllable> = syllables(composing, t9)

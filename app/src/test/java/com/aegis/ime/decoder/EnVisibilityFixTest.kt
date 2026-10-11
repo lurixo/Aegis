@@ -109,9 +109,9 @@ class EnVisibilityFixTest {
         val dict = EngineFixture.build(rows)
         val d = PinyinDecoder(dict, CharBigramLM.fromFile(lmFile))
 
-        val m = PinyinDecoder::class.java.getDeclaredMethod("edgesFor", String::class.java)
+        val m = PinyinDecoder::class.java.getDeclaredMethod("edgesFor", String::class.java, Boolean::class.javaPrimitiveType)
         m.isAccessible = true
-        val edges = (m.invoke(d, "en") as List<*>).map { e ->
+        val edges = (m.invoke(d, "en", false) as List<*>).map { e ->
             e!!.javaClass.getDeclaredField("word").apply { isAccessible = true }.get(e) as String
         }
         assertTrue("alias word must reach the lattice past a full exact layer (edges=${edges.size})", "嗯" in edges)
