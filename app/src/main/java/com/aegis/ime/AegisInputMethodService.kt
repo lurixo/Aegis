@@ -140,7 +140,10 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
     private var translateClient = TranslateClient()
     private val neuralWorker: java.util.concurrent.ExecutorService =
         java.util.concurrent.Executors.newSingleThreadExecutor { r ->
-            Thread(r, "aegis-neural").apply { isDaemon = true }
+            Thread({
+                runCatching { Process.setThreadPriority(Process.THREAD_PRIORITY_DISPLAY) }
+                r.run()
+            }, "aegis-neural").apply { isDaemon = true }
         }
     private val neuralTimer: java.util.concurrent.ScheduledExecutorService =
         java.util.concurrent.Executors.newSingleThreadScheduledExecutor { r ->

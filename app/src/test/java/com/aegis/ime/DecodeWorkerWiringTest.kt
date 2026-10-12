@@ -74,6 +74,16 @@ class DecodeWorkerWiringTest {
         assertEquals(Process.THREAD_PRIORITY_DISPLAY, priority)
     }
 
+    @Test fun the_neural_worker_runs_at_display_priority() {
+        val service = start()
+        val worker = field<ExecutorService>(service, "neuralWorker")
+        val thread = worker.submit(Callable { Thread.currentThread() }).get(10, TimeUnit.SECONDS)
+        val priority = worker.submit(Callable { Process.getThreadPriority(Process.myTid()) }).get(10, TimeUnit.SECONDS)
+        assertEquals(Process.THREAD_PRIORITY_DISPLAY, priority)
+        assertEquals("aegis-neural", thread.name)
+        assertTrue(thread.isDaemon)
+    }
+
     @Test fun decode_results_reach_the_main_thread_as_asynchronous_messages() {
         val service = start()
         val worker = field<ExecutorService>(service, "decodeWorker")
