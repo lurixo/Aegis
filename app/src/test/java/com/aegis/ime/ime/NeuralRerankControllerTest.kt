@@ -97,6 +97,19 @@ class NeuralRerankControllerTest {
         private fun tag(word: String, composing: String) = word + composing.length
     }
 
+    private class InitialsEngine(private val initials: List<String>) : CandidateEngine {
+        val spelled = listOf("你好", "你号", "泥好", "尼豪", "拟好", "你")
+        override val supportsChinese: Boolean = true
+        override fun candidates(composing: String, t9: Boolean): List<String> =
+            if (t9 && composing == "64426") spelled else emptyList()
+        override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
+            candidates(composing, t9).map { Cand(it, composing.length) }
+        override fun rankedSentences(composing: String, t9: Boolean, context: CharSequence, limit: Int): List<Pair<String, Double>> =
+            if (t9 && composing == "64426") listOf("你好" to -10.0, "拟好" to -11.0, "你号" to -12.0) else emptyList()
+        override fun initialWords(digits: String): List<Cand> =
+            if (digits == "64426") initials.map { Cand(it, digits.length) } else emptyList()
+    }
+
     private class Scorer : SentenceScorer {
         val contexts = ArrayList<String>()
         val calls = ArrayList<String>()
@@ -204,6 +217,43 @@ class NeuralRerankControllerTest {
         assertEquals("拟好", c.candidateWords().first())
         assertTrue(engine.rankedCalls.last().startsWith("64426|true|"))
         assertTrue(engine.rankedCalls.last().endsWith("|20"))
+    }
+
+    @Test fun a_model_choice_from_past_the_third_candidate_leaves_three_ahead_of_the_initial_words() {
+        val initials = (1..13).map { "简拼$it" }
+        val (c, q, _) = setup(InitialsEngine(initials))
+        c.switchTextLayoutForTest(true)
+        type(c, "64426")
+        q.decode()
+        assertTrue(c.candidateWords().isEmpty())
+        q.neural()
+        assertEquals(listOf("拟好", "你好", "你号") + initials.take(10) + listOf("泥好", "尼豪", "你"), c.candidateWords())
+    }
+
+    @Test fun a_model_choice_that_is_an_initial_word_is_listed_once_and_the_initial_words_stay_ten() {
+        val initials = listOf("简拼1", "拟好") + (3..13).map { "简拼$it" }
+        val (c, q, _) = setup(InitialsEngine(initials))
+        c.switchTextLayoutForTest(true)
+        type(c, "64426")
+        q.decode()
+        q.neural()
+        assertEquals(
+            listOf("拟好", "你好", "你号") + (initials - "拟好").take(10) + listOf("泥好", "尼豪", "你"),
+            c.candidateWords(),
+        )
+        assertEquals(1, c.candidateWords().count { it == "拟好" })
+    }
+
+    @Test fun the_decoder_order_keeps_its_first_three_ahead_of_the_initial_words_when_the_model_misses_the_wait() {
+        val initials = listOf("简拼1", "拟好") + (3..13).map { "简拼$it" }
+        val engine = InitialsEngine(initials)
+        val (c, q, _) = setup(engine)
+        c.switchTextLayoutForTest(true)
+        type(c, "64426")
+        q.decode()
+        q.fireTimers()
+        q.neural()
+        assertEquals(engine.spelled.take(3) + initials.take(10) + listOf("尼豪", "你"), c.candidateWords())
     }
 
     @Test fun a_result_for_older_input_is_dropped() {

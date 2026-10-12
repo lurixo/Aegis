@@ -1420,10 +1420,12 @@ class KeyboardController(
         ) { choice ->
             if (heldDecode !== result) return@submit
             heldDecode = null
-            applyDecodeResult(result)
-            val top = candidates.first()
+            val top = result.candidates.first()
             if (choice != null && top.word == choice.decoderBest && top.coveredLen == req.composingLen && top.word != choice.best) {
-                candidates = listOf(Cand(choice.best, req.composingLen)) + candidates.filterNot { it.word == choice.best }
+                val best = Cand(choice.best, req.composingLen)
+                applyDecodeResult(result, listOf(best) + result.candidates.filterNot { it.word == choice.best })
+            } else {
+                applyDecodeResult(result)
             }
             if (!settlingRerank && !settlingDecode) render()
         }
@@ -1518,6 +1520,7 @@ class KeyboardController(
         val sentences: List<Pair<String, Double>>? = null,
         val request: DecodeRequest? = null,
         val storedWords: Set<String> = emptySet(),
+        val initialWords: List<Cand> = emptyList(),
     )
 
     private fun emptyDecodeResult(): DecodeResult =
@@ -1580,9 +1583,13 @@ class KeyboardController(
     private fun cursorContext(): String =
         beforeCursor ?: host.textBeforeCursor(CONTEXT_SCAN_LEN + 1).toString().also { beforeCursor = it }
 
-    private fun applyDecodeResult(r: DecodeResult) {
+    private fun applyDecodeResult(r: DecodeResult, ranked: List<Cand> = r.candidates) {
         shownRequest = r.request
-        candidates = r.candidates
+        candidates = CandidateEngine.withInitialWords(
+            ranked,
+            r.initialWords,
+            CandidateEngine.SPELLED_BEFORE_INITIALS + r.directCommitCands.size,
+        )
         directCommitCands = r.directCommitCands
         compositeCands = r.compositeCands
         literalCands = r.literalCands
@@ -1605,7 +1612,9 @@ class KeyboardController(
         var email: Set<Cand> = emptySet()
         var calcC: Cand? = null; var calcE = ""; var calcR = ""
         val sentences = if (sentenceLimit > 0) ArrayList<Pair<String, Double>>() else null
-        val base = computeBase(req, sentenceLimit, sentences)
+        val initials = ArrayList<Cand>()
+        var initialWords: List<Cand> = emptyList()
+        val base = computeBase(req, sentenceLimit, sentences, initials)
         val out = when {
             req.emailContext != null -> {
                 val words = req.emailDomains.map { Cand(it, 0) }
@@ -1620,6 +1629,7 @@ class KeyboardController(
                 mixed.candidates
             }
             !req.composingEmpty && req.mode == Mode.PINYIN -> {
+                initialWords = initials
                 val glyphs = dedupeFullHalfGlyphs(InputAssociations.lookup(req.rawComposing))
                 if (glyphs.isEmpty()) {
                     base
@@ -1661,7 +1671,7 @@ class KeyboardController(
         }
         DecodeResult(
             out, directCommit, composite, literal, prediction, calcC, calcE, calcR, english, email, req.emailContext,
-            sentences, req, stored,
+            sentences, req, stored, initialWords,
         )
     }
 
@@ -1748,6 +1758,7 @@ class KeyboardController(
         req: DecodeRequest,
         sentenceLimit: Int,
         sentences: MutableList<Pair<String, Double>>?,
+        initials: MutableList<Cand>,
     ): List<Cand> {
         if (req.composingEmpty || req.mode != Mode.PINYIN || req.literalIndices.isNotEmpty()) return emptyList()
         val context = req.beforeCursor.takeLast(CTX_SCAN_LEN)
@@ -1774,6 +1785,7 @@ class KeyboardController(
                 sentences.addAll(paths)
                 decoded
             }
+            if (req.isNine && req.forcedCuts.isEmpty() && c.isNotEmpty()) initials.addAll(req.engine.initialWords(req.raw))
             if (c.isEmpty() && req.isNine) {
                 val pfx = T9Pinyin.longestDecodablePrefix(req.raw)
                 if (pfx.length in 1 until req.raw.length) c = req.engine.candidatesCovered(pfx, true, context = context)

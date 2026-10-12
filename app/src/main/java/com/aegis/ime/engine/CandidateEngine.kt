@@ -56,6 +56,8 @@ interface CandidateEngine {
     ): Pair<List<Cand>, List<Pair<String, Double>>> =
         candidatesCovered(composing, t9, emptySet(), context) to rankedSentences(composing, t9, context, sentenceLimit)
 
+    fun initialWords(digits: String): List<Cand> = emptyList()
+
     fun syllables(composing: String, t9: Boolean): List<Syllable> = emptyList()
 
     fun syllables(composing: String, t9: Boolean, cuts: Set<Int>): List<Syllable> = syllables(composing, t9)
@@ -99,4 +101,22 @@ interface CandidateEngine {
     fun storedWords(composing: String, t9: Boolean): List<String> = emptyList()
 
     fun setFuzzyRules(rules: Set<String>) {}
+
+    companion object {
+        const val SPELLED_BEFORE_INITIALS = 3
+        const val WHOLE_INITIALS = 10
+
+        fun withInitialWords(
+            candidates: List<Cand>,
+            initials: List<Cand>,
+            ahead: Int = SPELLED_BEFORE_INITIALS,
+        ): List<Cand> {
+            if (candidates.isEmpty() || initials.isEmpty()) return candidates
+            val head = candidates.take(ahead)
+            val shown = head.mapTo(HashSet()) { it.word }
+            val middle = initials.filterNot { it.word in shown }.take(WHOLE_INITIALS)
+            val placed = middle.mapTo(HashSet()) { it.word }
+            return head + middle + candidates.drop(ahead).filterNot { it.word in placed }
+        }
+    }
 }

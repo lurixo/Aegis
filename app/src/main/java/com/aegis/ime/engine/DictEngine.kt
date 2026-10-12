@@ -85,6 +85,13 @@ class DictEngine(
     private fun nineCandidates(digits: String, decoded: List<Cand>, context: CharSequence): List<Cand> =
         decoded.filterNot { c -> c.word.all { it.code < 128 } }.ifEmpty { initialCandidates(digits, context) }
 
+    override fun initialWords(digits: String): List<Cand> {
+        val source = initialsDict ?: return emptyList()
+        if (digits.length < 2) return emptyList()
+        val supply = CandidateEngine.WHOLE_INITIALS + CandidateEngine.SPELLED_BEFORE_INITIALS
+        return source.exactAmong(T9Pinyin.initialLetters(digits), supply).map { Cand(it.word, digits.length) }
+    }
+
     private fun initialCandidates(digits: String, context: CharSequence): List<Cand> {
         val source = initialsDict ?: return emptyList()
         val nine = t9Decoder ?: return emptyList()
