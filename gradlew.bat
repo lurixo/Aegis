@@ -17,9 +17,18 @@
 @rem
 
 @if "%DEBUG%"=="" @echo off
+@rem ##########################################################################
+@rem
+@rem  gradlew startup script for Windows
+@rem
+@rem ##########################################################################
 
+@rem Set local scope for the variables, and ensure extensions are enabled
 setlocal EnableExtensions
 
+@rem Catch executions from older scripts and ensure they exit cleanly.
+@rem This can be removed once we can be reasonably confident that few people
+@rem will be migrating directly to this new wrapper.
 goto afterSafetyNet
 ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
 ::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::::
@@ -46,13 +55,17 @@ goto exitWithErrorLevel
 
 set DIRNAME=%~dp0
 if "%DIRNAME%"=="" set DIRNAME=.
+@rem This is normally unused
 set APP_BASE_NAME=%~n0
 set APP_HOME=%DIRNAME%
 
+@rem Resolve any "." and ".." in APP_HOME to make it shorter.
 for %%i in ("%APP_HOME%") do set APP_HOME=%%~fi
 
+@rem Add default JVM options here. You can also use JAVA_OPTS and GRADLE_OPTS to pass JVM options to this script.
 set DEFAULT_JVM_OPTS="-Xmx64m" "-Xms64m"
 
+@rem Find java.exe
 if defined JAVA_HOME goto findJavaFromJavaHome
 
 set JAVA_EXE=java.exe
@@ -84,10 +97,16 @@ if exist "%JAVA_EXE%" goto execute
 goto exitWithErrorLevel
 
 :execute
+@rem Setup the command line
 
 
 
+@rem Execute gradlew
+@rem endlocal doesn't take effect until after the line is parsed and variables are expanded
+@rem which allows us to clear the local environment before executing the java command
 endlocal & "%JAVA_EXE%" %DEFAULT_JVM_OPTS% %JAVA_OPTS% %GRADLE_OPTS% "-Dorg.gradle.appname=%APP_BASE_NAME%" -jar "%APP_HOME%\gradle\wrapper\gradle-wrapper.jar" %* & call :exitWithErrorLevel & goto exitWithErrorLevel
 
+@rem This label must not be changed. We rely on old scripts being able to jump to this point.
 :exitWithErrorLevel
+@rem Use "%COMSPEC%" /c exit to allow operators to work properly in scripts
 "%COMSPEC%" /c exit %ERRORLEVEL%
