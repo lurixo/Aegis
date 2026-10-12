@@ -23,7 +23,6 @@ import com.aegis.ime.decoder.WordAnnotator
 import com.aegis.ime.decoder.WordReading
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
-import com.aegis.ime.dict.DecodeCancellation
 import com.aegis.ime.dict.EnglishKey
 import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.user.UserLearning
@@ -98,15 +97,9 @@ class DictEngine(
         if (digits.length < 2 || digits.any { it !in '2'..'9' }) return emptyList()
         val out = ArrayList<Cand>()
         val seen = HashSet<String>()
-        for (length in minOf(digits.length, MAX_INITIALS) downTo 2) {
-            val hits = ArrayList<BinaryDict.WordFreq>()
-            for (key in T9Pinyin.initialSpellings(digits.substring(0, length))) {
-                DecodeCancellation.checkpoint()
-                hits.addAll(source.exact(key, INITIAL_WORDS))
-            }
-            hits.sortByDescending { it.freq }
+        for (length in digits.length downTo 2) {
             var taken = 0
-            for (hit in hits) {
+            for (hit in source.exactAmong(T9Pinyin.initialLetters(digits.substring(0, length)), INITIAL_WORDS + seen.size)) {
                 if (taken == INITIAL_WORDS) break
                 if (seen.add(hit.word)) { out.add(Cand(hit.word, length)); taken++ }
             }
@@ -270,7 +263,6 @@ class DictEngine(
     private companion object {
         const val MAX_CANDIDATES = 30
         const val MAX_GUESSES = 3
-        const val MAX_INITIALS = 6
         const val INITIAL_WORDS = 20
         const val MAX_PREDICTIONS = 8
         const val ENGLISH_SUPPLY = 128

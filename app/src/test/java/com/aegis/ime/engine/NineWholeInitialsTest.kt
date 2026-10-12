@@ -65,7 +65,7 @@ class NineWholeInitialsTest {
                 EngineFixture.Row("tt", "天天", 900), EngineFixture.Row("tt", "太太", 800),
                 EngineFixture.Row("tt", "团体", 700), EngineFixture.Row("zgyh", "中国银行", 500),
                 EngineFixture.Row("xhzg", "喜欢中国", 400), EngineFixture.Row("xyz", "小宇宙", 60),
-                EngineFixture.Row("xx", "学习", 955),
+                EngineFixture.Row("xx", "学习", 955), EngineFixture.Row("xxxxxxxx", "八个嘻嘻嘻嘻嘻嘻", 30),
             )
 
     private fun engine(initialRows: List<EngineFixture.Row>? = initials) = DictEngine(
@@ -180,6 +180,13 @@ class NineWholeInitialsTest {
         val c = nine(e)
         c.type("9999")
         assertEquals(out.map { it.word }, c.candidateWords())
+    }
+
+    @Test fun initial_words_are_found_past_six_digits() {
+        val e = engine()
+        assertEquals(Cand("八个嘻嘻嘻嘻嘻嘻", 8), e.whole("99999999").first())
+        assertEquals(Cand("八个嘻嘻嘻嘻嘻嘻", 8), e.candidatesCovered("99999999", true).first())
+        assertEquals(Cand("四字甲词", 4), e.whole("99999999")[1])
     }
 
     @Test fun one_digit_forced_cuts_letters_and_a_missing_dictionary_add_nothing() {
