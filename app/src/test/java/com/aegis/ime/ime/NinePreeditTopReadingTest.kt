@@ -419,6 +419,7 @@ class NinePreeditTopReadingTest {
                 DoubleArray(candidates.size) { if (candidates[it] == choice) -1.0 else -5.0 }
             override fun warm(context: String) {}
             override fun cancel() {}
+            override fun resume() {}
             override fun close() {}
         }
         val reranker = NeuralReranker(

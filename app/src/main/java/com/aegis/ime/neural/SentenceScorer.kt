@@ -21,4 +21,6 @@ interface SentenceScorer : AutoCloseable {
     fun warm(context: String)
 
     fun cancel()
+
+    fun resume()
 }

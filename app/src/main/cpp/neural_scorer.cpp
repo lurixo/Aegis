@@ -363,12 +363,13 @@ NeuralScorer * NeuralScorer::openPath(const char * path, int threads, std::strin
 
 void NeuralScorer::cancel() { impl_->abort.store(true, std::memory_order_relaxed); }
 
+void NeuralScorer::resume() { impl_->abort.store(false, std::memory_order_relaxed); }
+
 NeuralScorer::Status NeuralScorer::score(const std::string & context,
                                          const std::vector<std::string> & candidates,
                                          std::vector<double> * logprobs,
                                          std::vector<int> * tokenCounts) {
     Impl & m = *impl_;
-    m.abort.store(false, std::memory_order_relaxed);
     logprobs->assign(candidates.size(), 0.0);
     tokenCounts->assign(candidates.size(), 0);
     if (candidates.empty()) return Status::Ok;
@@ -448,7 +449,6 @@ NeuralScorer::Status NeuralScorer::score(const std::string & context,
 
 NeuralScorer::Status NeuralScorer::warm(const std::string & context) {
     Impl & m = *impl_;
-    m.abort.store(false, std::memory_order_relaxed);
     std::vector<llama_token> want;
     if (!m.contextPrefix(context, &want)) return Status::Failed;
     return m.ensurePrefix(want);

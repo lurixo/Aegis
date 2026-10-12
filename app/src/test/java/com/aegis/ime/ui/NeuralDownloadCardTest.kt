@@ -272,6 +272,7 @@ class NeuralDownloadCardTest {
             }
             override fun warm(context: String) {}
             override fun cancel() {}
+            override fun resume() {}
             override fun close() {}
         }
         var now = 0L

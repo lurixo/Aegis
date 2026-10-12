@@ -71,6 +71,8 @@ class NeuralReranker(
     private val finishedChanged = finishedLock.newCondition()
     private var finished: Delivery? = null
 
+    private val abortLock = Any()
+
     private val statsLock = Any()
     private var loadMillis = 0L
     private var runs = 0
@@ -108,7 +110,7 @@ class NeuralReranker(
     fun close() {
         latest.incrementAndGet()
         phase = Phase.CLOSED
-        scorer?.cancel()
+        cancel()
         worker.execute {
             scorer?.close()
             scorer = null
@@ -124,19 +126,32 @@ class NeuralReranker(
         if (phase != Phase.READY || warmup?.context == context) return
         val next = Warmup(context)
         warmup = next
-        scorer?.cancel()
+        cancel()
         worker.execute { load(next) }
     }
 
     private fun load(next: Warmup) {
-        if (warmup === next && phase == Phase.READY) runCatching { scorer?.warm(next.context) }
+        val active = scorer
+        if (active != null && resumed(active) { warmup === next && phase == Phase.READY }) {
+            runCatching { active.warm(next.context) }
+        }
         next.done = true
+    }
+
+    private fun cancel() {
+        synchronized(abortLock) { scorer?.cancel() }
+    }
+
+    private inline fun resumed(active: SentenceScorer, current: () -> Boolean): Boolean = synchronized(abortLock) {
+        if (!current()) return false
+        active.resume()
+        true
     }
 
     private fun cancelUnlessWarming(context: String?) {
         val active = warmup
         if (active != null && !active.done && (context == null || active.context == context)) return
-        scorer?.cancel()
+        cancel()
     }
 
     fun submit(
@@ -148,8 +163,8 @@ class NeuralReranker(
     ) {
         val gen = latest.incrementAndGet()
         pendingGen = gen
-        cancelUnlessWarming(context)
         if (warmup?.context != context) warmup = null
+        cancelUnlessWarming(context)
         val queued = nanoTime()
         worker.execute { run(gen, queued, context, nine, paths, apply) }
         schedule(waitMillis) { expire(gen, apply) }
@@ -184,6 +199,7 @@ class NeuralReranker(
             deliver(gen) { apply(null) }
             return
         }
+        if (!resumed(active) { gen == latest.get() }) return dropped(gen)
         val lm = try {
             active.score(context, ranked.map { it.first })
         } catch (t: Throwable) {

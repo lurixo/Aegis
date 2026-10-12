@@ -37,6 +37,12 @@ class NativeSentenceScorer private constructor(private var handle: Long) : Sente
     }
 
     @Synchronized
+    override fun resume() {
+        val h = handle
+        if (h != 0L) nativeResume(h)
+    }
+
+    @Synchronized
     override fun close() {
         val h = handle
         handle = 0L
@@ -57,6 +63,8 @@ class NativeSentenceScorer private constructor(private var handle: Long) : Sente
         @JvmStatic private external fun nativeWarm(handle: Long, context: ByteArray)
 
         @JvmStatic private external fun nativeCancel(handle: Long)
+
+        @JvmStatic private external fun nativeResume(handle: Long)
 
         @JvmStatic private external fun nativeClose(handle: Long)
     }

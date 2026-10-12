@@ -43,6 +43,8 @@ public:
 
     void cancel();
 
+    void resume();
+
     struct Impl;
 
 private:

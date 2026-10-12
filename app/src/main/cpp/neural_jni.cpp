@@ -92,6 +92,11 @@ Java_com_aegis_ime_neural_NativeSentenceScorer_nativeCancel(JNIEnv *, jclass, jl
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_aegis_ime_neural_NativeSentenceScorer_nativeResume(JNIEnv *, jclass, jlong handle) {
+    scorerOf(handle)->resume();
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_com_aegis_ime_neural_NativeSentenceScorer_nativeClose(JNIEnv *, jclass, jlong handle) {
     delete scorerOf(handle);
 }

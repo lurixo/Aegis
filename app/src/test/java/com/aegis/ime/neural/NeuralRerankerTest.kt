@@ -23,7 +23,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
+import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -59,9 +61,49 @@ class NeuralRerankerTest {
             cancels++
         }
 
+        override fun resume() {}
+
         override fun close() {
             closed = true
         }
+    }
+
+    private class FlagScorer(
+        private val scores: Map<String, Double>,
+        private val resuming: () -> Unit = {},
+        private val cancelled: () -> Unit = {},
+        private val scoring: () -> Unit = {},
+    ) : SentenceScorer {
+        val log: MutableList<String> = java.util.Collections.synchronizedList(ArrayList())
+        @Volatile var aborting = false
+            private set
+
+        override fun score(context: String, candidates: List<String>): DoubleArray? {
+            scoring()
+            if (aborting) {
+                log.add("aborted:$context")
+                return null
+            }
+            log.add("score:$context")
+            return DoubleArray(candidates.size) { scores.getValue(candidates[it]) }
+        }
+
+        override fun warm(context: String) {
+            log.add(if (aborting) "aborted:$context" else "warm:$context")
+        }
+
+        override fun cancel() {
+            aborting = true
+            cancelled()
+        }
+
+        override fun resume() {
+            resuming()
+            aborting = false
+            log.add("resume")
+        }
+
+        override fun close() {}
     }
 
     private class Queues {
@@ -289,6 +331,7 @@ class NeuralRerankerTest {
             }
             override fun warm(context: String) {}
             override fun cancel() {}
+            override fun resume() {}
             override fun close() {}
         }
         r = started(q, scorer)
@@ -303,6 +346,124 @@ class NeuralRerankerTest {
     @Test fun a_score_aborted_by_a_newer_key_counts_as_cancelled_on_26key() = scoreAbortedByANewerKeyCountsAsCancelled(nine = false)
 
     @Test fun a_score_aborted_by_a_newer_key_counts_as_cancelled_on_9key() = scoreAbortedByANewerKeyCountsAsCancelled(nine = true)
+
+    private fun cancelThatArrivesDuringTheResumeAbortsTheScore(nine: Boolean) {
+        val q = Queues()
+        val resuming = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        lateinit var r: NeuralReranker
+        val newer = Thread { r.invalidate() }
+        val scorer = FlagScorer(
+            prefersSecond,
+            resuming = {
+                resuming.countDown()
+                release.await(10, TimeUnit.SECONDS)
+            },
+            scoring = { newer.join(10_000L) },
+        )
+        r = started(q, scorer)
+        val chosen = ArrayList<String>()
+        r.submit("上文", nine = nine, waitMillis = WAIT, paths = paths) { chosen.add(it?.best ?: NONE) }
+        val worker = Thread { q.runWorker() }
+        worker.start()
+        assertTrue(resuming.await(10, TimeUnit.SECONDS))
+        newer.start()
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(10)
+        while (System.nanoTime() < deadline && newer.isAlive && newer.state != Thread.State.BLOCKED) Thread.yield()
+        assertEquals("the cancel waits for the resume to finish", Thread.State.BLOCKED, newer.state)
+        release.countDown()
+        worker.join(10_000L)
+        assertFalse(worker.isAlive)
+        q.runMain()
+        assertEquals(listOf("resume", "aborted:上文"), scorer.log)
+        assertTrue(chosen.isEmpty())
+        assertEquals(0, r.snapshot().runs)
+        assertEquals(1, r.snapshot().cancelled)
+    }
+
+    @Test fun a_cancel_that_arrives_during_the_resume_aborts_the_score_on_26key() =
+        cancelThatArrivesDuringTheResumeAbortsTheScore(nine = false)
+
+    @Test fun a_cancel_that_arrives_during_the_resume_aborts_the_score_on_9key() =
+        cancelThatArrivesDuringTheResumeAbortsTheScore(nine = true)
+
+    private fun scorerIsResumedBeforeEveryScoreAndWarm(nine: Boolean) {
+        val q = Queues()
+        val scorer = FlagScorer(prefersSecond)
+        val r = started(q, scorer)
+        r.warm("上文")
+        q.runWorker()
+        r.submit("上文", nine = nine, waitMillis = WAIT, paths = paths) {}
+        q.runWorker()
+        r.submit("下文", nine = nine, waitMillis = WAIT, paths = paths) {}
+        q.runWorker()
+        assertEquals(listOf("resume", "warm:上文", "resume", "score:上文", "resume", "score:下文"), scorer.log)
+        assertEquals(2, r.snapshot().runs)
+    }
+
+    @Test fun the_scorer_is_resumed_before_every_score_and_warm_on_26key() = scorerIsResumedBeforeEveryScoreAndWarm(nine = false)
+
+    @Test fun the_scorer_is_resumed_before_every_score_and_warm_on_9key() = scorerIsResumedBeforeEveryScoreAndWarm(nine = true)
+
+    private fun cancelLeftWhileIdleDoesNotStopTheNextJob(nine: Boolean) {
+        val q = Queues()
+        val scorer = FlagScorer(prefersSecond)
+        val r = started(q, scorer)
+        r.invalidate()
+        assertTrue(scorer.aborting)
+        val chosen = ArrayList<String>()
+        r.submit("上文", nine = nine, waitMillis = WAIT, paths = paths) { chosen.add(it?.best ?: NONE) }
+        q.runWorker(); q.runMain()
+        assertEquals(listOf("拟好"), chosen)
+        r.invalidate()
+        assertTrue(scorer.aborting)
+        r.warm("下文")
+        q.runWorker()
+        assertEquals(listOf("resume", "score:上文", "resume", "warm:下文"), scorer.log)
+        assertEquals(1, r.snapshot().runs)
+        assertEquals(0, r.snapshot().cancelled)
+    }
+
+    @Test fun a_cancel_left_while_idle_does_not_stop_the_next_job_on_26key() = cancelLeftWhileIdleDoesNotStopTheNextJob(nine = false)
+
+    @Test fun a_cancel_left_while_idle_does_not_stop_the_next_job_on_9key() = cancelLeftWhileIdleDoesNotStopTheNextJob(nine = true)
+
+    private fun jobDroppedAtTheCheckLeavesTheCancelInPlace(nine: Boolean) {
+        val q = Queues()
+        val scorer = FlagScorer(prefersSecond)
+        val r = started(q, scorer)
+        r.submit("上文", nine = nine, waitMillis = WAIT, paths = paths) {}
+        r.invalidate()
+        q.runWorker(); q.runMain()
+        assertTrue(scorer.log.isEmpty())
+        assertTrue(scorer.aborting)
+        assertEquals(1, r.snapshot().cancelled)
+    }
+
+    @Test fun a_job_dropped_at_the_check_leaves_the_cancel_in_place_on_26key() = jobDroppedAtTheCheckLeavesTheCancelInPlace(nine = false)
+
+    @Test fun a_job_dropped_at_the_check_leaves_the_cancel_in_place_on_9key() = jobDroppedAtTheCheckLeavesTheCancelInPlace(nine = true)
+
+    private fun jobForAnotherContextDropsAWarmThatReachesItsCheckAfterTheCancel(nine: Boolean) {
+        val q = Queues()
+        var racing = false
+        val scorer = FlagScorer(prefersSecond, cancelled = { if (racing) q.runWorker() })
+        val r = started(q, scorer)
+        r.warm("旧")
+        racing = true
+        val chosen = ArrayList<String>()
+        r.submit("新", nine = nine, waitMillis = WAIT, paths = paths) { chosen.add(it?.best ?: NONE) }
+        racing = false
+        q.runWorker(); q.runMain()
+        assertEquals(listOf("resume", "score:新"), scorer.log)
+        assertEquals(listOf("拟好"), chosen)
+    }
+
+    @Test fun a_job_for_another_context_drops_a_warm_that_reaches_its_check_after_the_cancel_on_26key() =
+        jobForAnotherContextDropsAWarmThatReachesItsCheckAfterTheCancel(nine = false)
+
+    @Test fun a_job_for_another_context_drops_a_warm_that_reaches_its_check_after_the_cancel_on_9key() =
+        jobForAnotherContextDropsAWarmThatReachesItsCheckAfterTheCancel(nine = true)
 
     private fun invalidatingAQueuedJobCountsItAsCancelled(nine: Boolean) {
         val q = Queues()

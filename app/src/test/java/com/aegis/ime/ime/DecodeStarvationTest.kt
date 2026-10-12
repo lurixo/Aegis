@@ -103,6 +103,7 @@ class DecodeStarvationTest {
         }
         override fun warm(context: String) {}
         override fun cancel() {}
+        override fun resume() {}
         override fun close() {}
     }
 

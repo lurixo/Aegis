@@ -125,6 +125,7 @@ class NeuralRerankControllerTest {
         override fun cancel() {
             cancels++
         }
+        override fun resume() {}
         override fun close() {}
     }
 
