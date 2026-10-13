@@ -308,6 +308,75 @@ class BinaryDictTest {
         assertEquals("a small limit still returns the leading slice", everyHit.take(3), dict.prefixByFreq("sh", 3))
     }
 
+    private fun spelled(index: Int, radix: Int, first: Char, width: Int): String {
+        val out = StringBuilder()
+        var v = index
+        repeat(width) {
+            out.append(first + v % radix)
+            v /= radix
+        }
+        return out.toString()
+    }
+
+    private fun heavyRows(stem: String, radix: Int, first: Char, width: Int): List<EngineFixture.Row> {
+        val rows = ArrayList<EngineFixture.Row>()
+        for (i in 0 until 4500) {
+            val key = stem + spelled(i, radix, first, width)
+            val word = when {
+                i % 7 == 0 -> EngineFixture.supplementary(i % 300)
+                i % 5 == 0 -> "单$i"
+                else -> "词${i % 3000}"
+            }
+            rows.add(EngineFixture.Row(key, word, 5000 - i % 40))
+            if (i % 3 == 0) rows.add(EngineFixture.Row(key, "次${i % 900}", 4990 - i % 60))
+        }
+        return rows
+    }
+
+    private fun assertServedWithoutAScan(dict: BinaryDict, prefix: String) {
+        var polls = 0
+        val served = DecodeCancellation.attempt({ polls++; false }) { dict.prefixByFreq(prefix, 20) }
+        assertEquals("'$prefix' is answered", dict.scanByFreq(prefix, 20), served?.getOrNull())
+        assertEquals("'$prefix' is answered without walking its keys", 0, polls)
+    }
+
+    @Test
+    fun prebuiltTwoUnitAndThreeDigitPrefixesMatchTheKeyScan() {
+        val letterDict = EngineFixture.build(
+            heavyRows("sh", 26, 'a', 3) + heavyRows("zh", 26, 'a', 3).take(600) + listOf(EngineFixture.Row("s", "是", 9000)),
+        )
+        val digitDict = EngineFixture.build(heavyRows("942", 8, '2', 5) + heavyRows("64", 8, '2', 5) + heavyRows("843", 8, '2', 4).take(900))
+        val limits = listOf(1, 2, 5, 20, 127, 128, 129, 5000)
+        for ((dict, prefixes) in listOf(letterDict to listOf("sh", "zh", "sa", "sha", "shb"), digitDict to listOf("94", "942", "64", "642", "649", "84", "843"))) {
+            for (prefix in prefixes) for (limit in limits) {
+                assertEquals("'$prefix' limit $limit", dict.scanByFreq(prefix, limit), dict.prefixByFreq(prefix, limit))
+            }
+        }
+        assertServedWithoutAScan(letterDict, "sh")
+        assertServedWithoutAScan(digitDict, "94")
+        assertServedWithoutAScan(digitDict, "942")
+        assertServedWithoutAScan(digitDict, "64")
+    }
+
+    @Test
+    fun prebuiltPrefixesOfTheFullDictionariesMatchTheKeyScan() {
+        val jianpinFile = File("src/main/assets/aegis_jianpin.bin")
+        assumeTrue("full dict assets present", dictFile.exists() && t9File.exists() && jianpinFile.exists())
+        val units = ('a'..'z') + ('2'..'9')
+        val prefixes = ArrayList<String>()
+        for (a in units) for (b in units) prefixes.add("$a$b")
+        for (a in '2'..'9') for (b in '2'..'9') for (c in '2'..'9') prefixes.add("$a$b$c")
+        for (file in listOf(dictFile, t9File, jianpinFile)) {
+            val dict = BinaryDict.fromFile(file)
+            for (prefix in prefixes) for (limit in listOf(1, 13, 20, 128)) {
+                assertEquals("${file.name} '$prefix' limit $limit", dict.scanByFreq(prefix, limit), dict.prefixByFreq(prefix, limit))
+            }
+        }
+        assertServedWithoutAScan(BinaryDict.fromFile(dictFile), "zh")
+        assertServedWithoutAScan(BinaryDict.fromFile(t9File), "94")
+        assertServedWithoutAScan(BinaryDict.fromFile(t9File), "942")
+    }
+
     private val initialRows = listOf(
         EngineFixture.Row("w", "我", 990), EngineFixture.Row("wx", "无限", 610),
         EngineFixture.Row("wx", "微信", 900), EngineFixture.Row("wxh", "无限好", 300),
