@@ -1315,11 +1315,15 @@ class PinyinDecoder(
 
     private class APath(val text: String, val lastCp: Int, val tail: String, val score: Double) {
         private var lastId = UNRESOLVED_CHAR_ID
+        private var tailNodes: IntArray? = null
 
         fun charId(model: CharBigramLM): Int {
             if (lastId == UNRESOLVED_CHAR_ID) lastId = model.charId(lastCp)
             return lastId
         }
+
+        fun contextNodes(grammar: OctagramReader): IntArray =
+            tailNodes ?: grammar.contextNodes(tail).also { tailNodes = it }
     }
 
     internal data class SentencePath(val text: String, val score: Double)
@@ -1392,7 +1396,7 @@ class PinyinDecoder(
                     val inner = if (grammar != null || model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model, condMemo)
                     for (p in src) {
                         val link = if (grammar != null) {
-                            grammar.query(p.tail, w, j == nSyl)
+                            grammar.query(p.contextNodes(grammar), w, j == nSyl)
                         } else {
                             val bw = if (p.text.isEmpty() && p.lastCp != BOS) contextWeight else lam
                             if (model == null || p.lastCp == BOS || bw == 0.0) 0.0 else bw * logCondMemo(condMemo, model, p.charId(model), idFirst)
@@ -1701,11 +1705,15 @@ class PinyinDecoder(
 
     private data class SentenceState(val lastCp: Int, val tail: String) {
         private var lastId = UNRESOLVED_CHAR_ID
+        private var tailNodes: IntArray? = null
 
         fun charId(model: CharBigramLM): Int {
             if (lastId == UNRESOLVED_CHAR_ID) lastId = model.charId(lastCp)
             return lastId
         }
+
+        fun contextNodes(grammar: OctagramReader): IntArray =
+            tailNodes ?: grammar.contextNodes(tail).also { tailNodes = it }
 
         override fun hashCode(): Int = if (tail.isEmpty()) lastCp else 31 * lastCp + tail.hashCode()
     }
@@ -1840,7 +1848,7 @@ class PinyinDecoder(
                     val lastCp = w.codePointBefore(w.length)
                     val inner = if (grammar != null || model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model, condMemo)
                     for ((state, cells) in from) {
-                        val collocation = if (grammar != null) grammar.query(state.tail, w, q == n) else 0.0
+                        val collocation = if (grammar != null) grammar.query(state.contextNodes(grammar), w, q == n) else 0.0
                         val follow = learn?.followBoost(state.tail, w) ?: 0.0
                         val nextState = SentenceState(lastCp, advanceJoinedTail(joinTail(state.tail, w)))
                         val kept = dp[q].getOrPut(nextState) { ArrayList(limit) }

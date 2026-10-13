@@ -113,6 +113,93 @@ class OctagramReaderTest {
         assertEquals(-6.0, reader.query("你", "甲乙丙丁戊己", true), 1e-9)
     }
 
+    private fun codePointStarts(text: String): List<Int> {
+        val starts = ArrayList<Int>()
+        var i = 0
+        while (i < text.length) {
+            starts.add(i)
+            i += Character.charCount(text.codePointAt(i))
+        }
+        return starts
+    }
+
+    private fun spelledOutQuery(reader: OctagramReader, context: String, word: String, isRear: Boolean): Double {
+        if (context.isEmpty() || word.isEmpty()) return OctagramReader.NON_COLLOCATION_PENALTY
+        var best = OctagramReader.NON_COLLOCATION_PENALTY
+        val wordEnds = (codePointStarts(word).drop(1) + word.length).take(OctagramReader.QUERY_UNICODE_MAX)
+        for (start in codePointStarts(context).takeLast(OctagramReader.QUERY_UNICODE_MAX)) {
+            for (end in wordEnds) {
+                val score = reader.rawScore(context.substring(start) + word.substring(0, end)) ?: continue
+                best = maxOf(best, score + OctagramReader.COLLOCATION_PENALTY)
+            }
+        }
+        if (isRear && word.codePointCount(0, word.length) <= OctagramReader.QUERY_UNICODE_MAX) {
+            reader.rawScore("$word$")?.let { best = maxOf(best, it + OctagramReader.REAR_PENALTY) }
+        }
+        return best
+    }
+
+    private fun assertQueriesMatchTheirSpelledOutForm(reader: OctagramReader, contexts: List<String>, words: List<String>): Int {
+        var collocations = 0
+        for (context in contexts) {
+            val nodes = reader.contextNodes(context)
+            for (word in words) for (isRear in listOf(false, true)) {
+                val expected = spelledOutQuery(reader, context, word, isRear)
+                assertEquals("'$context' + '$word' rear=$isRear", expected, reader.query(context, word, isRear), 0.0)
+                assertEquals("'$context' + '$word' rear=$isRear, shared context nodes", expected, reader.query(nodes, word, isRear), 0.0)
+                if (expected != OctagramReader.NON_COLLOCATION_PENALTY) collocations++
+            }
+        }
+        return collocations
+    }
+
+    @Test
+    fun queryOverSharedContextNodesMatchesEverySuffixAndPrefixLookup() {
+        val supplementary = String(Character.toChars(0x20000))
+        val reader = OctagramFixture.reader(
+            mapOf(
+                "市买" to 10.0,
+                "去超市买东" to 20.0,
+                "超市买东西" to 23.0,
+                "二三四五六七" to 25.0,
+                "一二三四五六七" to 40.0,
+                "甲乙丙丁戊己" to 21.0,
+                "甲乙丙丁戊己庚" to 40.0,
+                "天买" to 5.0,
+                "${supplementary}买" to 18.0,
+                "买$supplementary" to 9.0,
+                "好$" to 16.0,
+                "买东西$" to 12.0,
+                "甲乙丙丁戊己$" to 30.0,
+            ),
+        )
+        val contexts = listOf(
+            "", "去超市", "超市", "市", "一二三四五六", "甲", "今天", "好$supplementary", supplementary, "你", "\uD800", "买",
+        )
+        val words = listOf(
+            "买东西", "买", "买东", "七", "乙丙丁戊己庚", "乙丙丁戊己", "好", "甲乙丙丁戊己", supplementary, "${supplementary}买", "西",
+        )
+        assertTrue(assertQueriesMatchTheirSpelledOutForm(reader, contexts, words) > 0)
+    }
+
+    @Test
+    fun queryOverSharedContextNodesMatchesTheShippedGrammar() {
+        assumeTrue("AEGIS_GRAM points at the .gram", gram != null && gram.exists())
+        val reader = OctagramReader.fromFile(gram!!)
+        val sentences = listOf(
+            "这个问题怎么解决", "今天天气真不错", "他是我最好的朋友", "我们明天去看电影", "你吃饭了吗我还没吃",
+            "昨天开会的时候他说", "中华人民共和国", "经济发展的时候我们可以",
+        )
+        var collocations = 0
+        for (sentence in sentences) {
+            val contexts = (0..sentence.length).map { sentence.substring(0, it) }
+            val words = ArrayList<String>()
+            for (from in sentence.indices) for (to in from + 1..minOf(sentence.length, from + 6)) words.add(sentence.substring(from, to))
+            collocations += assertQueriesMatchTheirSpelledOutForm(reader, contexts, words.distinct())
+        }
+        assertTrue("the shipped grammar scores some of the probed collocations", collocations > 0)
+    }
+
     @Test
     fun loadsAndScores() {
         assumeTrue("AEGIS_GRAM points at the .gram", gram != null && gram.exists())

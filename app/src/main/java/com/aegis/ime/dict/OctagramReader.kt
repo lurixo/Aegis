@@ -55,28 +55,64 @@ class OctagramReader private constructor(
 
     fun rawScore(text: String): Double? = lookup(encode(text))?.let { it / VALUE_SCALE }
 
-    fun query(context: String, word: String, isRear: Boolean): Double {
-        if (context.isEmpty() || word.isEmpty()) return NON_COLLOCATION_PENALTY
-        var result = NON_COLLOCATION_PENALTY
+    fun query(context: String, word: String, isRear: Boolean): Double = query(contextNodes(context), word, isRear)
+
+    fun contextNodes(context: String): IntArray {
+        if (context.isEmpty()) return NO_CONTEXT
         var start = context.length
         var count = 0
         while (start > 0 && count < QUERY_UNICODE_MAX) {
             start -= Character.charCount(context.codePointBefore(start))
             count++
         }
-        while (start < context.length) {
-            var node = descend(context, start)
+        val nodes = IntArray(count * 2)
+        var at = 0
+        while (start < context.length && at < nodes.size) {
+            val node = descend(context, start)
+            nodes[at] = node
+            nodes[at + 1] = if (node == ABSENT) 0 else unit(node)
+            at += 2
+            start += Character.charCount(context.codePointAt(start))
+        }
+        return nodes
+    }
+
+    fun query(nodes: IntArray, word: String, isRear: Boolean): Double {
+        if (nodes.isEmpty() || word.isEmpty()) return NON_COLLOCATION_PENALTY
+        var result = NON_COLLOCATION_PENALTY
+        var at = 0
+        while (at < nodes.size) {
+            var id = nodes[at]
+            var u = nodes[at + 1]
+            at += 2
             var i = 0
             var chars = 0
-            while (node != ABSENT && i < word.length && chars < QUERY_UNICODE_MAX) {
+            while (id != ABSENT && i < word.length && chars < QUERY_UNICODE_MAX) {
                 val cp = word.codePointAt(i)
-                node = child(node, cp)
-                val found = if (node == ABSENT) ABSENT else leafValue(node)
-                if (found != ABSENT) result = maxOf(result, found / VALUE_SCALE + COLLOCATION_PENALTY)
+                val packed = pack(cp)
+                val count = (packed ushr PACKED_COUNT_SHIFT).toInt()
+                var k = 0
+                while (k < count) {
+                    val c = ((packed ushr (8 * k)) and 0xFF).toInt()
+                    id = id xor offset(u) xor c
+                    if (!inImage(id)) {
+                        id = ABSENT
+                        break
+                    }
+                    u = unit(id)
+                    if ((u and labelMask) != c) {
+                        id = ABSENT
+                        break
+                    }
+                    k++
+                }
+                if (id != ABSENT && hasLeaf(u)) {
+                    val leaf = id xor offset(u)
+                    if (inImage(leaf)) result = maxOf(result, value(unit(leaf)) / VALUE_SCALE + COLLOCATION_PENALTY)
+                }
                 i += Character.charCount(cp)
                 chars++
             }
-            start += Character.charCount(context.codePointAt(start))
         }
         if (isRear && word.codePointCount(0, word.length) <= QUERY_UNICODE_MAX) {
             val node = child(descend(word, 0), REAR_MARK)
@@ -170,6 +206,7 @@ class OctagramReader private constructor(
         private const val MAX_BYTES_PER_CHAR = 6
         private const val PACKED_COUNT_SHIFT = 56
         private const val ABSENT = -1
+        private val NO_CONTEXT = IntArray(0)
 
         fun fromFile(file: File): OctagramReader {
             RandomAccessFile(file, "r").use { raf ->
