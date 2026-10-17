@@ -258,9 +258,12 @@ class NeuralDownloadCardTest {
         compose.onNodeWithText(context.getString(R.string.neural_card_queue, 0L, 0L, 0L)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_cancelled, 0)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_first_key, 0L, 0L, 0L)).assertDoesNotExist()
+        compose.onNodeWithText(context.getString(R.string.neural_card_context_load, 0L, 0L, 0L)).assertDoesNotExist()
 
         lateinit var ran: NeuralReranker
         var abortNext = true
+        var now = 0L
+        var warmNanos = 0L
         val scorer = object : SentenceScorer {
             override fun score(context: String, candidates: List<String>): DoubleArray? {
                 if (abortNext) {
@@ -270,12 +273,13 @@ class NeuralDownloadCardTest {
                 }
                 return DoubleArray(candidates.size) { -it.toDouble() }
             }
-            override fun warm(context: String) {}
+            override fun warm(context: String) {
+                now += warmNanos
+            }
             override fun cancel() {}
             override fun resume() {}
             override fun close() {}
         }
-        var now = 0L
         ran = NeuralReranker(installed.spec, { scorer }, Executor { it.run() }, Executor { it.run() }, { _, _ -> }) { now }
             .apply { start() }
         ran.firstKeyDown()
@@ -285,6 +289,10 @@ class NeuralDownloadCardTest {
         ran.firstKeyDown()
         now = 50_000_000L
         ran.firstKeyShown()
+        warmNanos = 40_000_000L
+        ran.warm("上文")
+        warmNanos = 20_000_000L
+        ran.warm("下文")
         val paths = listOf("甲" to -1.0, "乙" to -2.0)
         ran.submit("", nine = false, waitMillis = 300L, paths = paths) {}
         ran.submit("", nine = false, waitMillis = 300L, paths = paths) {}
@@ -295,6 +303,7 @@ class NeuralDownloadCardTest {
         assertEquals(1, snap.runs)
         assertEquals(1, snap.cancelled)
         assertEquals(2, snap.firstKeys)
+        assertEquals(2, snap.warms)
         assertEquals(
             "First key to candidates: last 30 ms, mean 21 ms, max 30 ms",
             context.getString(R.string.neural_card_first_key, snap.lastFirstKeyMillis, snap.meanFirstKeyMillis, snap.maxFirstKeyMillis),
@@ -306,6 +315,15 @@ class NeuralDownloadCardTest {
         assertEquals(
             "首键出字：最近 30 毫秒，平均 21 毫秒，最长 30 毫秒",
             zh.getString(R.string.neural_card_first_key, snap.lastFirstKeyMillis, snap.meanFirstKeyMillis, snap.maxFirstKeyMillis),
+        )
+        assertEquals(
+            "Context load: last 20 ms, mean 30 ms, max 40 ms",
+            context.getString(R.string.neural_card_context_load, snap.lastWarmMillis, snap.meanWarmMillis, snap.maxWarmMillis),
+        )
+        compose.onNodeWithText("Context load: last 20 ms, mean 30 ms, max 40 ms").assertExists()
+        assertEquals(
+            "上下文加载：最近 20 毫秒，平均 30 毫秒，最长 40 毫秒",
+            zh.getString(R.string.neural_card_context_load, snap.lastWarmMillis, snap.meanWarmMillis, snap.maxWarmMillis),
         )
         assertTrue(compose.onAllNodesWithText("while the context loaded", substring = true).fetchSemanticsNodes().isEmpty())
         compose.onNodeWithText(context.getString(R.string.neural_card_runs, 1, snap.changed)).assertExists()

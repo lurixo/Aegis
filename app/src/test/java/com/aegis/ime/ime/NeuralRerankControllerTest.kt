@@ -580,6 +580,7 @@ class NeuralRerankControllerTest {
         assertEquals(2, snap.runs)
         assertEquals(0, snap.cancelled)
         assertEquals(if (late) 1 else 0, snap.timeouts)
+        assertEquals(1, snap.warms)
     }
 
     @Test fun a_key_typed_while_its_context_loads_shows_the_decoder_order_at_once_and_is_reranked_after_the_load_on_26key() =

@@ -39,6 +39,7 @@ class NeuralRerankerTest {
         val batches = ArrayList<List<String>>()
         val calls = ArrayList<String>()
         var warmFails = false
+        var warming: () -> Unit = {}
         var cancels = 0
         var aborted = false
         var closed = false
@@ -54,6 +55,7 @@ class NeuralRerankerTest {
 
         override fun warm(context: String) {
             calls.add("warm:$context")
+            warming()
             if (warmFails) error("bad prefix")
         }
 
@@ -731,6 +733,7 @@ class NeuralRerankerTest {
         assertEquals(listOf("warm:上文", "score:上文"), scorer.calls)
         assertEquals(listOf("拟好"), chosen)
         val snap = r.snapshot()
+        assertEquals(1, snap.warms)
         assertEquals(1, snap.runs)
         assertEquals(0, snap.timeouts)
         assertEquals(0, snap.cancelled)
@@ -759,6 +762,7 @@ class NeuralRerankerTest {
         q.runMain()
         assertEquals("the late result is dropped", listOf(NONE), chosen)
         val snap = r.snapshot()
+        assertEquals(1, snap.warms)
         assertEquals(1, snap.timeouts)
         assertEquals(0, snap.cancelled)
     }
@@ -929,6 +933,41 @@ class NeuralRerankerTest {
         assertEquals(10L, snap.lastFirstKeyMillis)
         assertEquals(20L, snap.meanFirstKeyMillis)
         assertEquals(30L, snap.maxFirstKeyMillis)
+        assertEquals(0, snap.runs)
+    }
+
+    @Test fun context_load_time_is_recorded_per_warm_that_ran() {
+        val q = Queues()
+        var now = 0L
+        var step = 40_000_000L
+        val scorer = FakeScorer(prefersSecond).apply { warming = { now += step } }
+        val r = started(q, scorer) { now }
+        assertEquals(0, r.snapshot().warms)
+        r.warm("上文")
+        now += 500_000_000L
+        assertEquals("a queued warm is not timed yet", 0, r.snapshot().warms)
+        q.runWorker()
+        step = 20_000_000L
+        r.warm("下文")
+        q.runWorker()
+        step = 30_000_000L
+        r.warm("被替换")
+        r.warm("再下文")
+        q.runWorker()
+        assertEquals(listOf("warm:上文", "warm:下文", "warm:再下文"), scorer.calls)
+        var snap = r.snapshot()
+        assertEquals("a replaced warm never ran", 3, snap.warms)
+        assertEquals(30L, snap.lastWarmMillis)
+        assertEquals(30L, snap.meanWarmMillis)
+        assertEquals(40L, snap.maxWarmMillis)
+        scorer.warmFails = true
+        step = 90_000_000L
+        r.warm("坏上文")
+        q.runWorker()
+        snap = r.snapshot()
+        assertEquals("a warm that failed loaded nothing", 3, snap.warms)
+        assertEquals(30L, snap.lastWarmMillis)
+        assertEquals(40L, snap.maxWarmMillis)
         assertEquals(0, snap.runs)
     }
 

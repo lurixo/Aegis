@@ -51,6 +51,10 @@ class NeuralReranker(
         val lastFirstKeyMillis: Long,
         val meanFirstKeyMillis: Long,
         val maxFirstKeyMillis: Long,
+        val warms: Int,
+        val lastWarmMillis: Long,
+        val meanWarmMillis: Long,
+        val maxWarmMillis: Long,
     )
 
     private class Delivery(val gen: Long, val run: () -> Unit)
@@ -92,6 +96,10 @@ class NeuralReranker(
     private var lastFirstKeyMillis = 0L
     private var totalFirstKeyMillis = 0L
     private var maxFirstKeyMillis = 0L
+    private var warms = 0
+    private var lastWarmMillis = 0L
+    private var totalWarmMillis = 0L
+    private var maxWarmMillis = 0L
 
     val ready: Boolean get() = phase == Phase.READY
 
@@ -135,7 +143,8 @@ class NeuralReranker(
     private fun load(next: Warmup) {
         val active = scorer
         if (active != null && resumed(active) { warmup === next && phase == Phase.READY }) {
-            runCatching { active.warm(next.context) }
+            val started = nanoTime()
+            runCatching { active.warm(next.context) }.onSuccess { recordWarm((nanoTime() - started) / NANOS_PER_MILLI) }
         }
         next.done = true
     }
@@ -277,6 +286,15 @@ class NeuralReranker(
         }
     }
 
+    private fun recordWarm(millis: Long) {
+        synchronized(statsLock) {
+            warms++
+            lastWarmMillis = millis
+            totalWarmMillis += millis
+            if (millis > maxWarmMillis) maxWarmMillis = millis
+        }
+    }
+
     private fun dropped(gen: Long) {
         if (gen != latest.get()) synchronized(statsLock) { cancelled++ }
     }
@@ -313,6 +331,10 @@ class NeuralReranker(
             lastFirstKeyMillis = lastFirstKeyMillis,
             meanFirstKeyMillis = if (firstKeys == 0) 0L else totalFirstKeyMillis / firstKeys,
             maxFirstKeyMillis = maxFirstKeyMillis,
+            warms = warms,
+            lastWarmMillis = lastWarmMillis,
+            meanWarmMillis = if (warms == 0) 0L else totalWarmMillis / warms,
+            maxWarmMillis = maxWarmMillis,
         )
     }
 
