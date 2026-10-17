@@ -1841,13 +1841,11 @@ class PinyinDecoder(
         pruned: Boolean = false,
         digitInitials: Boolean = false,
     ): SentenceLattice {
-        val model = lm
-        val grammar = octagram
         val learn = activeLearning?.takeUnless { it.isEmpty() }
         val instant = scoreInstant()
         val lam = activeLambda(ctx)
         val n = input.length
-        val abbreviations = grammar == null || T9Pinyin.segmentCost(input) == null
+        val abbreviations = octagram == null || T9Pinyin.segmentCost(input) == null
         val dp = Array<MutableMap<SentenceState, MutableList<Cell>>>(n + 1) {
             if (octagram == null && userLearning == null) HashMap() else LinkedHashMap(SENTENCE_STATE_CAPACITY)
         }
@@ -1856,51 +1854,71 @@ class PinyinDecoder(
 
         for (q in 1..n) {
             DecodeCancellation.checkpoint()
-            for (p in 0 until q) {
-                val from = dp[p]
-                if (from.isEmpty()) continue
-                val sub = input.substring(p, q)
-                val edges = if (edgeMemo == null) edgesFor(sub, digitInitials) else edgeMemo.getOrPut(sub) { edgesFor(sub) }
-                if (edges.isEmpty()) continue
-                for (e in edges) {
-                    if (e.abbreviated && !abbreviations) continue
-                    val w = e.word
-                    val uni = if (grammar != null) ln(e.freq.toDouble()) - LN_GRAMMAR_WEIGHT_SCALE - grammarCharPenalty * w.codePointCount(0, w.length)
-                    else ln(e.freq.toDouble()) - lnTotal
-                    val boost = sentenceUsageBoost(w, e.userOnly || (p == 0 && q == n), instant.user) +
-                        (learn?.formedWeight(w, instant.learn) ?: 0.0)
-                    val idFirst = if (grammar != null || model == null) -1 else model.charId(w.codePointAt(0))
-                    val lastCp = w.codePointBefore(w.length)
-                    val inner = if (grammar != null || model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model, condMemo)
-                    for ((state, cells) in from) {
-                        val collocation = if (grammar != null) grammar.query(state.contextNodes(grammar), w, q == n) else 0.0
-                        val follow = learn?.followBoost(state.tail, w, instant.learn) ?: 0.0
-                        val nextState = SentenceState(lastCp, advanceJoinedTail(joinTail(state.tail, w)))
-                        val kept = dp[q].getOrPut(nextState) { ArrayList(limit) }
-                        for ((rank, cell) in cells.withIndex()) {
-                            val link = if (grammar != null) {
-                                collocation
-                            } else {
-                                val bw = if (cell.prevPos < 0 && state.lastCp != BOS) contextWeight else lam
-                                if (model == null || state.lastCp == BOS || bw == 0.0) 0.0
-                                else bw * logCondMemo(condMemo, model, state.charId(model), idFirst)
-                            }
-                            val score = cell.score + uni + link + inner + boost + follow - e.penalty
-                            keepBest(kept, score, p, state, rank, w, limit)
+            fillColumn(dp, q, q == n, input, limit, edgeMemo, condMemo, pruned, digitInitials, abbreviations, learn, instant, lam)
+        }
+        return SentenceLattice(dp)
+    }
+
+    private fun fillColumn(
+        dp: Array<MutableMap<SentenceState, MutableList<Cell>>>,
+        q: Int,
+        rear: Boolean,
+        input: String,
+        limit: Int,
+        edgeMemo: MutableMap<String, List<Edge>>?,
+        condMemo: CondMemo,
+        pruned: Boolean,
+        digitInitials: Boolean,
+        abbreviations: Boolean,
+        learn: UserLearning?,
+        instant: ScoreInstant,
+        lam: Double,
+    ) {
+        val model = lm
+        val grammar = octagram
+        for (p in 0 until q) {
+            val from = dp[p]
+            if (from.isEmpty()) continue
+            val sub = input.substring(p, q)
+            val edges = if (edgeMemo == null) edgesFor(sub, digitInitials) else edgeMemo.getOrPut(sub) { edgesFor(sub) }
+            if (edges.isEmpty()) continue
+            for (e in edges) {
+                if (e.abbreviated && !abbreviations) continue
+                val w = e.word
+                val uni = if (grammar != null) ln(e.freq.toDouble()) - LN_GRAMMAR_WEIGHT_SCALE - grammarCharPenalty * w.codePointCount(0, w.length)
+                else ln(e.freq.toDouble()) - lnTotal
+                val boost = sentenceUsageBoost(w, e.userOnly || (p == 0 && rear), instant.user) +
+                    (learn?.formedWeight(w, instant.learn) ?: 0.0)
+                val idFirst = if (grammar != null || model == null) -1 else model.charId(w.codePointAt(0))
+                val lastCp = w.codePointBefore(w.length)
+                val inner = if (grammar != null || model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model, condMemo)
+                for ((state, cells) in from) {
+                    val collocation = if (grammar != null) grammar.query(state.contextNodes(grammar), w, rear) else 0.0
+                    val follow = learn?.followBoost(state.tail, w, instant.learn) ?: 0.0
+                    val nextState = SentenceState(lastCp, advanceJoinedTail(joinTail(state.tail, w)))
+                    val kept = dp[q].getOrPut(nextState) { ArrayList(limit) }
+                    for ((rank, cell) in cells.withIndex()) {
+                        val link = if (grammar != null) {
+                            collocation
+                        } else {
+                            val bw = if (cell.prevPos < 0 && state.lastCp != BOS) contextWeight else lam
+                            if (model == null || state.lastCp == BOS || bw == 0.0) 0.0
+                            else bw * logCondMemo(condMemo, model, state.charId(model), idFirst)
                         }
+                        val score = cell.score + uni + link + inner + boost + follow - e.penalty
+                        keepBest(kept, score, p, state, rank, w, limit)
                     }
                 }
             }
-            if ((pruned || octagram != null || userLearning != null) && dp[q].size > BEAM_W) {
-                val keep = dp[q].entries
-                    .sortedByDescending { it.value[0].score }
-                    .take(BEAM_W)
-                    .map { it.key to it.value }
-                dp[q].clear()
-                for ((state, cells) in keep) dp[q][state] = cells
-            }
         }
-        return SentenceLattice(dp)
+        if ((pruned || octagram != null || userLearning != null) && dp[q].size > BEAM_W) {
+            val keep = dp[q].entries
+                .sortedByDescending { it.value[0].score }
+                .take(BEAM_W)
+                .map { it.key to it.value }
+            dp[q].clear()
+            for ((state, cells) in keep) dp[q][state] = cells
+        }
     }
 
     private fun sentenceChoices(sentences: List<SentencePath>, key: String): List<String> {
