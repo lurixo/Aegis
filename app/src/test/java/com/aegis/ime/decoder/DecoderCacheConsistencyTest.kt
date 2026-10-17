@@ -114,6 +114,30 @@ class DecoderCacheConsistencyTest {
         }
     }
 
+    @Test fun warmDecodersAnswerLikeFreshOnesWhileTypingAndErasingUnderOneContext() {
+        for (rules in listOf(emptySet(), Fuzzy.DEFAULT_RULE_KEYS)) for (context in listOf("", "实现")) {
+            val warmLetters = letters(rules)
+            val warmDigits = digits(rules)
+            for (reading in readings) {
+                val lengths = (1..reading.length) + (reading.length - 1 downTo 1) + (2..reading.length)
+                for (end in lengths) {
+                    val input = reading.substring(0, end)
+                    val keys = T9Pinyin.toT9(input)
+                    assertEquals(
+                        "$rules letters $input after $context",
+                        letters(rules).decodeCovered(input, LIMIT, context = context),
+                        warmLetters.decodeCovered(input, LIMIT, context = context),
+                    )
+                    assertEquals(
+                        "$rules digits $keys after $context",
+                        digits(rules).decodeCovered(keys, LIMIT, context = context),
+                        warmDigits.decodeCovered(keys, LIMIT, context = context),
+                    )
+                }
+            }
+        }
+    }
+
     private companion object {
         const val LIMIT = 30
     }

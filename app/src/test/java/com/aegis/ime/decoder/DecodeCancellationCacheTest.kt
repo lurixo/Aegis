@@ -103,6 +103,39 @@ class DecodeCancellationCacheTest {
         }
     }
 
+    private fun <T> cancellingAfterAWarmPrefixLeavesNoTrace(
+        fresh: () -> PinyinDecoder,
+        warm: (PinyinDecoder) -> Unit,
+        decode: (PinyinDecoder) -> T,
+    ) {
+        val expected = decode(fresh())
+        val counted = fresh().also(warm)
+        val total = checkpointsIn { decode(counted) }
+        assertTrue("the decode passes through checkpoints: $total", total > 1)
+        for (stop in 1..total) {
+            val decoder = fresh().also(warm)
+            var polls = 0
+            val cancelled = DecodeCancellation.attempt({ ++polls >= stop }) { decode(decoder) }
+            assertNull("stopping at checkpoint $stop of $total cancels the decode", cancelled)
+            assertEquals("after stopping at checkpoint $stop of $total the warmed decoder decodes as a fresh one", expected, decode(decoder))
+            assertEquals("and keeps doing so", expected, decode(decoder))
+        }
+    }
+
+    @Test fun cancelling_a_decode_that_extends_or_shortens_a_typed_prefix_leaves_the_lattice_clean() {
+        assumeAssets()
+        for ((warmInput, input) in listOf("zhongguo" to "zhongguoren", "zhongguoren" to "zhongguo", "nihao" to "nihaoshijie")) {
+            cancellingAfterAWarmPrefixLeavesNoTrace(::letters, { it.decodeCovered(warmInput, 30, emptySet(), "今天") }) {
+                it.decodeCovered(input, 30, emptySet(), "今天")
+            }
+            val warmKeys = T9Pinyin.toT9(warmInput)
+            val keys = T9Pinyin.toT9(input)
+            cancellingAfterAWarmPrefixLeavesNoTrace(::digits, { it.decodeCovered(warmKeys, 30, emptySet(), "我们") }) {
+                it.decodeCovered(keys, 30, emptySet(), "我们")
+            }
+        }
+    }
+
     @Test fun cancelling_a_26key_decode_at_any_checkpoint_leaves_every_cache_clean() {
         assumeAssets()
         for (input in listOf("nihaoya", "shijie", "zhongguoren", "wodemingzi", "zhognguo")) {

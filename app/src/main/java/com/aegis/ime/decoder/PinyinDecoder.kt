@@ -1743,6 +1743,68 @@ class PinyinDecoder(
 
     private class Cell(val score: Double, val prevPos: Int, val prevState: SentenceState?, val prevRank: Int, val word: String)
 
+    private data class ChainKey(
+        val digitInitials: Boolean,
+        val abbreviated: Boolean,
+        val limit: Int,
+        val ctx: Ctx,
+        val rules: Set<String>,
+        val edgeN: Int,
+        val userVersion: Long,
+        val userReadingsVersion: Long,
+        val learnVersion: Long,
+        val learnFormedVersion: Long,
+        val learnEnabled: Boolean,
+        val learnEmpty: Boolean,
+        val userInstant: Long,
+        val learnInstant: Long,
+    )
+
+    private class LatticeChain(
+        val key: ChainKey,
+        val text: String,
+        val columns: Array<MutableMap<SentenceState, MutableList<Cell>>>,
+    )
+
+    @Volatile private var latticeChains: List<LatticeChain> = emptyList()
+
+    @Volatile internal var reuseLatticeColumns: Boolean = true
+
+    private fun chainKey(digitInitials: Boolean, abbreviations: Boolean, limit: Int, ctx: Ctx, instant: ScoreInstant): ChainKey {
+        val learning = userLearning
+        return ChainKey(
+            digitInitials,
+            abbreviations && (initialsDict != null || (digitInitials && digitInitialsDict != null)),
+            limit,
+            ctx,
+            fuzzyRules,
+            edgeN,
+            userModel?.version ?: 0L,
+            userModel?.readingsVersion ?: 0L,
+            learning?.version ?: 0L,
+            learning?.formedVersion ?: 0L,
+            learning?.enabled == true,
+            learning?.isEmpty() == true,
+            instant.user,
+            instant.learn,
+        )
+    }
+
+    private fun sharedPrefixLength(a: String, b: String): Int {
+        val end = minOf(a.length, b.length)
+        var i = 0
+        while (i < end && a[i] == b[i]) i++
+        return i
+    }
+
+    private fun keepChain(key: ChainKey, input: String, dp: Array<MutableMap<SentenceState, MutableList<Cell>>>) {
+        val text = input.substring(0, input.length - 1)
+        val chains = latticeChains
+        val same = chains.firstOrNull { it.key == key }
+        val chain = if (same != null && same.text.startsWith(text)) same else LatticeChain(key, text, Array(text.length + 1) { dp[it] })
+        latticeChains = listOf(chain) + chains.filter { it.key != key }.take(CHAIN_SLOTS - 1)
+    }
+
     private fun bestSentences(
         input: String,
         ctx: Ctx,
@@ -1752,7 +1814,7 @@ class PinyinDecoder(
         val condMemo = spareCondMemo.getAndSet(null) ?: CondMemo()
         val choices = if (octagram != null) SENTENCE_CHOICES else 1
         val ranked = if (octagram != null && pathSink != null) pathSink.limit else 0
-        val lattice = sentenceLattice(input, ctx, maxOf(choices, ranked), condMemo = condMemo, digitInitials = digitInitials)
+        val lattice = sentenceLattice(input, ctx, maxOf(choices, ranked), condMemo = condMemo, digitInitials = digitInitials, chained = true)
         spareCondMemo.set(condMemo)
         if (ranked > 0) pathSink?.paths = byUsage(lattice.paths(ranked))
         return byUsage(lattice.paths(choices))
@@ -1840,22 +1902,34 @@ class PinyinDecoder(
         condMemo: CondMemo = CondMemo(),
         pruned: Boolean = false,
         digitInitials: Boolean = false,
+        chained: Boolean = false,
     ): SentenceLattice {
         val learn = activeLearning?.takeUnless { it.isEmpty() }
         val instant = scoreInstant()
         val lam = activeLambda(ctx)
         val n = input.length
         val abbreviations = octagram == null || T9Pinyin.segmentCost(input) == null
-        val dp = Array<MutableMap<SentenceState, MutableList<Cell>>>(n + 1) {
-            if (octagram == null && userLearning == null) HashMap() else LinkedHashMap(SENTENCE_STATE_CAPACITY)
+        val key = if (chained && reuseLatticeColumns && n in 2..MAX_CHAIN_COLUMNS) {
+            chainKey(digitInitials, abbreviations, limit, ctx, instant)
+        } else {
+            null
         }
-        val initial = SentenceState(ctx.cp, if (octagram == null && userLearning == null) "" else ctx.tail)
-        dp[0][initial] = mutableListOf(Cell(0.0, -1, null, 0, ""))
+        val chain = key?.let { k -> latticeChains.firstOrNull { it.key == k } }
+        val reused = if (chain == null) 0 else minOf(sharedPrefixLength(chain.text, input), n - 1)
+        val dp = Array<MutableMap<SentenceState, MutableList<Cell>>>(n + 1) {
+            if (chain != null && it <= reused) chain.columns[it]
+            else if (octagram == null && userLearning == null) HashMap() else LinkedHashMap(SENTENCE_STATE_CAPACITY)
+        }
+        if (chain == null) {
+            val initial = SentenceState(ctx.cp, if (octagram == null && userLearning == null) "" else ctx.tail)
+            dp[0][initial] = mutableListOf(Cell(0.0, -1, null, 0, ""))
+        }
 
-        for (q in 1..n) {
+        for (q in reused + 1..n) {
             DecodeCancellation.checkpoint()
             fillColumn(dp, q, q == n, input, limit, edgeMemo, condMemo, pruned, digitInitials, abbreviations, learn, instant, lam)
         }
+        if (key != null && chainKey(digitInitials, abbreviations, limit, ctx, instant) == key) keepChain(key, input, dp)
         return SentenceLattice(dp)
     }
 
@@ -2113,6 +2187,8 @@ class PinyinDecoder(
         const val BOS = -1
         const val NO_CTX = Int.MIN_VALUE
         const val EDGE_N = 20
+        const val CHAIN_SLOTS = 4
+        const val MAX_CHAIN_COLUMNS = 64
         const val DEFAULT_LAMBDA = 0.5
         const val FUZZY_PENALTY = 6.0
         const val ALIAS_PENALTY = 3.5
