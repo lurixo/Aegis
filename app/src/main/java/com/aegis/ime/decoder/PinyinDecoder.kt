@@ -1746,11 +1746,19 @@ class PinyinDecoder(
         pruned: Boolean = false,
     ): SentencePath? = sentencePaths(input, ctx, 1, edgeMemo, condMemo, pruned).firstOrNull()
 
-    private fun keepBest(cells: MutableList<Cell>, cell: Cell, limit: Int) {
-        if (cells.size >= limit && cell.score <= cells[cells.size - 1].score) return
+    private fun keepBest(
+        cells: MutableList<Cell>,
+        score: Double,
+        prevPos: Int,
+        prevState: SentenceState,
+        prevRank: Int,
+        word: String,
+        limit: Int,
+    ) {
+        if (cells.size >= limit && score <= cells[cells.size - 1].score) return
         var at = cells.size
-        while (at > 0 && cells[at - 1].score < cell.score) at--
-        cells.add(at, cell)
+        while (at > 0 && cells[at - 1].score < score) at--
+        cells.add(at, Cell(score, prevPos, prevState, prevRank, word))
         if (cells.size > limit) cells.removeAt(cells.size - 1)
     }
 
@@ -1846,7 +1854,7 @@ class PinyinDecoder(
                                 else bw * logCondMemo(condMemo, model, state.charId(model), idFirst)
                             }
                             val score = cell.score + uni + link + inner + boost + follow - e.penalty
-                            keepBest(kept, Cell(score, p, state, rank, w), limit)
+                            keepBest(kept, score, p, state, rank, w, limit)
                         }
                     }
                 }
