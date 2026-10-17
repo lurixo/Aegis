@@ -1811,7 +1811,7 @@ class PinyinDecoder(
     ): SentenceLattice {
         val model = lm
         val grammar = octagram
-        val learn = activeLearning
+        val learn = activeLearning?.takeUnless { it.isEmpty() }
         val lam = activeLambda(ctx)
         val n = input.length
         val abbreviations = grammar == null || T9Pinyin.segmentCost(input) == null
