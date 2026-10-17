@@ -17,6 +17,7 @@ package com.aegis.ime.ime
 
 import android.content.res.Configuration
 import android.content.Context
+import android.graphics.Rect
 import android.graphics.RectF
 import android.inputmethodservice.InputMethodService
 import android.view.View
@@ -128,9 +129,14 @@ class NarrowLandscapeMultiWindowFallbackTest {
             normalTop + view.surfaceCornerOverlapPx(),
             fallbackInsets.contentTop,
         )
-        assertEquals(normalTop, fallbackInsets.visibleTop)
-        assertEquals(InputMethodService.Insets.TOUCHABLE_INSETS_VISIBLE, fallbackInsets.touchableInsets)
-        assertNull("there is no synthetic region/gutter in fallback mode", fallbackInsets.touchableRegion)
+        assertEquals(fallbackInsets.contentTop, fallbackInsets.visibleTop)
+        assertEquals(InputMethodService.Insets.TOUCHABLE_INSETS_REGION, fallbackInsets.touchableInsets)
+        val surface = view.dockTouchableBoundsInWindow()
+        assertEquals(
+            "the fallback touch region starts at the surface top and adds no gutter",
+            Rect(surface.left, normalTop, surface.right, view.measuredHeight),
+            fallbackInsets.touchableRegion,
+        )
     }
 
     @Test fun full_width_emergency_shrinks_horizontal_gaps_before_crossing_the_20dp_key_floor() {

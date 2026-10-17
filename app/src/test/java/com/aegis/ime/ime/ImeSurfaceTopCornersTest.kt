@@ -83,7 +83,12 @@ class ImeSurfaceTopCornersTest {
             preeditTab = iv.preeditTabBoundsInWindow(),
             cornerOverlap = iv.surfaceCornerOverlapPx(),
         )
-        assertEquals("$state: the surface top stays the visible top", iv.dockSurfaceTopPx(), spec.visibleTop)
+        assertEquals("$state: visible insets end where content insets end", spec.contentTop, spec.visibleTop)
+        assertEquals(
+            "$state: touches still land on the surface from its own top",
+            iv.dockSurfaceTopPx(),
+            requireNotNull(spec.touchableRegion).top,
+        )
         assertEquals("$state: host content ends where the corner arc ends", normalTop + cornerExtentPx(iv), spec.contentTop)
     }
 

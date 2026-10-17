@@ -87,9 +87,9 @@ class LandscapeImeWindowPolicyTest {
         )
 
         assertEquals("the host is resized only down to the end of the corner arc", 425, spec.contentTop)
-        assertEquals("the surface still obscures the host from its own top", 404, spec.visibleTop)
-        assertEquals(InputMethodService.Insets.TOUCHABLE_INSETS_VISIBLE, spec.touchableInsets)
-        assertNull(spec.touchableRegion)
+        assertEquals("visible insets never reach above the content insets", 425, spec.visibleTop)
+        assertEquals(InputMethodService.Insets.TOUCHABLE_INSETS_REGION, spec.touchableInsets)
+        assertEquals("touches still land on the surface from its own top", Rect(0, 404, 411, 891), spec.touchableRegion)
     }
 
     @Test fun docked_surface_with_a_preedit_tab_overlaps_the_host_without_moving_its_touch_region() {
@@ -106,7 +106,7 @@ class LandscapeImeWindowPolicyTest {
         )
 
         assertEquals(425, spec.contentTop)
-        assertEquals(404, spec.visibleTop)
+        assertEquals(425, spec.visibleTop)
         assertEquals(InputMethodService.Insets.TOUCHABLE_INSETS_REGION, spec.touchableInsets)
         assertEquals(Rect(0, 404, 411, 891), spec.touchableRegion)
         assertEquals(tab, spec.touchableExtra)
@@ -136,7 +136,8 @@ class LandscapeImeWindowPolicyTest {
             cornerOverlap = 21,
         )
         assertEquals(891, short.contentTop)
-        assertEquals(880, short.visibleTop)
+        assertEquals(891, short.visibleTop)
+        assertEquals(Rect(0, 880, 411, 891), short.touchableRegion)
 
         val negative = LandscapeImeWindowPolicy.resolve(
             compactLandscape = false,
