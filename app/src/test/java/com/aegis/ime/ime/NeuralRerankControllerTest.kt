@@ -87,10 +87,15 @@ class NeuralRerankControllerTest {
 
     private class EveryInputEngine(private val paths: Int = 3) : CandidateEngine {
         val rankedCalls = ArrayList<String>()
+        var decoding: () -> Unit = {}
         override val supportsChinese: Boolean = true
-        override fun candidates(composing: String, t9: Boolean): List<String> = words(composing)
+        override fun candidates(composing: String, t9: Boolean): List<String> = decoded(composing)
         override fun candidatesCovered(composing: String, t9: Boolean, cuts: Set<Int>, context: CharSequence): List<Cand> =
-            words(composing).map { Cand(it, composing.length) }
+            decoded(composing).map { Cand(it, composing.length) }
+        private fun decoded(composing: String): List<String> {
+            decoding()
+            return words(composing)
+        }
         override fun rankedSentences(composing: String, t9: Boolean, context: CharSequence, limit: Int): List<Pair<String, Double>> {
             rankedCalls.add("$composing|$t9")
             return listOf("你好" to -10.0, "拟好" to -11.0, "你号" to -12.0).take(paths).map { tag(it.first, composing) to it.second }
@@ -1570,6 +1575,67 @@ class NeuralRerankControllerTest {
 
     @Test fun key_time_runs_from_each_appended_key_to_its_candidates_on_9key() =
         keyTimeRunsFromEachAppendedKeyToItsCandidates(nine = true)
+
+    private fun keyParts(r: NeuralReranker): List<Long> = r.snapshot().let {
+        listOf(
+            it.meanKeyQueueMillis, it.maxKeyQueueMillis, it.meanKeyDecodeMillis, it.maxKeyDecodeMillis,
+            it.meanKeyDisplayMillis, it.maxKeyDisplayMillis,
+        )
+    }
+
+    private fun keyTimeSplitsIntoQueueDecodeAndDisplay(nine: Boolean) {
+        var now = 0L
+        val engine = EveryInputEngine()
+        val (c, q, r) = setup(engine, reranker = {
+            NeuralReranker(spec, { Scorer() }, Executor { r -> it.neuralWorker.add(r) }, Executor { r -> it.neuralMain.add(r) }, it.schedule) { now }
+        })
+        c.switchTextLayoutForTest(nine)
+        val input = outrunInput(nine)
+        fun key(keys: Int) = type(c, input.substring(keys - 1, keys))
+        fun land(started: Long, ended: Long, shown: Long) {
+            now = started
+            engine.decoding = { now = ended }
+            while (q.decodeWorker.isNotEmpty()) q.decodeWorker.removeFirst().run()
+            engine.decoding = {}
+            now = shown
+            while (q.decodeMain.isNotEmpty()) q.decodeMain.removeFirst().run()
+        }
+
+        now = 100_000_000L
+        key(1)
+        land(started = 103_000_000L, ended = 110_000_000L, shown = 112_000_000L)
+        q.neural()
+        assertEquals(engine.words(input.take(1)), decoded(c))
+        assertEquals(listOf(1L, 12L, 12L, 0L), keyTimes(r))
+        assertEquals("queue, decode and display add up to the key's time", listOf(3L, 3L, 7L, 7L, 2L, 2L), keyParts(r))
+
+        now = 200_000_000L
+        key(2)
+        now = 210_000_000L
+        key(3)
+        land(started = 215_000_000L, ended = 230_000_000L, shown = 240_000_000L)
+        assertEquals(engine.words(input.take(3)), decoded(c))
+        assertEquals("a key replaced before its candidates showed adds nothing", listOf(2L, 21L, 30L, 0L), keyTimes(r))
+        assertEquals("the key is split from its own press", listOf(4L, 5L, 11L, 15L, 6L, 10L), keyParts(r))
+        now = 260_000_000L
+        q.neural()
+        assertEquals(engine.reranked(input.take(3)), decoded(c))
+        assertEquals("the model answer adds nothing", listOf(4L, 5L, 11L, 15L, 6L, 10L), keyParts(r))
+
+        now = 300_000_000L
+        key(4)
+        now = 310_000_000L
+        c.onKey(Key("", action = KeyAction.BACKSPACE))
+        land(started = 320_000_000L, ended = 330_000_000L, shown = 340_000_000L)
+        q.neural()
+        assertEquals(engine.reranked(input.take(3)), decoded(c))
+        assertEquals("a key removed before its candidates showed adds nothing", listOf(2L, 21L, 30L, 0L), keyTimes(r))
+        assertEquals(listOf(4L, 5L, 11L, 15L, 6L, 10L), keyParts(r))
+    }
+
+    @Test fun key_time_splits_into_queue_decode_and_display_on_26key() = keyTimeSplitsIntoQueueDecodeAndDisplay(nine = false)
+
+    @Test fun key_time_splits_into_queue_decode_and_display_on_9key() = keyTimeSplitsIntoQueueDecodeAndDisplay(nine = true)
 
     private fun nextKeyCancelsAStalePathGeneration(nine: Boolean) {
         val engine = Engine().apply { rankedEntered = CountDownLatch(1) }

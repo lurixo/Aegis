@@ -364,6 +364,19 @@ private fun NeuralModelState(name: String, current: NeuralReranker.Snapshot?) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Text(
+            stringResource(
+                R.string.neural_card_key_parts,
+                current.meanKeyQueueMillis,
+                current.maxKeyQueueMillis,
+                current.meanKeyDecodeMillis,
+                current.maxKeyDecodeMillis,
+                current.meanKeyDisplayMillis,
+                current.maxKeyDisplayMillis,
+            ),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
     if (current != null && current.warms > 0) {
         Text(

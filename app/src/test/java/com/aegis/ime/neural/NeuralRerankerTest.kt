@@ -940,32 +940,99 @@ class NeuralRerankerTest {
         listOf(it.keys.toLong(), it.meanKeyMillis, it.maxKeyMillis, it.slowKeys.toLong())
     }
 
+    private fun keyParts(r: NeuralReranker): List<Long> = r.snapshot().let {
+        listOf(
+            it.meanKeyQueueMillis, it.maxKeyQueueMillis, it.meanKeyDecodeMillis, it.maxKeyDecodeMillis,
+            it.meanKeyDisplayMillis, it.maxKeyDisplayMillis,
+        )
+    }
+
+    @Test fun key_time_splits_into_queue_decode_and_display() {
+        var now = 0L
+        val r = started(Queues(), FakeScorer(prefersSecond)) { now }
+        assertEquals(List(6) { 0L }, keyParts(r))
+        now = 100_000_000L
+        assertEquals(now, r.now())
+        r.keyDown()
+        now = 112_000_000L
+        r.keyShown(103_000_000L, 110_000_000L)
+        assertEquals(listOf(3L, 3L, 7L, 7L, 2L, 2L), keyParts(r))
+        assertEquals(listOf(1L, 12L, 12L, 0L), keyTimes(r))
+
+        now = 200_000_000L
+        r.keyDown()
+        now = 210_000_000L
+        r.keyDown()
+        now = 240_000_000L
+        r.keyShown(215_000_000L, 230_000_000L)
+        assertEquals("a key replaced before its candidates showed adds nothing", listOf(4L, 5L, 11L, 15L, 6L, 10L), keyParts(r))
+        assertEquals(listOf(2L, 21L, 30L, 0L), keyTimes(r))
+
+        now = 300_000_000L
+        r.keyDown()
+        r.keyDropped()
+        now = 340_000_000L
+        r.keyShown(310_000_000L, 320_000_000L)
+        assertEquals("a dropped key adds nothing", listOf(4L, 5L, 11L, 15L, 6L, 10L), keyParts(r))
+        assertEquals(listOf(2L, 21L, 30L, 0L), keyTimes(r))
+    }
+
+    @Test fun key_time_parts_stay_inside_the_key_time_and_add_up_to_it() {
+        var now = 0L
+        val r = started(Queues(), FakeScorer(prefersSecond)) { now }
+        now = 100_000_000L
+        r.keyDown()
+        now = 130_000_000L
+        r.keyShown(90_000_000L, 95_000_000L)
+        assertEquals("a decode from before the key leaves the whole time to display", listOf(0L, 0L, 0L, 0L, 30L, 30L), keyParts(r))
+
+        now = 200_000_000L
+        r.keyDown()
+        now = 220_000_000L
+        r.keyShown(205_500_000L, 900_000_000L)
+        assertEquals("a decode end after the list showed stops where it showed", listOf(2L, 5L, 7L, 15L, 15L, 30L), keyParts(r))
+
+        now = 300_000_000L
+        r.keyDown()
+        now = 310_900_000L
+        r.keyShown(303_400_000L, 307_800_000L)
+        assertEquals("parts are cut at whole milliseconds of the key time", listOf(2L, 5L, 6L, 15L, 11L, 30L), keyParts(r))
+        val snap = r.snapshot()
+        assertEquals(listOf(3L, 20L, 30L, 0L), keyTimes(r))
+        assertEquals(
+            "the three parts of every key add up to its time",
+            30L + 20L + 10L,
+            (0L + 5L + 3L) + (0L + 15L + 4L) + (30L + 0L + 3L),
+        )
+        assertEquals(snap.maxKeyMillis, snap.maxKeyDisplayMillis)
+    }
+
     @Test fun key_time_runs_from_the_latest_key_to_its_candidates() {
         var now = 0L
         val r = started(Queues(), FakeScorer(prefersSecond)) { now }
-        r.keyShown()
+        r.keyShown(0L, 0L)
         assertEquals(listOf(0L, 0L, 0L, 0L), keyTimes(r))
         now = 10_000_000L
         r.keyDown()
         assertEquals("a key is counted when its candidates show", listOf(0L, 0L, 0L, 0L), keyTimes(r))
         now = 22_000_000L
-        r.keyShown()
+        r.keyShown(0L, 0L)
         assertEquals(listOf(1L, 12L, 12L, 0L), keyTimes(r))
         now = 90_000_000L
-        r.keyShown()
+        r.keyShown(0L, 0L)
         assertEquals("candidates shown again belong to no new key", listOf(1L, 12L, 12L, 0L), keyTimes(r))
         now = 100_000_000L
         r.keyDown()
         now = 130_000_000L
         r.keyDown()
         now = 150_000_000L
-        r.keyShown()
+        r.keyShown(0L, 0L)
         assertEquals("a key replaced before its candidates showed is not counted", listOf(2L, 16L, 20L, 0L), keyTimes(r))
         now = 200_000_000L
         r.keyDown()
         r.keyDropped()
         now = 900_000_000L
-        r.keyShown()
+        r.keyShown(0L, 0L)
         assertEquals("a dropped key is not counted", listOf(2L, 16L, 20L, 0L), keyTimes(r))
         assertEquals(0, r.snapshot().firstKeys)
         assertEquals(0, r.snapshot().runs)
@@ -978,7 +1045,7 @@ class NeuralRerankerTest {
             now += 1_000_000_000L
             r.keyDown()
             now += millis * 1_000_000L
-            r.keyShown()
+            r.keyShown(0L, 0L)
             return keyTimes(r)
         }
         assertEquals(listOf(1L, 50L, 50L, 0L), key(50L))
@@ -994,12 +1061,12 @@ class NeuralRerankerTest {
         r.keyDown()
         now = 8_000_000L
         r.firstKeyShown()
-        r.keyShown()
+        r.keyShown(0L, 0L)
         now = 100_000_000L
         r.keyDown()
         now = 130_000_000L
         r.firstKeyShown()
-        r.keyShown()
+        r.keyShown(0L, 0L)
         assertEquals(listOf(2L, 19L, 30L, 0L), keyTimes(r))
         assertEquals(1, r.snapshot().firstKeys)
         assertEquals(8L, r.snapshot().maxFirstKeyMillis)
@@ -1007,7 +1074,7 @@ class NeuralRerankerTest {
         r.keyDown()
         r.firstKeyDropped()
         now = 200_000_000L
-        r.keyShown()
+        r.keyShown(0L, 0L)
         assertEquals(3L, keyTimes(r).first())
         assertEquals(1, r.snapshot().firstKeys)
     }

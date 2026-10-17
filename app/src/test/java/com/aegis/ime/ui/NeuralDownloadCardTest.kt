@@ -260,6 +260,7 @@ class NeuralDownloadCardTest {
         compose.onNodeWithText(context.getString(R.string.neural_card_cancelled, 0)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_first_key, 0L, 0L, 0L)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_key, 0L, 0L, 0, 0)).assertDoesNotExist()
+        compose.onNodeWithText(context.getString(R.string.neural_card_key_parts, 0L, 0L, 0L, 0L, 0L, 0L)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_context_load, 0L, 0L, 0L)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_slow_inference, 0, 0L, 0L, 0L)).assertDoesNotExist()
 
@@ -378,19 +379,20 @@ class NeuralDownloadCardTest {
         compose.onNodeWithText(firstKey).assertExists()
         compose.onNodeWithText(contextLoad).assertExists()
         assertTrue(compose.onAllNodesWithText("Key to candidates", substring = true).fetchSemanticsNodes().isEmpty())
+        assertTrue(compose.onAllNodesWithText("Of which queue", substring = true).fetchSemanticsNodes().isEmpty())
 
         now = 100_000_000L
         ran.keyDown()
         now = 112_000_000L
-        ran.keyShown()
+        ran.keyShown(103_000_000L, 110_000_000L)
         now = 200_000_000L
         ran.keyDown()
         now = 260_000_000L
-        ran.keyShown()
+        ran.keyShown(210_000_000L, 240_000_000L)
         now = 300_000_000L
         ran.keyDown()
         now = 350_000_000L
-        ran.keyShown()
+        ran.keyShown(305_000_000L, 345_000_000L)
         compose.mainClock.advanceTimeBy(1_100L)
         compose.waitForIdle()
         val snap = ran.snapshot()
@@ -404,12 +406,40 @@ class NeuralDownloadCardTest {
         fun y(text: String) = compose.onNodeWithText(text).fetchSemanticsNode().positionInRoot.y
         assertTrue(y(line) > y(firstKey))
         assertTrue(y(contextLoad) > y(line))
+        val parts = "Of which queue mean 6 ms, max 10 ms; decode mean 25 ms, max 40 ms; display mean 9 ms, max 20 ms"
+        assertEquals(
+            parts,
+            context.getString(
+                R.string.neural_card_key_parts,
+                snap.meanKeyQueueMillis,
+                snap.maxKeyQueueMillis,
+                snap.meanKeyDecodeMillis,
+                snap.maxKeyDecodeMillis,
+                snap.meanKeyDisplayMillis,
+                snap.maxKeyDisplayMillis,
+            ),
+        )
+        compose.onNodeWithText(parts).assertExists()
+        assertTrue(y(parts) > y(line))
+        assertTrue(y(contextLoad) > y(parts))
         val zh = context.createConfigurationContext(
             Configuration(context.resources.configuration).apply { setLocale(Locale.SIMPLIFIED_CHINESE) },
         )
         assertEquals(
             "按键到候选：平均 40 毫秒，最长 60 毫秒，超过 50 毫秒 1 次（共 3 键）",
             zh.getString(R.string.neural_card_key, snap.meanKeyMillis, snap.maxKeyMillis, snap.slowKeys, snap.keys),
+        )
+        assertEquals(
+            "其中排队平均 6 毫秒、最长 10 毫秒，解码平均 25 毫秒、最长 40 毫秒，显示平均 9 毫秒、最长 20 毫秒",
+            zh.getString(
+                R.string.neural_card_key_parts,
+                snap.meanKeyQueueMillis,
+                snap.maxKeyQueueMillis,
+                snap.meanKeyDecodeMillis,
+                snap.maxKeyDecodeMillis,
+                snap.meanKeyDisplayMillis,
+                snap.maxKeyDisplayMillis,
+            ),
         )
     }
 

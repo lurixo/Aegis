@@ -177,6 +177,8 @@ class KeyboardController(
     private var nineChainAt = -1
 
     private var shownRequest: DecodeRequest? = null
+    private var shownDecodeStarted = 0L
+    private var shownDecodeEnded = 0L
     private var latestRequest: DecodeRequest? = null
     private var nineLabelTop: Cand? = null
     private var nineLabelDigits = ""
@@ -1361,13 +1363,14 @@ class KeyboardController(
         latestRequest = req
         val lane = decodeLane
         if (lane == null) {
-            applyDecodeResult(computeDecode(req))
+            applyDecodeResult(timedDecode(neural, req))
             if (req.idle) req.engine.prepareUserWords()
         } else {
             val sentenceLimit = rerankSentenceLimit(req)
+            val clock = neural
             warmRerankContext(req)
             lane.submit(
-                compute = { computeDecode(req, sentenceLimit) },
+                compute = { timedDecode(clock, req, sentenceLimit) },
                 apply = { result ->
                     applyDecodeResult(result)
                     if (!settlingDecode) render()
@@ -1384,6 +1387,14 @@ class KeyboardController(
                 },
             )
             if (req.idle) lane.execute { synchronized(decodeLock) { req.engine.prepareUserWords() } }
+        }
+    }
+
+    private fun timedDecode(clock: NeuralReranker?, req: DecodeRequest, sentenceLimit: Int = 0): DecodeResult {
+        val started = clock?.now() ?: return computeDecode(req, sentenceLimit)
+        return computeDecode(req, sentenceLimit).also {
+            it.decodeStarted = started
+            it.decodeEnded = clock.now()
         }
     }
 
@@ -1520,7 +1531,10 @@ class KeyboardController(
         val request: DecodeRequest? = null,
         val storedWords: Set<String> = emptySet(),
         val initialWords: List<Cand> = emptyList(),
-    )
+    ) {
+        var decodeStarted = 0L
+        var decodeEnded = 0L
+    }
 
     private fun emptyDecodeResult(): DecodeResult =
         DecodeResult(emptyList(), emptySet(), emptySet(), emptySet(), emptySet(), null, "", "")
@@ -1584,6 +1598,8 @@ class KeyboardController(
 
     private fun applyDecodeResult(r: DecodeResult, ranked: List<Cand> = r.candidates) {
         shownRequest = r.request
+        shownDecodeStarted = r.decodeStarted
+        shownDecodeEnded = r.decodeEnded
         candidates = CandidateEngine.withInitialWords(
             ranked,
             r.initialWords,
@@ -2076,7 +2092,7 @@ class KeyboardController(
             neural?.keyDropped()
         } else if (!candidatesPending && candidates.isNotEmpty()) {
             neural?.firstKeyShown()
-            neural?.keyShown()
+            neural?.keyShown(shownDecodeStarted, shownDecodeEnded)
         }
         v.showCandidates(
             candidates.map { it.word },

@@ -62,6 +62,12 @@ class NeuralReranker(
         val meanKeyMillis: Long,
         val maxKeyMillis: Long,
         val slowKeys: Int,
+        val meanKeyQueueMillis: Long,
+        val maxKeyQueueMillis: Long,
+        val meanKeyDecodeMillis: Long,
+        val maxKeyDecodeMillis: Long,
+        val meanKeyDisplayMillis: Long,
+        val maxKeyDisplayMillis: Long,
         val warms: Int,
         val lastWarmMillis: Long,
         val meanWarmMillis: Long,
@@ -120,6 +126,12 @@ class NeuralReranker(
     private var totalKeyMillis = 0L
     private var maxKeyMillis = 0L
     private var slowKeys = 0
+    private var totalKeyQueueMillis = 0L
+    private var maxKeyQueueMillis = 0L
+    private var totalKeyDecodeMillis = 0L
+    private var maxKeyDecodeMillis = 0L
+    private var totalKeyDisplayMillis = 0L
+    private var maxKeyDisplayMillis = 0L
     private var warms = 0
     private var lastWarmMillis = 0L
     private var totalWarmMillis = 0L
@@ -326,6 +338,8 @@ class NeuralReranker(
         }
     }
 
+    fun now(): Long = nanoTime()
+
     fun keyDown() {
         val now = nanoTime()
         synchronized(statsLock) { keyAt = now }
@@ -335,15 +349,26 @@ class NeuralReranker(
         synchronized(statsLock) { keyAt = null }
     }
 
-    fun keyShown() {
+    fun keyShown(decodeStarted: Long, decodeEnded: Long) {
         synchronized(statsLock) {
             val since = keyAt ?: return
             keyAt = null
-            val millis = (nanoTime() - since) / NANOS_PER_MILLI
+            val shown = nanoTime()
+            val started = maxOf(since, minOf(decodeStarted, shown))
+            val ended = maxOf(started, minOf(decodeEnded, shown))
+            val millis = (shown - since) / NANOS_PER_MILLI
+            val queued = (started - since) / NANOS_PER_MILLI
+            val decoded = (ended - since) / NANOS_PER_MILLI
             keys++
             totalKeyMillis += millis
             if (millis > maxKeyMillis) maxKeyMillis = millis
             if (millis > SLOW_KEY_MILLIS) slowKeys++
+            totalKeyQueueMillis += queued
+            if (queued > maxKeyQueueMillis) maxKeyQueueMillis = queued
+            totalKeyDecodeMillis += decoded - queued
+            if (decoded - queued > maxKeyDecodeMillis) maxKeyDecodeMillis = decoded - queued
+            totalKeyDisplayMillis += millis - decoded
+            if (millis - decoded > maxKeyDisplayMillis) maxKeyDisplayMillis = millis - decoded
         }
     }
 
@@ -415,6 +440,12 @@ class NeuralReranker(
             meanKeyMillis = if (keys == 0) 0L else totalKeyMillis / keys,
             maxKeyMillis = maxKeyMillis,
             slowKeys = slowKeys,
+            meanKeyQueueMillis = if (keys == 0) 0L else totalKeyQueueMillis / keys,
+            maxKeyQueueMillis = maxKeyQueueMillis,
+            meanKeyDecodeMillis = if (keys == 0) 0L else totalKeyDecodeMillis / keys,
+            maxKeyDecodeMillis = maxKeyDecodeMillis,
+            meanKeyDisplayMillis = if (keys == 0) 0L else totalKeyDisplayMillis / keys,
+            maxKeyDisplayMillis = maxKeyDisplayMillis,
             warms = warms,
             lastWarmMillis = lastWarmMillis,
             meanWarmMillis = if (warms == 0) 0L else totalWarmMillis / warms,
