@@ -1836,8 +1836,7 @@ class PinyinDecoder(
                     else ln(e.freq.toDouble()) - lnTotal
                     val boost = sentenceUsageBoost(w, e.userOnly || (p == 0 && q == n)) +
                         (learn?.formedWeight(w) ?: 0.0)
-                    val firstCp = w.codePointAt(0)
-                    val idFirst = model?.charId(firstCp) ?: -1
+                    val idFirst = if (grammar != null || model == null) -1 else model.charId(w.codePointAt(0))
                     val lastCp = w.codePointBefore(w.length)
                     val inner = if (grammar != null || model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model, condMemo)
                     for ((state, cells) in from) {
