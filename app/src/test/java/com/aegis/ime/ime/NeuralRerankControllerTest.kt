@@ -1469,6 +1469,108 @@ class NeuralRerankControllerTest {
     @Test fun first_key_time_runs_until_the_candidates_of_the_composition_show_on_9key() =
         firstKeyTimeRunsUntilTheCandidatesOfTheCompositionShow(nine = true)
 
+    private fun keyTimes(r: NeuralReranker): List<Long> = r.snapshot().let {
+        listOf(it.keys.toLong(), it.meanKeyMillis, it.maxKeyMillis, it.slowKeys.toLong())
+    }
+
+    private fun keyTimeRunsFromEachAppendedKeyToItsCandidates(nine: Boolean) {
+        var now = 0L
+        val engine = EveryInputEngine()
+        val (c, q, r) = setup(engine, reranker = {
+            NeuralReranker(spec, { Scorer() }, Executor { r -> it.neuralWorker.add(r) }, Executor { r -> it.neuralMain.add(r) }, it.schedule) { now }
+        })
+        c.switchTextLayoutForTest(nine)
+        val input = outrunInput(nine)
+        fun key(keys: Int) = type(c, input.substring(keys - 1, keys))
+
+        now = 100_000_000L
+        key(1)
+        now = 107_000_000L
+        assertEquals("nothing is shown before the decode lands", listOf(0L, 0L, 0L, 0L), keyTimes(r))
+        q.decode()
+        q.neural()
+        assertEquals(engine.words(input.take(1)), decoded(c))
+        assertEquals(listOf(1L, 7L, 7L, 0L), keyTimes(r))
+
+        now = 200_000_000L
+        key(2)
+        now = 204_000_000L
+        q.decode()
+        q.neural()
+        assertEquals(engine.words(input.take(2)), decoded(c))
+        assertEquals("every appended key is measured", listOf(2L, 5L, 7L, 0L), keyTimes(r))
+        assertEquals("the first key of the composition is measured once", 1, r.snapshot().firstKeys)
+
+        now = 300_000_000L
+        key(3)
+        now = 310_000_000L
+        q.decode()
+        assertEquals(engine.words(input.take(3)), decoded(c))
+        assertEquals("a list handed to the model is on screen already", listOf(3L, 7L, 10L, 0L), keyTimes(r))
+        now = 345_000_000L
+        q.neural()
+        assertEquals(engine.reranked(input.take(3)), decoded(c))
+        assertEquals("the model answer is not part of the key's time", listOf(3L, 7L, 10L, 0L), keyTimes(r))
+
+        now = 400_000_000L
+        key(4)
+        now = 420_000_000L
+        key(5)
+        assertEquals("the fifth key leaves the list on screen", engine.reranked(input.take(3)), decoded(c))
+        assertEquals("a key replaced before its candidates showed is not counted on its own", 3L, keyTimes(r).first())
+        now = 480_000_000L
+        q.decode()
+        assertEquals(engine.words(input.take(5)), decoded(c))
+        assertEquals("a key is timed from its own press to its decoded list", listOf(4L, 20L, 60L, 1L), keyTimes(r))
+        now = 495_000_000L
+        q.fireTimers()
+        q.neural()
+        assertEquals(engine.words(input.take(5)), decoded(c))
+        assertEquals(1, r.snapshot().timeouts)
+        assertEquals("a model that misses its wait adds nothing", listOf(4L, 20L, 60L, 1L), keyTimes(r))
+
+        now = 600_000_000L
+        key(6)
+        now = 650_000_000L
+        c.onKey(Key("", action = KeyAction.CLEAR_COMPOSING))
+        now = 700_000_000L
+        q.decode()
+        q.fireTimers()
+        q.neural()
+        assertEquals("", c.rawComposingForTest())
+        assertEquals("a key whose composition was cleared is not counted", listOf(4L, 20L, 60L, 1L), keyTimes(r))
+
+        now = 1_000_000_000L
+        key(1)
+        now = 1_003_000_000L
+        q.decode()
+        q.neural()
+        assertEquals("the cleared key does not reach into the next composition", listOf(5L, 16L, 60L, 1L), keyTimes(r))
+
+        now = 1_100_000_000L
+        key(2)
+        now = 1_150_000_000L
+        c.onKey(Key("", action = KeyAction.BACKSPACE))
+        now = 1_200_000_000L
+        q.decode()
+        q.neural()
+        assertEquals(engine.words(input.take(1)), decoded(c))
+        assertEquals("a key removed before its candidates showed is not counted", listOf(5L, 16L, 60L, 1L), keyTimes(r))
+
+        now = 1_300_000_000L
+        c.onKey(Key("", action = KeyAction.SHIFT))
+        now = 1_400_000_000L
+        q.decode()
+        q.neural()
+        assertEquals("a key that adds nothing to the composition is not measured", listOf(5L, 16L, 60L, 1L), keyTimes(r))
+    }
+
+    @Test fun key_time_runs_from_each_appended_key_to_its_candidates_on_26key() =
+        keyTimeRunsFromEachAppendedKeyToItsCandidates(nine = false)
+
+    @Test fun key_time_runs_from_each_appended_key_to_its_candidates_on_9key() =
+        keyTimeRunsFromEachAppendedKeyToItsCandidates(nine = true)
+
     private fun nextKeyCancelsAStalePathGeneration(nine: Boolean) {
         val engine = Engine().apply { rankedEntered = CountDownLatch(1) }
         val decodeWorker = Executors.newSingleThreadExecutor()

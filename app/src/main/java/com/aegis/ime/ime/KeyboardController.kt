@@ -428,6 +428,7 @@ class KeyboardController(
 
     fun onKey(key: Key) {
         if (key.action == KeyAction.COMMIT && composing.isEmpty() && mode() == Mode.PINYIN) neural?.firstKeyDown()
+        neural?.keyDropped()
         if (key.action != KeyAction.BACKSPACE) {
             expirePreeditChoiceUndo()
             drillSyllable = -1
@@ -911,10 +912,13 @@ class KeyboardController(
             return
         }
         when (mode()) {
-            Mode.PINYIN -> if (preeditEditing()) {
-                insertAtCaret(key.output)
-            } else {
-                composing.append(key.output); history.addLast(StepKind.DIGIT)
+            Mode.PINYIN -> {
+                neural?.keyDown()
+                if (preeditEditing()) {
+                    insertAtCaret(key.output)
+                } else {
+                    composing.append(key.output); history.addLast(StepKind.DIGIT)
+                }
             }
             Mode.DIRECT -> {
                 val text = applyCase(key.output)
@@ -2069,8 +2073,10 @@ class KeyboardController(
         val candidatesPending = decodeLane?.pending == true
         if (composing.isEmpty()) {
             neural?.firstKeyDropped()
+            neural?.keyDropped()
         } else if (!candidatesPending && candidates.isNotEmpty()) {
             neural?.firstKeyShown()
+            neural?.keyShown()
         }
         v.showCandidates(
             candidates.map { it.word },

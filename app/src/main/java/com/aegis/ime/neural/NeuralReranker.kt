@@ -58,6 +58,10 @@ class NeuralReranker(
         val lastFirstKeyMillis: Long,
         val meanFirstKeyMillis: Long,
         val maxFirstKeyMillis: Long,
+        val keys: Int,
+        val meanKeyMillis: Long,
+        val maxKeyMillis: Long,
+        val slowKeys: Int,
         val warms: Int,
         val lastWarmMillis: Long,
         val meanWarmMillis: Long,
@@ -111,6 +115,11 @@ class NeuralReranker(
     private var lastFirstKeyMillis = 0L
     private var totalFirstKeyMillis = 0L
     private var maxFirstKeyMillis = 0L
+    private var keyAt: Long? = null
+    private var keys = 0
+    private var totalKeyMillis = 0L
+    private var maxKeyMillis = 0L
+    private var slowKeys = 0
     private var warms = 0
     private var lastWarmMillis = 0L
     private var totalWarmMillis = 0L
@@ -317,6 +326,27 @@ class NeuralReranker(
         }
     }
 
+    fun keyDown() {
+        val now = nanoTime()
+        synchronized(statsLock) { keyAt = now }
+    }
+
+    fun keyDropped() {
+        synchronized(statsLock) { keyAt = null }
+    }
+
+    fun keyShown() {
+        synchronized(statsLock) {
+            val since = keyAt ?: return
+            keyAt = null
+            val millis = (nanoTime() - since) / NANOS_PER_MILLI
+            keys++
+            totalKeyMillis += millis
+            if (millis > maxKeyMillis) maxKeyMillis = millis
+            if (millis > SLOW_KEY_MILLIS) slowKeys++
+        }
+    }
+
     private fun recordWarm(millis: Long) {
         synchronized(statsLock) {
             warms++
@@ -381,6 +411,10 @@ class NeuralReranker(
             lastFirstKeyMillis = lastFirstKeyMillis,
             meanFirstKeyMillis = if (firstKeys == 0) 0L else totalFirstKeyMillis / firstKeys,
             maxFirstKeyMillis = maxFirstKeyMillis,
+            keys = keys,
+            meanKeyMillis = if (keys == 0) 0L else totalKeyMillis / keys,
+            maxKeyMillis = maxKeyMillis,
+            slowKeys = slowKeys,
             warms = warms,
             lastWarmMillis = lastWarmMillis,
             meanWarmMillis = if (warms == 0) 0L else totalWarmMillis / warms,
@@ -398,6 +432,7 @@ class NeuralReranker(
         private const val SPREAD_FIRST_MILLIS = 16L
         private const val SPREAD_SECOND_MILLIS = 32L
         private const val SPREAD_THIRD_MILLIS = 50L
+        private const val SLOW_KEY_MILLIS = 50L
         const val MAX_CONTEXT_CHARS = 32
         const val MIN_CONTEXT_CHARS = 16
         private const val CONTEXT_BOUNDARIES = "\n。！？；，、：!?;,."

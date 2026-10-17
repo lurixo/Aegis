@@ -936,6 +936,82 @@ class NeuralRerankerTest {
         assertEquals(0, snap.runs)
     }
 
+    private fun keyTimes(r: NeuralReranker): List<Long> = r.snapshot().let {
+        listOf(it.keys.toLong(), it.meanKeyMillis, it.maxKeyMillis, it.slowKeys.toLong())
+    }
+
+    @Test fun key_time_runs_from_the_latest_key_to_its_candidates() {
+        var now = 0L
+        val r = started(Queues(), FakeScorer(prefersSecond)) { now }
+        r.keyShown()
+        assertEquals(listOf(0L, 0L, 0L, 0L), keyTimes(r))
+        now = 10_000_000L
+        r.keyDown()
+        assertEquals("a key is counted when its candidates show", listOf(0L, 0L, 0L, 0L), keyTimes(r))
+        now = 22_000_000L
+        r.keyShown()
+        assertEquals(listOf(1L, 12L, 12L, 0L), keyTimes(r))
+        now = 90_000_000L
+        r.keyShown()
+        assertEquals("candidates shown again belong to no new key", listOf(1L, 12L, 12L, 0L), keyTimes(r))
+        now = 100_000_000L
+        r.keyDown()
+        now = 130_000_000L
+        r.keyDown()
+        now = 150_000_000L
+        r.keyShown()
+        assertEquals("a key replaced before its candidates showed is not counted", listOf(2L, 16L, 20L, 0L), keyTimes(r))
+        now = 200_000_000L
+        r.keyDown()
+        r.keyDropped()
+        now = 900_000_000L
+        r.keyShown()
+        assertEquals("a dropped key is not counted", listOf(2L, 16L, 20L, 0L), keyTimes(r))
+        assertEquals(0, r.snapshot().firstKeys)
+        assertEquals(0, r.snapshot().runs)
+    }
+
+    @Test fun a_key_is_slow_once_its_candidates_take_more_than_50_ms() {
+        var now = 0L
+        val r = started(Queues(), FakeScorer(prefersSecond)) { now }
+        fun key(millis: Long): List<Long> {
+            now += 1_000_000_000L
+            r.keyDown()
+            now += millis * 1_000_000L
+            r.keyShown()
+            return keyTimes(r)
+        }
+        assertEquals(listOf(1L, 50L, 50L, 0L), key(50L))
+        assertEquals(listOf(2L, 50L, 51L, 1L), key(51L))
+        assertEquals(listOf(3L, 34L, 51L, 1L), key(1L))
+        assertEquals(listOf(4L, 100L, 300L, 2L), key(300L))
+    }
+
+    @Test fun the_first_key_and_the_key_times_are_kept_apart() {
+        var now = 0L
+        val r = started(Queues(), FakeScorer(prefersSecond)) { now }
+        r.firstKeyDown()
+        r.keyDown()
+        now = 8_000_000L
+        r.firstKeyShown()
+        r.keyShown()
+        now = 100_000_000L
+        r.keyDown()
+        now = 130_000_000L
+        r.firstKeyShown()
+        r.keyShown()
+        assertEquals(listOf(2L, 19L, 30L, 0L), keyTimes(r))
+        assertEquals(1, r.snapshot().firstKeys)
+        assertEquals(8L, r.snapshot().maxFirstKeyMillis)
+        r.firstKeyDown()
+        r.keyDown()
+        r.firstKeyDropped()
+        now = 200_000_000L
+        r.keyShown()
+        assertEquals(3L, keyTimes(r).first())
+        assertEquals(1, r.snapshot().firstKeys)
+    }
+
     @Test fun context_load_time_is_recorded_per_warm_that_ran() {
         val q = Queues()
         var now = 0L

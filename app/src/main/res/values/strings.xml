@@ -106,6 +106,7 @@
     <string name="neural_card_spread">Time spread: %1$d within 16 ms, %2$d within 32 ms, %3$d within 50 ms, %4$d longer</string>
     <string name="neural_card_queue">Queued: last %1$d ms, mean %2$d ms, max %3$d ms</string>
     <string name="neural_card_first_key">First key to candidates: last %1$d ms, mean %2$d ms, max %3$d ms</string>
+    <string name="neural_card_key">Key to candidates: mean %1$d ms, max %2$d ms, over 50 ms %3$d of %4$d keys</string>
     <string name="neural_card_context_load">Context load: last %1$d ms, mean %2$d ms, max %3$d ms</string>
     <string name="neural_card_timeouts">Timed out without reranking: %1$d</string>
     <string name="neural_card_slow_inference">Slow inference: %1$d, %2$d ms in total, CPU %3$d ms, major page faults %4$d</string>

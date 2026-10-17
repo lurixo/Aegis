@@ -259,6 +259,7 @@ class NeuralDownloadCardTest {
         compose.onNodeWithText(context.getString(R.string.neural_card_spread, 0, 0, 0, 0)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_cancelled, 0)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_first_key, 0L, 0L, 0L)).assertDoesNotExist()
+        compose.onNodeWithText(context.getString(R.string.neural_card_key, 0L, 0L, 0, 0)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_context_load, 0L, 0L, 0L)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_slow_inference, 0, 0L, 0L, 0L)).assertDoesNotExist()
 
@@ -337,6 +338,79 @@ class NeuralDownloadCardTest {
         ).assertExists()
         compose.onNodeWithText(context.getString(R.string.neural_card_cancelled, 1)).assertExists()
         compose.onNodeWithText(context.getString(R.string.neural_card_timeouts, 0)).assertDoesNotExist()
+    }
+
+    @Test fun the_key_time_line_shows_once_a_key_showed_its_candidates() {
+        val installed = install(name = "Qwen3 test")
+        show()
+
+        var now = 0L
+        val scorer = object : SentenceScorer {
+            override fun score(context: String, candidates: List<String>): DoubleArray? = null
+            override fun warm(context: String) {
+                now += 5_000_000L
+            }
+            override fun cancel() {}
+            override fun resume() {}
+            override fun close() {}
+        }
+        val ran = NeuralReranker(
+            installed.spec,
+            { scorer },
+            Executor { it.run() },
+            Executor { it.run() },
+            { _, _ -> },
+            cpuMillis = { 0L },
+            majorFaults = { 0L },
+            nanoTime = { now },
+        ).apply { start() }
+        ran.firstKeyDown()
+        ran.keyDown()
+        ran.keyDropped()
+        now = 9_000_000L
+        ran.firstKeyShown()
+        ran.warm("上文")
+        NeuralRuntime.active = ran
+        compose.mainClock.advanceTimeBy(1_100L)
+        compose.waitForIdle()
+        val firstKey = context.getString(R.string.neural_card_first_key, 9L, 9L, 9L)
+        val contextLoad = context.getString(R.string.neural_card_context_load, 5L, 5L, 5L)
+        compose.onNodeWithText(firstKey).assertExists()
+        compose.onNodeWithText(contextLoad).assertExists()
+        assertTrue(compose.onAllNodesWithText("Key to candidates", substring = true).fetchSemanticsNodes().isEmpty())
+
+        now = 100_000_000L
+        ran.keyDown()
+        now = 112_000_000L
+        ran.keyShown()
+        now = 200_000_000L
+        ran.keyDown()
+        now = 260_000_000L
+        ran.keyShown()
+        now = 300_000_000L
+        ran.keyDown()
+        now = 350_000_000L
+        ran.keyShown()
+        compose.mainClock.advanceTimeBy(1_100L)
+        compose.waitForIdle()
+        val snap = ran.snapshot()
+        assertEquals(3, snap.keys)
+        val line = "Key to candidates: mean 40 ms, max 60 ms, over 50 ms 1 of 3 keys"
+        assertEquals(
+            line,
+            context.getString(R.string.neural_card_key, snap.meanKeyMillis, snap.maxKeyMillis, snap.slowKeys, snap.keys),
+        )
+        compose.onNodeWithText(line).assertExists()
+        fun y(text: String) = compose.onNodeWithText(text).fetchSemanticsNode().positionInRoot.y
+        assertTrue(y(line) > y(firstKey))
+        assertTrue(y(contextLoad) > y(line))
+        val zh = context.createConfigurationContext(
+            Configuration(context.resources.configuration).apply { setLocale(Locale.SIMPLIFIED_CHINESE) },
+        )
+        assertEquals(
+            "按键到候选：平均 40 毫秒，最长 60 毫秒，超过 50 毫秒 1 次（共 3 键）",
+            zh.getString(R.string.neural_card_key, snap.meanKeyMillis, snap.maxKeyMillis, snap.slowKeys, snap.keys),
+        )
     }
 
     @Test fun the_time_spread_line_shows_once_a_list_was_reranked() {
