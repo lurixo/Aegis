@@ -989,6 +989,67 @@ class NeuralRerankerTest {
         assertNull(snap.error)
     }
 
+    private fun spread(r: NeuralReranker): List<Int> = r.snapshot().let {
+        listOf(it.runsWithinFirst, it.runsWithinSecond, it.runsWithinThird, it.runsLonger)
+    }
+
+    private fun runsAreCountedByHowLongTheyTook(nine: Boolean) {
+        val q = Queues()
+        var now = 0L
+        var step = 0L
+        val r = started(q, FakeScorer(prefersSecond) { now += step }) { now }
+        assertEquals(listOf(0, 0, 0, 0), spread(r))
+        fun ran(millis: Long): List<Int> {
+            step = millis * 1_000_000L
+            r.submit("", nine = nine, waitMillis = WAIT, paths = paths) {}
+            now += 77_000_000L
+            q.runWorker()
+            q.runMain()
+            return spread(r)
+        }
+        assertEquals(listOf(1, 0, 0, 0), ran(0L))
+        assertEquals(listOf(2, 0, 0, 0), ran(16L))
+        assertEquals(listOf(2, 1, 0, 0), ran(17L))
+        assertEquals(listOf(2, 2, 0, 0), ran(32L))
+        assertEquals(listOf(2, 2, 1, 0), ran(33L))
+        assertEquals(listOf(2, 2, 2, 0), ran(50L))
+        assertEquals(listOf(2, 2, 2, 1), ran(51L))
+        assertEquals(listOf(2, 2, 2, 2), ran(400L))
+        assertEquals(listOf(3, 2, 2, 2), ran(9L))
+        assertEquals("every run falls in exactly one band", r.snapshot().runs, spread(r).sum())
+        assertEquals(9, r.snapshot().runs)
+        assertEquals("time spent queued is not part of the run", 77L, r.snapshot().lastQueueMillis)
+    }
+
+    @Test fun runs_are_counted_by_how_long_they_took_on_26key() = runsAreCountedByHowLongTheyTook(nine = false)
+
+    @Test fun runs_are_counted_by_how_long_they_took_on_9key() = runsAreCountedByHowLongTheyTook(nine = true)
+
+    private fun jobsThatDoNotFinishARunAreInNoBand(nine: Boolean) {
+        val q = Queues()
+        var now = 0L
+        val r = started(q, FakeScorer(prefersSecond) { now += 20_000_000L }) { now }
+        r.submit("", nine = nine, waitMillis = WAIT, paths = paths.take(1)) {}
+        q.runWorker()
+        q.runMain()
+        r.submit("", nine = nine, waitMillis = WAIT, paths = paths) {}
+        r.invalidate()
+        q.runWorker()
+        q.runMain()
+        assertEquals(0, r.snapshot().runs)
+        assertEquals(listOf(0, 0, 0, 0), spread(r))
+        r.submit("", nine = nine, waitMillis = WAIT, paths = paths) {}
+        q.fireTimers()
+        q.runWorker()
+        q.runMain()
+        assertEquals(1, r.snapshot().timeouts)
+        assertEquals("a run that finished after its wait still took its time", listOf(0, 1, 0, 0), spread(r))
+    }
+
+    @Test fun jobs_that_do_not_finish_a_run_are_in_no_band_on_26key() = jobsThatDoNotFinishARunAreInNoBand(nine = false)
+
+    @Test fun jobs_that_do_not_finish_a_run_are_in_no_band_on_9key() = jobsThatDoNotFinishARunAreInNoBand(nine = true)
+
     private fun queueWaitRunsFromSubmitToTheStartOfTheRun(nine: Boolean) {
         val q = Queues()
         var now = 0L

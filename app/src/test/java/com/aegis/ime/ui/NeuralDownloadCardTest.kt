@@ -256,6 +256,7 @@ class NeuralDownloadCardTest {
         compose.onNodeWithText(context.getString(R.string.neural_card_runs, 0, 0)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_timing, 0L, 0L, 0L)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_queue, 0L, 0L, 0L)).assertDoesNotExist()
+        compose.onNodeWithText(context.getString(R.string.neural_card_spread, 0, 0, 0, 0)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_cancelled, 0)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_first_key, 0L, 0L, 0L)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_context_load, 0L, 0L, 0L)).assertDoesNotExist()
@@ -336,6 +337,81 @@ class NeuralDownloadCardTest {
         ).assertExists()
         compose.onNodeWithText(context.getString(R.string.neural_card_cancelled, 1)).assertExists()
         compose.onNodeWithText(context.getString(R.string.neural_card_timeouts, 0)).assertDoesNotExist()
+    }
+
+    @Test fun the_time_spread_line_shows_once_a_list_was_reranked() {
+        val installed = install(name = "Qwen3 test")
+        show()
+
+        var now = 0L
+        var step = 0L
+        val scorer = object : SentenceScorer {
+            override fun score(context: String, candidates: List<String>): DoubleArray {
+                now += step
+                return DoubleArray(candidates.size) { -it.toDouble() }
+            }
+            override fun warm(context: String) {}
+            override fun cancel() {}
+            override fun resume() {}
+            override fun close() {}
+        }
+        val ran = NeuralReranker(
+            installed.spec,
+            { scorer },
+            Executor { it.run() },
+            Executor { it.run() },
+            { _, _ -> },
+            cpuMillis = { 0L },
+            majorFaults = { 0L },
+            nanoTime = { now },
+        ).apply { start() }
+        ran.firstKeyDown()
+        ran.firstKeyShown()
+        NeuralRuntime.active = ran
+        compose.mainClock.advanceTimeBy(1_100L)
+        compose.waitForIdle()
+        compose.onNodeWithText(context.getString(R.string.neural_card_first_key, 0L, 0L, 0L)).assertExists()
+        assertTrue(compose.onAllNodesWithText("Time spread", substring = true).fetchSemanticsNodes().isEmpty())
+
+        val paths = listOf("甲" to -1.0, "乙" to -2.0)
+        for (millis in listOf(10L, 20L, 40L, 60L, 16L, 51L)) {
+            step = millis * 1_000_000L
+            ran.submit("", nine = false, waitMillis = 100L, paths = paths) {}
+        }
+        compose.mainClock.advanceTimeBy(1_100L)
+        compose.waitForIdle()
+        val snap = ran.snapshot()
+        assertEquals(6, snap.runs)
+        val line = "Time spread: 2 within 16 ms, 1 within 32 ms, 1 within 50 ms, 2 longer"
+        assertEquals(
+            line,
+            context.getString(
+                R.string.neural_card_spread,
+                snap.runsWithinFirst,
+                snap.runsWithinSecond,
+                snap.runsWithinThird,
+                snap.runsLonger,
+            ),
+        )
+        compose.onNodeWithText(line).assertExists()
+        fun y(text: String) = compose.onNodeWithText(text).fetchSemanticsNode().positionInRoot.y
+        assertTrue(y(line) > y(context.getString(R.string.neural_card_timing, snap.lastMillis, snap.meanMillis, snap.maxMillis)))
+        assertTrue(
+            y(context.getString(R.string.neural_card_queue, snap.lastQueueMillis, snap.meanQueueMillis, snap.maxQueueMillis)) > y(line),
+        )
+        val zh = context.createConfigurationContext(
+            Configuration(context.resources.configuration).apply { setLocale(Locale.SIMPLIFIED_CHINESE) },
+        )
+        assertEquals(
+            "用时分布：16 毫秒内 2 次，32 毫秒内 1 次，50 毫秒内 1 次，更长 2 次",
+            zh.getString(
+                R.string.neural_card_spread,
+                snap.runsWithinFirst,
+                snap.runsWithinSecond,
+                snap.runsWithinThird,
+                snap.runsLonger,
+            ),
+        )
     }
 
     @Test fun the_slow_inference_line_shows_once_an_inference_was_slow() {

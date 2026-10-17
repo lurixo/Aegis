@@ -103,6 +103,7 @@
     <string name="neural_state_closed">状态：已停止</string>
     <string name="neural_card_runs">已重排 %1$d 次，其中 %2$d 次换了首选</string>
     <string name="neural_card_timing">用时：最近 %1$d 毫秒，平均 %2$d 毫秒，最长 %3$d 毫秒</string>
+    <string name="neural_card_spread">用时分布：16 毫秒内 %1$d 次，32 毫秒内 %2$d 次，50 毫秒内 %3$d 次，更长 %4$d 次</string>
     <string name="neural_card_queue">排队：最近 %1$d 毫秒，平均 %2$d 毫秒，最长 %3$d 毫秒</string>
     <string name="neural_card_first_key">首键出字：最近 %1$d 毫秒，平均 %2$d 毫秒，最长 %3$d 毫秒</string>
     <string name="neural_card_context_load">上下文加载：最近 %1$d 毫秒，平均 %2$d 毫秒，最长 %3$d 毫秒</string>

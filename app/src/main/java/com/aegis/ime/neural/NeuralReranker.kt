@@ -45,6 +45,10 @@ class NeuralReranker(
         val lastMillis: Long,
         val meanMillis: Long,
         val maxMillis: Long,
+        val runsWithinFirst: Int,
+        val runsWithinSecond: Int,
+        val runsWithinThird: Int,
+        val runsLonger: Int,
         val lastQueueMillis: Long,
         val meanQueueMillis: Long,
         val maxQueueMillis: Long,
@@ -93,6 +97,10 @@ class NeuralReranker(
     private var lastMillis = 0L
     private var totalMillis = 0L
     private var maxMillis = 0L
+    private var runsWithinFirst = 0
+    private var runsWithinSecond = 0
+    private var runsWithinThird = 0
+    private var runsLonger = 0
     private var lastQueueMillis = 0L
     private var totalQueueMillis = 0L
     private var maxQueueMillis = 0L
@@ -338,6 +346,12 @@ class NeuralReranker(
             lastMillis = millis
             totalMillis += millis
             if (millis > maxMillis) maxMillis = millis
+            when {
+                millis <= SPREAD_FIRST_MILLIS -> runsWithinFirst++
+                millis <= SPREAD_SECOND_MILLIS -> runsWithinSecond++
+                millis <= SPREAD_THIRD_MILLIS -> runsWithinThird++
+                else -> runsLonger++
+            }
             lastQueueMillis = queueMillis
             totalQueueMillis += queueMillis
             if (queueMillis > maxQueueMillis) maxQueueMillis = queueMillis
@@ -354,6 +368,10 @@ class NeuralReranker(
             lastMillis = lastMillis,
             meanMillis = if (runs == 0) 0L else totalMillis / runs,
             maxMillis = maxMillis,
+            runsWithinFirst = runsWithinFirst,
+            runsWithinSecond = runsWithinSecond,
+            runsWithinThird = runsWithinThird,
+            runsLonger = runsLonger,
             lastQueueMillis = lastQueueMillis,
             meanQueueMillis = if (runs == 0) 0L else totalQueueMillis / runs,
             maxQueueMillis = maxQueueMillis,
@@ -377,6 +395,9 @@ class NeuralReranker(
     companion object {
         private const val NANOS_PER_MILLI = 1_000_000L
         private const val SLOW_INFERENCE_MILLIS = 100L
+        private const val SPREAD_FIRST_MILLIS = 16L
+        private const val SPREAD_SECOND_MILLIS = 32L
+        private const val SPREAD_THIRD_MILLIS = 50L
         const val MAX_CONTEXT_CHARS = 32
         const val MIN_CONTEXT_CHARS = 16
         private const val CONTEXT_BOUNDARIES = "\n。！？；，、：!?;,."

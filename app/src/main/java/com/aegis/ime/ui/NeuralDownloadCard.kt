@@ -320,6 +320,17 @@ private fun NeuralModelState(name: String, current: NeuralReranker.Snapshot?) {
         )
         Text(
             stringResource(
+                R.string.neural_card_spread,
+                current.runsWithinFirst,
+                current.runsWithinSecond,
+                current.runsWithinThird,
+                current.runsLonger,
+            ),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Text(
+            stringResource(
                 R.string.neural_card_queue,
                 current.lastQueueMillis,
                 current.meanQueueMillis,
