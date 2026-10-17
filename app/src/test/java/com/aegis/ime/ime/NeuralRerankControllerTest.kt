@@ -44,6 +44,7 @@ class NeuralRerankControllerTest {
 
     private class Host : ImeHost {
         val commits = ArrayList<String>()
+        val reads = ArrayList<Int>()
         var before = ""
         override fun commitText(text: CharSequence) {
             commits.add(text.toString())
@@ -51,7 +52,10 @@ class NeuralRerankControllerTest {
         }
         override fun deleteBackward() {}
         override fun performEnter() {}
-        override fun textBeforeCursor(n: Int): CharSequence = before.takeLast(n)
+        override fun textBeforeCursor(n: Int): CharSequence {
+            reads.add(n)
+            return before.takeLast(n)
+        }
     }
 
     private class Engine : CandidateEngine {
@@ -703,6 +707,153 @@ class NeuralRerankControllerTest {
     @Test fun input_the_model_never_ranks_is_not_warmed_on_26key() = inputTheModelNeverRanksIsNotWarmed(nine = false)
 
     @Test fun input_the_model_never_ranks_is_not_warmed_on_9key() = inputTheModelNeverRanksIsNotWarmed(nine = true)
+
+    private fun theInputViewStartLoadsTheContextTheFirstKeysUse(nine: Boolean) {
+        val host = Host().apply { before = "今天我想说" }
+        val engine = EveryInputEngine()
+        val scorer = Scorer()
+        val (c, q, r) = setup(engine, host, reranker = { scoring(it, scorer) })
+        c.switchTextLayoutForTest(nine)
+        q.decode()
+        assertTrue("nothing is loaded before the input view starts", q.neuralWorker.isEmpty())
+        c.onInputTargetChanged()
+        host.reads.clear()
+        c.onInputViewStarted()
+        assertEquals("the view start reads the text before the cursor once, as the first key does", listOf(65), host.reads)
+        assertEquals(1, q.neuralWorker.size)
+        assertTrue(q.neuralMain.isEmpty() && q.timers.isEmpty())
+        val cancels = scorer.cancels
+        val input = if (nine) "644" else "nih"
+        type(c, input.take(1))
+        q.decode()
+        assertEquals("the first key does not load its context again", 1, q.neuralWorker.size)
+        assertEquals("the first key leaves the load running", cancels, scorer.cancels)
+        q.neural()
+        assertEquals(listOf("warm:今天我想说"), scorer.calls)
+        type(c, input.substring(1, 2))
+        q.decode()
+        assertTrue("the second key finds its context loaded", q.neuralWorker.isEmpty())
+        assertEquals("the keys reuse the text read when the view started", 1, host.reads.count { it == 65 })
+        assertEquals(engine.words(input.take(2)), decoded(c))
+        type(c, input.substring(2))
+        q.decode()
+        assertEquals(engine.words(input), decoded(c))
+        q.neural()
+        assertEquals(listOf("warm:今天我想说", "score:今天我想说"), scorer.calls)
+        assertEquals(engine.reranked(input), decoded(c))
+        val snap = r.snapshot()
+        assertEquals(1, snap.runs)
+        assertEquals(0, snap.cancelled)
+        assertEquals(0, snap.timeouts)
+    }
+
+    @Test fun the_input_view_start_loads_the_context_the_first_keys_use_on_26key() =
+        theInputViewStartLoadsTheContextTheFirstKeysUse(nine = false)
+
+    @Test fun the_input_view_start_loads_the_context_the_first_keys_use_on_9key() =
+        theInputViewStartLoadsTheContextTheFirstKeysUse(nine = true)
+
+    private fun aViewThatStartsAgainOnTheSameTextLoadsNothing(nine: Boolean) {
+        val host = Host().apply { before = "今天我想说" }
+        val scorer = Scorer()
+        val (c, q, _) = setup(EveryInputEngine(), host, reranker = { scoring(it, scorer) })
+        c.switchTextLayoutForTest(nine)
+        q.decode()
+        c.onInputViewStarted()
+        q.neural()
+        assertEquals(listOf("warm:今天我想说"), scorer.calls)
+        c.onInputTargetChanged()
+        c.onInputViewStarted()
+        assertTrue(q.neuralWorker.isEmpty())
+        host.before = "明天"
+        c.onInputTargetChanged()
+        c.onInputViewStarted()
+        q.neural()
+        assertEquals(listOf("warm:今天我想说", "warm:明天"), scorer.calls)
+    }
+
+    @Test fun a_view_that_starts_again_on_the_same_text_loads_nothing_on_26key() =
+        aViewThatStartsAgainOnTheSameTextLoadsNothing(nine = false)
+
+    @Test fun a_view_that_starts_again_on_the_same_text_loads_nothing_on_9key() =
+        aViewThatStartsAgainOnTheSameTextLoadsNothing(nine = true)
+
+    private fun theInputViewStartLoadsNothing(nine: Boolean, before: String = "今天", prepare: (KeyboardController, Queues, Host) -> Unit) {
+        val host = Host().apply { this.before = before }
+        val scorer = Scorer()
+        val (c, q, _) = setup(EveryInputEngine(), host, reranker = { scoring(it, scorer) })
+        c.switchTextLayoutForTest(nine)
+        q.decode()
+        prepare(c, q, host)
+        q.decode()
+        q.neural()
+        val calls = scorer.calls.toList()
+        val cancels = scorer.cancels
+        c.onInputViewStarted()
+        assertTrue(q.neuralWorker.isEmpty())
+        assertEquals(calls, scorer.calls)
+        assertEquals(cancels, scorer.cancels)
+    }
+
+    private fun theInputViewStartLoadsNothingWithoutAReadyModel(nine: Boolean) {
+        val bare = Host().apply { before = "今天" }
+        val none = KeyboardController(bare, EveryInputEngine(), Queues().lane).apply { attachView(InputView(ctx)) }
+        none.switchTextLayoutForTest(nine)
+        bare.reads.clear()
+        none.onInputViewStarted()
+        assertTrue("a keyboard without a model reads nothing", bare.reads.isEmpty())
+
+        val loading = Queues()
+        val idle = Scorer()
+        val host = Host().apply { before = "今天" }
+        val unready = KeyboardController(host, EveryInputEngine(), loading.lane).apply { attachView(InputView(ctx)) }
+        unready.neural = scoring(loading, idle).apply { start() }
+        unready.switchTextLayoutForTest(nine)
+        loading.decode()
+        host.reads.clear()
+        unready.onInputViewStarted()
+        assertTrue("a model that is still loading reads nothing", host.reads.isEmpty())
+        assertEquals("only the model load is queued", 1, loading.neuralWorker.size)
+        loading.neural()
+        assertTrue(idle.calls.isEmpty())
+    }
+
+    @Test fun the_input_view_start_loads_nothing_without_a_ready_model_on_26key() =
+        theInputViewStartLoadsNothingWithoutAReadyModel(nine = false)
+
+    @Test fun the_input_view_start_loads_nothing_without_a_ready_model_on_9key() =
+        theInputViewStartLoadsNothingWithoutAReadyModel(nine = true)
+
+    @Test fun the_input_view_start_loads_nothing_for_english_input_on_26key() =
+        theInputViewStartLoadsNothing(nine = false) { c, _, _ -> c.onKey(Key("", action = KeyAction.TOGGLE_LANG)) }
+
+    @Test fun the_input_view_start_loads_nothing_for_english_input_on_9key() =
+        theInputViewStartLoadsNothing(nine = true) { c, _, _ -> c.onKey(Key("", action = KeyAction.TOGGLE_LANG)) }
+
+    @Test fun the_input_view_start_loads_nothing_on_the_symbol_keyboard_on_26key() =
+        theInputViewStartLoadsNothing(nine = false) { c, _, _ -> c.onKey(Key("", action = KeyAction.SWITCH_SYMBOLS)) }
+
+    @Test fun the_input_view_start_loads_nothing_on_the_symbol_keyboard_on_9key() =
+        theInputViewStartLoadsNothing(nine = true) { c, _, _ -> c.onKey(Key("", action = KeyAction.SWITCH_SYMBOLS)) }
+
+    @Test fun the_input_view_start_loads_nothing_after_an_email_name_on_26key() =
+        theInputViewStartLoadsNothing(nine = false, before = "name@") { c, _, _ -> c.setEmailAssociationsEnabled(true) }
+
+    @Test fun the_input_view_start_loads_nothing_after_an_email_name_on_9key() =
+        theInputViewStartLoadsNothing(nine = true, before = "name@") { c, _, _ -> c.setEmailAssociationsEnabled(true) }
+
+    private fun theInputViewStartLoadsNothingDuringAComposition(nine: Boolean) =
+        theInputViewStartLoadsNothing(nine) { c, _, host ->
+            type(c, if (nine) "6" else "n")
+            host.before = "明天"
+            c.onEditorContextChanged()
+        }
+
+    @Test fun the_input_view_start_loads_nothing_during_a_composition_on_26key() =
+        theInputViewStartLoadsNothingDuringAComposition(nine = false)
+
+    @Test fun the_input_view_start_loads_nothing_during_a_composition_on_9key() =
+        theInputViewStartLoadsNothingDuringAComposition(nine = true)
 
     private fun outrunInput(nine: Boolean) = if (nine) "6442664" else "nihaoma"
 

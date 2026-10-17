@@ -342,6 +342,13 @@ class KeyboardController(
         endRunIfEditedOutside()
     }
 
+    fun onInputViewStarted() {
+        val reranker = neural ?: return
+        if (!reranker.ready || hasComposingToClear()) return
+        if (!rerankApplies(reranker, buildDecodeRequest())) return
+        reranker.warm(rerankContext(cursorContext()))
+    }
+
     private fun endRunIfEditedOutside() {
         if (ownTail.isEmpty() || cursorContext().endsWith(ownTail)) return
         ownTail.setLength(0)
@@ -1392,8 +1399,10 @@ class KeyboardController(
         reranker.warm(rerankContext(req))
     }
 
-    private fun rerankContext(req: DecodeRequest): String =
-        NeuralReranker.contextWindow(req.beforeCursor + committedPrefix, req.beforeCursor.length <= CONTEXT_SCAN_LEN)
+    private fun rerankContext(req: DecodeRequest): String = rerankContext(req.beforeCursor)
+
+    private fun rerankContext(before: String): String =
+        NeuralReranker.contextWindow(before + committedPrefix, before.length <= CONTEXT_SCAN_LEN)
 
     private fun submitRerank(req: DecodeRequest, result: DecodeResult) {
         val reranker = neural ?: return

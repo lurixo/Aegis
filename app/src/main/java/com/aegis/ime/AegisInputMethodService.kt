@@ -1082,6 +1082,7 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
         }
         applyPaletteEverywhere()
         if (targetMatches && canRestoreCurrentSession()) restoreTransientUi()
+        controller.onInputViewStarted()
     }
 
     private fun buildBackCallback(): OnBackInvokedCallback = OnBackInvokedCallback { closeTopOverlayOnBack() }
