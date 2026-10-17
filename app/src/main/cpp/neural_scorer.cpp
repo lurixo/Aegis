@@ -328,6 +328,7 @@ llama_model_params modelParams() {
     llama_model_params params = llama_model_default_params();
     params.n_gpu_layers = 0;
     params.load_mode = LLAMA_LOAD_MODE_MMAP;
+    params.use_extra_bufts = false;
     return params;
 }
 
