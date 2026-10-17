@@ -87,6 +87,11 @@ Java_com_aegis_ime_neural_NativeSentenceScorer_nativeWarm(JNIEnv * env, jclass, 
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_aegis_ime_neural_NativeSentenceScorer_nativePrefetch(JNIEnv *, jclass, jlong handle) {
+    scorerOf(handle)->prefetch();
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_com_aegis_ime_neural_NativeSentenceScorer_nativeCancel(JNIEnv *, jclass, jlong handle) {
     scorerOf(handle)->cancel();
 }

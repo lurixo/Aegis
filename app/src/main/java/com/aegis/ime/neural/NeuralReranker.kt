@@ -85,6 +85,7 @@ class NeuralReranker(
     }
 
     @Volatile private var warmup: Warmup? = null
+    private var prefetchedAt: Long? = null
     @Volatile private var phase = Phase.LOADING
     @Volatile private var error: String? = null
     @Volatile private var scorer: SentenceScorer? = null
@@ -178,6 +179,18 @@ class NeuralReranker(
         warmup = next
         cancel()
         worker.execute { load(next) }
+    }
+
+    fun prefetch() {
+        if (phase != Phase.READY) return
+        val now = nanoTime()
+        val last = prefetchedAt
+        if (last != null && now - last < PREFETCH_INTERVAL_NANOS) return
+        prefetchedAt = now
+        worker.execute {
+            val active = scorer
+            if (active != null && phase == Phase.READY) runCatching { active.prefetch() }
+        }
     }
 
     private fun load(next: Warmup) {
@@ -460,6 +473,7 @@ class NeuralReranker(
     companion object {
         private const val NANOS_PER_MILLI = 1_000_000L
         private const val SLOW_INFERENCE_MILLIS = 100L
+        private val PREFETCH_INTERVAL_NANOS = TimeUnit.SECONDS.toNanos(10)
         private const val SPREAD_FIRST_MILLIS = 16L
         private const val SPREAD_SECOND_MILLIS = 32L
         private const val SPREAD_THIRD_MILLIS = 50L

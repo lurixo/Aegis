@@ -30,6 +30,12 @@ class NativeSentenceScorer private constructor(private var handle: Long) : Sente
         nativeWarm(h, context.encodeToByteArray())
     }
 
+    override fun prefetch() {
+        val h = handle
+        check(h != 0L) { "the scorer is closed" }
+        nativePrefetch(h)
+    }
+
     @Synchronized
     override fun cancel() {
         val h = handle
@@ -61,6 +67,8 @@ class NativeSentenceScorer private constructor(private var handle: Long) : Sente
         @JvmStatic private external fun nativeScore(handle: Long, context: ByteArray, candidates: Array<ByteArray>): DoubleArray?
 
         @JvmStatic private external fun nativeWarm(handle: Long, context: ByteArray)
+
+        @JvmStatic private external fun nativePrefetch(handle: Long)
 
         @JvmStatic private external fun nativeCancel(handle: Long)
 

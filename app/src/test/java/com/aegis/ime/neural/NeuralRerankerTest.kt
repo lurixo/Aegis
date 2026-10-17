@@ -39,6 +39,7 @@ class NeuralRerankerTest {
         val batches = ArrayList<List<String>>()
         val calls = ArrayList<String>()
         var warmFails = false
+        var prefetchFails = false
         var warming: () -> Unit = {}
         var cancels = 0
         var aborted = false
@@ -57,6 +58,11 @@ class NeuralRerankerTest {
             calls.add("warm:$context")
             warming()
             if (warmFails) error("bad prefix")
+        }
+
+        override fun prefetch() {
+            calls.add("prefetch")
+            if (prefetchFails) error("no mapping")
         }
 
         override fun cancel() {
@@ -716,6 +722,75 @@ class NeuralRerankerTest {
         assertEquals(0, snap.timeouts)
         assertEquals(0, snap.cancelled)
         assertNull(snap.error)
+    }
+
+    @Test fun a_prefetch_runs_on_the_worker_at_most_once_in_ten_seconds() {
+        val q = Queues()
+        val scorer = FakeScorer(prefersSecond)
+        var now = 0L
+        val r = started(q, scorer, clock = { now })
+        r.prefetch()
+        assertTrue("nothing runs on the calling thread", scorer.calls.isEmpty())
+        assertEquals(1, q.worker.size)
+        q.runWorker()
+        assertEquals(listOf("prefetch"), scorer.calls)
+        now = TimeUnit.SECONDS.toNanos(10) - 1
+        r.prefetch()
+        assertTrue(q.worker.isEmpty())
+        now = TimeUnit.SECONDS.toNanos(10)
+        r.prefetch()
+        r.prefetch()
+        assertEquals(1, q.worker.size)
+        q.runWorker()
+        assertEquals(listOf("prefetch", "prefetch"), scorer.calls)
+        assertTrue(q.main.isEmpty() && q.timers.isEmpty())
+    }
+
+    @Test fun a_prefetch_runs_ahead_of_the_warm_issued_after_it() {
+        val q = Queues()
+        val scorer = FakeScorer(prefersSecond)
+        val r = started(q, scorer)
+        r.prefetch()
+        r.warm("上文")
+        q.runWorker()
+        assertEquals(listOf("prefetch", "warm:上文"), scorer.calls)
+    }
+
+    @Test fun a_reranker_prefetches_nothing_until_its_model_is_ready_or_once_it_is_closed() {
+        val q = Queues()
+        val scorer = FakeScorer(prefersSecond)
+        val r = NeuralReranker(spec, { scorer }, Executor { q.worker.add(it) }, Executor { q.main.add(it) }, q.schedule, nanoTime = { 0L })
+        r.start()
+        r.prefetch()
+        assertEquals("only the model load is queued", 1, q.worker.size)
+        q.runWorker()
+        assertTrue(scorer.calls.isEmpty())
+        r.prefetch()
+        q.runWorker()
+        assertEquals("the first prefetch once ready is not held back", listOf("prefetch"), scorer.calls)
+
+        val closing = FakeScorer(prefersSecond)
+        val c = started(q, closing)
+        c.close()
+        c.prefetch()
+        q.runWorker()
+        assertTrue(closing.calls.isEmpty())
+        assertTrue(closing.closed)
+    }
+
+    @Test fun a_failed_prefetch_leaves_the_reranker_ready() {
+        val q = Queues()
+        val scorer = FakeScorer(prefersSecond).apply { prefetchFails = true }
+        val r = started(q, scorer)
+        r.prefetch()
+        q.runWorker()
+        assertTrue(r.ready)
+        val chosen = ArrayList<String>()
+        r.submit("上文", nine = false, waitMillis = WAIT, paths = paths) { chosen.add(it?.best ?: NONE) }
+        q.runWorker()
+        q.runMain()
+        assertEquals(listOf("拟好"), chosen)
+        assertNull(r.snapshot().error)
     }
 
     private fun jobSubmittedWhileItsContextLoadsRunsAfterTheWarm(nine: Boolean) {

@@ -41,6 +41,8 @@ public:
 
     Status warm(const std::string & context);
 
+    int prefetch();
+
     void cancel();
 
     void resume();

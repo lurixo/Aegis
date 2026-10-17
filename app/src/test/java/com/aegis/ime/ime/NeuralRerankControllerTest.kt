@@ -131,6 +131,9 @@ class NeuralRerankControllerTest {
         override fun warm(context: String) {
             calls.add("warm:$context")
         }
+        override fun prefetch() {
+            calls.add("prefetch")
+        }
         override fun cancel() {
             cancels++
         }
@@ -501,8 +504,8 @@ class NeuralRerankControllerTest {
     @Test fun short_input_is_not_overwritten_by_an_older_finished_run_on_9key() =
         shortInputIsNotOverwrittenByAnOlderModelChoice(nine = true, scoredFirst = true)
 
-    private fun scoring(q: Queues, scorer: Scorer) =
-        NeuralReranker(spec, { scorer }, Executor { r -> q.neuralWorker.add(r) }, Executor { r -> q.neuralMain.add(r) }, q.schedule)
+    private fun scoring(q: Queues, scorer: Scorer, clock: () -> Long = System::nanoTime) =
+        NeuralReranker(spec, { scorer }, Executor { r -> q.neuralWorker.add(r) }, Executor { r -> q.neuralMain.add(r) }, q.schedule, nanoTime = clock)
 
     private fun shortInputWarmsTheContextTheThirdKeyScores(nine: Boolean) {
         val host = Host().apply { before = "今天我想说" }
@@ -726,16 +729,16 @@ class NeuralRerankControllerTest {
         host.reads.clear()
         c.onInputViewStarted()
         assertEquals("the view start reads the text before the cursor once, as the first key does", listOf(65), host.reads)
-        assertEquals(1, q.neuralWorker.size)
+        assertEquals("the view start queues a prefetch and a context load", 2, q.neuralWorker.size)
         assertTrue(q.neuralMain.isEmpty() && q.timers.isEmpty())
         val cancels = scorer.cancels
         val input = if (nine) "644" else "nih"
         type(c, input.take(1))
         q.decode()
-        assertEquals("the first key does not load its context again", 1, q.neuralWorker.size)
+        assertEquals("the first key does not load its context again", 2, q.neuralWorker.size)
         assertEquals("the first key leaves the load running", cancels, scorer.cancels)
         q.neural()
-        assertEquals(listOf("warm:今天我想说"), scorer.calls)
+        assertEquals(listOf("prefetch", "warm:今天我想说"), scorer.calls)
         type(c, input.substring(1, 2))
         q.decode()
         assertTrue("the second key finds its context loaded", q.neuralWorker.isEmpty())
@@ -745,7 +748,7 @@ class NeuralRerankControllerTest {
         q.decode()
         assertEquals(engine.words(input), decoded(c))
         q.neural()
-        assertEquals(listOf("warm:今天我想说", "score:今天我想说"), scorer.calls)
+        assertEquals(listOf("prefetch", "warm:今天我想说", "score:今天我想说"), scorer.calls)
         assertEquals(engine.reranked(input), decoded(c))
         val snap = r.snapshot()
         assertEquals(1, snap.runs)
@@ -762,12 +765,12 @@ class NeuralRerankControllerTest {
     private fun aViewThatStartsAgainOnTheSameTextLoadsNothing(nine: Boolean) {
         val host = Host().apply { before = "今天我想说" }
         val scorer = Scorer()
-        val (c, q, _) = setup(EveryInputEngine(), host, reranker = { scoring(it, scorer) })
+        val (c, q, _) = setup(EveryInputEngine(), host, reranker = { scoring(it, scorer, clock = { 0L }) })
         c.switchTextLayoutForTest(nine)
         q.decode()
         c.onInputViewStarted()
         q.neural()
-        assertEquals(listOf("warm:今天我想说"), scorer.calls)
+        assertEquals(listOf("prefetch", "warm:今天我想说"), scorer.calls)
         c.onInputTargetChanged()
         c.onInputViewStarted()
         assertTrue(q.neuralWorker.isEmpty())
@@ -775,7 +778,7 @@ class NeuralRerankControllerTest {
         c.onInputTargetChanged()
         c.onInputViewStarted()
         q.neural()
-        assertEquals(listOf("warm:今天我想说", "warm:明天"), scorer.calls)
+        assertEquals(listOf("prefetch", "warm:今天我想说", "warm:明天"), scorer.calls)
     }
 
     @Test fun a_view_that_starts_again_on_the_same_text_loads_nothing_on_26key() =
@@ -783,6 +786,33 @@ class NeuralRerankControllerTest {
 
     @Test fun a_view_that_starts_again_on_the_same_text_loads_nothing_on_9key() =
         aViewThatStartsAgainOnTheSameTextLoadsNothing(nine = true)
+
+    private fun theInputViewStartPrefetchesTheModelAgainOnlyAfterTenSeconds(nine: Boolean) {
+        val host = Host().apply { before = "今天" }
+        val scorer = Scorer()
+        var now = 0L
+        val (c, q, _) = setup(EveryInputEngine(), host, reranker = { scoring(it, scorer, clock = { now }) })
+        c.switchTextLayoutForTest(nine)
+        q.decode()
+        c.onInputViewStarted()
+        assertTrue("the prefetch waits for the reranking thread", scorer.calls.isEmpty())
+        q.neural()
+        assertEquals(listOf("prefetch", "warm:今天"), scorer.calls)
+        for ((at, text) in listOf(TimeUnit.SECONDS.toNanos(10) - 1 to "明天", TimeUnit.SECONDS.toNanos(10) to "后天")) {
+            now = at
+            host.before = text
+            c.onInputTargetChanged()
+            c.onInputViewStarted()
+            q.neural()
+        }
+        assertEquals(listOf("prefetch", "warm:今天", "warm:明天", "prefetch", "warm:后天"), scorer.calls)
+    }
+
+    @Test fun the_input_view_start_prefetches_the_model_again_only_after_ten_seconds_on_26key() =
+        theInputViewStartPrefetchesTheModelAgainOnlyAfterTenSeconds(nine = false)
+
+    @Test fun the_input_view_start_prefetches_the_model_again_only_after_ten_seconds_on_9key() =
+        theInputViewStartPrefetchesTheModelAgainOnlyAfterTenSeconds(nine = true)
 
     private fun theInputViewStartLoadsNothing(nine: Boolean, before: String = "今天", prepare: (KeyboardController, Queues, Host) -> Unit) {
         val host = Host().apply { this.before = before }

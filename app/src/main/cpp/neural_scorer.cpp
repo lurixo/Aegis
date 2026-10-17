@@ -17,13 +17,19 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cinttypes>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <mutex>
 #include <numeric>
 #include <utility>
+
+#include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/sysmacros.h>
 
 #include "llama.h"
 
@@ -34,6 +40,7 @@ namespace {
 constexpr int kContextCells = 512;
 constexpr int kBatchTokens = 512;
 constexpr int kMicroBatchTokens = 32;
+constexpr uintptr_t kPrefetchChunk = 128 * 1024;
 
 std::once_flag gBackendOnce;
 std::mutex gLogMutex;
@@ -184,6 +191,9 @@ struct NeuralScorer::Impl {
     std::vector<llama_token> prefix;
     std::vector<float> afterPrefix;
     FILE * file = nullptr;
+    bool identified = false;
+    dev_t device = 0;
+    ino_t inode = 0;
 
     ~Impl() {
         if (batchReady) llama_batch_free(batch);
@@ -324,6 +334,17 @@ NeuralScorer::Impl * createImpl(llama_model * model, int threads, std::string * 
     return impl;
 }
 
+void remember(NeuralScorer::Impl * impl, const struct stat & info) {
+    impl->device = info.st_dev;
+    impl->inode = info.st_ino;
+    impl->identified = true;
+}
+
+void identify(NeuralScorer::Impl * impl, int fd) {
+    struct stat info {};
+    if (fstat(fd, &info) == 0) remember(impl, info);
+}
+
 llama_model_params modelParams() {
     llama_model_params params = llama_model_default_params();
     params.n_gpu_layers = 0;
@@ -348,6 +369,7 @@ NeuralScorer * NeuralScorer::open(FILE * file, int threads, std::string * error)
         return nullptr;
     }
     impl->file = file;
+    identify(impl, fileno(file));
     return new NeuralScorer(impl);
 }
 
@@ -359,7 +381,36 @@ NeuralScorer * NeuralScorer::openPath(const char * path, int threads, std::strin
         return nullptr;
     }
     Impl * impl = createImpl(model, threads, error);
-    return impl == nullptr ? nullptr : new NeuralScorer(impl);
+    if (impl == nullptr) return nullptr;
+    struct stat info {};
+    if (stat(path, &info) == 0) remember(impl, info);
+    return new NeuralScorer(impl);
+}
+
+int NeuralScorer::prefetch() {
+    if (!impl_->identified) return -1;
+    std::FILE * maps = std::fopen("/proc/self/maps", "re");
+    if (maps == nullptr) return -1;
+    char * line = nullptr;
+    size_t capacity = 0;
+    int advised = 0;
+    bool failed = false;
+    while (getline(&line, &capacity, maps) > 0) {
+        uintptr_t start = 0;
+        uintptr_t end = 0;
+        unsigned int major = 0;
+        unsigned int minor = 0;
+        unsigned long long inode = 0;
+        if (std::sscanf(line, "%" SCNxPTR "-%" SCNxPTR " %*s %*s %x:%x %llu", &start, &end, &major, &minor, &inode) != 5) continue;
+        if (inode != impl_->inode || makedev(major, minor) != impl_->device) continue;
+        for (uintptr_t at = start; at < end && !failed; at += kPrefetchChunk) {
+            failed = madvise(reinterpret_cast<void *>(at), std::min<uintptr_t>(kPrefetchChunk, end - at), MADV_WILLNEED) != 0;
+        }
+        if (!failed) ++advised;
+    }
+    std::free(line);
+    std::fclose(maps);
+    return failed ? -1 : advised;
 }
 
 void NeuralScorer::cancel() { impl_->abort.store(true, std::memory_order_relaxed); }

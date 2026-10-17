@@ -348,6 +348,7 @@ class KeyboardController(
         val reranker = neural ?: return
         if (!reranker.ready || hasComposingToClear()) return
         if (!rerankApplies(reranker, buildDecodeRequest())) return
+        reranker.prefetch()
         reranker.warm(rerankContext(cursorContext()))
     }
 

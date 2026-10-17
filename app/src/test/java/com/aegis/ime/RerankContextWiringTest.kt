@@ -47,9 +47,13 @@ class RerankContextWiringTest {
 
     private class WarmScorer : SentenceScorer {
         val warmed: MutableList<String> = Collections.synchronizedList(ArrayList())
+        val prefetchedOn: MutableList<Thread> = Collections.synchronizedList(ArrayList())
         override fun score(context: String, candidates: List<String>): DoubleArray? = null
         override fun warm(context: String) {
             warmed.add(context)
+        }
+        override fun prefetch() {
+            prefetchedOn.add(Thread.currentThread())
         }
         override fun cancel() {}
         override fun resume() {}
@@ -107,9 +111,14 @@ class RerankContextWiringTest {
         return service
     }
 
-    private fun ready(service: AegisInputMethodService, scorer: SentenceScorer): NeuralReranker {
+    private fun ready(
+        service: AegisInputMethodService,
+        scorer: SentenceScorer,
+        worker: Executor = Executor { it.run() },
+        clock: () -> Long = System::nanoTime,
+    ): NeuralReranker {
         val controller = field<KeyboardController>(service, "controller")
-        val reranker = NeuralReranker(controller.neural!!.spec, { scorer }, Executor { it.run() }, Executor { it.run() }, { _, _ -> })
+        val reranker = NeuralReranker(controller.neural!!.spec, { scorer }, worker, Executor { it.run() }, { _, _ -> }, nanoTime = clock)
         controller.neural = reranker
         reranker.start()
         return reranker
@@ -137,5 +146,39 @@ class RerankContextWiringTest {
 
         show(service)
         assertEquals(listOf(""), scorer.warmed.toList())
+    }
+
+    @Test fun showing_the_keyboard_prefetches_the_model_off_the_main_thread_at_most_once_in_ten_seconds() {
+        install()
+        val service = start()
+        val scorer = WarmScorer()
+        val elsewhere = Executor { task -> Thread(task, "rerank-test").apply { start() }.join() }
+        var now = 0L
+        assertTrue(ready(service, scorer = scorer, worker = elsewhere, clock = { now }).ready)
+        assertTrue(scorer.prefetchedOn.isEmpty())
+
+        show(service)
+        assertEquals(1, scorer.prefetchedOn.size)
+        assertTrue(scorer.prefetchedOn.none { it === Looper.getMainLooper().thread })
+
+        now = TimeUnit.SECONDS.toNanos(10) - 1
+        show(service)
+        assertEquals(1, scorer.prefetchedOn.size)
+
+        now = TimeUnit.SECONDS.toNanos(10)
+        show(service)
+        assertEquals(2, scorer.prefetchedOn.size)
+        assertEquals(listOf("rerank-test", "rerank-test"), scorer.prefetchedOn.map { it.name })
+    }
+
+    @Test fun showing_the_keyboard_prefetches_nothing_while_the_model_loads() {
+        install()
+        val service = start()
+        val scorer = WarmScorer()
+        val controller = field<KeyboardController>(service, "controller")
+        controller.neural = NeuralReranker(controller.neural!!.spec, { scorer }, Executor {}, Executor { it.run() }, { _, _ -> })
+        show(service)
+        assertTrue(scorer.prefetchedOn.isEmpty())
+        assertTrue(scorer.warmed.isEmpty())
     }
 }
