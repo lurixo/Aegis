@@ -138,8 +138,7 @@ class KeyboardController(
 
     private var settlingDecode = false
     private var settlingRerank = false
-    private var heldDecode: DecodeResult? = null
-    private var heldInput = ""
+    private var rerankingDecode: DecodeResult? = null
 
     private val committedPrefix = StringBuilder()
 
@@ -232,10 +231,7 @@ class KeyboardController(
     var neural: NeuralReranker? = null
         set(value) {
             field = value
-            val held = heldDecode ?: return
-            heldDecode = null
-            applyDecodeResult(held)
-            render()
+            rerankingDecode = null
         }
 
     var onLearned: () -> Unit = {}
@@ -371,7 +367,7 @@ class KeyboardController(
         userLearning?.observeBreak()
         if (userLearning?.dirty == true) onLearned()
         decodeLane?.markSatisfiedSynchronously()
-        heldDecode = null
+        rerankingDecode = null
         drainLearning()
         beforeCursor = null
         ownTail.setLength(0)
@@ -1299,7 +1295,7 @@ class KeyboardController(
 
     private fun clearComposingState() {
         decodeLane?.markSatisfiedSynchronously()
-        heldDecode = null
+        rerankingDecode = null
         nineLabelDigits = ""
         composing.setLength(0)
         literalIndices.clear()
@@ -1348,12 +1344,7 @@ class KeyboardController(
 
     private fun refreshCandidates() {
         neural?.invalidate()
-        val superseded = heldDecode
-        heldDecode = null
-        if (superseded != null && composing.isNotEmpty() && heldInput != composing.toString()) {
-            applyDecodeResult(superseded)
-            neural?.firstKeyShown()
-        }
+        rerankingDecode = null
         val req = buildDecodeRequest()
         val continues = latestRequest?.let(req::continues) == true
         latestRequest = req
@@ -1367,10 +1358,9 @@ class KeyboardController(
             lane.submit(
                 compute = { computeDecode(req, sentenceLimit) },
                 apply = { result ->
-                    if (!holdForRerank(req, result)) {
-                        applyDecodeResult(result)
-                        if (!settlingDecode) render()
-                    }
+                    applyDecodeResult(result)
+                    if (!settlingDecode) render()
+                    submitRerank(req, result)
                 },
                 onError = { applyDecodeResult(emptyDecodeResult()); if (!settlingDecode) render() },
                 continues = continues,
@@ -1405,45 +1395,41 @@ class KeyboardController(
     private fun rerankContext(req: DecodeRequest): String =
         NeuralReranker.contextWindow(req.beforeCursor + committedPrefix, req.beforeCursor.length <= CONTEXT_SCAN_LEN)
 
-    private fun holdForRerank(req: DecodeRequest, result: DecodeResult): Boolean {
-        val reranker = neural ?: return false
-        if (!reranker.ready) return false
-        val paths = result.sentences ?: return false
-        if (paths.size < RERANK_MIN_PATHS || result.candidates.isEmpty()) return false
-        heldDecode = result
-        heldInput = req.raw
+    private fun submitRerank(req: DecodeRequest, result: DecodeResult) {
+        val reranker = neural ?: return
+        if (!reranker.ready) return
+        val paths = result.sentences ?: return
+        if (paths.size < RERANK_MIN_PATHS || result.candidates.isEmpty()) return
+        rerankingDecode = result
         reranker.submit(
             context = rerankContext(req),
             nine = req.isNine,
-            waitMillis = RERANK_WAIT_MILLIS,
+            waitMillis = RERANK_APPLY_MILLIS,
             paths = paths,
         ) { choice ->
-            if (heldDecode !== result) return@submit
-            heldDecode = null
+            if (rerankingDecode !== result) return@submit
+            rerankingDecode = null
             val top = result.candidates.first()
-            if (choice != null && top.word == choice.decoderBest && top.coveredLen == req.composingLen && top.word != choice.best) {
-                val best = Cand(choice.best, req.composingLen)
-                applyDecodeResult(result, listOf(best) + result.candidates.filterNot { it.word == choice.best })
-            } else {
-                applyDecodeResult(result)
+            if (choice == null || top.word != choice.decoderBest || top.coveredLen != req.composingLen || top.word == choice.best) {
+                return@submit
             }
+            val best = Cand(choice.best, req.composingLen)
+            applyDecodeResult(result, listOf(best) + result.candidates.filterNot { it.word == choice.best })
             if (!settlingRerank && !settlingDecode) render()
         }
-        return true
     }
 
     private fun ensureRerankApplied() {
         val reranker = neural ?: return
         settlingRerank = true
         try {
-            reranker.settle(RERANK_WAIT_MILLIS)
+            reranker.settle(RERANK_COMMIT_WAIT_MILLIS)
         } finally {
             settlingRerank = false
         }
-        val held = heldDecode ?: return
-        heldDecode = null
+        if (rerankingDecode == null) return
+        rerankingDecode = null
         reranker.invalidate()
-        applyDecodeResult(held)
     }
 
     private fun ensureDecodeApplied() {
@@ -2071,7 +2057,7 @@ class KeyboardController(
         v.showKeyboard(layout, shifted, shiftState == ShiftState.LOCK, lang)
         val readings = expandedReadings()
         val preedit = preeditText()
-        val candidatesPending = decodeLane?.pending == true || heldDecode != null
+        val candidatesPending = decodeLane?.pending == true
         if (composing.isEmpty()) {
             neural?.firstKeyDropped()
         } else if (!candidatesPending && candidates.isNotEmpty()) {
@@ -2265,7 +2251,8 @@ class KeyboardController(
         const val CONTEXT_SCAN_LEN = 64
         const val CTX_SCAN_LEN = 16
         const val EMAIL_SCAN_LEN = 256
-        const val RERANK_WAIT_MILLIS = 300L
+        const val RERANK_APPLY_MILLIS = 100L
+        const val RERANK_COMMIT_WAIT_MILLIS = 50L
         const val RERANK_SEARCH_FACTOR = 2
         const val RERANK_MIN_KEYS = 3
         const val RERANK_MIN_PATHS = 2

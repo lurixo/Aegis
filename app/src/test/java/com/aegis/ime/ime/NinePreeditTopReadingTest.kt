@@ -451,7 +451,7 @@ class NinePreeditTopReadingTest {
     private fun nineModel() =
         Model(fixtureEngine(), mapOf("942" to listOf("炸", "下"), "9426" to listOf("站", "小")), "小")
 
-    @Test fun a_label_whose_list_waits_for_the_model_carries_on_and_then_follows_the_list_the_model_shows() {
+    @Test fun a_label_follows_the_decoded_list_at_once_and_then_the_list_the_model_reorders() {
         val m = nineModel()
         val c = modelController(m, nine = true)
         c.type("94")
@@ -461,27 +461,31 @@ class NinePreeditTopReadingTest {
         assertEquals("xi", c.preeditForTest())
 
         c.type("2")
-        m.decode()
-        assertEquals("the list of the third key waits for the model", "西", c.candidateWords().first())
+        assertEquals("the list of the second key stays while the third decodes", "西", c.candidateWords().first())
         assertEquals(T9Pinyin.carryPreedit("xi", "94", "942", emptySet()), c.preeditForTest())
         assertSpells("942", c.preeditForTest())
         assertNotEquals("xi'" + T9Pinyin.preedit("2"), c.preeditForTest())
+        m.decode()
+        assertEquals("the list of the third key shows before the model answers", "炸", c.candidateWords().first())
+        assertEquals("zha", c.preeditForTest())
         m.answer()
         assertEquals("炸", c.candidateWords().first())
         assertEquals("zha", c.preeditForTest())
 
         c.type("6")
-        m.decode()
-        assertEquals("the list of the fourth key waits for the model", "炸", c.candidateWords().first())
+        assertEquals("炸", c.candidateWords().first())
         assertEquals(T9Pinyin.carryPreedit("zha", "942", "9426", emptySet()), c.preeditForTest())
         assertSpells("9426", c.preeditForTest())
+        m.decode()
+        assertEquals("the list of the fourth key shows in the decoder order", "站", c.candidateWords().first())
+        assertEquals("zhan", c.preeditForTest())
         m.answer()
         assertEquals("the model moved its choice to the front", "小", c.candidateWords().first())
         assertNotEquals("xiao", T9Pinyin.carryPreedit("zha", "942", "9426", emptySet()))
         assertEquals("xiao", c.preeditForTest())
     }
 
-    @Test fun a_superseded_list_shown_early_does_not_respell_the_digits_typed_after_it() {
+    @Test fun a_list_left_on_screen_does_not_respell_the_digit_typed_after_it() {
         val m = nineModel()
         val c = modelController(m, nine = true)
         c.type("94")
@@ -490,25 +494,28 @@ class NinePreeditTopReadingTest {
         assertEquals("xi", c.preeditForTest())
         c.type("2")
         m.decode()
-        assertEquals("the list of the third key waits for the model", "西", c.candidateWords().first())
+        assertEquals("the list of the third key shows before the model answers", "炸", c.candidateWords().first())
+        assertEquals("zha", c.preeditForTest())
 
         c.type("6")
         assertTrue(
-            "the fourth key shows the list of the third, was ${c.decodeStateForTest()}",
+            "the fourth key leaves the list of the third on screen, was ${c.decodeStateForTest()}",
             c.decodeStateForTest().startsWith("C:炸/3,"),
         )
-        assertEquals(T9Pinyin.carryPreedit("xi", "94", "9426", emptySet()), c.preeditForTest())
+        assertEquals(T9Pinyin.carryPreedit("zha", "942", "9426", emptySet()), c.preeditForTest())
         assertSpells("9426", c.preeditForTest())
-        assertNotEquals("zha'" + T9Pinyin.preedit("6"), c.preeditForTest())
         m.decode()
-        assertTrue(c.decodeStateForTest().startsWith("C:炸/3,"))
-        assertEquals(T9Pinyin.carryPreedit("xi", "94", "9426", emptySet()), c.preeditForTest())
+        assertTrue(
+            "the list of the fourth key shows before the model answers, was ${c.decodeStateForTest()}",
+            c.decodeStateForTest().startsWith("C:站/4,"),
+        )
+        assertEquals("zhan", c.preeditForTest())
         m.answer()
         assertEquals("小", c.candidateWords().first())
         assertEquals("xiao", c.preeditForTest())
     }
 
-    @Test fun the_alpha_label_shows_the_typed_letters_while_the_model_holds_or_supersedes_a_list() {
+    @Test fun the_alpha_label_shows_the_typed_letters_whichever_list_is_on_screen() {
         val m = Model(fixtureEngine(), mapOf("xia" to listOf("下", "西"), "xiao" to listOf("小", "下")), "")
         val c = modelController(m, nine = false)
         c.type("xi")
@@ -516,13 +523,17 @@ class NinePreeditTopReadingTest {
         m.answer()
         assertEquals("西", c.candidateWords().first())
         c.type("a")
+        assertEquals("the list of the second key stays while the third decodes", "西", c.candidateWords().first())
+        assertEquals("xia", c.preeditForTest())
         m.decode()
-        assertEquals("the list of the third key waits for the model", "西", c.candidateWords().first())
+        assertEquals("the list of the third key shows before the model answers", "下", c.candidateWords().first())
         assertEquals("xia", c.preeditForTest())
         c.type("o")
-        assertEquals("the fourth key shows the list of the third", "下", c.candidateWords().first())
+        assertEquals("the fourth key leaves the list of the third on screen", "下", c.candidateWords().first())
         assertEquals("xiao", c.preeditForTest())
         m.decode()
+        assertEquals("小", c.candidateWords().first())
+        assertEquals("xiao", c.preeditForTest())
         m.answer()
         assertEquals("小", c.candidateWords().first())
         assertEquals("xiao", c.preeditForTest())

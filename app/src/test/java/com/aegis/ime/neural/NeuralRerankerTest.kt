@@ -492,7 +492,7 @@ class NeuralRerankerTest {
         q.runWorker(); q.runMain()
         assertTrue(scorer.batches.isEmpty())
         assertEquals(listOf(NONE), chosen)
-        assertTrue(r.settle(0L))
+        assertTrue(r.settle(WAIT))
         assertEquals(0, r.snapshot().timeouts)
     }
 
@@ -502,7 +502,7 @@ class NeuralRerankerTest {
         val chosen = ArrayList<String>()
         r.submit("", nine = false, waitMillis = WAIT, paths = paths) { chosen.add(it?.best ?: NONE) }
         q.runWorker()
-        assertTrue(r.settle(0L))
+        assertTrue(r.settle(WAIT))
         assertEquals(listOf("拟好"), chosen)
         q.runMain()
         assertEquals(listOf("拟好"), chosen)
@@ -511,16 +511,124 @@ class NeuralRerankerTest {
     @Test fun settle_times_out_when_the_job_has_not_run() {
         val q = Queues()
         val r = started(q, FakeScorer(prefersSecond))
-        r.submit("", nine = false, waitMillis = WAIT, paths = paths) {}
-        assertFalse(r.settle(5L))
+        r.submit("", nine = false, waitMillis = 5L, paths = paths) {}
+        assertFalse(r.settle(WAIT))
         assertEquals(1, r.snapshot().timeouts)
+    }
+
+    private fun settleWaitsOnlyForWhatIsLeftOfTheWait(nine: Boolean) {
+        val waits = List(3) {
+            var now = 0L
+            val q = Queues()
+            val r = started(q, FakeScorer(prefersSecond)) { now }
+            r.submit("", nine = nine, waitMillis = 50L, paths = paths) {}
+            now += 30_000_000L
+            val before = System.nanoTime()
+            assertFalse(r.settle(WAIT))
+            val waited = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - before)
+            assertEquals(1, r.snapshot().timeouts)
+            waited
+        }
+        assertTrue("settle waited $waits ms", waits.all { it >= 20L })
+        assertTrue("settle waited $waits ms", waits.min() < 40L)
+    }
+
+    @Test fun settle_waits_only_for_what_is_left_of_the_wait_on_26key() = settleWaitsOnlyForWhatIsLeftOfTheWait(nine = false)
+
+    @Test fun settle_waits_only_for_what_is_left_of_the_wait_on_9key() = settleWaitsOnlyForWhatIsLeftOfTheWait(nine = true)
+
+    private fun settlePastTheEndOfTheWaitReturnsAtOnceAndCountsATimeout(nine: Boolean) {
+        val waits = List(3) {
+            var now = 0L
+            val q = Queues()
+            val r = started(q, FakeScorer(prefersSecond)) { now }
+            r.submit("", nine = nine, waitMillis = 50L, paths = paths) {}
+            now += 50_000_000L
+            val before = System.nanoTime()
+            assertFalse(r.settle(WAIT))
+            val waited = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - before)
+            assertEquals(1, r.snapshot().timeouts)
+            waited
+        }
+        assertTrue("settle waited $waits ms", waits.min() < 20L)
+    }
+
+    @Test fun settle_past_the_end_of_the_wait_returns_at_once_and_counts_a_timeout_on_26key() =
+        settlePastTheEndOfTheWaitReturnsAtOnceAndCountsATimeout(nine = false)
+
+    @Test fun settle_past_the_end_of_the_wait_returns_at_once_and_counts_a_timeout_on_9key() =
+        settlePastTheEndOfTheWaitReturnsAtOnceAndCountsATimeout(nine = true)
+
+    private fun settleWaitsUntilTheGivenTimeAfterTheSubmit(nine: Boolean) {
+        fun waited(elapsedNanos: Long): Long = List(3) {
+            var now = 0L
+            val q = Queues()
+            val r = started(q, FakeScorer(prefersSecond)) { now }
+            r.submit("", nine = nine, waitMillis = 100L, paths = paths) {}
+            now += elapsedNanos
+            val before = System.nanoTime()
+            assertFalse(r.settle(50L))
+            val wait = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - before)
+            assertEquals(1, r.snapshot().timeouts)
+            assertTrue("settle waited $wait ms", wait >= (50_000_000L - elapsedNanos) / 1_000_000L)
+            wait
+        }.min()
+        val left = waited(elapsedNanos = 30_000_000L)
+        assertTrue("settle waited $left ms with 20 ms left of its 50", left < 40L)
+        val none = waited(elapsedNanos = 50_000_000L)
+        assertTrue("settle waited $none ms with nothing left of its 50", none < 20L)
+    }
+
+    @Test fun settle_waits_until_the_given_time_after_the_submit_on_26key() = settleWaitsUntilTheGivenTimeAfterTheSubmit(nine = false)
+
+    @Test fun settle_waits_until_the_given_time_after_the_submit_on_9key() = settleWaitsUntilTheGivenTimeAfterTheSubmit(nine = true)
+
+    @Test fun settle_before_the_given_time_runs_a_finished_delivery_and_leaves_the_job_its_own_wait() {
+        var now = 0L
+        val q = Queues()
+        val r = started(q, FakeScorer(prefersSecond)) { now }
+        val chosen = ArrayList<String>()
+        r.submit("", nine = false, waitMillis = 100L, paths = paths) { chosen.add(it?.best ?: NONE) }
+        q.runWorker()
+        now += 70_000_000L
+        assertTrue(r.settle(50L))
+        assertEquals(listOf("拟好"), chosen)
+        assertEquals(0, r.snapshot().timeouts)
+    }
+
+    @Test fun settle_waits_for_the_end_of_the_wait_of_the_latest_job() {
+        var now = 0L
+        val q = Queues()
+        val r = started(q, FakeScorer(prefersSecond)) { now }
+        r.submit("", nine = false, waitMillis = 50L, paths = paths) {}
+        now += 40_000_000L
+        r.submit("", nine = false, waitMillis = 50L, paths = paths) {}
+        now += 30_000_000L
+        val before = System.nanoTime()
+        assertFalse(r.settle(WAIT))
+        val waited = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - before)
+        assertTrue("settle waited $waited ms", waited >= 20L)
+        assertEquals(1, r.snapshot().timeouts)
+    }
+
+    @Test fun settle_past_the_end_of_the_wait_still_runs_a_finished_delivery() {
+        var now = 0L
+        val q = Queues()
+        val r = started(q, FakeScorer(prefersSecond)) { now }
+        val chosen = ArrayList<String>()
+        r.submit("", nine = false, waitMillis = 50L, paths = paths) { chosen.add(it?.best ?: NONE) }
+        q.runWorker()
+        now += 80_000_000L
+        assertTrue(r.settle(WAIT))
+        assertEquals(listOf("拟好"), chosen)
+        assertEquals(0, r.snapshot().timeouts)
     }
 
     @Test fun settle_without_a_pending_job_returns_at_once() {
         val q = Queues()
         val r = started(q, FakeScorer(prefersSecond))
         r.invalidate()
-        assertTrue(r.settle(1_000L))
+        assertTrue(r.settle(WAIT))
         assertEquals(0, r.snapshot().timeouts)
     }
 
@@ -581,7 +689,7 @@ class NeuralRerankerTest {
         val chosen = ArrayList<String>()
         r.submit("", nine = false, waitMillis = WAIT, paths = paths) { chosen.add(it?.best ?: NONE) }
         q.fireTimers()
-        assertTrue(r.settle(0L))
+        assertTrue(r.settle(WAIT))
         assertEquals(listOf(NONE), chosen)
         q.runMain()
         assertEquals(listOf(NONE), chosen)
@@ -595,7 +703,7 @@ class NeuralRerankerTest {
         r.warm("上文")
         assertEquals(1, q.worker.size)
         assertTrue(q.timers.isEmpty())
-        assertTrue(r.settle(1_000L))
+        assertTrue(r.settle(WAIT))
         q.runWorker()
         r.warm("上文")
         assertTrue(q.worker.isEmpty())
@@ -607,6 +715,59 @@ class NeuralRerankerTest {
         assertEquals(0, snap.cancelled)
         assertNull(snap.error)
     }
+
+    private fun jobSubmittedWhileItsContextLoadsRunsAfterTheWarm(nine: Boolean) {
+        val q = Queues()
+        val scorer = FakeScorer(prefersSecond)
+        val r = started(q, scorer)
+        r.warm("上文")
+        val cancels = scorer.cancels
+        val chosen = ArrayList<String>()
+        r.submit("上文", nine = nine, waitMillis = WAIT, paths = paths) { chosen.add(it?.best ?: NONE) }
+        assertEquals("the job leaves the warm running", cancels, scorer.cancels)
+        assertEquals(2, q.worker.size)
+        q.runWorker()
+        q.runMain()
+        assertEquals(listOf("warm:上文", "score:上文"), scorer.calls)
+        assertEquals(listOf("拟好"), chosen)
+        val snap = r.snapshot()
+        assertEquals(1, snap.runs)
+        assertEquals(0, snap.timeouts)
+        assertEquals(0, snap.cancelled)
+    }
+
+    @Test fun a_job_submitted_while_its_context_loads_runs_after_the_warm_on_26key() =
+        jobSubmittedWhileItsContextLoadsRunsAfterTheWarm(nine = false)
+
+    @Test fun a_job_submitted_while_its_context_loads_runs_after_the_warm_on_9key() =
+        jobSubmittedWhileItsContextLoadsRunsAfterTheWarm(nine = true)
+
+    private fun jobWhoseContextLoadOutlastsItsWaitCountsATimeout(nine: Boolean) {
+        val q = Queues()
+        val scorer = FakeScorer(prefersSecond)
+        val r = started(q, scorer)
+        r.warm("上文")
+        val cancels = scorer.cancels
+        val chosen = ArrayList<String>()
+        r.submit("上文", nine = nine, waitMillis = WAIT, paths = paths) { chosen.add(it?.best ?: NONE) }
+        q.fireTimers()
+        q.runMain()
+        assertEquals(listOf(NONE), chosen)
+        assertEquals(1, r.snapshot().timeouts)
+        assertEquals("the expired wait leaves the warm running", cancels, scorer.cancels)
+        q.runWorker()
+        q.runMain()
+        assertEquals("the late result is dropped", listOf(NONE), chosen)
+        val snap = r.snapshot()
+        assertEquals(1, snap.timeouts)
+        assertEquals(0, snap.cancelled)
+    }
+
+    @Test fun a_job_whose_context_load_outlasts_its_wait_counts_a_timeout_on_26key() =
+        jobWhoseContextLoadOutlastsItsWaitCountsATimeout(nine = false)
+
+    @Test fun a_job_whose_context_load_outlasts_its_wait_counts_a_timeout_on_9key() =
+        jobWhoseContextLoadOutlastsItsWaitCountsATimeout(nine = true)
 
     private fun jobForTheWarmedContextRunsBehindTheWarm(nine: Boolean) {
         val q = Queues()

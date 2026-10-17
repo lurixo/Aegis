@@ -307,6 +307,7 @@ class NeuralDownloadCardTest {
             "首键出字：最近 30 毫秒，平均 21 毫秒，最长 30 毫秒",
             zh.getString(R.string.neural_card_first_key, snap.lastFirstKeyMillis, snap.meanFirstKeyMillis, snap.maxFirstKeyMillis),
         )
+        assertTrue(compose.onAllNodesWithText("while the context loaded", substring = true).fetchSemanticsNodes().isEmpty())
         compose.onNodeWithText(context.getString(R.string.neural_card_runs, 1, snap.changed)).assertExists()
         compose.onNodeWithText(
             context.getString(R.string.neural_card_timing, snap.lastMillis, snap.meanMillis, snap.maxMillis),

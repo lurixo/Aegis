@@ -135,7 +135,7 @@ class DecodeStarvationTest {
             while (true) (mainQ.poll() ?: break).run()
         }
 
-        private fun neural() {
+        fun neural() {
             while (neuralWorker.isNotEmpty() || neuralMain.isNotEmpty()) {
                 while (neuralWorker.isNotEmpty()) neuralWorker.removeFirst().run()
                 while (neuralMain.isNotEmpty()) neuralMain.removeFirst().run()
@@ -174,6 +174,7 @@ class DecodeStarvationTest {
         Typing(nine, model).use { t ->
             t.engine.slowDown()
             t.press(1)
+            t.neural()
             t.engine.awaitDecoding(t.input(1))
             for (n in 2..12 step 2) {
                 t.press(n)
@@ -213,6 +214,7 @@ class DecodeStarvationTest {
     private fun aFinishedDecodeOvertakenOnTheMainThreadStillMovesTheListForward(nine: Boolean, model: Boolean) =
         Typing(nine, model).use { t ->
             t.press(1)
+            t.neural()
             for (n in 2..12) {
                 t.idle()
                 t.pressAheadOfMain(n)

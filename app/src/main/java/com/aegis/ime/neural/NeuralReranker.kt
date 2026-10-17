@@ -65,6 +65,8 @@ class NeuralReranker(
     @Volatile private var scorer: SentenceScorer? = null
     private val latest = AtomicLong(0L)
     @Volatile private var pendingGen = 0L
+    @Volatile private var pendingSince = 0L
+    @Volatile private var pendingWait = 0L
     @Volatile private var appliedGen = 0L
     private val claimedGen = AtomicLong(0L)
     private val finishedLock = ReentrantLock()
@@ -166,6 +168,8 @@ class NeuralReranker(
         if (warmup?.context != context) warmup = null
         cancelUnlessWarming(context)
         val queued = nanoTime()
+        pendingSince = queued
+        pendingWait = TimeUnit.MILLISECONDS.toNanos(waitMillis)
         worker.execute { run(gen, queued, context, nine, paths, apply) }
         schedule(waitMillis) { expire(gen, apply) }
     }
@@ -236,10 +240,10 @@ class NeuralReranker(
         main.execute { delivery.run() }
     }
 
-    fun settle(timeoutMillis: Long): Boolean {
+    fun settle(waitMillis: Long): Boolean {
         val gen = latest.get()
         if (pendingGen != gen || gen <= appliedGen) return true
-        var remaining = TimeUnit.MILLISECONDS.toNanos(timeoutMillis)
+        var remaining = pendingSince + minOf(TimeUnit.MILLISECONDS.toNanos(waitMillis), pendingWait) - nanoTime()
         val delivery = finishedLock.withLock {
             while (finished?.gen != gen && remaining > 0L) remaining = finishedChanged.awaitNanos(remaining)
             finished?.takeIf { it.gen == gen }
