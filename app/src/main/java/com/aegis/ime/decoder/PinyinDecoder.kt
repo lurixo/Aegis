@@ -540,13 +540,32 @@ class PinyinDecoder(
     private fun wordModelScore(word: String, freq: Int, ctxId: Int, ctx: Ctx, condMemo: CondMemo): Double =
         wordModelScore(word, freq.toDouble(), ctxId, ctx, condMemo)
 
-    private fun sentenceUsageBoost(word: String, whole: Boolean): Double =
-        if (whole) userModel?.wordBoost(word) ?: 0.0 else 0.0
+    private class ScoreInstant(val user: Long, val learn: Long)
+
+    private val heldInstant = ThreadLocal<ScoreInstant?>()
+
+    private fun scoreInstant(): ScoreInstant =
+        heldInstant.get() ?: ScoreInstant(userModel?.scoreInstant() ?: 0L, userLearning?.scoreInstant() ?: 0L)
+
+    private inline fun <T> atOneInstant(block: () -> T): T {
+        if (heldInstant.get() != null) return block()
+        heldInstant.set(scoreInstant())
+        try {
+            return block()
+        } finally {
+            heldInstant.remove()
+        }
+    }
+
+    private fun usageBoost(word: String): Double = userModel?.wordBoost(word, scoreInstant().user) ?: 0.0
+
+    private fun sentenceUsageBoost(word: String, whole: Boolean, now: Long): Double =
+        if (whole) userModel?.wordBoost(word, now) ?: 0.0 else 0.0
 
     private fun wordModelScore(word: String, freq: Double, ctxId: Int, ctx: Ctx, condMemo: CondMemo): Double {
         val terms = contextTerms(word, ctxId, ctx, condMemo)
         return (ln(freq) - lnTotal) +
-            (userModel?.wordBoost(word) ?: 0.0) +
+            usageBoost(word) +
             userLearningScore(ctx.tail, word) +
             terms[0] +
             terms[1] +
@@ -614,7 +633,10 @@ class PinyinDecoder(
     private val activeLearning: UserLearning? get() = userLearning?.takeIf { it.enabled }
 
     private fun userLearningScore(contextTail: String, word: String): Double =
-        activeLearning?.let { it.formedWeight(word) + it.followBoost(contextTail, word) } ?: 0.0
+        activeLearning?.let {
+            val now = scoreInstant().learn
+            it.formedWeight(word, now) + it.followBoost(contextTail, word, now)
+        } ?: 0.0
 
     private fun joinTail(contextTail: String, word: String): String =
         if (contextTail.isEmpty()) word else contextTail + word
@@ -747,14 +769,14 @@ class PinyinDecoder(
     }
 
     fun decodeCovered(input: String, limit: Int, cuts: Set<Int> = emptySet(), context: CharSequence = ""): List<Cand> =
-        withFuzzyReadings(input, decodeCoveredLayered(input, limit, cuts, context).first)
+        atOneInstant { withFuzzyReadings(input, decodeCoveredLayered(input, limit, cuts, context).first) }
 
     internal fun decodeCovered(input: String, limit: Int, context: CharSequence, pathSink: PathSink): List<Cand> =
-        withFuzzyReadings(input, decodeCoveredLayered(input, limit, emptySet(), context, pathSink = pathSink).first)
+        atOneInstant { withFuzzyReadings(input, decodeCoveredLayered(input, limit, emptySet(), context, pathSink = pathSink).first) }
 
     fun decodeCoveredWithInitials(input: String, limit: Int, context: CharSequence = ""): List<Cand> {
         if (digitInitialsDict == null || limit <= 0 || !spellsNoSyllables(input)) return emptyList()
-        return withFuzzyReadings(input, decodeCoveredClean(input, limit, emptySet(), context, false, digitInitials = true).first)
+        return atOneInstant { withFuzzyReadings(input, decodeCoveredClean(input, limit, emptySet(), context, false, digitInitials = true).first) }
     }
 
     private fun spellsNoSyllables(digits: String): Boolean =
@@ -788,7 +810,7 @@ class PinyinDecoder(
         if (clean.isEmpty()) return emptyList()
         val passedClean = if (norm == null) cuts else cuts.mapNotNull { norm.cleanIndexOfOrig(it) }.toSet()
         val interior = ((norm?.cuts ?: emptySet()) + passedClean).filter { it in 1 until clean.length }.toSet()
-        val decoded = withFuzzyReadings(clean, decodeAtomic(clean, interior, ctx, interior.isNotEmpty()))
+        val decoded = atOneInstant { withFuzzyReadings(clean, decodeAtomic(clean, interior, ctx, interior.isNotEmpty())) }
         return if (norm == null) {
             decoded
         } else {
@@ -811,7 +833,7 @@ class PinyinDecoder(
         }
         val rules = fuzzyRules
         val locks = SyllableLocks(readings, rules)
-        return withFuzzyReadings(input, decodeAtomic(input, interior, parseContext(context), interior.isNotEmpty(), rules, locks))
+        return atOneInstant { withFuzzyReadings(input, decodeAtomic(input, interior, parseContext(context), interior.isNotEmpty(), rules, locks)) }
     }
 
     private inner class SyllableLocks(private val readings: List<String>, private val rules: Set<String>) {
@@ -981,7 +1003,7 @@ class PinyinDecoder(
         }
         if (userModel != null) {
             val present = out.mapTo(HashSet()) { it.word }
-            for (uw in userWordsFor(input).sortedByDescending { userModel.wordBoost(it) }) {
+            for (uw in userWordsFor(input).sortedByDescending { usageBoost(it) }) {
                 if (present.add(uw)) out.add(Cand(uw, input.length))
             }
         }
@@ -1348,6 +1370,7 @@ class PinyinDecoder(
         val lam = activeLambda(ctx)
         val nSyl = B.size - 1
         val learn = activeLearning
+        val instant = scoreInstant()
         val dp = Array(B.size) { ArrayList<APath>() }
         dp[0].add(APath("", ctx.cp, if (octagram == null && userLearning == null) "" else ctx.tail, 0.0))
         val initial = initialSegments(input, B)
@@ -1391,8 +1414,8 @@ class PinyinDecoder(
                     val lastCp = w.codePointBefore(w.length)
                     val uni = if (grammar != null) ln(wf.freq.toDouble()) - LN_GRAMMAR_WEIGHT_SCALE - grammarCharPenalty * w.codePointCount(0, w.length) - edgePenalty
                     else ln(wf.freq.toDouble()) - lnTotal - edgePenalty
-                    val boost = sentenceUsageBoost(w, i == 0 && j == nSyl) +
-                        (learn?.formedWeight(w) ?: 0.0)
+                    val boost = sentenceUsageBoost(w, i == 0 && j == nSyl, instant.user) +
+                        (learn?.formedWeight(w, instant.learn) ?: 0.0)
                     val inner = if (grammar != null || model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model, condMemo)
                     for (p in src) {
                         val link = if (grammar != null) {
@@ -1401,7 +1424,7 @@ class PinyinDecoder(
                             val bw = if (p.text.isEmpty() && p.lastCp != BOS) contextWeight else lam
                             if (model == null || p.lastCp == BOS || bw == 0.0) 0.0 else bw * logCondMemo(condMemo, model, p.charId(model), idFirst)
                         }
-                        val follow = learn?.followBoost(p.tail, w) ?: 0.0
+                        val follow = learn?.followBoost(p.tail, w, instant.learn) ?: 0.0
                         dp[j].add(
                             APath(
                                 p.text + w,
@@ -1498,7 +1521,7 @@ class PinyinDecoder(
         frequency: (T) -> Double,
     ) {
         fun classification(entry: T): Int {
-            if ((userModel?.wordBoost(word(entry)) ?: 0.0) > 0.0) return 0
+            if (usageBoost(word(entry)) > 0.0) return 0
             return frequencyClass(frequency(entry))
         }
         val lastCommon = entries.indexOfLast { classification(it) > 0 }
@@ -1613,7 +1636,7 @@ class PinyinDecoder(
     }
 
     internal fun homophoneLayer(word: String, frequency: Double): Int {
-        if ((userModel?.wordBoost(word) ?: 0.0) > 0.0) return LAYER_COMMON
+        if (usageBoost(word) > 0.0) return LAYER_COMMON
         if (frequency <= ORDERING_INJECTED_FREQ) return LAYER_INJECTED
         if (!isSingleChar(word)) return LAYER_UNCOMMON
         return characterLayer(word.codePointAt(0))
@@ -1737,13 +1760,14 @@ class PinyinDecoder(
 
     internal fun rankedSentences(input: String, context: CharSequence, limit: Int): List<SentencePath> {
         if (input.isEmpty() || limit <= 0 || octagram == null || normalizeSeparators(input) != null) return emptyList()
-        return byUsage(sentencePaths(input, parseContext(context), limit))
+        return atOneInstant { byUsage(sentencePaths(input, parseContext(context), limit)) }
     }
 
     private fun byUsage(paths: List<SentencePath>): List<SentencePath> {
         val model = userModel
         if (model == null || octagram == null || paths.size < 2) return paths
-        return paths.map { it.copy(score = it.score + model.wordBoost(it.text)) }.sortedByDescending { it.score }
+        val now = scoreInstant().user
+        return paths.map { it.copy(score = it.score + model.wordBoost(it.text, now)) }.sortedByDescending { it.score }
     }
 
     private fun bestSentencePath(
@@ -1820,6 +1844,7 @@ class PinyinDecoder(
         val model = lm
         val grammar = octagram
         val learn = activeLearning?.takeUnless { it.isEmpty() }
+        val instant = scoreInstant()
         val lam = activeLambda(ctx)
         val n = input.length
         val abbreviations = grammar == null || T9Pinyin.segmentCost(input) == null
@@ -1842,14 +1867,14 @@ class PinyinDecoder(
                     val w = e.word
                     val uni = if (grammar != null) ln(e.freq.toDouble()) - LN_GRAMMAR_WEIGHT_SCALE - grammarCharPenalty * w.codePointCount(0, w.length)
                     else ln(e.freq.toDouble()) - lnTotal
-                    val boost = sentenceUsageBoost(w, e.userOnly || (p == 0 && q == n)) +
-                        (learn?.formedWeight(w) ?: 0.0)
+                    val boost = sentenceUsageBoost(w, e.userOnly || (p == 0 && q == n), instant.user) +
+                        (learn?.formedWeight(w, instant.learn) ?: 0.0)
                     val idFirst = if (grammar != null || model == null) -1 else model.charId(w.codePointAt(0))
                     val lastCp = w.codePointBefore(w.length)
                     val inner = if (grammar != null || model == null || lam == 0.0) 0.0 else lam * internalBigramScore(w, model, condMemo)
                     for ((state, cells) in from) {
                         val collocation = if (grammar != null) grammar.query(state.contextNodes(grammar), w, q == n) else 0.0
-                        val follow = learn?.followBoost(state.tail, w) ?: 0.0
+                        val follow = learn?.followBoost(state.tail, w, instant.learn) ?: 0.0
                         val nextState = SentenceState(lastCp, advanceJoinedTail(joinTail(state.tail, w)))
                         val kept = dp[q].getOrPut(nextState) { ArrayList(limit) }
                         for ((rank, cell) in cells.withIndex()) {
@@ -2022,7 +2047,7 @@ class PinyinDecoder(
     }
 
     internal fun guessWords(input: String, limit: Int, context: CharSequence = ""): List<String> =
-        ArrayList<String>().also { decodeCoveredLayered(input, limit, emptySet(), context, it) }
+        atOneInstant { ArrayList<String>().also { decodeCoveredLayered(input, limit, emptySet(), context, it) } }
 
     internal fun guessLockedWords(
         lockedLetters: String,
@@ -2042,15 +2067,17 @@ class PinyinDecoder(
         val toLetters: (String) -> String =
             if (t9Active) { v -> T9Pinyin.preedit(v).replace(SEP.toString(), "") } else { v -> v }
         val out = LinkedHashMap<String, String>()
-        for (gv in scoreGuessVariants(PinyinCorrection.variants(active), ctx, includePartial = false, toLetters)) {
-            DecodeCancellation.checkpoint()
-            val full = locked + gv.letters
-            if (full.isEmpty() || gv.letters.any { it !in 'a'..'z' }) continue
-            val interior = lockedCuts.filter { it in 1 until full.length }.toSet()
-            for (c in decodeAtomic(full, interior, ctx, interior.isNotEmpty(), emptySet())) {
-                if (c.coveredLen != full.length) continue
-                out.putIfAbsent(c.word, full)
-                if (out.size >= limit) return out.map { (word, reading) -> Cand(word, active.length, reading) }
+        atOneInstant {
+            for (gv in scoreGuessVariants(PinyinCorrection.variants(active), ctx, includePartial = false, toLetters)) {
+                DecodeCancellation.checkpoint()
+                val full = locked + gv.letters
+                if (full.isEmpty() || gv.letters.any { it !in 'a'..'z' }) continue
+                val interior = lockedCuts.filter { it in 1 until full.length }.toSet()
+                for (c in decodeAtomic(full, interior, ctx, interior.isNotEmpty(), emptySet())) {
+                    if (c.coveredLen != full.length) continue
+                    out.putIfAbsent(c.word, full)
+                    if (out.size >= limit) return out.map { (word, reading) -> Cand(word, active.length, reading) }
+                }
             }
         }
         return out.map { (word, reading) -> Cand(word, active.length, reading) }

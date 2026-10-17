@@ -263,10 +263,14 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         return true
     }
 
+    fun scoreInstant(): Long = scoreInstantOf(clock())
+
+    fun wordBoost(word: String): Double = wordBoost(word, clock())
+
     @Synchronized
-    fun wordBoost(word: String): Double {
+    fun wordBoost(word: String, now: Long): Double {
         val c = count[word] ?: return 0.0
-        return usageScore(c, lastUsed[word] ?: 0L, clock())
+        return usageScore(c, lastUsed[word] ?: 0L, now)
     }
 
     @Synchronized
@@ -526,6 +530,9 @@ class UserModel(private val clock: () -> Long = System::currentTimeMillis) {
         private const val RECENCY_WEIGHT = 2.0
         private const val RECENCY_HALF_LIFE_MILLIS = 7L * 24L * 60L * 60L * 1000L
         private val LN_2 = ln(2.0)
+        internal const val SCORE_INSTANT_MILLIS = 10_000L
+
+        internal fun scoreInstantOf(millis: Long): Long = millis - Math.floorMod(millis, SCORE_INSTANT_MILLIS)
 
         internal fun validateText(text: String): Boolean =
             text.reader().buffered().use(::parse).let { it.count.isNotEmpty() || it.readings.isNotEmpty() }

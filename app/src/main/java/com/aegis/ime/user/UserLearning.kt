@@ -173,11 +173,14 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
             .distinct()
     }
 
+    fun scoreInstant(): Long = UserModel.scoreInstantOf(clock())
+
+    fun formedWeight(word: String): Double = formedWeight(word, clock())
+
     @Synchronized
-    fun formedWeight(word: String): Double {
+    fun formedWeight(word: String, now: Long): Double {
         if (!enabled) return 0.0
         val m = formedByWord[word] ?: return 0.0
-        val now = clock()
         var bestCount = 0.0
         var bestSeen = 0L
         for (u in m.values) {
@@ -206,10 +209,11 @@ class UserLearning(private val clock: () -> Long = System::currentTimeMillis) {
         return out.sortedWith(compareByDescending<Pair<String, Double>> { it.second }.thenBy { it.first })
     }
 
+    fun followBoost(prevContext: String, word: String): Double = followBoost(prevContext, word, clock())
+
     @Synchronized
-    fun followBoost(prevContext: String, word: String): Double {
+    fun followBoost(prevContext: String, word: String, now: Long): Double {
         if (!enabled || prevContext.isEmpty() || word.isEmpty()) return 0.0
-        val now = clock()
         var best = 0.0
         for (suffix in contextSuffixes(prevContext)) {
             val u = followsByPrev[suffix]?.get(word) ?: continue
