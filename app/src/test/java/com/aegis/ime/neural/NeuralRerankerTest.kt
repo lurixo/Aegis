@@ -136,7 +136,7 @@ class NeuralRerankerTest {
     private val prefersSecond = mapOf("你好" to -5.0, "拟好" to -1.0, "你号" to -9.0)
 
     private fun started(q: Queues, scorer: SentenceScorer, clock: () -> Long = System::nanoTime): NeuralReranker {
-        val r = NeuralReranker(spec, { scorer }, Executor { q.worker.add(it) }, Executor { q.main.add(it) }, q.schedule, clock)
+        val r = NeuralReranker(spec, { scorer }, Executor { q.worker.add(it) }, Executor { q.main.add(it) }, q.schedule, nanoTime = clock)
         r.start()
         q.runWorker()
         return r
@@ -1015,4 +1015,135 @@ class NeuralRerankerTest {
     @Test fun queue_wait_runs_from_submit_to_the_start_of_the_run_on_26key() = queueWaitRunsFromSubmitToTheStartOfTheRun(nine = false)
 
     @Test fun queue_wait_runs_from_submit_to_the_start_of_the_run_on_9key() = queueWaitRunsFromSubmitToTheStartOfTheRun(nine = true)
+
+    private class Counters {
+        var now = 0L
+        var cpu = 0L
+        var faults = 0L
+        fun spend(millis: Long, cpuMillis: Long, majorFaults: Long) {
+            now += millis * 1_000_000L
+            cpu += cpuMillis
+            faults += majorFaults
+        }
+    }
+
+    private fun counted(q: Queues, scorer: SentenceScorer, k: Counters): NeuralReranker {
+        val r = NeuralReranker(
+            spec,
+            { scorer },
+            Executor { q.worker.add(it) },
+            Executor { q.main.add(it) },
+            q.schedule,
+            cpuMillis = { k.cpu },
+            majorFaults = { k.faults },
+            nanoTime = { k.now },
+        )
+        r.start()
+        q.runWorker()
+        return r
+    }
+
+    private fun slow(r: NeuralReranker): List<Long> = r.snapshot().let {
+        listOf(it.slowInferences.toLong(), it.slowInferenceMillis, it.slowInferenceCpuMillis, it.slowInferenceMajorFaults)
+    }
+
+    private fun inferenceUnderTheThresholdIsNotSlow(nine: Boolean) {
+        val q = Queues()
+        val k = Counters()
+        val scorer = FakeScorer(prefersSecond) { k.spend(99L, 80L, 5L) }
+        scorer.warming = { k.spend(99L, 70L, 4L) }
+        val r = counted(q, scorer, k)
+        r.warm("上文")
+        q.runWorker()
+        r.submit("上文", nine = nine, waitMillis = WAIT, paths = paths) {}
+        q.runWorker()
+        assertEquals(listOf("warm:上文", "score:上文"), scorer.calls)
+        assertEquals(1, r.snapshot().runs)
+        assertEquals(listOf(0L, 0L, 0L, 0L), slow(r))
+    }
+
+    @Test fun inference_under_the_threshold_is_not_slow_on_26key() = inferenceUnderTheThresholdIsNotSlow(nine = false)
+
+    @Test fun inference_under_the_threshold_is_not_slow_on_9key() = inferenceUnderTheThresholdIsNotSlow(nine = true)
+
+    private fun slowScoresAddTheirTimeProcessorTimeAndMajorFaults(nine: Boolean) {
+        val q = Queues()
+        val k = Counters()
+        var spend = { k.spend(100L, 40L, 7L) }
+        val r = counted(q, FakeScorer(prefersSecond) { spend() }, k)
+        k.spend(500L, 300L, 20L)
+        r.submit("", nine = nine, waitMillis = WAIT, paths = paths) {}
+        k.spend(500L, 300L, 20L)
+        q.runWorker()
+        assertEquals(listOf(1L, 100L, 40L, 7L), slow(r))
+        spend = { k.spend(250L, 30L, 0L) }
+        k.spend(500L, 300L, 20L)
+        r.submit("", nine = nine, waitMillis = WAIT, paths = paths) {}
+        q.runWorker()
+        assertEquals(listOf(2L, 350L, 70L, 7L), slow(r))
+        spend = { k.spend(99L, 90L, 9L) }
+        r.submit("", nine = nine, waitMillis = WAIT, paths = paths) {}
+        q.runWorker()
+        assertEquals(3, r.snapshot().runs)
+        assertEquals(listOf(2L, 350L, 70L, 7L), slow(r))
+    }
+
+    @Test fun slow_scores_add_their_time_processor_time_and_major_faults_on_26key() =
+        slowScoresAddTheirTimeProcessorTimeAndMajorFaults(nine = false)
+
+    @Test fun slow_scores_add_their_time_processor_time_and_major_faults_on_9key() =
+        slowScoresAddTheirTimeProcessorTimeAndMajorFaults(nine = true)
+
+    @Test fun a_slow_warm_is_a_slow_inference_whether_it_returns_or_throws() {
+        val q = Queues()
+        val k = Counters()
+        val scorer = FakeScorer(prefersSecond)
+        scorer.warming = { k.spend(120L, 15L, 9L) }
+        val r = counted(q, scorer, k)
+        r.warm("上文")
+        q.runWorker()
+        assertEquals(listOf(1L, 120L, 15L, 9L), slow(r))
+        assertEquals(1, r.snapshot().warms)
+        scorer.warmFails = true
+        scorer.warming = { k.spend(300L, 2L, 60L) }
+        r.warm("下文")
+        q.runWorker()
+        assertEquals(listOf("warm:上文", "warm:下文"), scorer.calls)
+        assertEquals(1, r.snapshot().warms)
+        assertEquals(listOf(2L, 420L, 17L, 69L), slow(r))
+    }
+
+    private fun slowScoreThatIsAbortedOrThrowsIsASlowInference(nine: Boolean) {
+        val q = Queues()
+        val k = Counters()
+        var fails = false
+        val scorer = FakeScorer(prefersSecond) {
+            k.spend(180L, 12L, 33L)
+            if (fails) error("bad batch")
+        }
+        val r = counted(q, scorer, k)
+        val chosen = ArrayList<String>()
+        scorer.aborted = true
+        r.submit("", nine = nine, waitMillis = WAIT, paths = paths) { chosen.add(it?.best ?: NONE) }
+        q.runWorker()
+        q.runMain()
+        assertTrue(chosen.isEmpty())
+        assertEquals(0, r.snapshot().runs)
+        assertEquals(listOf(1L, 180L, 12L, 33L), slow(r))
+        scorer.aborted = false
+        fails = true
+        r.submit("", nine = nine, waitMillis = WAIT, paths = paths) { chosen.add(it?.best ?: NONE) }
+        q.runWorker()
+        q.runMain()
+        assertEquals(listOf(NONE), chosen)
+        assertEquals("bad batch", r.snapshot().error)
+        assertEquals(0, r.snapshot().runs)
+        assertEquals(listOf(2L, 360L, 24L, 66L), slow(r))
+    }
+
+    @Test fun a_slow_score_that_is_aborted_or_throws_is_a_slow_inference_on_26key() =
+        slowScoreThatIsAbortedOrThrowsIsASlowInference(nine = false)
+
+    @Test fun a_slow_score_that_is_aborted_or_throws_is_a_slow_inference_on_9key() =
+        slowScoreThatIsAbortedOrThrowsIsASlowInference(nine = true)
 }

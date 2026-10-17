@@ -259,6 +259,7 @@ class NeuralDownloadCardTest {
         compose.onNodeWithText(context.getString(R.string.neural_card_cancelled, 0)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_first_key, 0L, 0L, 0L)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_context_load, 0L, 0L, 0L)).assertDoesNotExist()
+        compose.onNodeWithText(context.getString(R.string.neural_card_slow_inference, 0, 0L, 0L, 0L)).assertDoesNotExist()
 
         lateinit var ran: NeuralReranker
         var abortNext = true
@@ -335,6 +336,96 @@ class NeuralDownloadCardTest {
         ).assertExists()
         compose.onNodeWithText(context.getString(R.string.neural_card_cancelled, 1)).assertExists()
         compose.onNodeWithText(context.getString(R.string.neural_card_timeouts, 0)).assertDoesNotExist()
+    }
+
+    @Test fun the_slow_inference_line_shows_once_an_inference_was_slow() {
+        val installed = install(name = "Qwen3 test")
+        show()
+
+        var now = 0L
+        var cpu = 0L
+        var faults = 0L
+        var spend = {
+            now += 99_000_000L
+            cpu += 50L
+            faults += 3L
+        }
+        val scorer = object : SentenceScorer {
+            override fun score(context: String, candidates: List<String>): DoubleArray {
+                spend()
+                return DoubleArray(candidates.size) { -it.toDouble() }
+            }
+            override fun warm(context: String) = spend()
+            override fun cancel() {}
+            override fun resume() {}
+            override fun close() {}
+        }
+        val ran = NeuralReranker(
+            installed.spec,
+            { scorer },
+            Executor { it.run() },
+            Executor { it.run() },
+            { _, _ -> },
+            cpuMillis = { cpu },
+            majorFaults = { faults },
+            nanoTime = { now },
+        ).apply { start() }
+        val paths = listOf("甲" to -1.0, "乙" to -2.0)
+        ran.warm("上文")
+        ran.submit("上文", nine = false, waitMillis = 100L, paths = paths) {}
+        NeuralRuntime.active = ran
+        compose.mainClock.advanceTimeBy(1_100L)
+        compose.waitForIdle()
+        assertEquals(1, ran.snapshot().runs)
+        assertEquals(0, ran.snapshot().slowInferences)
+        assertTrue(compose.onAllNodesWithText("Context load", substring = true).fetchSemanticsNodes().size == 1)
+        assertTrue(compose.onAllNodesWithText("Slow inference", substring = true).fetchSemanticsNodes().isEmpty())
+
+        spend = {
+            now += 150_000_000L
+            cpu += 40L
+            faults += 6L
+        }
+        ran.submit("上文", nine = false, waitMillis = 100L, paths = paths) {}
+        spend = {
+            now += 110_000_000L
+            cpu += 20L
+        }
+        ran.warm("下文")
+        compose.mainClock.advanceTimeBy(1_100L)
+        compose.waitForIdle()
+        val snap = ran.snapshot()
+        val line = "Slow inference: 2, 260 ms in total, CPU 60 ms, major page faults 6"
+        assertEquals(
+            line,
+            context.getString(
+                R.string.neural_card_slow_inference,
+                snap.slowInferences,
+                snap.slowInferenceMillis,
+                snap.slowInferenceCpuMillis,
+                snap.slowInferenceMajorFaults,
+            ),
+        )
+        compose.onNodeWithText(line).assertExists()
+        assertTrue(
+            compose.onNodeWithText(line).fetchSemanticsNode().positionInRoot.y >
+                compose.onNodeWithText(
+                    context.getString(R.string.neural_card_context_load, snap.lastWarmMillis, snap.meanWarmMillis, snap.maxWarmMillis),
+                ).fetchSemanticsNode().positionInRoot.y,
+        )
+        val zh = context.createConfigurationContext(
+            Configuration(context.resources.configuration).apply { setLocale(Locale.SIMPLIFIED_CHINESE) },
+        )
+        assertEquals(
+            "慢推理 2 次：共 260 毫秒，处理器 60 毫秒，读盘缺页 6 次",
+            zh.getString(
+                R.string.neural_card_slow_inference,
+                snap.slowInferences,
+                snap.slowInferenceMillis,
+                snap.slowInferenceCpuMillis,
+                snap.slowInferenceMajorFaults,
+            ),
+        )
     }
 }
 

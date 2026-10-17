@@ -360,6 +360,19 @@ private fun NeuralModelState(name: String, current: NeuralReranker.Snapshot?) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+    if (current != null && current.slowInferences > 0) {
+        Text(
+            stringResource(
+                R.string.neural_card_slow_inference,
+                current.slowInferences,
+                current.slowInferenceMillis,
+                current.slowInferenceCpuMillis,
+                current.slowInferenceMajorFaults,
+            ),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
     if (current != null && current.cancelled > 0) {
         Text(
             stringResource(R.string.neural_card_cancelled, current.cancelled),

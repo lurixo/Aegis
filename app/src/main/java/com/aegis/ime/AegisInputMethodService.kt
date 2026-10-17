@@ -101,6 +101,7 @@ import com.aegis.ime.neural.NativeSentenceScorer
 import com.aegis.ime.neural.NeuralModelDownload
 import com.aegis.ime.neural.NeuralReranker
 import com.aegis.ime.neural.NeuralRuntime
+import com.aegis.ime.neural.ProcessStat
 import com.aegis.ime.translate.TranslateClient
 import com.aegis.ime.translate.TranslateMode
 import java.io.File
@@ -679,6 +680,8 @@ class AegisInputMethodService : InputMethodService(), ImeHost {
                 neuralWorker,
                 java.util.concurrent.Executor { r -> rerankResults.post(r) },
                 { millis, task -> neuralTimer.schedule(Runnable { task() }, millis, java.util.concurrent.TimeUnit.MILLISECONDS) },
+                cpuMillis = Process::getElapsedCpuTime,
+                majorFaults = ProcessStat::majorFaults,
             ).also {
                 NeuralRuntime.active = it
                 it.start()

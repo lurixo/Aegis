@@ -107,6 +107,7 @@
     <string name="neural_card_first_key">First key to candidates: last %1$d ms, mean %2$d ms, max %3$d ms</string>
     <string name="neural_card_context_load">Context load: last %1$d ms, mean %2$d ms, max %3$d ms</string>
     <string name="neural_card_timeouts">Timed out without reranking: %1$d</string>
+    <string name="neural_card_slow_inference">Slow inference: %1$d, %2$d ms in total, CPU %3$d ms, major page faults %4$d</string>
     <string name="neural_card_cancelled">Cancelled by a later key: %1$d</string>
 
     <string name="fuzzy_master_title">Fuzzy Pinyin</string>

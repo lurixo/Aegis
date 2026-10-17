@@ -107,6 +107,7 @@
     <string name="neural_card_first_key">首键出字：最近 %1$d 毫秒，平均 %2$d 毫秒，最长 %3$d 毫秒</string>
     <string name="neural_card_context_load">上下文加载：最近 %1$d 毫秒，平均 %2$d 毫秒，最长 %3$d 毫秒</string>
     <string name="neural_card_timeouts">超时未重排 %1$d 次</string>
+    <string name="neural_card_slow_inference">慢推理 %1$d 次：共 %2$d 毫秒，处理器 %3$d 毫秒，读盘缺页 %4$d 次</string>
     <string name="neural_card_cancelled">被后续按键取消 %1$d 次</string>
 
     <string name="fuzzy_master_title">模糊音</string>

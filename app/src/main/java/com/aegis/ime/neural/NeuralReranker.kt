@@ -15,6 +15,7 @@
 
 package com.aegis.ime.neural
 
+import android.os.Process
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicLong
@@ -27,6 +28,8 @@ class NeuralReranker(
     private val worker: Executor,
     private val main: Executor,
     private val schedule: (Long, () -> Unit) -> Unit,
+    private val cpuMillis: () -> Long = Process::getElapsedCpuTime,
+    private val majorFaults: () -> Long = ProcessStat::majorFaults,
     private val nanoTime: () -> Long = System::nanoTime,
 ) {
     enum class Phase { LOADING, READY, FAILED, CLOSED }
@@ -55,6 +58,10 @@ class NeuralReranker(
         val lastWarmMillis: Long,
         val meanWarmMillis: Long,
         val maxWarmMillis: Long,
+        val slowInferences: Int,
+        val slowInferenceMillis: Long,
+        val slowInferenceCpuMillis: Long,
+        val slowInferenceMajorFaults: Long,
     )
 
     private class Delivery(val gen: Long, val run: () -> Unit)
@@ -100,6 +107,10 @@ class NeuralReranker(
     private var lastWarmMillis = 0L
     private var totalWarmMillis = 0L
     private var maxWarmMillis = 0L
+    private var slowInferences = 0
+    private var slowInferenceMillis = 0L
+    private var slowInferenceCpuMillis = 0L
+    private var slowInferenceMajorFaults = 0L
 
     val ready: Boolean get() = phase == Phase.READY
 
@@ -144,9 +155,21 @@ class NeuralReranker(
         val active = scorer
         if (active != null && resumed(active) { warmup === next && phase == Phase.READY }) {
             val started = nanoTime()
-            runCatching { active.warm(next.context) }.onSuccess { recordWarm((nanoTime() - started) / NANOS_PER_MILLI) }
+            runCatching { measured { active.warm(next.context) } }.onSuccess { recordWarm((nanoTime() - started) / NANOS_PER_MILLI) }
         }
         next.done = true
+    }
+
+    private inline fun <T> measured(call: () -> T): T {
+        val started = nanoTime()
+        val cpu = cpuMillis()
+        val faults = majorFaults()
+        try {
+            return call()
+        } finally {
+            val millis = (nanoTime() - started) / NANOS_PER_MILLI
+            if (millis >= SLOW_INFERENCE_MILLIS) recordSlowInference(millis, cpuMillis() - cpu, majorFaults() - faults)
+        }
     }
 
     private fun cancel() {
@@ -214,7 +237,7 @@ class NeuralReranker(
         }
         if (!resumed(active) { gen == latest.get() }) return dropped(gen)
         val lm = try {
-            active.score(context, ranked.map { it.first })
+            measured { active.score(context, ranked.map { it.first }) }
         } catch (t: Throwable) {
             error = t.message ?: t.javaClass.simpleName
             deliver(gen) { apply(null) }
@@ -295,6 +318,15 @@ class NeuralReranker(
         }
     }
 
+    private fun recordSlowInference(millis: Long, cpu: Long, faults: Long) {
+        synchronized(statsLock) {
+            slowInferences++
+            slowInferenceMillis += millis
+            slowInferenceCpuMillis += cpu
+            slowInferenceMajorFaults += faults
+        }
+    }
+
     private fun dropped(gen: Long) {
         if (gen != latest.get()) synchronized(statsLock) { cancelled++ }
     }
@@ -335,11 +367,16 @@ class NeuralReranker(
             lastWarmMillis = lastWarmMillis,
             meanWarmMillis = if (warms == 0) 0L else totalWarmMillis / warms,
             maxWarmMillis = maxWarmMillis,
+            slowInferences = slowInferences,
+            slowInferenceMillis = slowInferenceMillis,
+            slowInferenceCpuMillis = slowInferenceCpuMillis,
+            slowInferenceMajorFaults = slowInferenceMajorFaults,
         )
     }
 
     companion object {
         private const val NANOS_PER_MILLI = 1_000_000L
+        private const val SLOW_INFERENCE_MILLIS = 100L
         const val MAX_CONTEXT_CHARS = 32
         const val MIN_CONTEXT_CHARS = 16
         private const val CONTEXT_BOUNDARIES = "\n。！？；，、：!?;,."
