@@ -19,6 +19,7 @@ import android.content.Context
 import android.content.res.Configuration
 import android.os.Looper
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Column
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -341,6 +342,149 @@ class NeuralDownloadCardTest {
         ).assertExists()
         compose.onNodeWithText(context.getString(R.string.neural_card_cancelled, 1)).assertExists()
         compose.onNodeWithText(context.getString(R.string.neural_card_timeouts, 0)).assertDoesNotExist()
+    }
+
+    private fun everyCounter() = NeuralReranker.Snapshot(
+        phase = NeuralReranker.Phase.READY, error = null, loadMillis = 7L,
+        runs = 3, changed = 2, lastMillis = 11L, meanMillis = 12L, maxMillis = 13L,
+        runsWithinFirst = 1, runsWithinSecond = 1, runsWithinThird = 1, runsLonger = 0,
+        lastQueueMillis = 14L, meanQueueMillis = 15L, maxQueueMillis = 16L,
+        timeouts = 4, cancelled = 5,
+        firstKeys = 6, lastFirstKeyMillis = 17L, meanFirstKeyMillis = 18L, maxFirstKeyMillis = 19L,
+        keys = 8, meanKeyMillis = 21L, maxKeyMillis = 22L, slowKeys = 1,
+        meanKeyQueueMillis = 23L, maxKeyQueueMillis = 24L, meanKeyDecodeMillis = 25L, maxKeyDecodeMillis = 26L,
+        meanKeyDisplayMillis = 27L, maxKeyDisplayMillis = 28L,
+        meanKeyDecodeMajorFaults = 1.5, maxKeyDecodeMajorFaults = 3L,
+        meanKeyDecodeCpuMillis = 2.5, maxKeyDecodeCpuMillis = 4.5,
+        keyDecodes = 9, supersededDecodes = 2, maxSupersededDecodeCpuMillis = 3.5,
+        decodeCoreShares = listOf(NeuralReranker.CoreShare(3_000_000L, 9)),
+        decodeCoreDecodes = 9, decodeCoreFrequencyDecodes = 9,
+        meanDecodeCoreKhz = 2_400_000.0, decodeCoreKhzOfMax = 0.8,
+        warms = 2, lastWarmMillis = 31L, meanWarmMillis = 32L, maxWarmMillis = 33L,
+        slowInferences = 1, slowInferenceMillis = 120L, slowInferenceCpuMillis = 90L, slowInferenceMajorFaults = 4L,
+    )
+
+    private fun releaseLines(s: NeuralReranker.Snapshot) = listOf(
+        context.getString(R.string.neural_card_model, "Qwen3 test"),
+        context.getString(R.string.neural_state_ready, s.loadMillis),
+        context.getString(R.string.neural_card_runs, s.runs, s.changed),
+        context.getString(R.string.neural_card_timing, s.lastMillis, s.meanMillis, s.maxMillis),
+        context.getString(R.string.neural_card_timeouts, s.timeouts),
+    )
+
+    private fun debugLines(s: NeuralReranker.Snapshot) = listOf(
+        context.getString(R.string.neural_card_spread, s.runsWithinFirst, s.runsWithinSecond, s.runsWithinThird, s.runsLonger),
+        context.getString(R.string.neural_card_queue, s.lastQueueMillis, s.meanQueueMillis, s.maxQueueMillis),
+        context.getString(R.string.neural_card_first_key, s.lastFirstKeyMillis, s.meanFirstKeyMillis, s.maxFirstKeyMillis),
+        context.getString(R.string.neural_card_key, s.meanKeyMillis, s.maxKeyMillis, s.slowKeys, s.keys),
+        context.getString(
+            R.string.neural_card_key_parts,
+            s.meanKeyQueueMillis,
+            s.maxKeyQueueMillis,
+            s.meanKeyDecodeMillis,
+            s.maxKeyDecodeMillis,
+            s.meanKeyDisplayMillis,
+            s.maxKeyDisplayMillis,
+        ),
+        context.getString(
+            R.string.neural_card_key_decode_thread,
+            s.meanKeyDecodeMajorFaults,
+            s.maxKeyDecodeMajorFaults,
+            s.meanKeyDecodeCpuMillis,
+            s.maxKeyDecodeCpuMillis,
+            s.keyDecodes,
+            s.supersededDecodes,
+            s.maxSupersededDecodeCpuMillis,
+        ),
+        decodeCoreLine(context, s),
+        context.getString(R.string.neural_card_context_load, s.lastWarmMillis, s.meanWarmMillis, s.maxWarmMillis),
+        context.getString(
+            R.string.neural_card_slow_inference,
+            s.slowInferences,
+            s.slowInferenceMillis,
+            s.slowInferenceCpuMillis,
+            s.slowInferenceMajorFaults,
+        ),
+        context.getString(R.string.neural_card_cancelled, s.cancelled),
+    )
+
+    private fun showState(s: NeuralReranker.Snapshot, diagnostics: Boolean) {
+        compose.runOnUiThread {
+            compose.activity.setContent {
+                AegisTheme { Column { NeuralModelState("Qwen3 test", s, diagnostics) } }
+            }
+        }
+        compose.waitForIdle()
+    }
+
+    @Test fun a_release_build_shows_only_the_model_state_lines_of_v0_2_0() {
+        val s = everyCounter()
+        showState(s, diagnostics = false)
+        releaseLines(s).forEach { compose.onNodeWithText(it).assertExists() }
+        debugLines(s).forEach { compose.onNodeWithText(it).assertDoesNotExist() }
+    }
+
+    @Test fun a_debug_build_also_shows_every_diagnostic_line() {
+        val s = everyCounter()
+        showState(s, diagnostics = true)
+        (releaseLines(s) + debugLines(s)).forEach { compose.onNodeWithText(it).assertExists() }
+    }
+
+    @Test fun the_card_shows_diagnostics_by_build_type_and_passes_the_choice_to_the_model_state() {
+        assertTrue(context.resources.getBoolean(R.bool.neural_card_diagnostics))
+        val installed = install(name = "Qwen3 test")
+        compose.runOnUiThread {
+            compose.activity.setContent {
+                AegisTheme {
+                    NeuralDownloadCard(
+                        resolve = { Result.success(published) },
+                        check = { error("no update check expected") },
+                        downloader = { _, _ -> error("no download expected") },
+                        cpuSupported = true,
+                        diagnostics = false,
+                    )
+                }
+            }
+        }
+        compose.waitForIdle()
+        var now = 0L
+        val scorer = object : SentenceScorer {
+            override fun score(context: String, candidates: List<String>): DoubleArray =
+                DoubleArray(candidates.size) { -it.toDouble() }
+            override fun warm(context: String) {
+                now += 20_000_000L
+            }
+            override fun cancel() {}
+            override fun resume() {}
+            override fun close() {}
+        }
+        val ran = NeuralReranker(installed.spec, { scorer }, Executor { it.run() }, Executor { it.run() }, { _, _ -> }) { now }
+            .apply { start() }
+        ran.firstKeyDown()
+        now = 12_000_000L
+        ran.firstKeyShown()
+        ran.warm("上文")
+        ran.submit("", nine = false, waitMillis = 300L, paths = listOf("甲" to -1.0, "乙" to -2.0)) {}
+        NeuralRuntime.active = ran
+        compose.mainClock.advanceTimeBy(1_100L)
+        compose.waitForIdle()
+        val snap = ran.snapshot()
+        assertEquals(1, snap.runs)
+        assertEquals(1, snap.firstKeys)
+        assertEquals(1, snap.warms)
+        compose.onNodeWithText(context.getString(R.string.neural_card_runs, snap.runs, snap.changed)).assertExists()
+        compose.onNodeWithText(
+            context.getString(R.string.neural_card_timing, snap.lastMillis, snap.meanMillis, snap.maxMillis),
+        ).assertExists()
+        compose.onNodeWithText(
+            context.getString(R.string.neural_card_queue, snap.lastQueueMillis, snap.meanQueueMillis, snap.maxQueueMillis),
+        ).assertDoesNotExist()
+        compose.onNodeWithText(
+            context.getString(R.string.neural_card_first_key, snap.lastFirstKeyMillis, snap.meanFirstKeyMillis, snap.maxFirstKeyMillis),
+        ).assertDoesNotExist()
+        compose.onNodeWithText(
+            context.getString(R.string.neural_card_context_load, snap.lastWarmMillis, snap.meanWarmMillis, snap.maxWarmMillis),
+        ).assertDoesNotExist()
     }
 
     @Test fun the_key_time_line_shows_once_a_key_showed_its_candidates() {

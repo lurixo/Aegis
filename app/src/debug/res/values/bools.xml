@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <bool name="neural_card_diagnostics">true</bool>
+</resources>

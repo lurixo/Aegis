@@ -43,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.booleanResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.aegis.ime.R
@@ -64,6 +65,7 @@ internal fun NeuralDownloadCard(
     },
     downloader: (Context, NeuralModelDownload.Manifest) -> Unit = NeuralDownloadWork::start,
     cpuSupported: Boolean = NeuralCpu.supported,
+    diagnostics: Boolean = booleanResource(R.bool.neural_card_diagnostics),
 ) {
     val context = LocalContext.current
     val prefs = context.getSharedPreferences("aegis", Context.MODE_PRIVATE)
@@ -227,7 +229,7 @@ internal fun NeuralDownloadCard(
             )
             if (cpuSupported) {
                 model?.let { installed ->
-                    NeuralModelState(installed.spec.name, reranker)
+                    NeuralModelState(installed.spec.name, reranker, diagnostics)
                 }
             }
             Row(
@@ -294,7 +296,7 @@ internal fun NeuralDownloadCard(
 }
 
 @Composable
-private fun NeuralModelState(name: String, current: NeuralReranker.Snapshot?) {
+internal fun NeuralModelState(name: String, current: NeuralReranker.Snapshot?, diagnostics: Boolean) {
     val state = when (current?.phase) {
         null -> stringResource(R.string.neural_state_idle)
         NeuralReranker.Phase.LOADING -> stringResource(R.string.neural_state_loading)
@@ -319,6 +321,8 @@ private fun NeuralModelState(name: String, current: NeuralReranker.Snapshot?) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+    }
+    if (diagnostics && current != null && current.runs > 0) {
         Text(
             stringResource(
                 R.string.neural_card_spread,
@@ -341,7 +345,7 @@ private fun NeuralModelState(name: String, current: NeuralReranker.Snapshot?) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-    if (current != null && current.firstKeys > 0) {
+    if (diagnostics && current != null && current.firstKeys > 0) {
         Text(
             stringResource(
                 R.string.neural_card_first_key,
@@ -353,7 +357,7 @@ private fun NeuralModelState(name: String, current: NeuralReranker.Snapshot?) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-    if (current != null && current.keys > 0) {
+    if (diagnostics && current != null && current.keys > 0) {
         Text(
             stringResource(
                 R.string.neural_card_key,
@@ -379,7 +383,7 @@ private fun NeuralModelState(name: String, current: NeuralReranker.Snapshot?) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-    if (current != null && current.keyDecodes > 0) {
+    if (diagnostics && current != null && current.keyDecodes > 0) {
         Text(
             stringResource(
                 R.string.neural_card_key_decode_thread,
@@ -400,7 +404,7 @@ private fun NeuralModelState(name: String, current: NeuralReranker.Snapshot?) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-    if (current != null && current.warms > 0) {
+    if (diagnostics && current != null && current.warms > 0) {
         Text(
             stringResource(
                 R.string.neural_card_context_load,
@@ -419,7 +423,7 @@ private fun NeuralModelState(name: String, current: NeuralReranker.Snapshot?) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-    if (current != null && current.slowInferences > 0) {
+    if (diagnostics && current != null && current.slowInferences > 0) {
         Text(
             stringResource(
                 R.string.neural_card_slow_inference,
@@ -432,7 +436,7 @@ private fun NeuralModelState(name: String, current: NeuralReranker.Snapshot?) {
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
-    if (current != null && current.cancelled > 0) {
+    if (diagnostics && current != null && current.cancelled > 0) {
         Text(
             stringResource(R.string.neural_card_cancelled, current.cancelled),
             style = MaterialTheme.typography.bodyMedium,

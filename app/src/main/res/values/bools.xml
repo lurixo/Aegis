@@ -2,4 +2,5 @@
 <resources>
     <bool name="settings_light_system_bars">true</bool>
     <bool name="clip_char_action_icons">false</bool>
+    <bool name="neural_card_diagnostics">false</bool>
 </resources>
