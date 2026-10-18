@@ -29,6 +29,7 @@ import com.aegis.ime.layout.LayoutId
 import com.aegis.ime.layout.Layouts
 import com.aegis.ime.layout.SymbolCatalog
 import com.aegis.ime.neural.NeuralReranker
+import com.aegis.ime.neural.ProcessStat
 import com.aegis.ime.user.LiveUserData
 import com.aegis.ime.user.RestoreTrouble
 import com.aegis.ime.user.UserLearning
@@ -1407,11 +1408,20 @@ class KeyboardController(
             val after = clock.threadUsage()
             it.decodeCpuNanos = after.cpuNanos - before.cpuNanos
             it.decodeMajorFaults = after.majorFaults - before.majorFaults
+            it.decodeCore = after.cpu
+            it.decodeCoreKhz = clock.coreKhz(after.cpu)
         }
     }
 
     private fun recordDecode(clock: NeuralReranker?, req: DecodeRequest, result: DecodeResult, superseded: Boolean) {
-        if (clock != null && !req.composingEmpty) clock.decodeFinished(result.decodeCpuNanos, result.decodeMajorFaults, superseded)
+        if (clock == null || req.composingEmpty) return
+        clock.decodeFinished(
+            result.decodeCpuNanos,
+            result.decodeMajorFaults,
+            superseded,
+            result.decodeCore,
+            result.decodeCoreKhz,
+        )
     }
 
     private fun rerankSentenceLimit(req: DecodeRequest): Int {
@@ -1552,6 +1562,8 @@ class KeyboardController(
         var decodeEnded = 0L
         var decodeCpuNanos = 0L
         var decodeMajorFaults = 0L
+        var decodeCore = ProcessStat.NO_CPU
+        var decodeCoreKhz = 0L
     }
 
     private fun emptyDecodeResult(): DecodeResult =

@@ -21,7 +21,9 @@ import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.layout.Key
 import com.aegis.ime.layout.KeyAction
 import com.aegis.ime.neural.NeuralModelSpec
+import com.aegis.ime.neural.CpuFrequency
 import com.aegis.ime.neural.NeuralReranker
+import com.aegis.ime.neural.ProcessStat
 import com.aegis.ime.neural.SentenceScorer
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -1667,26 +1669,47 @@ class NeuralRerankControllerTest {
 
     @Test fun key_time_splits_into_queue_decode_and_display_on_9key() = keyTimeSplitsIntoQueueDecodeAndDisplay(nine = true)
 
+    private class PhoneCores {
+        val reads = ArrayList<String>()
+        val current = HashMap<Int, Long>()
+        val frequency = CpuFrequency { path ->
+            reads.add(path)
+            when {
+                path.endsWith("/possible") -> "0-7"
+                path.endsWith("/cpuinfo_max_freq") ->
+                    if (path.substringAfter("/cpu/cpu").substringBefore('/').toInt() >= 6) "4608000" else "3628800"
+                else -> current.getValue(path.substringAfter("/cpu/cpu").substringBefore('/').toInt()).toString()
+            }
+        }
+        fun currentReads() = reads.count { it.endsWith("/scaling_cur_freq") }
+    }
+
     private fun decodeThreadUsageIsMeasuredAroundTheDecodeOfEachShownKey(nine: Boolean) {
         var cpu = 0L
         var faults = 0L
+        var core = 1
         val threads = ArrayList<Thread>()
+        val stats = ArrayList<Thread>()
+        val cores = PhoneCores()
+        cores.current.putAll(mapOf(1 to 1_000_000L, 2 to 3_000_000L, 6 to 4_000_000L))
         val engine = EveryInputEngine()
         val (c, q, r) = setup(engine, reranker = {
             NeuralReranker(
                 spec, { Scorer() }, Executor { r -> it.neuralWorker.add(r) }, Executor { r -> it.neuralMain.add(r) }, it.schedule,
                 threadCpuNanos = { threads.add(Thread.currentThread()); cpu },
-                threadMajorFaults = { faults },
+                threadStat = { stats.add(Thread.currentThread()); ProcessStat.ThreadStat(faults, core) },
+                cpuFrequency = cores.frequency,
             )
         })
         c.switchTextLayoutForTest(nine)
         val input = outrunInput(nine)
-        fun land(cpuNanos: Long, majorFaults: Long) {
+        fun land(cpuNanos: Long, majorFaults: Long, endCore: Int) {
             var pendingCpu = cpuNanos
             var pendingFaults = majorFaults
             engine.decoding = {
                 cpu += pendingCpu
                 faults += pendingFaults
+                core = endCore
                 pendingCpu = 0L
                 pendingFaults = 0L
             }
@@ -1694,18 +1717,19 @@ class NeuralRerankControllerTest {
             engine.decoding = {}
             cpu += 50_000_000L
             faults += 100L
+            core = 1
             while (q.decodeMain.isNotEmpty()) q.decodeMain.removeFirst().run()
         }
 
         type(c, input.take(1))
-        land(cpuNanos = 2_000_000L, majorFaults = 3L)
+        land(cpuNanos = 2_000_000L, majorFaults = 3L, endCore = 6)
         assertEquals(engine.words(input.take(1)), decoded(c))
         var snap = r.snapshot()
         assertEquals(1, snap.keys)
         assertEquals(listOf(3.0, 2.0), listOf(snap.meanKeyDecodeMajorFaults, snap.meanKeyDecodeCpuMillis))
 
         type(c, input.substring(1, 2))
-        land(cpuNanos = 6_000_000L, majorFaults = 5L)
+        land(cpuNanos = 6_000_000L, majorFaults = 5L, endCore = 2)
         assertEquals(engine.words(input.take(2)), decoded(c))
         snap = r.snapshot()
         assertEquals(2, snap.keys)
@@ -1713,6 +1737,16 @@ class NeuralRerankControllerTest {
         assertEquals(5L, snap.maxKeyDecodeMajorFaults)
         assertEquals(6.0, snap.maxKeyDecodeCpuMillis, 1e-9)
         assertEquals("read twice per decode", 4, threads.size)
+        assertEquals("one stat read per reading", threads, stats)
+        assertEquals(
+            "the core the decode ended on",
+            listOf(4_608_000L to 1, 3_628_800L to 1),
+            snap.decodeCoreShares.map { it.maxKhz to it.decodes },
+        )
+        assertEquals(listOf(2, 2), listOf(snap.decodeCoreDecodes, snap.decodeCoreFrequencyDecodes))
+        assertEquals(3_500_000.0, snap.meanDecodeCoreKhz, 1e-9)
+        assertEquals(7_000_000.0 / (4_608_000L + 3_628_800L), snap.decodeCoreKhzOfMax, 1e-12)
+        assertEquals("current frequency read once per decode, at its end", 2, cores.currentReads())
     }
 
     @Test fun decode_thread_usage_is_measured_around_the_decode_of_each_shown_key_on_26key() =
@@ -1724,12 +1758,15 @@ class NeuralRerankControllerTest {
     private fun aDecodeSupersededByANewerKeyStillCountsOnTheDecodeThread(nine: Boolean) {
         var cpu = 0L
         var faults = 0L
+        val cores = PhoneCores()
+        cores.current[7] = 2_304_000L
         val engine = EveryInputEngine()
         val (c, q, r) = setup(engine, reranker = {
             NeuralReranker(
                 spec, { Scorer() }, Executor { r -> it.neuralWorker.add(r) }, Executor { r -> it.neuralMain.add(r) }, it.schedule,
                 threadCpuNanos = { cpu },
-                threadMajorFaults = { faults },
+                threadStat = { ProcessStat.ThreadStat(faults, 7) },
+                cpuFrequency = cores.frequency,
             )
         })
         c.switchTextLayoutForTest(nine)
@@ -1767,6 +1804,12 @@ class NeuralRerankControllerTest {
         assertEquals(69.0, snap.meanKeyDecodeCpuMillis, 1e-9)
         assertEquals(199.0, snap.maxKeyDecodeCpuMillis, 1e-9)
         assertEquals(199.0, snap.maxSupersededDecodeCpuMillis, 1e-9)
+        assertEquals(
+            "superseded decodes count toward the cores too",
+            listOf(3, 3),
+            listOf(snap.decodeCoreDecodes, snap.decodeCoreFrequencyDecodes),
+        )
+        assertEquals(listOf(4_608_000L to 3, 3_628_800L to 0), snap.decodeCoreShares.map { it.maxKhz to it.decodes })
     }
 
     @Test fun a_decode_superseded_by_a_newer_key_still_counts_on_the_decode_thread_on_26key() =

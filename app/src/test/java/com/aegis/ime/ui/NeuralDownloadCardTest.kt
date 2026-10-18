@@ -28,6 +28,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.aegis.ime.R
 import com.aegis.ime.dict.ModelDownload
+import com.aegis.ime.neural.CpuFrequency
 import com.aegis.ime.neural.NeuralModelDownload
 import com.aegis.ime.neural.NeuralReranker
 import com.aegis.ime.neural.NeuralRuntime
@@ -447,6 +448,11 @@ class NeuralDownloadCardTest {
         compose.onNodeWithText(thread).assertExists()
         assertTrue(y(thread) > y(parts))
         assertTrue(y(contextLoad) > y(thread))
+        val cores = "Core at decode end: unreadable; frequency unreadable"
+        assertEquals(cores, decodeCoreLine(context, snap))
+        compose.onNodeWithText(cores).assertExists()
+        assertTrue(y(cores) > y(thread))
+        assertTrue(y(contextLoad) > y(cores))
         val zh = context.createConfigurationContext(
             Configuration(context.resources.configuration).apply { setLocale(Locale.SIMPLIFIED_CHINESE) },
         )
@@ -479,6 +485,77 @@ class NeuralDownloadCardTest {
                 snap.meanKeyDisplayMillis,
                 snap.maxKeyDisplayMillis,
             ),
+        )
+    }
+
+    @Test fun the_decode_core_line_shows_each_core_group_and_the_frequency_at_decode_end() {
+        val installed = install(name = "Qwen3 test")
+        show()
+
+        val scorer = object : SentenceScorer {
+            override fun score(context: String, candidates: List<String>): DoubleArray? = null
+            override fun warm(context: String) {}
+            override fun cancel() {}
+            override fun resume() {}
+            override fun close() {}
+        }
+        val current = HashMap<Int, String>()
+        val frequency = CpuFrequency { path ->
+            val cpu = path.substringAfter("/cpu/cpu", "").substringBefore('/').toIntOrNull()
+            when {
+                path.endsWith("/possible") -> "0-7"
+                path.endsWith("/cpuinfo_max_freq") -> if (cpu!! >= 6) "4608000" else "3628800"
+                else -> current.getValue(cpu!!)
+            }
+        }
+        val ran = NeuralReranker(
+            installed.spec,
+            { scorer },
+            Executor { it.run() },
+            Executor { it.run() },
+            { _, _ -> },
+            cpuMillis = { 0L },
+            majorFaults = { 0L },
+            cpuFrequency = frequency,
+        ).apply { start() }
+        listOf(6 to "4608000", 6 to "4608000", 7 to "2304000", 2 to "3628800", 3 to "1209600").forEach { (cpu, khz) ->
+            current[cpu] = khz
+            ran.decodeFinished(1_000_000L, 0L, superseded = cpu == 7, cpu, ran.coreKhz(cpu))
+        }
+        NeuralRuntime.active = ran
+        compose.mainClock.advanceTimeBy(1_100L)
+        compose.waitForIdle()
+        val snap = ran.snapshot()
+        val line = "Core at decode end: fastest 4.61 GHz cores 60%, 3.63 GHz cores 40%; " +
+            "frequency mean 3.27 GHz, 78% of the core's max"
+        assertEquals(line, decodeCoreLine(context, snap))
+        compose.onNodeWithText(line).assertExists()
+        fun y(text: String) = compose.onNodeWithText(text, substring = true).fetchSemanticsNode().positionInRoot.y
+        assertTrue(y(line) > y("Decode thread per key"))
+        val zh = context.createConfigurationContext(
+            Configuration(context.resources.configuration).apply { setLocale(Locale.SIMPLIFIED_CHINESE) },
+        )
+        assertEquals(
+            "解码结束所在核：最快 4.61 GHz 核 60%、3.63 GHz 核 40%；频率平均 3.27 GHz，为所在核最高频的 78%",
+            decodeCoreLine(zh, snap),
+        )
+        assertEquals(
+            "解码结束所在核：不可读；频率不可读",
+            decodeCoreLine(zh, NeuralReranker(installed.spec, { scorer }, Executor {}, Executor {}, { _, _ -> }).snapshot()),
+        )
+
+        val onlyCores = NeuralReranker(
+            installed.spec, { scorer }, Executor {}, Executor {}, { _, _ -> }, cpuFrequency = frequency,
+        )
+        current.clear()
+        onlyCores.decodeFinished(1_000_000L, 0L, superseded = false, 0, onlyCores.coreKhz(0))
+        assertEquals(
+            "Core at decode end: fastest 4.61 GHz cores 0%, 3.63 GHz cores 100%; frequency unreadable",
+            decodeCoreLine(context, onlyCores.snapshot()),
+        )
+        assertEquals(
+            "解码结束所在核：最快 4.61 GHz 核 0%、3.63 GHz 核 100%；频率不可读",
+            decodeCoreLine(zh, onlyCores.snapshot()),
         )
     }
 

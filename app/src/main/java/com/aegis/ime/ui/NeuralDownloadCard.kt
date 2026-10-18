@@ -53,6 +53,7 @@ import com.aegis.ime.neural.NeuralReranker
 import com.aegis.ime.neural.NeuralRuntime
 import com.aegis.ime.ui.theme.AppSpacing
 import com.aegis.ime.ui.theme.SettingsMotion
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 
 @Composable
@@ -393,6 +394,11 @@ private fun NeuralModelState(name: String, current: NeuralReranker.Snapshot?) {
             style = MaterialTheme.typography.bodyMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
+        Text(
+            decodeCoreLine(LocalContext.current, current),
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
     if (current != null && current.warms > 0) {
         Text(
@@ -436,3 +442,28 @@ private fun NeuralModelState(name: String, current: NeuralReranker.Snapshot?) {
 }
 
 private const val STATS_REFRESH_MILLIS = 1_000L
+private const val KHZ_PER_GHZ = 1_000_000.0
+
+internal fun decodeCoreLine(context: Context, s: NeuralReranker.Snapshot): String {
+    val cores = if (s.decodeCoreDecodes == 0 || s.decodeCoreShares.isEmpty()) {
+        context.getString(R.string.neural_card_decode_core_unreadable)
+    } else {
+        s.decodeCoreShares.mapIndexed { i, share ->
+            context.getString(
+                if (i == 0) R.string.neural_card_decode_core_fastest else R.string.neural_card_decode_core_group,
+                share.maxKhz / KHZ_PER_GHZ,
+                (share.decodes * 100.0 / s.decodeCoreDecodes).roundToInt(),
+            )
+        }.joinToString(context.getString(R.string.neural_card_decode_core_separator))
+    }
+    val frequency = if (s.decodeCoreFrequencyDecodes == 0) {
+        context.getString(R.string.neural_card_decode_core_frequency_unreadable)
+    } else {
+        context.getString(
+            R.string.neural_card_decode_core_frequency,
+            s.meanDecodeCoreKhz / KHZ_PER_GHZ,
+            (s.decodeCoreKhzOfMax * 100.0).roundToInt(),
+        )
+    }
+    return context.getString(R.string.neural_card_decode_core, cores, frequency)
+}

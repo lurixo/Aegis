@@ -32,14 +32,17 @@ class NeuralReranker(
     private val cpuMillis: () -> Long = Process::getElapsedCpuTime,
     private val majorFaults: () -> Long = ProcessStat::majorFaults,
     private val threadCpuNanos: () -> Long = Debug::threadCpuTimeNanos,
-    private val threadMajorFaults: () -> Long = ProcessStat::threadMajorFaults,
+    private val threadStat: () -> ProcessStat.ThreadStat = ProcessStat::threadStat,
+    private val cpuFrequency: CpuFrequency = CpuFrequency.system,
     private val nanoTime: () -> Long = System::nanoTime,
 ) {
     enum class Phase { LOADING, READY, FAILED, CLOSED }
 
     class Choice(val best: String, val decoderBest: String)
 
-    class ThreadUsage(val cpuNanos: Long, val majorFaults: Long)
+    class ThreadUsage(val cpuNanos: Long, val majorFaults: Long, val cpu: Int)
+
+    class CoreShare(val maxKhz: Long, val decodes: Int)
 
     class Snapshot(
         val phase: Phase,
@@ -80,6 +83,11 @@ class NeuralReranker(
         val keyDecodes: Int,
         val supersededDecodes: Int,
         val maxSupersededDecodeCpuMillis: Double,
+        val decodeCoreShares: List<CoreShare>,
+        val decodeCoreDecodes: Int,
+        val decodeCoreFrequencyDecodes: Int,
+        val meanDecodeCoreKhz: Double,
+        val decodeCoreKhzOfMax: Double,
         val warms: Int,
         val lastWarmMillis: Long,
         val meanWarmMillis: Long,
@@ -152,6 +160,12 @@ class NeuralReranker(
     private var keyDecodes = 0
     private var supersededDecodes = 0
     private var maxSupersededDecodeCpuNanos = 0L
+    private var decodeCoreTable: Map<Int, Long> = emptyMap()
+    private val decodeCoreCounts = HashMap<Long, Int>()
+    private var decodeCoreDecodes = 0
+    private var decodeCoreFrequencyDecodes = 0
+    private var totalDecodeCoreKhz = 0L
+    private var totalDecodeCoreMaxKhz = 0L
     private var warms = 0
     private var lastWarmMillis = 0L
     private var totalWarmMillis = 0L
@@ -372,7 +386,12 @@ class NeuralReranker(
 
     fun now(): Long = nanoTime()
 
-    fun threadUsage(): ThreadUsage = ThreadUsage(threadCpuNanos(), threadMajorFaults())
+    fun threadUsage(): ThreadUsage {
+        val stat = threadStat()
+        return ThreadUsage(threadCpuNanos(), stat.majorFaults, stat.cpu)
+    }
+
+    fun coreKhz(cpu: Int): Long = if (cpu < 0) 0L else cpuFrequency.currentKhz(cpu)
 
     fun keyDown() {
         val now = nanoTime()
@@ -406,7 +425,14 @@ class NeuralReranker(
         }
     }
 
-    fun decodeFinished(cpuNanos: Long, majorFaults: Long, superseded: Boolean) {
+    fun decodeFinished(
+        cpuNanos: Long,
+        majorFaults: Long,
+        superseded: Boolean,
+        core: Int = ProcessStat.NO_CPU,
+        coreKhz: Long = 0L,
+    ) {
+        val table = if (core < 0) emptyMap() else cpuFrequency.maxKhz()
         synchronized(statsLock) {
             val faults = majorFaults.coerceAtLeast(0L)
             val cpu = cpuNanos.coerceAtLeast(0L)
@@ -418,6 +444,15 @@ class NeuralReranker(
             if (superseded) {
                 supersededDecodes++
                 if (cpu > maxSupersededDecodeCpuNanos) maxSupersededDecodeCpuNanos = cpu
+            }
+            val maxKhz = table[core] ?: return
+            decodeCoreTable = table
+            decodeCoreCounts[maxKhz] = (decodeCoreCounts[maxKhz] ?: 0) + 1
+            decodeCoreDecodes++
+            if (coreKhz > 0L) {
+                decodeCoreFrequencyDecodes++
+                totalDecodeCoreKhz += coreKhz
+                totalDecodeCoreMaxKhz += maxKhz
             }
         }
     }
@@ -503,6 +538,14 @@ class NeuralReranker(
             keyDecodes = keyDecodes,
             supersededDecodes = supersededDecodes,
             maxSupersededDecodeCpuMillis = maxSupersededDecodeCpuNanos.toDouble() / NANOS_PER_MILLI,
+            decodeCoreShares = decodeCoreTable.values.distinct().sortedDescending()
+                .map { CoreShare(it, decodeCoreCounts[it] ?: 0) },
+            decodeCoreDecodes = decodeCoreDecodes,
+            decodeCoreFrequencyDecodes = decodeCoreFrequencyDecodes,
+            meanDecodeCoreKhz =
+                if (decodeCoreFrequencyDecodes == 0) 0.0 else totalDecodeCoreKhz.toDouble() / decodeCoreFrequencyDecodes,
+            decodeCoreKhzOfMax =
+                if (totalDecodeCoreMaxKhz == 0L) 0.0 else totalDecodeCoreKhz.toDouble() / totalDecodeCoreMaxKhz,
             warms = warms,
             lastWarmMillis = lastWarmMillis,
             meanWarmMillis = if (warms == 0) 0L else totalWarmMillis / warms,

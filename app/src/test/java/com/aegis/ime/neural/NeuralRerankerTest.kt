@@ -1132,10 +1132,11 @@ class NeuralRerankerTest {
         val q = Queues()
         val r = NeuralReranker(
             spec, { FakeScorer(prefersSecond) }, Executor { q.worker.add(it) }, Executor { q.main.add(it) }, q.schedule,
-            threadCpuNanos = { 7_000_000L }, threadMajorFaults = { 42L }, nanoTime = { now },
+            threadCpuNanos = { 7_000_000L }, threadStat = { ProcessStat.ThreadStat(42L, 5) }, nanoTime = { now },
         )
         assertEquals(7_000_000L, r.threadUsage().cpuNanos)
         assertEquals(42L, r.threadUsage().majorFaults)
+        assertEquals(5, r.threadUsage().cpu)
         assertDecodeThread("nothing finished yet", listOf(0.0, 0.0, 0.0, 0.0), r)
         assertEquals(listOf(0.0, 0.0, 0.0), superseded(r))
 
@@ -1154,6 +1155,65 @@ class NeuralRerankerTest {
         r.decodeFinished(-1L, -5L, superseded = true)
         assertDecodeThread("a reading that goes backwards counts as zero", listOf(56.0 / 5, 40.0, 211.5 / 5, 199.0), r)
         assertEquals(listOf(5.0, 3.0, 199.0), superseded(r))
+    }
+
+    private fun phoneCores(cur: MutableMap<Int, String>): CpuFrequency {
+        val max = (0..5).associate { "/sys/devices/system/cpu/cpu$it/cpufreq/cpuinfo_max_freq" to "3628800" } +
+            (6..7).associate { "/sys/devices/system/cpu/cpu$it/cpufreq/cpuinfo_max_freq" to "4608000" } +
+            mapOf("/sys/devices/system/cpu/possible" to "0-7")
+        return CpuFrequency { path ->
+            max[path] ?: Regex("/sys/devices/system/cpu/cpu(\\d+)/cpufreq/scaling_cur_freq").matchEntire(path)
+                ?.let { cur[it.groupValues[1].toInt()] } ?: throw java.io.FileNotFoundException(path)
+        }
+    }
+
+    private fun shares(r: NeuralReranker): List<Pair<Long, Int>> =
+        r.snapshot().decodeCoreShares.map { it.maxKhz to it.decodes }
+
+    @Test fun decode_cores_are_grouped_by_max_frequency_with_the_mean_frequency_at_decode_end() {
+        val cur = mutableMapOf(0 to "1200000", 3 to "3600000", 6 to "4600000", 7 to "2300000")
+        val r = NeuralReranker(
+            spec, { FakeScorer(prefersSecond) }, Executor {}, Executor {}, { _, _ -> },
+            cpuFrequency = phoneCores(cur),
+        )
+        var snap = r.snapshot()
+        assertTrue("nothing finished yet", snap.decodeCoreShares.isEmpty())
+        assertEquals(listOf(0, 0), listOf(snap.decodeCoreDecodes, snap.decodeCoreFrequencyDecodes))
+
+        for (core in listOf(6, 7, 0, 3)) r.decodeFinished(1_000_000L, 0L, superseded = core == 7, core, r.coreKhz(core))
+        snap = r.snapshot()
+        assertEquals("fastest group first", listOf(4_608_000L to 2, 3_628_800L to 2), shares(r))
+        assertEquals(listOf(4, 4), listOf(snap.decodeCoreDecodes, snap.decodeCoreFrequencyDecodes))
+        assertEquals(11_700_000.0 / 4, snap.meanDecodeCoreKhz, 1e-9)
+        assertEquals(11_700_000.0 / (2 * 4_608_000L + 2 * 3_628_800L), snap.decodeCoreKhzOfMax, 1e-12)
+        assertEquals(4, snap.keyDecodes)
+        assertEquals(1, snap.supersededDecodes)
+
+        r.decodeFinished(1_000_000L, 0L, superseded = false, 1, r.coreKhz(1))
+        snap = r.snapshot()
+        assertEquals("an unreadable current frequency still counts its core", listOf(4_608_000L to 2, 3_628_800L to 3), shares(r))
+        assertEquals(listOf(5, 4), listOf(snap.decodeCoreDecodes, snap.decodeCoreFrequencyDecodes))
+        assertEquals(11_700_000.0 / 4, snap.meanDecodeCoreKhz, 1e-9)
+
+        r.decodeFinished(1_000_000L, 0L, superseded = false)
+        r.decodeFinished(1_000_000L, 0L, superseded = false, 42, r.coreKhz(42))
+        snap = r.snapshot()
+        assertEquals("decodes without a known core count elsewhere only", 7, snap.keyDecodes)
+        assertEquals(listOf(5, 4), listOf(snap.decodeCoreDecodes, snap.decodeCoreFrequencyDecodes))
+    }
+
+    @Test fun decode_cores_stay_unreadable_when_sysfs_cannot_be_read() {
+        var reads = 0
+        val r = NeuralReranker(
+            spec, { FakeScorer(prefersSecond) }, Executor {}, Executor {}, { _, _ -> },
+            cpuFrequency = CpuFrequency { reads++; throw SecurityException(it) },
+        )
+        repeat(3) { r.decodeFinished(2_000_000L, 1L, superseded = false, 6, r.coreKhz(6)) }
+        val snap = r.snapshot()
+        assertTrue(snap.decodeCoreShares.isEmpty())
+        assertEquals(listOf(0, 0), listOf(snap.decodeCoreDecodes, snap.decodeCoreFrequencyDecodes))
+        assertEquals(listOf(1.0, 1.0, 2.0, 2.0), decodeThread(r))
+        assertEquals("the cpu list is tried once", 1, reads)
     }
 
     @Test fun key_time_counts_only_shown_keys_and_ignores_finished_decodes() {

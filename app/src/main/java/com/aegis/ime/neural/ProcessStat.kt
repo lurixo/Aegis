@@ -20,10 +20,22 @@ import java.io.File
 object ProcessStat {
     fun majorFaults(): Long = runCatching { majorFaults(File("/proc/self/stat").readText()) }.getOrDefault(0L)
 
-    fun threadMajorFaults(): Long = runCatching { majorFaults(File("/proc/thread-self/stat").readText()) }.getOrDefault(0L)
+    class ThreadStat(val majorFaults: Long, val cpu: Int)
 
-    internal fun majorFaults(stat: String): Long =
-        stat.substringAfterLast(')', "").trim().split(' ').getOrNull(MAJOR_FAULTS_FIELD)?.toLongOrNull() ?: 0L
+    fun threadStat(): ThreadStat =
+        runCatching { threadStat(File("/proc/thread-self/stat").readText()) }.getOrDefault(ThreadStat(0L, NO_CPU))
 
+    internal fun majorFaults(stat: String): Long = fields(stat).getOrNull(MAJOR_FAULTS_FIELD)?.toLongOrNull() ?: 0L
+
+    internal fun threadStat(stat: String): ThreadStat {
+        val fields = fields(stat)
+        val cpu = fields.getOrNull(PROCESSOR_FIELD)?.toIntOrNull()?.takeIf { it >= 0 } ?: NO_CPU
+        return ThreadStat(fields.getOrNull(MAJOR_FAULTS_FIELD)?.toLongOrNull() ?: 0L, cpu)
+    }
+
+    private fun fields(stat: String): List<String> = stat.substringAfterLast(')', "").trim().split(' ')
+
+    const val NO_CPU = -1
     private const val MAJOR_FAULTS_FIELD = 9
+    private const val PROCESSOR_FIELD = 36
 }
