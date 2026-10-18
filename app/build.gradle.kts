@@ -20,8 +20,8 @@ android {
         applicationId = "com.aegis.ime"
         minSdk = 34
         targetSdk = 37
-        versionName = "0.2.0"
-        versionCode = 9250
+        versionName = "0.2.1"
+        versionCode = 9274
         externalNativeBuild.cmake.arguments += "-DCMAKE_BUILD_TYPE=Release"
     }
 
