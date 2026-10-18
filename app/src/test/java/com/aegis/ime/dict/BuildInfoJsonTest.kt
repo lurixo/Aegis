@@ -35,6 +35,11 @@ class BuildInfoJsonTest {
     private val preRenameGramUrl =
         "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/wanxiang-lts-zh-hans.gram"
 
+    private val currentTables = listOf("zi", "jichu", "cuoyin", "duoyin", "diming", "mingren", "yiren", "renming")
+
+    private val preV1813Tables =
+        listOf("zi", "jichu", "lianxiang", "cuoyin", "duoyin", "shici", "diming", "yixue", "huaxue", "yaopin", "mingren", "yiren", "wuzhong", "renming")
+
     private val buildInfo: JSONObject by lazy {
         val path = System.getenv("AEGIS_BUILD_INFO")?.takeIf { it.isNotBlank() }
         if (System.getenv("AEGIS_DICTIONARY_RELEASE_VERIFY") == "1") {
@@ -71,16 +76,16 @@ class BuildInfoJsonTest {
     }
 
     @Test
-    fun buildInfoPinsTheVerifiedFourteenWanxiangTablesAndBuildParameters() {
+    fun buildInfoPinsTheVerifiedWanxiangTablesAndBuildParameters() {
         val dictionary = dictionaryResource()
         val source = dictionary.getJSONObject("source")
         val build = dictionary.getJSONObject("build")
         val tables = source.getJSONArray("tables")
         val actualTables = (0 until tables.length()).map { tables.getString(it) }
 
-        assertEquals(
-            listOf("zi", "jichu", "lianxiang", "cuoyin", "duoyin", "shici", "diming", "yixue", "huaxue", "yaopin", "mingren", "yiren", "wuzhong", "renming"),
-            actualTables,
+        assertTrue(
+            "tables are the verified set or the one published before upstream v18.1.3: $actualTables",
+            actualTables == currentTables || actualTables == preV1813Tables,
         )
         assertEquals("tag", source.getString("ref_type"))
         assertTrue(source.getString("tag").matches(Regex("v[0-9]+\\.[0-9]+\\.[0-9]+")))
@@ -103,7 +108,7 @@ class BuildInfoJsonTest {
         assertEquals("AEGL v1", languageModel.getString("format"))
         assertEquals(1, languageModel.getInt("min_bigram"))
         val yamlShas = source.getJSONArray("input_yaml_sha256")
-        assertEquals(14, yamlShas.length())
+        assertEquals(actualTables.size, yamlShas.length())
         for (i in 0 until yamlShas.length()) {
             assertTrue(yamlShas.getJSONObject(i).getString("sha256").matches(Regex("[0-9a-f]{64}")))
         }
