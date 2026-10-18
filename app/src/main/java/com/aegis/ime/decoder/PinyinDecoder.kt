@@ -1472,10 +1472,12 @@ class PinyinDecoder(
         val lens = if (isT9) T9Pinyin.leadingSyllableDigitLens(head)
         else T9Pinyin.leadingSyllableLetterLens(head)
         val lensSet = lens.toSet()
-        val seen = HashSet<String>(out.size * 2)
+        var expected = 0
+        for (k in lens) expected += homophoneFreqs(input.substring(0, k)).size
+        val seen = HashSet<String>((out.size + expected) * 4 / 3 + 1)
         for (c in out) seen.add(c.word)
-        val entries = ArrayList<Entry>()
-        val entryAt = HashMap<String, Int>()
+        val entries = ArrayList<Entry>(expected)
+        val entryAt = HashMap<String, Int>(expected * 4 / 3 + 1)
         fun record(word: String, cov: Int, frequency: Double) {
             entryAt[word] = entries.size
             entries.add(Entry(word, cov, wordModelScore(word, frequency, ctxId, ctx, condMemo), frequency))
