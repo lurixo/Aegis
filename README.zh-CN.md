@@ -152,15 +152,15 @@ APK 内确有一份 Aegis 自建的生成表 `aegis_tgh.bin`：派生自国家�
 需要真实词表的解码测试从 `AEGIS_FULLDICT_DIR` 指向的目录读取；`python3 tools/fetch_test_dict.py`
 会下载已发布的词库包并解到 `app/src/main/assets/`，这些文件既不进 APK 也不进 git。
 
-词库包由 `:tools` 模块从 8 张万象表（`zi jichu cuoyin duoyin diming mingren yiren renming`）以
+词库包由 `:tools` 模块从 7 张万象表（`zi jichu cuoyin duoyin diming mingren yiren`）以
 `--min-freq 1`、无每键上限预构建，保留每一条。
 
 ```
 ./gradlew :tools:installDist
-tools/build/install/tools/bin/tools --out <dict> --min-freq 1 --keytype letter   --t2s-data tools/t2s-data <8 张万象 .dict.yaml ...>
-tools/build/install/tools/bin/tools --out <t9>   --min-freq 1 --keytype digit    --t2s-data tools/t2s-data <8 ...>
-tools/build/install/tools/bin/tools --out <jp>   --min-freq 1 --keytype initials --t2s-data tools/t2s-data <8 ...>
-tools/build/install/tools/bin/tools lm --out <lm> --t2s-data tools/t2s-data <8 张万象 .dict.yaml ...>
+tools/build/install/tools/bin/tools --out <dict> --min-freq 1 --keytype letter   --t2s-data tools/t2s-data <7 张万象 .dict.yaml ...>
+tools/build/install/tools/bin/tools --out <t9>   --min-freq 1 --keytype digit    --t2s-data tools/t2s-data <7 ...>
+tools/build/install/tools/bin/tools --out <jp>   --min-freq 1 --keytype initials --t2s-data tools/t2s-data <7 ...>
+tools/build/install/tools/bin/tools lm --out <lm> --t2s-data tools/t2s-data <7 张万象 .dict.yaml ...>
 ```
 
 本文的截图实拍自运行中的应用，`docs/screenshots/` 保存上文引用的那份副本。
@@ -175,7 +175,7 @@ tools/release/build_dictionary_pack.py --release-tag dict-latest
 ```
 
 该命令克隆 `amzxyz/rime-wanxiang`（默认取 `wanxiang` 分支，用 `--source-tag` 改为固定到某个
-release tag，或用 `--source-dir` 指定已有的本地目录），用 `tools/DictBuilder` 以 `--min-freq 1`、无每键上限构建 8 张已核验表，并把 `tools/release/domain/aegis-domain.dict.yaml` 中的游戏与动漫词条并入三个中文词库（不进入语言模型），并入前剔除 8 张表已有的词；这些词条的来源列在同目录的 `sources.json`。它在
+release tag，或用 `--source-dir` 指定已有的本地目录），用 `tools/DictBuilder` 以 `--min-freq 1`、无每键上限构建 7 张已核验表，并把 `tools/release/domain/aegis-domain.dict.yaml` 中的游戏与动漫词条并入三个中文词库（不进入语言模型），并入前剔除 7 张表已有的词；这些词条的来源列在同目录的 `sources.json`。它在
 `build/release-dictionary/` 下写出**中间态**词库包 ZIP、`aegis-build-info.json` 与
 `aegis-dictionary-update.json`。该中间包包含三个中文词库与字级语言模型共四个运行时组件，**绝对不得直接发布**。
 
@@ -211,11 +211,11 @@ Aegis 自身代码为 **GPL-3.0**（见 [`LICENSE`](LICENSE)）。Aegis 采用**
 
 **rime-wanxiang 词库** —— © amzxyz 及 rime-wanxiang 贡献者，**CC BY 4.0**，见
 [rime-wanxiang](https://github.com/amzxyz/rime-wanxiang)。可下载的 `aegis_{dict,t9,jianpin}.bin`
-与 `aegis_lm.bin` 是 8 张表（字 基础 错音 多音 地名 名人 异体 人名）的衍生物。**改动：**去声调（ü→v），音节拼接为无调键，繁体与异体归并到简体（OpenCC 表），重新打包为 Aegis 的二进制格式；词库包保留每一条（`--min-freq 1`）。
+与 `aegis_lm.bin` 是 7 张表（字 基础 错音 多音 地名 名人 异体）的衍生物。**改动：**去声调（ü→v），音节拼接为无调键，繁体与异体归并到简体（OpenCC 表），重新打包为 Aegis 的二进制格式；词库包保留每一条（`--min-freq 1`）。
 
 **社区游戏与动漫词源** —— `aegis_{dict,t9,jianpin}.bin` 还收录取自社区词库、wiki 页面标题与游戏数据文件的游戏与动漫词条，其中包括 [mw2fcitx](https://github.com/outloudvi/mw2fcitx) 发布的萌娘百科词库（**CC BY-NC-SA 3.0**），来自 PRTS、Mooncell、GFwiki、BWIKI、缺氧 Wiki 与泰拉瑞亚 Wiki 等 wiki 的词表和页面标题（**CC BY-NC-SA 4.0**，其中第五人格 BWIKI 的许可未能确认），星露谷物语 Wiki 的页面标题（站点 API 的权利声明为 **CC BY-NC-SA 3.0**，页脚写明 **CC BY-SA 3.0**），GitHub 上的 Rime 词库仓库，以及搜狗细胞词库。各来源许可不一，其中不少未声明或未能确认许可。
 每个来源的名称、URL、其声明的许可与所用版本，列在 [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md)
-第 11 节、`tools/release/domain/sources.json` 以及每个词库包的 `NOTICE.txt` 中。**改动：**选取二至八个汉字的词条，读音为无调拼音，取自 rime-wanxiang 单字表或经其校验，统一赋予相同权重，剔除 8 张表已有的词，重新打包为 Aegis 的二进制格式；这些词条不进入 `aegis_lm.bin`。
+第 11 节、`tools/release/domain/sources.json` 以及每个词库包的 `NOTICE.txt` 中。**改动：**选取二至八个汉字的词条，读音为无调拼音，取自 rime-wanxiang 单字表或经其校验，统一赋予相同权重，剔除 7 张表已有的词，重新打包为 Aegis 的二进制格式；这些词条不进入 `aegis_lm.bin`。
 
 **万象八元语法模型**（`wanxiang-lts-zh-hans.gram`）—— © amzxyz，**CC BY 4.0**，见
 [rime-wanxiang-data](https://github.com/amzxyz/rime-wanxiang-data)。用于下一词和整句排序的可选顶层上下文模型；仅在明确选择时才下载，**不**打包进 APK。`OctagramReader`（Kotlin，GPL-3.0）是 Aegis 原创代码；其磁盘格式由 **librime-octagram**（GPL-3.0）与 **darts-clone** 净室逆向而得——未复制任何上游源码。

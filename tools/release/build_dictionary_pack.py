@@ -28,7 +28,6 @@ TABLES = [
     "diming",
     "mingren",
     "yiren",
-    "renming",
 ]
 
 OUTPUTS = [

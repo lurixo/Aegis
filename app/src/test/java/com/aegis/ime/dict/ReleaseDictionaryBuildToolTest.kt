@@ -26,12 +26,13 @@ class ReleaseDictionaryBuildToolTest {
     fun releaseDictionaryToolBuildsLatestFullPackMetadataWithoutUploading() {
         val script = File("../tools/release/build_dictionary_pack.py").readText()
 
-        listOf("zi", "jichu", "cuoyin", "duoyin", "diming", "mingren", "yiren", "renming").forEach {
+        listOf("zi", "jichu", "cuoyin", "duoyin", "diming", "mingren", "yiren").forEach {
             assertTrue("missing table $it", script.contains("\"$it\""))
         }
         listOf("lianxiang", "shici", "yixue", "huaxue", "yaopin", "wuzhong").forEach {
             assertFalse("table $it is gone upstream since v18.1.3", script.contains("\"$it\""))
         }
+        assertFalse("table renming is gone upstream since v18.1.5", script.contains("\"renming\""))
         assertTrue(script.contains("\"--min-freq\""))
         assertTrue(script.contains("\"1\""))
         assertTrue(script.contains("\"--keytype\""))

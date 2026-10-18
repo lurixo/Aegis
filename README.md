@@ -249,15 +249,15 @@ The decode tests that need the real tables read them from the directory named by
 `AEGIS_FULLDICT_DIR`; `python3 tools/fetch_test_dict.py` downloads the published pack and unpacks it
 into `app/src/main/assets/`, where it stays out of both the APK and git.
 
-The pack is prebuilt by the `:tools` module from 8 wanxiang tables (`zi jichu cuoyin duoyin diming
-mingren yiren renming`) at `--min-freq 1` with no per-key cap, so it keeps every entry.
+The pack is prebuilt by the `:tools` module from 7 wanxiang tables (`zi jichu cuoyin duoyin diming
+mingren yiren`) at `--min-freq 1` with no per-key cap, so it keeps every entry.
 
 ```
 ./gradlew :tools:installDist
-tools/build/install/tools/bin/tools --out <dict> --min-freq 1 --keytype letter   --t2s-data tools/t2s-data <8 wanxiang .dict.yaml ...>
-tools/build/install/tools/bin/tools --out <t9>   --min-freq 1 --keytype digit    --t2s-data tools/t2s-data <8 ...>
-tools/build/install/tools/bin/tools --out <jp>   --min-freq 1 --keytype initials --t2s-data tools/t2s-data <8 ...>
-tools/build/install/tools/bin/tools lm --out <lm> --t2s-data tools/t2s-data <8 wanxiang .dict.yaml ...>
+tools/build/install/tools/bin/tools --out <dict> --min-freq 1 --keytype letter   --t2s-data tools/t2s-data <7 wanxiang .dict.yaml ...>
+tools/build/install/tools/bin/tools --out <t9>   --min-freq 1 --keytype digit    --t2s-data tools/t2s-data <7 ...>
+tools/build/install/tools/bin/tools --out <jp>   --min-freq 1 --keytype initials --t2s-data tools/t2s-data <7 ...>
+tools/build/install/tools/bin/tools lm --out <lm> --t2s-data tools/t2s-data <7 wanxiang .dict.yaml ...>
 ```
 
 The screenshots in this README are captured from the running app, and `docs/screenshots/` holds
@@ -277,10 +277,10 @@ tools/release/build_dictionary_pack.py --release-tag dict-latest
 ```
 
 The command clones `amzxyz/rime-wanxiang` — the `wanxiang` branch by default, `--source-tag` to pin
-a release tag instead, `--source-dir` to use an existing checkout — builds the 8 verified tables
+a release tag instead, `--source-dir` to use an existing checkout — builds the 7 verified tables
 with `tools/DictBuilder` at `--min-freq 1` and no per-key cap. It also merges the game and anime terms
 of `tools/release/domain/aegis-domain.dict.yaml` into the three Chinese dictionaries, though not into
-the language model, after dropping every word the 8 tables already contain; `sources.json` beside
+the language model, after dropping every word the 7 tables already contain; `sources.json` beside
 that table lists where the terms come from. It writes an **intermediate** pack ZIP,
 `aegis-build-info.json`, and `aegis-dictionary-update.json` under `build/release-dictionary/`. The
 intermediate pack contains four runtime components — three Chinese dictionaries and the character
@@ -343,8 +343,8 @@ by Aegis's own license.
 
 **rime-wanxiang dictionaries:** (c) amzxyz and rime-wanxiang contributors, **CC BY 4.0**
 ([rime-wanxiang](https://github.com/amzxyz/rime-wanxiang)). The downloadable
-`aegis_{dict,t9,jianpin}.bin` and `aegis_lm.bin` are derivatives of 8
-tables (字 基础 错音 多音 地名 名人 异体 人名). **Changes:** tones
+`aegis_{dict,t9,jianpin}.bin` and `aegis_lm.bin` are derivatives of 7
+tables (字 基础 错音 多音 地名 名人 异体). **Changes:** tones
 stripped (`ü` -> `v`), syllables concatenated into toneless keys, traditional/variant forms folded
 to Simplified (OpenCC tables), repacked into Aegis's binary format; the pack keeps every entry
 (`--min-freq 1`).
@@ -361,7 +361,7 @@ cell dictionaries. Licenses differ per source, and for many of them none is stat
 `tools/release/domain/sources.json` and each pack's `NOTICE.txt` list every source with its URL, the
 license it states and the version used. **Changes:** entries of two to eight Chinese characters
 selected, given toneless readings drawn from or checked against the rime-wanxiang character table,
-given the same weight, stripped of every word the 8 tables already contain, and repacked into
+given the same weight, stripped of every word the 7 tables already contain, and repacked into
 Aegis's binary format; they do not feed `aegis_lm.bin`.
 
 **wanxiang octagram model** (`wanxiang-lts-zh-hans.gram`): (c) amzxyz, **CC BY 4.0**

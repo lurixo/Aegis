@@ -28,8 +28,8 @@ APK is the sentence-reranking scorer, which statically links llama.cpp (section 
   the community entries of section 11 is where every Chinese candidate comes from, `aegis_lm.bin`,
   the character-bigram context model, and
   `aegis_english.bin`, the English word list behind English completions; nothing derived from these
-  tables ships inside the APK. The Chinese tables are derived from the 8 tables
-  (字 基础 错音 多音 地名 名人 异体 人名) and the English one from
+  tables ships inside the APK. The Chinese tables are derived from the 7 tables
+  (字 基础 错音 多音 地名 名人 异体) and the English one from
   `dicts/en.dict.yaml`.
 - **Modifications:** tones stripped (ü→v), syllables concatenated into toneless keys, repacked into
   Aegis's own binary format; the pack keeps every entry (`--min-freq 1`). `aegis_lm.bin` is compiled
@@ -204,7 +204,7 @@ APK is the sentence-reranking scorer, which statically links llama.cpp (section 
 - **Modifications:** Aegis selected entries of two to eight Chinese characters from each source, gave
   them toneless pinyin readings drawn from or checked against the rime-wanxiang character table
   (section 1) rather than taken from the source, and assigned every entry the same weight.
-  At build time every word the 8 tables of section 1 already contain is dropped and the rest is
+  At build time every word the 7 tables of section 1 already contain is dropped and the rest is
   repacked into Aegis's own binary format.
 
 | Source | URL | License | Version |

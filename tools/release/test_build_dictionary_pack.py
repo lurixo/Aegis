@@ -146,7 +146,7 @@ class AttributionTextTest(unittest.TestCase):
         )
         text.encode("ascii")
         self.assertEqual(1, text.count("\n\nCC BY 4.0 requires this attribution"))
-        self.assertEqual(1, text.count(f"  Source tables (8): {' '.join(bp.TABLES)}\n"))
+        self.assertEqual(1, text.count(f"  Source tables (7): {' '.join(bp.TABLES)}\n"))
         for needle in (
             "rime-wanxiang",
             "CC BY 4.0",
