@@ -128,6 +128,51 @@ class BinaryDict private constructor(private val buf: ByteBuffer) {
         return null
     }
 
+    internal val keyCount: Int get() = numKeys
+
+    internal fun prefixStart(prefix: String): Int {
+        if (prefix.isEmpty() || numKeys == 0) return -1
+        val q = prefix.toByteArray(Charsets.US_ASCII)
+        val i = lowerBound(q)
+        return if (i < numKeys && startsWith(i, q)) i else -1
+    }
+
+    internal fun narrowKeys(lo: Int, hi: Int, depth: Int, c: Char): Long {
+        val unit = prefixUnit(c.code)
+        if (unit >= 0 && depth == 0 && lo == 0 && hi == numKeys) return headRanges[unit]
+        if (unit >= 0 && depth == 1 && lo < hi) {
+            val first = prefixUnit(keyByteAt(lo, 0))
+            if (first >= 0 && headRanges[first] == packRange(lo, hi)) return headRanges[PREFIX_UNITS + first * PREFIX_UNITS + unit]
+        }
+        return keyRange(lo, hi, depth, c.code)
+    }
+
+    internal fun keyLength(i: Int): Int = keyLen(i)
+
+    private val headRanges: LongArray by lazy {
+        val out = LongArray(PREFIX_UNITS + PREFIX_UNITS * PREFIX_UNITS)
+        for (first in 0 until PREFIX_UNITS) {
+            val range = keyRange(0, numKeys, 0, unitByte(first))
+            out[first] = range
+            val lo = (range ushr 32).toInt()
+            val hi = range.toInt()
+            for (second in 0 until PREFIX_UNITS) {
+                out[PREFIX_UNITS + first * PREFIX_UNITS + second] = keyRange(lo, hi, 1, unitByte(second))
+            }
+        }
+        out
+    }
+
+    private fun keyRange(lo: Int, hi: Int, depth: Int, b: Int): Long {
+        val from = keyByteBound(lo, hi, depth, b)
+        return packRange(from, keyByteBound(from, hi, depth, b + 1))
+    }
+
+    private fun packRange(lo: Int, hi: Int): Long = (lo.toLong() shl 32) or hi.toLong()
+
+    private fun unitByte(unit: Int): Int =
+        if (unit < PREFIX_LETTERS) 'a'.code + unit else '2'.code + unit - PREFIX_LETTERS
+
     fun prefixByFreq(prefix: String, limit: Int): List<WordFreq> {
         if (prefix.isEmpty() || limit <= 0 || numKeys == 0) return emptyList()
         shortPrefixIndex(prefix)?.let { return it.take(limit) }

@@ -49,6 +49,7 @@ class PinyinDecoder(
     private val aliasDict: BinaryDict? = null,
     private val userLearning: UserLearning? = null,
     private val fuzzyVariants: (String, Set<String>) -> List<String> = { s, rules -> Fuzzy.variants(s, rules).filter { it != s } },
+    private val fuzzyVariantInDict: (BinaryDict, String, Set<String>, Boolean) -> Boolean = { _, _, _, _ -> true },
     private val fuzzyPenalty: Double = FUZZY_PENALTY,
     private val grammarCharPenalty: Double = 0.0,
     private val digitInitialsDict: BinaryDict? = null,
@@ -410,7 +411,7 @@ class PinyinDecoder(
         }
         if (exactFull || out.size >= edgeN) return out
         val rules = fuzzyRules
-        if (rules.isNotEmpty()) {
+        if (rules.isNotEmpty() && fuzzyVariantInDict(dict, sub, rules, false)) {
             for (variant in cachedFuzzyVariants(sub, rules)) {
                 for (wf in preferredExact(dict, variant, edgeN + seen.size)) {
                     if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, fuzzyPenalty))
@@ -876,6 +877,7 @@ class PinyinDecoder(
             val source = input.take(candidate.coveredLen).replace("'", "")
             if (candidate.word in exact.getOrPut(source) { preferredExact(dict, source).mapTo(HashSet()) { it.word } }) return@map candidate
             val target = targets.getOrPut(source) {
+                if (!fuzzyVariantInDict(dict, source, rules, false)) return@getOrPut emptyMap()
                 buildMap {
                     for (variant in cachedFuzzyVariants(source, rules)) {
                         for (wf in preferredExact(dict, variant)) putIfAbsent(wf.word, variant)
@@ -930,7 +932,7 @@ class PinyinDecoder(
         for (uw in userWordsFor(input)) offer(BinaryDict.WordFreq(uw, userWordFreq(uw, input).toInt().coerceAtLeast(1)), 0.0)
         val fuzzyExactWords = HashSet<String>()
         val rules = fuzzyRules
-        if (rules.isNotEmpty()) {
+        if (rules.isNotEmpty() && fuzzyVariantInDict(dict, input, rules, true)) {
             for (variant in cachedFuzzyVariants(input, rules)) {
                 DecodeCancellation.checkpoint()
                 for (wf in cachedExact(dict, variant)) {

@@ -15,6 +15,8 @@
 
 package com.aegis.ime.decoder
 
+import com.aegis.ime.dict.BinaryDict
+
 object T9Pinyin {
 
     private val letterToDigit: Map<Char, Char> = buildMap {
@@ -109,6 +111,97 @@ object T9Pinyin {
         expandRuns(digits, 0, StringBuilder(), pairs, out, cap)
         out.remove(digits)
         return out.toList()
+    }
+
+    fun fuzzyVariantInDict(digits: String, enabled: Set<String>, dict: BinaryDict, asPrefix: Boolean): Boolean {
+        if (enabled.isEmpty() || digits.isEmpty() || digits.length > MAX_FUZZY_DIGITS) return false
+        if (digits.any { it < '2' || it > '9' }) return false
+        val pairs = partnersByDigit(enabled)
+        if (pairs.isEmpty()) return false
+        return KeySearch(digits, pairs, dict, asPrefix).from(0, 0, 0, dict.keyCount)
+    }
+
+    private class KeySearch(
+        private val digits: String,
+        private val pairs: Map<String, List<String>>,
+        private val dict: BinaryDict,
+        private val asPrefix: Boolean,
+    ) {
+        private val n = digits.length
+        private val self = dict.prefixStart(digits)
+        private val runs = arrayOfNulls<List<String>>(n * maxDigits)
+        private val checked = BooleanArray(n * maxDigits)
+        private var seen = LongArray(64)
+        private var seenCount = 0
+
+        fun from(i: Int, depth: Int, lo: Int, hi: Int): Boolean {
+            if (i == n) return (asPrefix || dict.keyLength(lo) == depth) && !(depth == n && lo == self)
+            if (!firstVisit((lo.toLong() shl 16) or (i.toLong() shl 8) or depth.toLong())) return false
+            var matched = false
+            var l = lo
+            var h = hi
+            var d = depth
+            var alive = true
+            for (k in i + 1..minOf(n, i + maxDigits)) {
+                if (alive) {
+                    val range = dict.narrowKeys(l, h, d, digits[k - 1])
+                    l = (range ushr 32).toInt()
+                    h = range.toInt()
+                    d++
+                    alive = l < h
+                }
+                val partners = partnersOf(i, k) ?: continue
+                matched = true
+                if (alive && from(k, d, l, h)) return true
+                for (v in partners) if (append(v, k, depth, lo, hi)) return true
+            }
+            return !matched && append(digits.substring(i), n, depth, lo, hi)
+        }
+
+        private fun partnersOf(i: Int, k: Int): List<String>? {
+            val slot = i * maxDigits + (k - i - 1)
+            if (!checked[slot]) {
+                checked[slot] = true
+                val run = digits.substring(i, k)
+                runs[slot] = pairs[run] ?: if (byDigits.containsKey(run)) emptyList() else null
+            }
+            return runs[slot]
+        }
+
+        private fun append(piece: String, next: Int, depth: Int, lo: Int, hi: Int): Boolean {
+            var l = lo
+            var h = hi
+            var d = depth
+            for (c in piece) {
+                val range = dict.narrowKeys(l, h, d, c)
+                l = (range ushr 32).toInt()
+                h = range.toInt()
+                if (l == h) return false
+                d++
+            }
+            return from(next, d, l, h)
+        }
+
+        private fun firstVisit(state: Long): Boolean {
+            if (seenCount * 2 >= seen.size) {
+                val old = seen
+                seen = LongArray(old.size * 2)
+                seenCount = 0
+                for (s in old) if (s != 0L) firstVisit(s - 1)
+            }
+            val mask = seen.size - 1
+            var at = (java.lang.Long.hashCode(state * -7046029254386353131L) and mask)
+            while (true) {
+                val s = seen[at]
+                if (s == 0L) {
+                    seen[at] = state + 1
+                    seenCount++
+                    return true
+                }
+                if (s == state + 1) return false
+                at = (at + 1) and mask
+            }
+        }
     }
 
     private fun expandRuns(

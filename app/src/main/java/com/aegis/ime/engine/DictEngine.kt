@@ -62,6 +62,7 @@ class DictEngine(
             aliasDict = pinyinDict,
             userLearning = userLearning,
             fuzzyVariants = { s, rules -> T9Pinyin.fuzzyVariants(s, rules) },
+            fuzzyVariantInDict = { dict, s, rules, asPrefix -> T9Pinyin.fuzzyVariantInDict(s, rules, dict, asPrefix) },
             fuzzyPenalty = T9_FUZZY_PENALTY,
             grammarCharPenalty = T9_GRAMMAR_CHAR_PENALTY,
             digitInitialsDict = initialsDict,
