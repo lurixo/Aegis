@@ -1364,7 +1364,9 @@ class KeyboardController(
         latestRequest = req
         val lane = decodeLane
         if (lane == null) {
-            applyDecodeResult(timedDecode(neural, req))
+            val result = timedDecode(neural, req)
+            recordDecode(neural, req, result, superseded = false)
+            applyDecodeResult(result)
             if (req.idle) req.engine.prepareUserWords()
         } else {
             val sentenceLimit = rerankSentenceLimit(req)
@@ -1373,6 +1375,7 @@ class KeyboardController(
             lane.submit(
                 compute = { timedDecode(clock, req, sentenceLimit) },
                 apply = { result ->
+                    recordDecode(clock, req, result, superseded = false)
                     applyDecodeResult(result)
                     if (!settlingDecode) render()
                     submitRerank(req, result)
@@ -1380,23 +1383,35 @@ class KeyboardController(
                 onError = { applyDecodeResult(emptyDecodeResult()); if (!settlingDecode) render() },
                 continues = continues,
                 overtaken = { result ->
-                    if (composing.isNotEmpty() && result.request?.raw != composing.toString()) {
+                    val shows = composing.isNotEmpty() && result.request?.raw != composing.toString()
+                    recordDecode(clock, req, result, superseded = !shows)
+                    if (shows) {
                         applyDecodeResult(result)
                         if (candidates.isNotEmpty()) neural?.firstKeyShown()
                         render()
                     }
                 },
+                dropped = { result -> recordDecode(clock, req, result, superseded = true) },
             )
             if (req.idle) lane.execute { synchronized(decodeLock) { req.engine.prepareUserWords() } }
         }
     }
 
     private fun timedDecode(clock: NeuralReranker?, req: DecodeRequest, sentenceLimit: Int = 0): DecodeResult {
-        val started = clock?.now() ?: return computeDecode(req, sentenceLimit)
+        if (clock == null) return computeDecode(req, sentenceLimit)
+        val before = clock.threadUsage()
+        val started = clock.now()
         return computeDecode(req, sentenceLimit).also {
             it.decodeStarted = started
             it.decodeEnded = clock.now()
+            val after = clock.threadUsage()
+            it.decodeCpuNanos = after.cpuNanos - before.cpuNanos
+            it.decodeMajorFaults = after.majorFaults - before.majorFaults
         }
+    }
+
+    private fun recordDecode(clock: NeuralReranker?, req: DecodeRequest, result: DecodeResult, superseded: Boolean) {
+        if (clock != null && !req.composingEmpty) clock.decodeFinished(result.decodeCpuNanos, result.decodeMajorFaults, superseded)
     }
 
     private fun rerankSentenceLimit(req: DecodeRequest): Int {
@@ -1535,6 +1550,8 @@ class KeyboardController(
     ) {
         var decodeStarted = 0L
         var decodeEnded = 0L
+        var decodeCpuNanos = 0L
+        var decodeMajorFaults = 0L
     }
 
     private fun emptyDecodeResult(): DecodeResult =

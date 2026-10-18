@@ -1113,6 +1113,72 @@ class NeuralRerankerTest {
         assertEquals(0, r.snapshot().runs)
     }
 
+    private fun decodeThread(r: NeuralReranker): List<Double> = r.snapshot().let {
+        listOf(it.meanKeyDecodeMajorFaults, it.maxKeyDecodeMajorFaults.toDouble(), it.meanKeyDecodeCpuMillis, it.maxKeyDecodeCpuMillis)
+    }
+
+    private fun assertDecodeThread(message: String, expected: List<Double>, r: NeuralReranker) {
+        val actual = decodeThread(r)
+        assertEquals(message, expected.size, actual.size)
+        expected.indices.forEach { assertEquals("$message: $actual", expected[it], actual[it], 1e-9) }
+    }
+
+    private fun superseded(r: NeuralReranker): List<Double> = r.snapshot().let {
+        listOf(it.keyDecodes.toDouble(), it.supersededDecodes.toDouble(), it.maxSupersededDecodeCpuMillis)
+    }
+
+    @Test fun decode_thread_faults_and_cpu_time_are_averaged_over_every_finished_decode() {
+        var now = 0L
+        val q = Queues()
+        val r = NeuralReranker(
+            spec, { FakeScorer(prefersSecond) }, Executor { q.worker.add(it) }, Executor { q.main.add(it) }, q.schedule,
+            threadCpuNanos = { 7_000_000L }, threadMajorFaults = { 42L }, nanoTime = { now },
+        )
+        assertEquals(7_000_000L, r.threadUsage().cpuNanos)
+        assertEquals(42L, r.threadUsage().majorFaults)
+        assertDecodeThread("nothing finished yet", listOf(0.0, 0.0, 0.0, 0.0), r)
+        assertEquals(listOf(0.0, 0.0, 0.0), superseded(r))
+
+        r.decodeFinished(2_000_000L, 3L, superseded = false)
+        assertDecodeThread("one shown decode", listOf(3.0, 3.0, 2.0, 2.0), r)
+        assertEquals(listOf(1.0, 0.0, 0.0), superseded(r))
+
+        r.decodeFinished(199_000_000L, 40L, superseded = true)
+        r.decodeFinished(6_500_000L, 12L, superseded = false)
+        assertDecodeThread("a superseded decode counts like a shown one", listOf(55.0 / 3, 40.0, 207.5 / 3, 199.0), r)
+        assertEquals(listOf(3.0, 1.0, 199.0), superseded(r))
+
+        r.decodeFinished(4_000_000L, 1L, superseded = true)
+        assertEquals("the largest superseded decode is kept", listOf(4.0, 2.0, 199.0), superseded(r))
+
+        r.decodeFinished(-1L, -5L, superseded = true)
+        assertDecodeThread("a reading that goes backwards counts as zero", listOf(56.0 / 5, 40.0, 211.5 / 5, 199.0), r)
+        assertEquals(listOf(5.0, 3.0, 199.0), superseded(r))
+    }
+
+    @Test fun key_time_counts_only_shown_keys_and_ignores_finished_decodes() {
+        var now = 0L
+        val r = started(Queues(), FakeScorer(prefersSecond)) { now }
+        r.decodeFinished(9_000_000L, 2L, superseded = true)
+        assertEquals("a decode alone is no key", 0, r.snapshot().keys)
+
+        now = 100_000_000L
+        r.keyDown()
+        now = 110_000_000L
+        r.keyDown()
+        r.decodeFinished(30_000_000L, 4L, superseded = true)
+        now = 140_000_000L
+        r.keyShown(115_000_000L, 130_000_000L)
+        r.decodeFinished(15_000_000L, 1L, superseded = false)
+        val snap = r.snapshot()
+        assertEquals(1, snap.keys)
+        assertEquals(
+            listOf(30L, 5L, 15L, 10L),
+            listOf(snap.meanKeyMillis, snap.meanKeyQueueMillis, snap.meanKeyDecodeMillis, snap.meanKeyDisplayMillis),
+        )
+        assertEquals(listOf(3.0, 2.0, 30.0), superseded(r))
+    }
+
     @Test fun a_key_is_slow_once_its_candidates_take_more_than_50_ms() {
         var now = 0L
         val r = started(Queues(), FakeScorer(prefersSecond)) { now }

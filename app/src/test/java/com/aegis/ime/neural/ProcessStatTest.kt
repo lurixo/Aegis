@@ -48,4 +48,13 @@ class ProcessStatTest {
     @Test fun reading_the_running_process_never_throws() {
         assertTrue(ProcessStat.majorFaults() >= 0L)
     }
+
+    @Test fun reading_the_calling_thread_never_throws() {
+        assertTrue(ProcessStat.threadMajorFaults() >= 0L)
+    }
+
+    @Test fun the_calling_thread_counts_no_more_than_its_process() {
+        val thread = ProcessStat.threadMajorFaults()
+        assertTrue(thread <= ProcessStat.majorFaults())
+    }
 }

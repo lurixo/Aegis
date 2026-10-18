@@ -1667,6 +1667,114 @@ class NeuralRerankControllerTest {
 
     @Test fun key_time_splits_into_queue_decode_and_display_on_9key() = keyTimeSplitsIntoQueueDecodeAndDisplay(nine = true)
 
+    private fun decodeThreadUsageIsMeasuredAroundTheDecodeOfEachShownKey(nine: Boolean) {
+        var cpu = 0L
+        var faults = 0L
+        val threads = ArrayList<Thread>()
+        val engine = EveryInputEngine()
+        val (c, q, r) = setup(engine, reranker = {
+            NeuralReranker(
+                spec, { Scorer() }, Executor { r -> it.neuralWorker.add(r) }, Executor { r -> it.neuralMain.add(r) }, it.schedule,
+                threadCpuNanos = { threads.add(Thread.currentThread()); cpu },
+                threadMajorFaults = { faults },
+            )
+        })
+        c.switchTextLayoutForTest(nine)
+        val input = outrunInput(nine)
+        fun land(cpuNanos: Long, majorFaults: Long) {
+            var pendingCpu = cpuNanos
+            var pendingFaults = majorFaults
+            engine.decoding = {
+                cpu += pendingCpu
+                faults += pendingFaults
+                pendingCpu = 0L
+                pendingFaults = 0L
+            }
+            while (q.decodeWorker.isNotEmpty()) q.decodeWorker.removeFirst().run()
+            engine.decoding = {}
+            cpu += 50_000_000L
+            faults += 100L
+            while (q.decodeMain.isNotEmpty()) q.decodeMain.removeFirst().run()
+        }
+
+        type(c, input.take(1))
+        land(cpuNanos = 2_000_000L, majorFaults = 3L)
+        assertEquals(engine.words(input.take(1)), decoded(c))
+        var snap = r.snapshot()
+        assertEquals(1, snap.keys)
+        assertEquals(listOf(3.0, 2.0), listOf(snap.meanKeyDecodeMajorFaults, snap.meanKeyDecodeCpuMillis))
+
+        type(c, input.substring(1, 2))
+        land(cpuNanos = 6_000_000L, majorFaults = 5L)
+        assertEquals(engine.words(input.take(2)), decoded(c))
+        snap = r.snapshot()
+        assertEquals(2, snap.keys)
+        assertEquals("usage outside the decode is not counted", listOf(4.0, 4.0), listOf(snap.meanKeyDecodeMajorFaults, snap.meanKeyDecodeCpuMillis))
+        assertEquals(5L, snap.maxKeyDecodeMajorFaults)
+        assertEquals(6.0, snap.maxKeyDecodeCpuMillis, 1e-9)
+        assertEquals("read twice per decode", 4, threads.size)
+    }
+
+    @Test fun decode_thread_usage_is_measured_around_the_decode_of_each_shown_key_on_26key() =
+        decodeThreadUsageIsMeasuredAroundTheDecodeOfEachShownKey(nine = false)
+
+    @Test fun decode_thread_usage_is_measured_around_the_decode_of_each_shown_key_on_9key() =
+        decodeThreadUsageIsMeasuredAroundTheDecodeOfEachShownKey(nine = true)
+
+    private fun aDecodeSupersededByANewerKeyStillCountsOnTheDecodeThread(nine: Boolean) {
+        var cpu = 0L
+        var faults = 0L
+        val engine = EveryInputEngine()
+        val (c, q, r) = setup(engine, reranker = {
+            NeuralReranker(
+                spec, { Scorer() }, Executor { r -> it.neuralWorker.add(r) }, Executor { r -> it.neuralMain.add(r) }, it.schedule,
+                threadCpuNanos = { cpu },
+                threadMajorFaults = { faults },
+            )
+        })
+        c.switchTextLayoutForTest(nine)
+        val input = outrunInput(nine)
+        fun compute(cpuNanos: Long, majorFaults: Long) {
+            var pendingCpu = cpuNanos
+            var pendingFaults = majorFaults
+            engine.decoding = {
+                cpu += pendingCpu
+                faults += pendingFaults
+                pendingCpu = 0L
+                pendingFaults = 0L
+            }
+            while (q.decodeWorker.isNotEmpty()) q.decodeWorker.removeFirst().run()
+            engine.decoding = {}
+        }
+        fun deliver() {
+            while (q.decodeMain.isNotEmpty()) q.decodeMain.removeFirst().run()
+        }
+
+        type(c, input.take(1))
+        compute(cpuNanos = 2_000_000L, majorFaults = 3L)
+        deliver()
+        type(c, input.substring(1, 2))
+        compute(cpuNanos = 199_000_000L, majorFaults = 40L)
+        type(c, input.substring(2, 3))
+        compute(cpuNanos = 6_000_000L, majorFaults = 5L)
+        deliver()
+        assertEquals(engine.words(input.take(3)), decoded(c))
+        val snap = r.snapshot()
+        assertEquals("only the keys whose candidates showed count toward key time", 2, snap.keys)
+        assertEquals(listOf(3, 1), listOf(snap.keyDecodes, snap.supersededDecodes))
+        assertEquals(16.0, snap.meanKeyDecodeMajorFaults, 1e-9)
+        assertEquals(40L, snap.maxKeyDecodeMajorFaults)
+        assertEquals(69.0, snap.meanKeyDecodeCpuMillis, 1e-9)
+        assertEquals(199.0, snap.maxKeyDecodeCpuMillis, 1e-9)
+        assertEquals(199.0, snap.maxSupersededDecodeCpuMillis, 1e-9)
+    }
+
+    @Test fun a_decode_superseded_by_a_newer_key_still_counts_on_the_decode_thread_on_26key() =
+        aDecodeSupersededByANewerKeyStillCountsOnTheDecodeThread(nine = false)
+
+    @Test fun a_decode_superseded_by_a_newer_key_still_counts_on_the_decode_thread_on_9key() =
+        aDecodeSupersededByANewerKeyStillCountsOnTheDecodeThread(nine = true)
+
     private fun nextKeyCancelsAStalePathGeneration(nine: Boolean) {
         val engine = Engine().apply { rankedEntered = CountDownLatch(1) }
         val decodeWorker = Executors.newSingleThreadExecutor()

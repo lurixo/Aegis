@@ -108,6 +108,7 @@
     <string name="neural_card_first_key">First key to candidates: last %1$d ms, mean %2$d ms, max %3$d ms</string>
     <string name="neural_card_key">Key to candidates: mean %1$d ms, max %2$d ms, over 50 ms %3$d of %4$d keys</string>
     <string name="neural_card_key_parts">Of which queue mean %1$d ms, max %2$d ms; decode mean %3$d ms, max %4$d ms; display mean %5$d ms, max %6$d ms</string>
+    <string name="neural_card_key_decode_thread">Decode thread per key: disk page faults mean %1$.1f, max %2$d; CPU mean %3$.1f ms, max %4$.1f ms (%5$d decodes, %6$d superseded by a newer key, CPU max %7$.1f ms)</string>
     <string name="neural_card_context_load">Context load: last %1$d ms, mean %2$d ms, max %3$d ms</string>
     <string name="neural_card_timeouts">Timed out without reranking: %1$d</string>
     <string name="neural_card_slow_inference">Slow inference: %1$d, %2$d ms in total, CPU %3$d ms, major page faults %4$d</string>

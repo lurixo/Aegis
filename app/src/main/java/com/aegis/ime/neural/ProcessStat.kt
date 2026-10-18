@@ -20,6 +20,8 @@ import java.io.File
 object ProcessStat {
     fun majorFaults(): Long = runCatching { majorFaults(File("/proc/self/stat").readText()) }.getOrDefault(0L)
 
+    fun threadMajorFaults(): Long = runCatching { majorFaults(File("/proc/thread-self/stat").readText()) }.getOrDefault(0L)
+
     internal fun majorFaults(stat: String): Long =
         stat.substringAfterLast(')', "").trim().split(' ').getOrNull(MAJOR_FAULTS_FIELD)?.toLongOrNull() ?: 0L
 

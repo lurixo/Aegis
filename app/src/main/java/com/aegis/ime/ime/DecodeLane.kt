@@ -29,7 +29,15 @@ class DecodeLane(
     private val settleMillis: Long = SETTLE_MILLIS,
     private val workDone: (Long) -> Unit = {},
 ) {
-    private class Delivery(val gen: Long, val run: () -> Unit)
+    private class Delivery(val gen: Long, private val body: () -> Unit) {
+        private var ran = false
+
+        fun run() {
+            if (ran) return
+            ran = true
+            body()
+        }
+    }
 
     private val seq = AtomicLong(0L)
     @Volatile private var lastRequested = 0L
@@ -52,6 +60,7 @@ class DecodeLane(
         onError: () -> Unit = {},
         continues: Boolean = false,
         overtaken: (R) -> Unit = {},
+        dropped: (R) -> Unit = {},
     ) {
         val gen = seq.incrementAndGet()
         if (!continues) chainStart = gen
@@ -73,6 +82,8 @@ class DecodeLane(
                         lastShown = gen
                         overtaken(it)
                     }
+                } else {
+                    result.onSuccess(dropped)
                 }
             }
             finishedLock.withLock {

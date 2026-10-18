@@ -357,6 +357,49 @@ class DecodeLaneTest {
         }
     }
 
+    @Test fun a_finished_result_that_is_neither_applied_nor_handed_over_is_reported_as_dropped_once() {
+        val applied = ArrayList<Int>()
+        val dropped = ArrayList<Int>()
+        fun submit(i: Int, compute: () -> Int = { i }) =
+            lane.submit(compute = compute, apply = { applied.add(it) }, continues = i > 1, dropped = { dropped.add(it) })
+        submit(1)
+        runWorker()
+        submit(2)
+        runMain()
+        assertEquals(listOf(1), dropped)
+        submit(3) { throw IllegalStateException("decode failed") }
+        submit(4)
+        runWorker()
+        runMain()
+        assertEquals("a stale request that never computed is not reported", listOf(1), dropped)
+        assertEquals(listOf(4), applied)
+        submit(5) { throw IllegalStateException("decode failed") }
+        runWorker()
+        submit(6)
+        runMain()
+        assertEquals("a failed result is not reported", listOf(1), dropped)
+        runWorker()
+        runMain()
+        assertEquals(listOf(4, 6), applied)
+    }
+
+    @Test fun a_result_applied_by_settle_is_not_reported_as_dropped_by_its_queued_delivery() {
+        val exec = Executors.newSingleThreadExecutor()
+        try {
+            val posted = ConcurrentLinkedQueue<Runnable>()
+            val realLane = DecodeLane(exec, Executor { posted.add(it) }, settleMillis = 10_000L)
+            val applied = ArrayList<Int>()
+            val dropped = ArrayList<Int>()
+            realLane.submit(compute = { 7 }, apply = { applied.add(it) }, dropped = { dropped.add(it) })
+            assertTrue(realLane.settle())
+            while (posted.isNotEmpty()) posted.poll().run()
+            assertEquals(listOf(7), applied)
+            assertTrue(dropped.isEmpty())
+        } finally {
+            exec.shutdownNow()
+        }
+    }
+
     @Test fun a_finished_result_overtaken_before_its_delivery_is_handed_over_two_requests_past_the_last_delivery() {
         val applied = ArrayList<Int>()
         val overtaken = ArrayList<Int>()

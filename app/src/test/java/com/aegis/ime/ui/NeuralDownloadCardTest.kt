@@ -261,6 +261,7 @@ class NeuralDownloadCardTest {
         compose.onNodeWithText(context.getString(R.string.neural_card_first_key, 0L, 0L, 0L)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_key, 0L, 0L, 0, 0)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_key_parts, 0L, 0L, 0L, 0L, 0L, 0L)).assertDoesNotExist()
+        compose.onNodeWithText(context.getString(R.string.neural_card_key_decode_thread, 0.0, 0L, 0.0, 0.0, 0, 0, 0.0)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_context_load, 0L, 0L, 0L)).assertDoesNotExist()
         compose.onNodeWithText(context.getString(R.string.neural_card_slow_inference, 0, 0L, 0L, 0L)).assertDoesNotExist()
 
@@ -380,18 +381,25 @@ class NeuralDownloadCardTest {
         compose.onNodeWithText(contextLoad).assertExists()
         assertTrue(compose.onAllNodesWithText("Key to candidates", substring = true).fetchSemanticsNodes().isEmpty())
         assertTrue(compose.onAllNodesWithText("Of which queue", substring = true).fetchSemanticsNodes().isEmpty())
+        assertTrue(compose.onAllNodesWithText("Decode thread", substring = true).fetchSemanticsNodes().isEmpty())
 
         now = 100_000_000L
         ran.keyDown()
         now = 112_000_000L
+        ran.decodeFinished(2_000_000L, 3L, superseded = false)
         ran.keyShown(103_000_000L, 110_000_000L)
+        now = 190_000_000L
+        ran.keyDown()
+        ran.decodeFinished(199_000_000L, 41L, superseded = true)
         now = 200_000_000L
         ran.keyDown()
         now = 260_000_000L
+        ran.decodeFinished(6_500_000L, 12L, superseded = false)
         ran.keyShown(210_000_000L, 240_000_000L)
         now = 300_000_000L
         ran.keyDown()
         now = 350_000_000L
+        ran.decodeFinished(1_000_000L, 0L, superseded = false)
         ran.keyShown(305_000_000L, 345_000_000L)
         compose.mainClock.advanceTimeBy(1_100L)
         compose.waitForIdle()
@@ -421,13 +429,44 @@ class NeuralDownloadCardTest {
         )
         compose.onNodeWithText(parts).assertExists()
         assertTrue(y(parts) > y(line))
-        assertTrue(y(contextLoad) > y(parts))
+        val thread = "Decode thread per key: disk page faults mean 14.0, max 41; CPU mean 52.1 ms, max 199.0 ms " +
+            "(4 decodes, 1 superseded by a newer key, CPU max 199.0 ms)"
+        assertEquals(
+            thread,
+            context.getString(
+                R.string.neural_card_key_decode_thread,
+                snap.meanKeyDecodeMajorFaults,
+                snap.maxKeyDecodeMajorFaults,
+                snap.meanKeyDecodeCpuMillis,
+                snap.maxKeyDecodeCpuMillis,
+                snap.keyDecodes,
+                snap.supersededDecodes,
+                snap.maxSupersededDecodeCpuMillis,
+            ),
+        )
+        compose.onNodeWithText(thread).assertExists()
+        assertTrue(y(thread) > y(parts))
+        assertTrue(y(contextLoad) > y(thread))
         val zh = context.createConfigurationContext(
             Configuration(context.resources.configuration).apply { setLocale(Locale.SIMPLIFIED_CHINESE) },
         )
         assertEquals(
             "按键到候选：平均 40 毫秒，最长 60 毫秒，超过 50 毫秒 1 次（共 3 键）",
             zh.getString(R.string.neural_card_key, snap.meanKeyMillis, snap.maxKeyMillis, snap.slowKeys, snap.keys),
+        )
+        assertEquals(
+            "解码线程每键：读盘缺页平均 14.0 次、最多 41 次，处理器平均 52.1 毫秒、最长 199.0 毫秒" +
+                "（共 4 次解码，其中被新按键顶替 1 次、处理器最长 199.0 毫秒）",
+            zh.getString(
+                R.string.neural_card_key_decode_thread,
+                snap.meanKeyDecodeMajorFaults,
+                snap.maxKeyDecodeMajorFaults,
+                snap.meanKeyDecodeCpuMillis,
+                snap.maxKeyDecodeCpuMillis,
+                snap.keyDecodes,
+                snap.supersededDecodes,
+                snap.maxSupersededDecodeCpuMillis,
+            ),
         )
         assertEquals(
             "其中排队平均 6 毫秒、最长 10 毫秒，解码平均 25 毫秒、最长 40 毫秒，显示平均 9 毫秒、最长 20 毫秒",

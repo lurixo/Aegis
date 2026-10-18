@@ -15,6 +15,7 @@
 
 package com.aegis.ime.neural
 
+import android.os.Debug
 import android.os.Process
 import java.util.concurrent.Executor
 import java.util.concurrent.TimeUnit
@@ -30,11 +31,15 @@ class NeuralReranker(
     private val schedule: (Long, () -> Unit) -> Unit,
     private val cpuMillis: () -> Long = Process::getElapsedCpuTime,
     private val majorFaults: () -> Long = ProcessStat::majorFaults,
+    private val threadCpuNanos: () -> Long = Debug::threadCpuTimeNanos,
+    private val threadMajorFaults: () -> Long = ProcessStat::threadMajorFaults,
     private val nanoTime: () -> Long = System::nanoTime,
 ) {
     enum class Phase { LOADING, READY, FAILED, CLOSED }
 
     class Choice(val best: String, val decoderBest: String)
+
+    class ThreadUsage(val cpuNanos: Long, val majorFaults: Long)
 
     class Snapshot(
         val phase: Phase,
@@ -68,6 +73,13 @@ class NeuralReranker(
         val maxKeyDecodeMillis: Long,
         val meanKeyDisplayMillis: Long,
         val maxKeyDisplayMillis: Long,
+        val meanKeyDecodeMajorFaults: Double,
+        val maxKeyDecodeMajorFaults: Long,
+        val meanKeyDecodeCpuMillis: Double,
+        val maxKeyDecodeCpuMillis: Double,
+        val keyDecodes: Int,
+        val supersededDecodes: Int,
+        val maxSupersededDecodeCpuMillis: Double,
         val warms: Int,
         val lastWarmMillis: Long,
         val meanWarmMillis: Long,
@@ -133,6 +145,13 @@ class NeuralReranker(
     private var maxKeyDecodeMillis = 0L
     private var totalKeyDisplayMillis = 0L
     private var maxKeyDisplayMillis = 0L
+    private var totalKeyDecodeMajorFaults = 0L
+    private var maxKeyDecodeMajorFaults = 0L
+    private var totalKeyDecodeCpuNanos = 0L
+    private var maxKeyDecodeCpuNanos = 0L
+    private var keyDecodes = 0
+    private var supersededDecodes = 0
+    private var maxSupersededDecodeCpuNanos = 0L
     private var warms = 0
     private var lastWarmMillis = 0L
     private var totalWarmMillis = 0L
@@ -353,6 +372,8 @@ class NeuralReranker(
 
     fun now(): Long = nanoTime()
 
+    fun threadUsage(): ThreadUsage = ThreadUsage(threadCpuNanos(), threadMajorFaults())
+
     fun keyDown() {
         val now = nanoTime()
         synchronized(statsLock) { keyAt = now }
@@ -382,6 +403,22 @@ class NeuralReranker(
             if (decoded - queued > maxKeyDecodeMillis) maxKeyDecodeMillis = decoded - queued
             totalKeyDisplayMillis += millis - decoded
             if (millis - decoded > maxKeyDisplayMillis) maxKeyDisplayMillis = millis - decoded
+        }
+    }
+
+    fun decodeFinished(cpuNanos: Long, majorFaults: Long, superseded: Boolean) {
+        synchronized(statsLock) {
+            val faults = majorFaults.coerceAtLeast(0L)
+            val cpu = cpuNanos.coerceAtLeast(0L)
+            keyDecodes++
+            totalKeyDecodeMajorFaults += faults
+            if (faults > maxKeyDecodeMajorFaults) maxKeyDecodeMajorFaults = faults
+            totalKeyDecodeCpuNanos += cpu
+            if (cpu > maxKeyDecodeCpuNanos) maxKeyDecodeCpuNanos = cpu
+            if (superseded) {
+                supersededDecodes++
+                if (cpu > maxSupersededDecodeCpuNanos) maxSupersededDecodeCpuNanos = cpu
+            }
         }
     }
 
@@ -459,6 +496,13 @@ class NeuralReranker(
             maxKeyDecodeMillis = maxKeyDecodeMillis,
             meanKeyDisplayMillis = if (keys == 0) 0L else totalKeyDisplayMillis / keys,
             maxKeyDisplayMillis = maxKeyDisplayMillis,
+            meanKeyDecodeMajorFaults = if (keyDecodes == 0) 0.0 else totalKeyDecodeMajorFaults.toDouble() / keyDecodes,
+            maxKeyDecodeMajorFaults = maxKeyDecodeMajorFaults,
+            meanKeyDecodeCpuMillis = if (keyDecodes == 0) 0.0 else totalKeyDecodeCpuNanos.toDouble() / keyDecodes / NANOS_PER_MILLI,
+            maxKeyDecodeCpuMillis = maxKeyDecodeCpuNanos.toDouble() / NANOS_PER_MILLI,
+            keyDecodes = keyDecodes,
+            supersededDecodes = supersededDecodes,
+            maxSupersededDecodeCpuMillis = maxSupersededDecodeCpuNanos.toDouble() / NANOS_PER_MILLI,
             warms = warms,
             lastWarmMillis = lastWarmMillis,
             meanWarmMillis = if (warms == 0) 0L else totalWarmMillis / warms,
