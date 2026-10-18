@@ -35,7 +35,7 @@ class BuildInfoJsonTest {
     private val preRenameGramUrl =
         "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/wanxiang-lts-zh-hans.gram"
 
-    private val currentTables = listOf("zi", "jichu", "cuoyin", "duoyin", "diming", "mingren", "yiren", "renming")
+    private val currentTables = listOf("zi", "jichu", "cuoyin", "duoyin", "diming", "mingren", "yiren")
 
     private val preV1813Tables =
         listOf("zi", "jichu", "lianxiang", "cuoyin", "duoyin", "shici", "diming", "yixue", "huaxue", "yaopin", "mingren", "yiren", "wuzhong", "renming")
