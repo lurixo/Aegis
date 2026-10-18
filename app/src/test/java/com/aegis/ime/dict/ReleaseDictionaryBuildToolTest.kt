@@ -26,8 +26,11 @@ class ReleaseDictionaryBuildToolTest {
     fun releaseDictionaryToolBuildsLatestFullPackMetadataWithoutUploading() {
         val script = File("../tools/release/build_dictionary_pack.py").readText()
 
-        listOf("zi", "jichu", "lianxiang", "cuoyin", "duoyin", "shici", "diming", "yixue", "huaxue", "yaopin", "mingren", "yiren", "wuzhong", "renming").forEach {
+        listOf("zi", "jichu", "cuoyin", "duoyin", "diming", "mingren", "yiren", "renming").forEach {
             assertTrue("missing table $it", script.contains("\"$it\""))
+        }
+        listOf("lianxiang", "shici", "yixue", "huaxue", "yaopin", "wuzhong").forEach {
+            assertFalse("table $it is gone upstream since v18.1.3", script.contains("\"$it\""))
         }
         assertTrue(script.contains("\"--min-freq\""))
         assertTrue(script.contains("\"1\""))

@@ -23,17 +23,11 @@ from verify_toolchain import fixed_tool_environment, verify_toolchain
 TABLES = [
     "zi",
     "jichu",
-    "lianxiang",
     "cuoyin",
     "duoyin",
-    "shici",
     "diming",
-    "yixue",
-    "huaxue",
-    "yaopin",
     "mingren",
     "yiren",
-    "wuzhong",
     "renming",
 ]
 
@@ -87,7 +81,7 @@ def attribution_text(repo_https, source_tag, source_branch, source_commit, suppl
         f"  Upstream:  {repo_https}\n"
         f"             {ref}, commit {source_commit}\n"
         "\n"
-        f"  Source tables (14): {tables}\n"
+        f"  Source tables ({len(TABLES)}): {tables}\n"
         "\n"
         "Modifications by Aegis:\n"
         "  - tones stripped (the u-umlaut is written as v) and syllables concatenated\n"
