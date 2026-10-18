@@ -218,7 +218,7 @@ Aegis 自身代码为 **GPL-3.0**（见 [`LICENSE`](LICENSE)）。Aegis 采用**
 第 11 节、`tools/release/domain/sources.json` 以及每个词库包的 `NOTICE.txt` 中。**改动：**选取二至八个汉字的词条，读音为无调拼音，取自 rime-wanxiang 单字表或经其校验，统一赋予相同权重，剔除 14 张表已有的词，重新打包为 Aegis 的二进制格式；这些词条不进入 `aegis_lm.bin`。
 
 **万象八元语法模型**（`wanxiang-lts-zh-hans.gram`）—— © amzxyz，**CC BY 4.0**，见
-[RIME-LMDG](https://github.com/amzxyz/RIME-LMDG)。用于下一词和整句排序的可选顶层上下文模型；仅在明确选择时才下载，**不**打包进 APK。`OctagramReader`（Kotlin，GPL-3.0）是 Aegis 原创代码；其磁盘格式由 **librime-octagram**（GPL-3.0）与 **darts-clone** 净室逆向而得——未复制任何上游源码。
+[rime-wanxiang-data](https://github.com/amzxyz/rime-wanxiang-data)。用于下一词和整句排序的可选顶层上下文模型；仅在明确选择时才下载，**不**打包进 APK。`OctagramReader`（Kotlin，GPL-3.0）是 Aegis 原创代码；其磁盘格式由 **librime-octagram**（GPL-3.0）与 **darts-clone** 净室逆向而得——未复制任何上游源码。
 
 **OpenCC 数据**（`tools/t2s-data`）—— 繁转简与异体映射，**Apache-2.0**（见
 `tools/t2s-data/LICENSE-OpenCC` 与 `tools/t2s-data/PROVENANCE.md`）；仅在构建词库时使用。

@@ -75,10 +75,10 @@ class SettingsSlice1Test {
 
     @Test fun resource_update_sources_are_not_app_update_wiring() {
         assertEquals(
-            "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/${ModelDownload.GRAM_NAME}",
+            "https://github.com/amzxyz/rime-wanxiang-data/releases/download/LTS/${ModelDownload.GRAM_NAME}",
             ModelDownload.GRAM_URL,
         )
-        assertEquals("https://github.com/amzxyz/RIME-LMDG", ModelDownload.REPO_URL)
+        assertEquals("https://github.com/amzxyz/rime-wanxiang-data", ModelDownload.REPO_URL)
         assertEquals("dict-latest", ModelDownload.DICT_LATEST_TAG)
         assertEquals(
             "https://github.com/lurixo/Aegis/releases/download/dict-latest/aegis-dictionary-update.json",

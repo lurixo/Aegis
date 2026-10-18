@@ -57,7 +57,7 @@
 
     <string name="gram_card_title">增强模型（万象离线大模型）</string>
     <string name="gram_card_description">可选下载，中文候选更准</string>
-    <string name="gram_source_link">模型来源：amzxyz/RIME-LMDG ↗</string>
+    <string name="gram_source_link">模型来源：amzxyz/rime-wanxiang-data ↗</string>
     <string name="gram_status_enabled">✅ 已启用（约 %1$d MB）</string>
     <string name="gram_status_not_downloaded">⚠ 增强语法未启用</string>
     <string name="gram_status_download_failed">下载失败</string>

@@ -32,6 +32,9 @@ import java.security.MessageDigest
 @Config(sdk = [34])
 class BuildInfoJsonTest {
 
+    private val preRenameGramUrl =
+        "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/wanxiang-lts-zh-hans.gram"
+
     private val buildInfo: JSONObject by lazy {
         val path = System.getenv("AEGIS_BUILD_INFO")?.takeIf { it.isNotBlank() }
         if (System.getenv("AEGIS_DICTIONARY_RELEASE_VERIFY") == "1") {
@@ -142,7 +145,10 @@ class BuildInfoJsonTest {
         val asset = grammar.getJSONObject("physical_asset")
 
         assertEquals(ModelDownload.GRAM_NAME, asset.getString("name"))
-        assertEquals(ModelDownload.GRAM_URL, asset.getString("url"))
+        assertTrue(
+            asset.getString("url"),
+            asset.getString("url") in setOf(ModelDownload.GRAM_URL, preRenameGramUrl),
+        )
         assertFalse(asset.getString("url").endsWith(".apk"))
         assertTrue(asset.getString("sha256").matches(Regex("[0-9a-f]{64}")))
         assertTrue(asset.getLong("size_bytes") > 1024L)

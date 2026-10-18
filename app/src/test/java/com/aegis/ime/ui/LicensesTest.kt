@@ -76,7 +76,7 @@ class LicensesTest {
         for (needle in listOf(
             "rime-wanxiang", "amzxyz", "CC BY 4.0", "creativecommons.org/licenses/by/4.0",
             "aegis-build-info.json", "releases/tag/dict-latest", "character-bigram",
-            "RIME-LMDG", "OpenCC", "BYVoid", "Apache-2.0",
+            "amzxyz/rime-wanxiang-data", "OpenCC", "BYVoid", "Apache-2.0",
             "Unicode", "unicode.org/license",
             "通用规范汉字表", "State Council", "gov.cn/zwgk/2013-08/19/content_2469793", "aegis_tgh.bin",
             "AndroidX", "Compose", "Material 3", "Kotlin",
@@ -170,7 +170,7 @@ class LicensesTest {
 
     private val expectedLinks = listOf(
         R.string.license_wanxiang_name to "https://github.com/amzxyz/rime-wanxiang",
-        R.string.license_octagram_name to "https://github.com/amzxyz/RIME-LMDG",
+        R.string.license_octagram_name to "https://github.com/amzxyz/rime-wanxiang-data",
         R.string.license_qwen_name to "https://huggingface.co/Qwen/Qwen3-0.6B-Base",
         R.string.license_opencc_name to "https://github.com/BYVoid/OpenCC",
         R.string.license_emoji_name to "https://www.unicode.org/license.txt",

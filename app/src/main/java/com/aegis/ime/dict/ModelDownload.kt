@@ -33,9 +33,9 @@ import org.json.JSONObject
 object ModelDownload {
 
     const val GRAM_URL =
-        "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/wanxiang-lts-zh-hans.gram"
+        "https://github.com/amzxyz/rime-wanxiang-data/releases/download/LTS/wanxiang-lts-zh-hans.gram"
 
-    const val REPO_URL = "https://github.com/amzxyz/RIME-LMDG"
+    const val REPO_URL = "https://github.com/amzxyz/rime-wanxiang-data"
 
     const val GRAM_NAME = "wanxiang-lts-zh-hans.gram"
 

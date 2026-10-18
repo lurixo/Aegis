@@ -64,8 +64,8 @@ SUPPLEMENT_STATISTICS = (
     "added_rows",
 )
 GRAMMAR_NAME = "wanxiang-lts-zh-hans.gram"
-GRAMMAR_REPO_HTTPS = "https://github.com/amzxyz/RIME-LMDG"
-GRAMMAR_RELEASE_API = "https://api.github.com/repos/amzxyz/RIME-LMDG/releases/tags/LTS"
+GRAMMAR_REPO_HTTPS = "https://github.com/amzxyz/rime-wanxiang-data"
+GRAMMAR_RELEASE_API = "https://api.github.com/repos/amzxyz/rime-wanxiang-data/releases/tags/LTS"
 
 
 def attribution_text(repo_https, source_tag, source_branch, source_commit, supplement_sources=None):

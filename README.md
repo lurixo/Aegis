@@ -366,7 +366,7 @@ given the same weight, stripped of every word the 14 tables already contain, and
 Aegis's binary format; they do not feed `aegis_lm.bin`.
 
 **wanxiang octagram model** (`wanxiang-lts-zh-hans.gram`): (c) amzxyz, **CC BY 4.0**
-([RIME-LMDG](https://github.com/amzxyz/RIME-LMDG)). The optional top-tier context model behind next-word /
+([rime-wanxiang-data](https://github.com/amzxyz/rime-wanxiang-data)). The optional top-tier context model behind next-word /
 whole-sentence ranking; fetched only on explicit opt-in, **not** bundled in the APK.
 `OctagramReader` (Kotlin, GPL-3.0) is original Aegis code; its on-disk format was clean-room
 reverse-engineered from **librime-octagram** (GPL-3.0) + **darts-clone**; no upstream source copied.

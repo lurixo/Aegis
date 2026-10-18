@@ -690,6 +690,39 @@ class CommittedPinTest(unittest.TestCase):
             self.assertEqual(ftd.GRAMMAR_URL, grammar[0])
             self.assertGreater(grammar[3], 1024)
 
+    def test_a_grammar_pin_published_before_the_upstream_rename_resolves_to_the_current_url(self):
+        self.assertEqual(
+            f"https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/{ftd.GRAMMAR_NAME}",
+            ftd.PRE_RENAME_GRAMMAR_URL,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            document = self.build_info()
+            document["external_resource_references"][0]["physical_asset"]["url"] = ftd.PRE_RENAME_GRAMMAR_URL
+            info, problem = ftd.load_build_info(self.written(directory, document))
+            self.assertIsNone(problem)
+            grammar, grammar_problem = ftd.pinned_grammar(info)
+        self.assertIsNone(grammar_problem)
+        self.assertEqual(
+            (ftd.GRAMMAR_URL, self.GRAMMAR_PIN_SHA, ftd.GRAMMAR_NAME, self.GRAMMAR_SIZE), grammar
+        )
+
+    def test_a_grammar_pin_on_another_host_repository_or_scheme_is_refused(self):
+        for url in (
+            f"https://example.invalid/amzxyz/RIME-LMDG/releases/download/LTS/{ftd.GRAMMAR_NAME}",
+            f"https://github.com/amzxyz/other-data/releases/download/LTS/{ftd.GRAMMAR_NAME}",
+            f"https://github.com/someone/RIME-LMDG/releases/download/LTS/{ftd.GRAMMAR_NAME}",
+            f"http://github.com/amzxyz/RIME-LMDG/releases/download/LTS/{ftd.GRAMMAR_NAME}",
+            f"http://github.com/amzxyz/rime-wanxiang-data/releases/download/LTS/{ftd.GRAMMAR_NAME}",
+            f"https://github.com/amzxyz/RIME-LMDG/releases/download/OTHER/{ftd.GRAMMAR_NAME}",
+            "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/other.gram",
+        ):
+            with self.subTest(url=url):
+                document = self.build_info()
+                document["external_resource_references"][0]["physical_asset"]["url"] = url
+                grammar, problem = ftd.pinned_grammar(document)
+                self.assertIsNone(grammar)
+                self.assertRegex(problem, "not the expected LTS asset")
+
 
 class FixedInputsTest(unittest.TestCase):
     def fixture(self, directory):

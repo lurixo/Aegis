@@ -40,7 +40,7 @@ APK is the sentence-reranking scorer, which statically links llama.cpp (section 
 
 - **Copyright:** © amzxyz
 - **License:** CC BY 4.0 — <https://creativecommons.org/licenses/by/4.0/> (full text in Appendix B)
-- **Source:** <https://github.com/amzxyz/RIME-LMDG> (`wanxiang-lts-zh-hans.gram`; the
+- **Source:** <https://github.com/amzxyz/rime-wanxiang-data> (`wanxiang-lts-zh-hans.gram`; the
   publication-time reference is recorded in release build-info; verification records the current
   LTS identity separately in `grammar-lock.json`)
 - **Used in:** the optional top-tier context model behind next-word / whole-sentence ranking. Fetched

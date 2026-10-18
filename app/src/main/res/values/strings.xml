@@ -57,7 +57,7 @@
 
     <string name="gram_card_title">Enhancement model (Wanxiang offline model)</string>
     <string name="gram_card_description">Optional download — Chinese candidates become more accurate</string>
-    <string name="gram_source_link">Model source: amzxyz/RIME-LMDG ↗</string>
+    <string name="gram_source_link">Model source: amzxyz/rime-wanxiang-data ↗</string>
     <string name="gram_status_enabled">✅ Enabled (about %1$d MB)</string>
     <string name="gram_status_not_downloaded">⚠ Enhanced grammar is not enabled</string>
     <string name="gram_status_download_failed">Download failed</string>

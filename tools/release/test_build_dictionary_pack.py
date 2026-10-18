@@ -965,15 +965,15 @@ class GrammarReferenceTest(unittest.TestCase):
     def test_rejects_an_asset_served_by_another_host(self):
         for url in [
             f"https://example.test/releases/download/LTS/{bp.GRAMMAR_NAME}",
-            f"https://github.com.example.test/amzxyz/RIME-LMDG/releases/download/LTS/{bp.GRAMMAR_NAME}",
-            f"https://github.com/attacker/RIME-LMDG/releases/download/LTS/{bp.GRAMMAR_NAME}",
+            f"https://github.com.example.test/amzxyz/rime-wanxiang-data/releases/download/LTS/{bp.GRAMMAR_NAME}",
+            f"https://github.com/attacker/rime-wanxiang-data/releases/download/LTS/{bp.GRAMMAR_NAME}",
         ]:
             with self.assertRaises(ValueError):
                 bp.grammar_reference(self.release(url=url))
 
     def test_rejects_an_asset_url_that_is_not_https(self):
         for scheme in ["http", "ftp"]:
-            url = f"{scheme}://github.com/amzxyz/RIME-LMDG/releases/download/LTS/{bp.GRAMMAR_NAME}"
+            url = f"{scheme}://github.com/amzxyz/rime-wanxiang-data/releases/download/LTS/{bp.GRAMMAR_NAME}"
             with self.assertRaises(ValueError):
                 bp.grammar_reference(self.release(url=url))
 
@@ -989,10 +989,10 @@ class GrammarReferenceTest(unittest.TestCase):
 
     def test_rejects_a_release_page_served_by_another_host(self):
         for release_url in [
-            "https://example.test/amzxyz/RIME-LMDG/releases/tag/LTS",
-            "https://github.com.example.test/amzxyz/RIME-LMDG/releases/tag/LTS",
-            "https://github.com/attacker/RIME-LMDG/releases/tag/LTS",
-            "http://github.com/amzxyz/RIME-LMDG/releases/tag/LTS",
+            "https://example.test/amzxyz/rime-wanxiang-data/releases/tag/LTS",
+            "https://github.com.example.test/amzxyz/rime-wanxiang-data/releases/tag/LTS",
+            "https://github.com/attacker/rime-wanxiang-data/releases/tag/LTS",
+            "http://github.com/amzxyz/rime-wanxiang-data/releases/tag/LTS",
         ]:
             with self.assertRaises(ValueError):
                 bp.grammar_reference(self.release(release_url=release_url))
