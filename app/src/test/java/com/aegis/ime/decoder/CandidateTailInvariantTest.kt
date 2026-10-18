@@ -287,7 +287,7 @@ class CandidateTailInvariantTest {
             "silian", "sili", "qijia",
         )
 
-        val FREQUENT_PREFIX_ENTRIES = listOf("李大" to "lidan", "李密" to "limin", "李丽" to "lilian")
+        val FREQUENT_PREFIX_ENTRIES = listOf("李大" to "lidan", "粒米" to "limin", "莉莉" to "lilian")
 
         val PREFIX_ENTRIES = listOf(
             "死练" to "silianxi",
