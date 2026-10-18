@@ -1998,9 +1998,7 @@ class PinyinDecoder(
             }
         }
         if ((pruned || octagram != null || userLearning != null) && dp[q].size > BEAM_W) {
-            val keep = dp[q].entries
-                .sortedByDescending { it.value[0].score }
-                .take(BEAM_W)
+            val keep = topByDescending(dp[q].entries, BEAM_W) { it.value[0].score }
                 .map { it.key to it.value }
             dp[q].clear()
             for ((state, cells) in keep) dp[q][state] = cells
@@ -2258,6 +2256,28 @@ class PinyinDecoder(
         val INITIALS_FREQ_DISCOUNT = exp(-INITIALS_PENALTY)
         const val DEFAULT_CONTEXT_WEIGHT = 1.0
         fun completionCap(limit: Int): Int = maxOf(1, (limit.toLong() * 2 / 3).toInt())
+
+        fun <T> topByDescending(items: Iterable<T>, n: Int, score: (T) -> Double): List<T> {
+            if (n <= 0) return emptyList()
+            val top = arrayOfNulls<Any>(n)
+            val scores = DoubleArray(n)
+            var size = 0
+            for (item in items) {
+                val s = score(item)
+                if (size == n && s.compareTo(scores[n - 1]) <= 0) continue
+                var at = if (size == n) n - 1 else size
+                while (at > 0 && scores[at - 1].compareTo(s) < 0) {
+                    top[at] = top[at - 1]
+                    scores[at] = scores[at - 1]
+                    at--
+                }
+                top[at] = item
+                scores[at] = s
+                if (size < n) size++
+            }
+            @Suppress("UNCHECKED_CAST")
+            return List(size) { top[it] as T }
+        }
         val INPUT_ALIASES = mapOf("en" to listOf("ng"))
         val T9_INPUT_ALIASES: Map<String, List<String>> =
             INPUT_ALIASES.entries.associate { (k, v) -> T9Pinyin.toT9(k) to v }
