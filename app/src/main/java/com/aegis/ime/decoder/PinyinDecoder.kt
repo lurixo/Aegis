@@ -411,7 +411,7 @@ class PinyinDecoder(
         }
         if (exactFull || out.size >= edgeN) return out
         val rules = fuzzyRules
-        if (rules.isNotEmpty() && fuzzyVariantInDict(dict, sub, rules, false)) {
+        if (rules.isNotEmpty() && cachedFuzzyVariantInDict(sub, rules, false)) {
             for (variant in cachedFuzzyVariants(sub, rules)) {
                 for (wf in preferredExact(dict, variant, edgeN + seen.size)) {
                     if (seen.add(wf.word)) out.add(Edge(wf.word, wf.freq, fuzzyPenalty))
@@ -728,17 +728,27 @@ class PinyinDecoder(
 
     private class VariantCache(val rules: Set<String>) {
         val variants = BoundedLru<String, List<String>>(VARIANT_CACHE_WEIGHT) { it.size + 1 }
+        val keyed = BoundedLru<String, Boolean>(VARIANT_CACHE_WEIGHT) { 1 }
+        val prefixed = BoundedLru<String, Boolean>(VARIANT_CACHE_WEIGHT) { 1 }
     }
 
     @Volatile private var variantCache: VariantCache? = null
 
-    private fun cachedFuzzyVariants(key: String, rules: Set<String>): List<String> {
+    private fun variantCache(rules: Set<String>): VariantCache {
         var cache = variantCache
         if (cache == null || cache.rules !== rules) {
             cache = VariantCache(rules)
             variantCache = cache
         }
-        return cache.variants.getOrPut(key) { fuzzyVariants(key, rules) }
+        return cache
+    }
+
+    private fun cachedFuzzyVariants(key: String, rules: Set<String>): List<String> =
+        variantCache(rules).variants.getOrPut(key) { fuzzyVariants(key, rules) }
+
+    private fun cachedFuzzyVariantInDict(key: String, rules: Set<String>, asPrefix: Boolean): Boolean {
+        val cache = variantCache(rules)
+        return (if (asPrefix) cache.prefixed else cache.keyed).getOrPut(key) { fuzzyVariantInDict(dict, key, rules, asPrefix) }
     }
 
     private class Norm(val clean: String, val cuts: Set<Int>, val origLen: IntArray, private val cleanLenAtOrig: IntArray) {
@@ -877,7 +887,7 @@ class PinyinDecoder(
             val source = input.take(candidate.coveredLen).replace("'", "")
             if (candidate.word in exact.getOrPut(source) { preferredExact(dict, source).mapTo(HashSet()) { it.word } }) return@map candidate
             val target = targets.getOrPut(source) {
-                if (!fuzzyVariantInDict(dict, source, rules, false)) return@getOrPut emptyMap()
+                if (!cachedFuzzyVariantInDict(source, rules, false)) return@getOrPut emptyMap()
                 buildMap {
                     for (variant in cachedFuzzyVariants(source, rules)) {
                         for (wf in preferredExact(dict, variant)) putIfAbsent(wf.word, variant)
@@ -932,7 +942,7 @@ class PinyinDecoder(
         for (uw in userWordsFor(input)) offer(BinaryDict.WordFreq(uw, userWordFreq(uw, input).toInt().coerceAtLeast(1)), 0.0)
         val fuzzyExactWords = HashSet<String>()
         val rules = fuzzyRules
-        if (rules.isNotEmpty() && fuzzyVariantInDict(dict, input, rules, true)) {
+        if (rules.isNotEmpty() && cachedFuzzyVariantInDict(input, rules, true)) {
             for (variant in cachedFuzzyVariants(input, rules)) {
                 DecodeCancellation.checkpoint()
                 for (wf in cachedExact(dict, variant)) {

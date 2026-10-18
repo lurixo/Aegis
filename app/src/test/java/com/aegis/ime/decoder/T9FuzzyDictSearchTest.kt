@@ -91,17 +91,19 @@ class T9FuzzyDictSearchTest {
         assertFalse(T9Pinyin.fuzzyVariantInDict("94a", setOf("zh"), t9, true))
     }
 
+    private val userModel = UserModel { 0L }.apply { recordWord("zanshi", "暂时", 1L, incrementCount = true) }
+
+    private fun decoder(rules: Set<String>, pruned: Boolean) = if (pruned) {
+        PinyinDecoder(
+            t9, userModel = userModel, fuzzyRules = rules,
+            fuzzyVariants = { s, r -> T9Pinyin.fuzzyVariants(s, r) },
+            fuzzyVariantInDict = { dict, s, r, asPrefix -> T9Pinyin.fuzzyVariantInDict(s, r, dict, asPrefix) },
+        )
+    } else {
+        PinyinDecoder(t9, userModel = userModel, fuzzyRules = rules, fuzzyVariants = { s, r -> T9Pinyin.fuzzyVariants(s, r) })
+    }
+
     @Test fun pruned_decoder_answers_like_the_unpruned_one() {
-        val userModel = UserModel { 0L }.apply { recordWord("zanshi", "暂时", 1L, incrementCount = true) }
-        fun decoder(rules: Set<String>, pruned: Boolean) = if (pruned) {
-            PinyinDecoder(
-                t9, userModel = userModel, fuzzyRules = rules,
-                fuzzyVariants = { s, r -> T9Pinyin.fuzzyVariants(s, r) },
-                fuzzyVariantInDict = { dict, s, r, asPrefix -> T9Pinyin.fuzzyVariantInDict(s, r, dict, asPrefix) },
-            )
-        } else {
-            PinyinDecoder(t9, userModel = userModel, fuzzyRules = rules, fuzzyVariants = { s, r -> T9Pinyin.fuzzyVariants(s, r) })
-        }
         for (rules in ruleSets) {
             val pruned = decoder(rules, true)
             val plain = decoder(rules, false)
@@ -110,6 +112,22 @@ class T9FuzzyDictSearchTest {
                 for (end in 1..d.length) for (context in listOf("", "实现")) {
                     val input = d.substring(0, end)
                     assertEquals("$rules $input after $context", plain.decodeCovered(input, LIMIT, context = context), pruned.decodeCovered(input, LIMIT, context = context))
+                }
+            }
+        }
+    }
+
+    @Test fun warm_pruned_decoder_follows_typing_erasing_and_rule_changes() {
+        val warm = decoder(ruleSets.first(), true)
+        for (rules in ruleSets + listOf(emptySet(), ruleSets.first())) {
+            warm.setFuzzyRules(rules)
+            val plain = decoder(rules, false)
+            for (source in listOf("zhongguoshixian", "shangbanxingqizhengzai", "zanshixiangku")) {
+                val d = T9Pinyin.toT9(source)
+                val n = d.length
+                for (end in (1..n) + (n - 1 downTo 1) + (2..n)) {
+                    val input = d.substring(0, end)
+                    assertEquals("$rules $input", plain.decodeCovered(input, LIMIT), warm.decodeCovered(input, LIMIT))
                 }
             }
         }
