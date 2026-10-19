@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "schema_name": "aegis.resource-build-info",
-  "generated_at": "2026-10-18T23:35:18Z",
+  "generated_at": "2026-10-19T07:17:21Z",
   "app": {
     "project": "Aegis",
     "repository": "https://github.com/lurixo/Aegis",
@@ -17,8 +17,8 @@
         "release_url": "https://github.com/lurixo/Aegis/releases/tag/dict-latest",
         "prerelease": false,
         "published_at": null,
-        "sha256": "c649e02e9144a5c973d84ec2bba3693ffd0cb2b36176e8f7a0161e97d04b6431",
-        "size_bytes": 81438659
+        "sha256": "b623e195036a91e7d9f39ff84eae11990625eb3df06e1fc4f1040841e0844371",
+        "size_bytes": 80562722
       },
       "source": {
         "repo": "https://github.com/amzxyz/rime-wanxiang",
@@ -83,274 +83,274 @@
         ],
         "supplement": {
           "name": "aegis-domain.dict.yaml",
-          "sha256": "7904cc18a10129b8fa92ca980069138acc1443e9f17fb1bfb0eb7178e2d20608",
-          "size_bytes": 7032355,
-          "rows_read": 205861,
-          "rows_rejected": 6,
+          "sha256": "0fd95068645950447563032ab14a5e83353b5db6aee69b7d425093bdfcd06afd",
+          "size_bytes": 6119243,
+          "rows_read": 181890,
+          "rows_rejected": 5,
           "duplicate_words": 50,
-          "duplicate_rows": 55,
+          "duplicate_rows": 51,
           "rows_folded": 0,
-          "added_words": 179218,
-          "added_rows": 205800,
+          "added_words": 179157,
+          "added_rows": 181834,
           "sources": [
             {
               "name": "ACG dictionary (soryu-ryouji/rime-acg)",
               "url": "https://github.com/soryu-ryouji/rime-acg",
               "license": "none stated (repository has no license)",
               "version": "2024-06-26",
-              "rows": 6487
+              "rows": 5859
             },
             {
               "name": "Blue Archive pinyin dictionary (ylhcqN/BlueArchive-PinyinDictionary)",
               "url": "https://github.com/ylhcqN/BlueArchive-PinyinDictionary",
               "license": "CC BY-NC (dictionary, per the repository README; no version stated); repository GPL-3.0",
               "version": "commit cb3c4d1a6b5c (2025-06-28)",
-              "rows": 170
+              "rows": 153
             },
             {
               "name": "CommunityDragon Teamfight Tactics data (cdragon/tft/zh_cn.json)",
               "url": "https://raw.communitydragon.org/latest/cdragon/tft/zh_cn.json",
               "license": "unknown",
               "version": "16.20.8248524+branch.releases-16-20.content.release",
-              "rows": 2311
+              "rows": 2063
             },
             {
               "name": "Counter-Strike 2 item names in Chinese (ByMykel/CSGO-API, public/api/zh-CN)",
               "url": "https://github.com/ByMykel/CSGO-API",
               "license": "MIT (repository license; the data comes from game files)",
               "version": "commit 911bf565d5a3 (2026-10-09)",
-              "rows": 2158
+              "rows": 1715
             },
             {
               "name": "Counter-Strike and Valorant dictionaries (xjkdev/RimeGameCellDicts)",
               "url": "https://github.com/xjkdev/RimeGameCellDicts",
               "license": "none stated (repository has no license)",
               "version": "commit 6c22306ce459 (2026-06-26)",
-              "rows": 137
+              "rows": 129
             },
             {
               "name": "GFwiki Girls' Frontline wiki page titles (gfwiki.org)",
               "url": "https://gfwiki.org/",
               "license": "CC BY-NC-SA 4.0",
               "version": "page titles fetched 2026-10-11 UTC",
-              "rows": 862
+              "rows": 758
             },
             {
               "name": "Game dictionaries (QZGao/rime-dictionaries)",
               "url": "https://github.com/QZGao/rime-dictionaries",
               "license": "MIT (repository license; coverage of the word lists unknown)",
               "version": "HEAD at download; repository last updated 2025-08-12",
-              "rows": 24594
+              "rows": 21474
             },
             {
               "name": "GameKee wiki entry tree for Arknights: Endfield (game alias zmd)",
               "url": "https://www.gamekee.com/v1/wiki/entry",
               "license": "unknown",
               "version": "entry tree fetched 2026-10-11 UTC",
-              "rows": 812
+              "rows": 708
             },
             {
               "name": "GameKee wiki entry tree for Where Winds Meet (Yanyun Shiliusheng; game alias yysls)",
               "url": "https://www.gamekee.com/v1/wiki/entry",
               "license": "unknown",
               "version": "entry tree fetched 2026-10-11 UTC",
-              "rows": 3598
+              "rows": 3244
             },
             {
               "name": "Genshin Impact word list (Mikachu2333/Genshin_Words)",
               "url": "https://github.com/Mikachu2333/Genshin_Words",
               "license": "none stated (repository has no license)",
               "version": "7.1.0",
-              "rows": 23045
+              "rows": 20182
             },
             {
               "name": "Genshin Impact, Zenless Zone Zero and Dota 2 dictionaries (AnLazyOtter/rime-dict-Otter)",
               "url": "https://github.com/AnLazyOtter/rime-dict-Otter",
               "license": "none stated (repository has no license)",
               "version": "HEAD at download; repository last updated 2026-09-21",
-              "rows": 14936
+              "rows": 13124
             },
             {
               "name": "Honkai: Star Rail BWIKI page titles (wiki.biligame.com/sr)",
               "url": "https://wiki.biligame.com/sr/",
               "license": "CC BY-NC-SA 4.0 (home page statement)",
               "version": "page titles fetched 2026-10-11 UTC",
-              "rows": 5878
+              "rows": 5049
             },
             {
               "name": "Honor of Kings official data files (herolist, item, ming, summoner)",
               "url": "https://pvp.qq.com/web201605/js/herolist.json",
               "license": "unknown",
               "version": "no version field; fetched 2026-10-11 UTC",
-              "rows": 793
+              "rows": 717
             },
             {
               "name": "Identity V BWIKI page titles (wiki.biligame.com/dwrg)",
               "url": "https://wiki.biligame.com/dwrg/",
               "license": "unknown",
               "version": "partial page title list fetched 2026-10-11 UTC",
-              "rows": 3366
+              "rows": 3081
             },
             {
               "name": "Love and Deepspace BWIKI page titles (wiki.biligame.com/lysk)",
               "url": "https://wiki.biligame.com/lysk/",
               "license": "CC BY-NC-SA 4.0 (home page statement)",
               "version": "page titles fetched 2026-10-11 UTC",
-              "rows": 6935
+              "rows": 6236
             },
             {
               "name": "Minecraft pinyin dictionary (NorthZeroD/minecraft-pinyin)",
               "url": "https://github.com/NorthZeroD/minecraft-pinyin",
               "license": "LGPL-3.0",
               "version": "commit d18966f2883b (2026-09-20)",
-              "rows": 2516
+              "rows": 2268
             },
             {
               "name": "Minecraft: Java Edition language file minecraft/lang/zh_cn.json",
               "url": "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
               "license": "unknown",
               "version": "26.3",
-              "rows": 2572
+              "rows": 2305
             },
             {
               "name": "Moegirlpedia dictionary (outloudvi/mw2fcitx, branch pkg-moegirl)",
               "url": "https://github.com/outloudvi/mw2fcitx",
               "license": "CC BY-NC-SA 3.0",
               "version": "20260911",
-              "rows": 107755
+              "rows": 95755
             },
             {
               "name": "Mooncell Fate/Grand Order wiki page titles (fgo.wiki)",
               "url": "https://fgo.wiki/",
               "license": "CC BY-NC-SA 4.0",
               "version": "page titles fetched 2026-10-11 UTC",
-              "rows": 3662
+              "rows": 3116
             },
             {
               "name": "Oxygen Not Included Wiki page titles (oxygennotincluded.wiki.gg/zh)",
               "url": "https://oxygennotincluded.wiki.gg/zh/",
               "license": "CC BY-NC-SA 4.0 (home page statement)",
               "version": "sitemap page titles fetched 2026-10-11 UTC",
-              "rows": 1214
+              "rows": 1052
             },
             {
               "name": "PRTS wiki dictionary (WantChane/fcitx5-pinyin-arknights)",
               "url": "https://github.com/WantChane/fcitx5-pinyin-arknights",
               "license": "CC BY-NC-SA 4.0 (dictionary data derived from prts.wiki, per the repository README)",
               "version": "v26.10.09.a6df2b",
-              "rows": 6986
+              "rows": 5966
             },
             {
               "name": "SchaleDB Blue Archive data (data/cn: students, items, localization)",
               "url": "https://schaledb.com/data/cn/students.min.json",
               "license": "unknown",
               "version": "no version field; fetched 2026-10-11 UTC",
-              "rows": 1976
+              "rows": 1717
             },
             {
               "name": "Sogou cell dictionaries: Danzai Paidui (id 175989)",
               "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=175989",
               "license": "unknown",
               "version": "latest dictionary update 2025-12-19",
-              "rows": 89
+              "rows": 83
             },
             {
               "name": "Sogou cell dictionaries: Douluo Dalu (id 76006, 30581, 116973)",
               "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=76006",
               "license": "unknown",
               "version": "latest dictionary update 2022-07-02",
-              "rows": 285
+              "rows": 264
             },
             {
               "name": "Sogou cell dictionaries: Doupo Cangqiong (id 73236, 35262)",
               "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=73236",
               "license": "unknown",
               "version": "latest dictionary update 2017-04-27",
-              "rows": 701
+              "rows": 644
             },
             {
               "name": "Sogou cell dictionaries: Fanren Xiuxian Zhuan (id 29987, 22730)",
               "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=29987",
               "license": "unknown",
               "version": "latest dictionary update 2012-04-21",
-              "rows": 1493
+              "rows": 1397
             },
             {
               "name": "Sogou cell dictionaries: Huoying Renzhe (id 51677, 14234, 15212)",
               "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=51677",
               "license": "unknown",
               "version": "latest dictionary update 2018-08-06",
-              "rows": 1347
+              "rows": 1188
             },
             {
               "name": "Sogou cell dictionaries: Huyao Xiao Hongniang (id 73756, 82865)",
               "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=73756",
               "license": "unknown",
               "version": "latest dictionary update 2018-03-17",
-              "rows": 107
+              "rows": 101
             },
             {
               "name": "Sogou cell dictionaries: Juedi Qiusheng: Ciji Zhanchang, the predecessor of Heping Jingying (id 84637, 82077)",
               "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=84637",
               "license": "unknown",
               "version": "latest dictionary update 2018-05-11",
-              "rows": 136
+              "rows": 101
             },
             {
               "name": "Sogou cell dictionaries: Luo Xiaohei Zhanji (id 104607)",
               "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=104607",
               "license": "unknown",
               "version": "latest dictionary update 2019-11-03",
-              "rows": 99
+              "rows": 96
             },
             {
               "name": "Sogou cell dictionaries: Menghuan Xiyou (id 15235, 14002, 12425)",
               "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=15235",
               "license": "unknown",
               "version": "latest dictionary update 2017-05-10",
-              "rows": 4232
+              "rows": 3798
             },
             {
               "name": "Sogou cell dictionaries: Mingri Fangzhou: Zhongmodi (id 177728, 176049)",
               "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=177728",
               "license": "unknown",
               "version": "latest dictionary update 2026-09-02",
-              "rows": 2020
+              "rows": 1753
             },
             {
               "name": "Sogou cell dictionaries: Modao Zushi (id 87994, 87217)",
               "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=87994",
               "license": "unknown",
               "version": "latest dictionary update 2022-11-22",
-              "rows": 110
+              "rows": 105
             },
             {
               "name": "Sogou cell dictionaries: Nishuihan (id 88130, 166196, 166124)",
               "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=88130",
               "license": "unknown",
               "version": "latest dictionary update 2023-08-22",
-              "rows": 527
+              "rows": 486
             },
             {
               "name": "Sogou cell dictionaries: Tianguan Cifu (id 133417)",
               "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=133417",
               "license": "unknown",
               "version": "latest dictionary update 2021-05-21",
-              "rows": 41
+              "rows": 40
             },
             {
               "name": "Sogou cell dictionaries: Tunshi Xingkong (id 154385)",
               "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=154385",
               "license": "unknown",
               "version": "latest dictionary update 2023-03-04",
-              "rows": 344
+              "rows": 307
             },
             {
               "name": "Sogou cell dictionaries: Wanmei Shijie (id 64813)",
               "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=64813",
               "license": "unknown",
               "version": "latest dictionary update 2016-08-03",
-              "rows": 22
+              "rows": 18
             },
             {
               "name": "Sogou cell dictionaries: Wu Liuqi (id 115531)",
@@ -364,42 +364,42 @@
               "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=80096",
               "license": "unknown",
               "version": "latest dictionary update 2017-12-04",
-              "rows": 71
+              "rows": 66
             },
             {
               "name": "Sogou cell dictionaries: Yongjie Wujian (id 135643, 165717)",
               "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=135643",
               "license": "unknown",
               "version": "latest dictionary update 2023-08-07",
-              "rows": 104
+              "rows": 94
             },
             {
               "name": "Sogou cell dictionaries: Zhenhunjie (id 85243)",
               "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=85243",
               "license": "unknown",
               "version": "latest dictionary update 2018-05-30",
-              "rows": 118
+              "rows": 103
             },
             {
               "name": "Sogou cell dictionaries: Zhetian (id 133327, 45298)",
               "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=133327",
               "license": "unknown",
               "version": "latest dictionary update 2021-05-19",
-              "rows": 770
+              "rows": 728
             },
             {
               "name": "Stardew Valley Wiki page titles (zh.stardewvalleywiki.com)",
               "url": "https://zh.stardewvalleywiki.com/",
               "license": "CC BY-NC-SA 3.0 (site API rights statement; the page footer states CC BY-SA 3.0)",
               "version": "page titles fetched 2026-10-11 UTC",
-              "rows": 1436
+              "rows": 1262
             },
             {
               "name": "Terraria Wiki page titles (terraria.wiki.gg/zh)",
               "url": "https://terraria.wiki.gg/zh/",
               "license": "CC BY-NC-SA 4.0 (page footer statement; pages created before 2022-03-14 are adapted from the Fandom Terraria Wiki)",
               "version": "sitemap page titles fetched 2026-10-11 UTC",
-              "rows": 2867
+              "rows": 2512
             }
           ]
         },
@@ -410,7 +410,7 @@
       "build": {
         "pack_state": "published",
         "builder_path": "tools/src/main/kotlin/com/aegis/tools/DictBuilder.kt",
-        "builder_commit": "252848435b147cad421fc0dabc9d52398fd8232f",
+        "builder_commit": "966aece3979206b3e93d97e7409ecaea4bd60deb",
         "builder_tree_dirty": false,
         "builder_tree_dirt": [],
         "tooling": {
@@ -521,24 +521,24 @@
             "zip_entry": "aegis_dict_full.bin",
             "runtime_name": "aegis_dict.bin",
             "kind": "dictionary",
-            "sha256": "8e4d12d758ebb0378437d2027466d16e13288d1c59413fb9251d3d5fc5279875",
-            "size_bytes": 80844756,
+            "sha256": "385bf63bbd225ab5d6c4cc08ec993c0f71ad18140467d36cc9400d0d5ada1487",
+            "size_bytes": 79567178,
             "key_type": "letter"
           },
           {
             "zip_entry": "aegis_t9_full.bin",
             "runtime_name": "aegis_t9.bin",
             "kind": "dictionary",
-            "sha256": "e18aa286ddd6802fdd43598545b3f6340bb9f6027b2a7c0e37754860e3972512",
-            "size_bytes": 76818271,
+            "sha256": "20bf22bbdbda04384e5ce23eeabc89fb5282e54a63396bc0b9b9cc9fa8fc009f",
+            "size_bytes": 75557835,
             "key_type": "digit"
           },
           {
             "zip_entry": "aegis_jianpin_full.bin",
             "runtime_name": "aegis_jianpin.bin",
             "kind": "dictionary",
-            "sha256": "9b81f0bcd893c0429bca5ecd825e8f338383bf8056523a8c2ebd8edd5e371f95",
-            "size_bytes": 48822501,
+            "sha256": "e75b623e0d1977710d4eb784ead8019a6a10056bc8693580f08217878be5b02d",
+            "size_bytes": 48350826,
             "key_type": "initials"
           },
           {
@@ -600,23 +600,23 @@
           },
           "binaries": {
             "aegis_dict_full.bin": {
-              "sha256_before": "440a12a824481d1902336b99c5505c8c760f95661689e604530e55d676b8d10d",
-              "sha256": "d3300b8a46027742d03f833a8d2a4ca94145a2c62937fe190cbe807621bab742",
-              "size_bytes": 80864970,
+              "sha256_before": "2d8e3a6c1c4b04348401d3a5b40746e2f6376ef27d43187d25b404ef95fda20e",
+              "sha256": "b8bdd6535d8dfd6a8c188c4ab66d910a071ec7e776a893a968b05e8f2251c88b",
+              "size_bytes": 79587392,
               "dropped_single_entries": 448,
               "preserved_by_unreachable_protection": 0
             },
             "aegis_t9_full.bin": {
-              "sha256_before": "dab68cb31a356b21ddd85cdca85212e31c36e3ecf3a8d5a8183ad285b293899c",
-              "sha256": "5a29bd06082faedfc56bcdbd6b274ab0cacf077d5e3cb5891f9e47a817c5e654",
-              "size_bytes": 76837925,
+              "sha256_before": "5a82ab7d0131d52815fe7a647659b3272a9bef532184be2dd26a13b8e748587b",
+              "sha256": "f80f69123cae6d87c857ebb4e26917518b1703e9be7a3455590573b759260a7a",
+              "size_bytes": 75577489,
               "dropped_single_entries": 434,
               "preserved_by_unreachable_protection": 0
             },
             "aegis_jianpin_full.bin": {
-              "sha256_before": "37c37aa9cc7f7dd3c5c7ca7ebace18163ee213826619e7e4542209d68610b883",
-              "sha256": "cc2a3604c3dd16040ff7046f20c25f67502c2124328111dd7f1cd49aab24eda6",
-              "size_bytes": 48839272,
+              "sha256_before": "c622cf14c39c33e29b7fdf15a728a7962ef076032b8f4b44b1e77cacac546d7e",
+              "sha256": "31a93a27417c8d8a5d32885824f362e5fcf4da2447db94bda3bd8b4da9dd51d8",
+              "size_bytes": 48367597,
               "dropped_single_entries": 354,
               "preserved_by_unreachable_protection": 0
             }
@@ -691,7 +691,7 @@
           }
         },
         "finalization": {
-          "builder_commit": "252848435b147cad421fc0dabc9d52398fd8232f",
+          "builder_commit": "966aece3979206b3e93d97e7409ecaea4bd60deb",
           "builder_path": "tools/release/build_dictionary_pack.py",
           "tooling_identity_sha256": "f2f86813e2ce6dc836830ed8f4b874f5aed210a520d58b7b246457328d284e1e"
         },
@@ -822,7 +822,7 @@
           },
           "postprocessor": {
             "name": "attach_english_table.py",
-            "sha256": "b4fa00385dafbc083560d45bff4eb44edd971d919e7ca99ff137a7711336b35c",
+            "sha256": "ee4a3fe895b5d91cd91522a903ca2888ca138308e67ec6a419dcf58436406515",
             "builder": {
               "name": "build_english_table.py",
               "sha256": "56c5ce891fa1ccba18435b413e7709273ee9ee8bb5228e4214c7dd1583db76cf"
@@ -849,10 +849,10 @@
         "release_tag": "LTS",
         "release_url": "https://github.com/amzxyz/rime-wanxiang-data/releases/tag/LTS",
         "prerelease": false,
-        "published_at": "2026-10-17T09:59:19Z",
-        "sha256": "1849e5e4acbdbfaf41fceeb86b739d5d0c85d574bd8a688562cba1e6beb78488",
-        "size_bytes": 398505004,
-        "github_asset_id": 650124920
+        "published_at": "2026-10-19T03:45:14Z",
+        "sha256": "9eedac1d836f3fdafb61b162035c8937253aedc106be40b2b957d9ab64e9ed89",
+        "size_bytes": 398497836,
+        "github_asset_id": 655157355
       },
       "source": {
         "repo": "https://github.com/amzxyz/rime-wanxiang-data",
