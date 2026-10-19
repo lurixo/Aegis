@@ -47,6 +47,7 @@ class LicensesTest {
 
     private val licenseNameIds = listOf(
         R.string.license_wanxiang_name,
+        R.string.license_domain_name,
         R.string.license_octagram_name,
         R.string.license_qwen_name,
         R.string.license_opencc_name,
@@ -132,6 +133,7 @@ class LicensesTest {
             "settings_about_licenses_title", "settings_about_licenses_desc",
             "licenses_page_title", "licenses_intro", "licenses_modified", "licenses_footer",
             "license_wanxiang_name", "license_wanxiang_note",
+            "license_domain_name", "license_domain_note",
             "license_octagram_name", "license_octagram_note",
             "license_qwen_name", "license_qwen_note",
             "license_opencc_name", "license_opencc_note",
@@ -170,6 +172,7 @@ class LicensesTest {
 
     private val expectedLinks = listOf(
         R.string.license_wanxiang_name to "https://github.com/amzxyz/rime-wanxiang",
+        R.string.license_domain_name to "https://github.com/lurixo/Aegis/blob/dev/THIRD_PARTY_LICENSES.md#11-community-game-and-anime-word-sources--licenses-vary-by-source",
         R.string.license_octagram_name to "https://github.com/amzxyz/rime-wanxiang-data",
         R.string.license_qwen_name to "https://huggingface.co/Qwen/Qwen3-0.6B-Base",
         R.string.license_opencc_name to "https://github.com/BYVoid/OpenCC",
