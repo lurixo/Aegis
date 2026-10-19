@@ -215,7 +215,7 @@ Aegis 自身代码为 **GPL-3.0**（见 [`LICENSE`](LICENSE)）。Aegis 采用**
 
 **社区游戏与动漫词源** —— `aegis_{dict,t9,jianpin}.bin` 还收录取自社区词库、wiki 页面标题与游戏数据文件的游戏与动漫词条，其中包括 [mw2fcitx](https://github.com/outloudvi/mw2fcitx) 发布的萌娘百科词库（**CC BY-NC-SA 3.0**），来自 PRTS、Mooncell、GFwiki、BWIKI、缺氧 Wiki 与泰拉瑞亚 Wiki 等 wiki 的词表和页面标题（**CC BY-NC-SA 4.0**，其中第五人格 BWIKI 的许可未能确认），星露谷物语 Wiki 的页面标题（站点 API 的权利声明为 **CC BY-NC-SA 3.0**，页脚写明 **CC BY-SA 3.0**），GitHub 上的 Rime 词库仓库，以及搜狗细胞词库。各来源许可不一，其中不少未声明或未能确认许可。
 每个来源的名称、URL、其声明的许可与所用版本，列在 [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md)
-第 11 节、`tools/release/domain/sources.json` 以及每个词库包的 `NOTICE.txt` 中。**改动：**选取二至八个汉字的词条，读音为无调拼音，取自 rime-wanxiang 单字表或经其校验，统一赋予相同权重，剔除 7 张表已有的词，重新打包为 Aegis 的二进制格式；这些词条不进入 `aegis_lm.bin`。
+第 11 节、`tools/release/domain/sources.json` 以及每个词库包的 `NOTICE.txt` 中。**改动：**选取二至八个汉字的词条，读音为无调拼音，取自 rime-wanxiang 单字表或经其校验，并与词条中包含的 rime-wanxiang 词条核对，剔除含 OpenCC 由日文汉字转出的 8 个生僻字形的词条，统一赋予相同权重，剔除 7 张表已有的词，重新打包为 Aegis 的二进制格式；这些词条不进入 `aegis_lm.bin`。
 
 **万象八元语法模型**（`wanxiang-lts-zh-hans.gram`）—— © amzxyz，**CC BY 4.0**，见
 [rime-wanxiang-data](https://github.com/amzxyz/rime-wanxiang-data)。用于下一词和整句排序的可选顶层上下文模型；仅在明确选择时才下载，**不**打包进 APK。`OctagramReader`（Kotlin，GPL-3.0）是 Aegis 原创代码；其磁盘格式由 **librime-octagram**（GPL-3.0）与 **darts-clone** 净室逆向而得——未复制任何上游源码。

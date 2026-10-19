@@ -203,7 +203,9 @@ APK is the sentence-reranking scorer, which statically links llama.cpp (section 
   no license text to reproduce.
 - **Modifications:** Aegis selected entries of two to eight Chinese characters from each source, gave
   them toneless pinyin readings drawn from or checked against the rime-wanxiang character table
-  (section 1) rather than taken from the source, and assigned every entry the same weight.
+  and the rime-wanxiang words they contain (section 1) rather than taken from the source, left out
+  the entries written with eight rare forms that OpenCC derives from Japanese kanji, and assigned
+  every entry the same weight.
   At build time every word the 7 tables of section 1 already contain is dropped and the rest is
   repacked into Aegis's own binary format.
 

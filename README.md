@@ -360,9 +360,10 @@ cell dictionaries. Licenses differ per source, and for many of them none is stat
 [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) (section 11),
 `tools/release/domain/sources.json` and each pack's `NOTICE.txt` list every source with its URL, the
 license it states and the version used. **Changes:** entries of two to eight Chinese characters
-selected, given toneless readings drawn from or checked against the rime-wanxiang character table,
-given the same weight, stripped of every word the 7 tables already contain, and repacked into
-Aegis's binary format; they do not feed `aegis_lm.bin`.
+selected, given toneless readings drawn from or checked against the rime-wanxiang character table
+and the rime-wanxiang words they contain, those written with eight rare forms that OpenCC derives
+from Japanese kanji left out, given the same weight, stripped of every word the 7 tables already
+contain, and repacked into Aegis's binary format; they do not feed `aegis_lm.bin`.
 
 **wanxiang octagram model** (`wanxiang-lts-zh-hans.gram`): (c) amzxyz, **CC BY 4.0**
 ([rime-wanxiang-data](https://github.com/amzxyz/rime-wanxiang-data)). The optional top-tier context model behind next-word /
