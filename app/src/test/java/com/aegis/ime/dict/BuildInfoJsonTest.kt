@@ -37,9 +37,6 @@ class BuildInfoJsonTest {
 
     private val currentTables = listOf("zi", "jichu", "cuoyin", "duoyin", "diming", "mingren", "yiren")
 
-    private val preV1813Tables =
-        listOf("zi", "jichu", "lianxiang", "cuoyin", "duoyin", "shici", "diming", "yixue", "huaxue", "yaopin", "mingren", "yiren", "wuzhong", "renming")
-
     private val buildInfo: JSONObject by lazy {
         val path = System.getenv("AEGIS_BUILD_INFO")?.takeIf { it.isNotBlank() }
         if (System.getenv("AEGIS_DICTIONARY_RELEASE_VERIFY") == "1") {
@@ -83,10 +80,7 @@ class BuildInfoJsonTest {
         val tables = source.getJSONArray("tables")
         val actualTables = (0 until tables.length()).map { tables.getString(it) }
 
-        assertTrue(
-            "tables are the verified set or the one published before upstream v18.1.3: $actualTables",
-            actualTables == currentTables || actualTables == preV1813Tables,
-        )
+        assertEquals(currentTables, actualTables)
         assertEquals("tag", source.getString("ref_type"))
         assertTrue(source.getString("tag").matches(Regex("v[0-9]+\\.[0-9]+\\.[0-9]+")))
         assertTrue("branch is null when pinned to a tag", source.isNull("branch"))
