@@ -32,9 +32,6 @@ import java.security.MessageDigest
 @Config(sdk = [34])
 class BuildInfoJsonTest {
 
-    private val preRenameGramUrl =
-        "https://github.com/amzxyz/RIME-LMDG/releases/download/LTS/wanxiang-lts-zh-hans.gram"
-
     private val currentTables = listOf("zi", "jichu", "cuoyin", "duoyin", "diming", "mingren", "yiren")
 
     private val buildInfo: JSONObject by lazy {
@@ -144,10 +141,7 @@ class BuildInfoJsonTest {
         val asset = grammar.getJSONObject("physical_asset")
 
         assertEquals(ModelDownload.GRAM_NAME, asset.getString("name"))
-        assertTrue(
-            asset.getString("url"),
-            asset.getString("url") in setOf(ModelDownload.GRAM_URL, preRenameGramUrl),
-        )
+        assertEquals(ModelDownload.GRAM_URL, asset.getString("url"))
         assertFalse(asset.getString("url").endsWith(".apk"))
         assertTrue(asset.getString("sha256").matches(Regex("[0-9a-f]{64}")))
         assertTrue(asset.getLong("size_bytes") > 1024L)

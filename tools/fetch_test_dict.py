@@ -39,9 +39,6 @@ GRAMMAR_RELEASE_API = (
 GRAMMAR_URL = (
     f"https://github.com/amzxyz/rime-wanxiang-data/releases/download/{GRAMMAR_TAG}/{GRAMMAR_NAME}"
 )
-PRE_RENAME_GRAMMAR_URL = (
-    f"https://github.com/amzxyz/RIME-LMDG/releases/download/{GRAMMAR_TAG}/{GRAMMAR_NAME}"
-)
 BUILD_INFO_NAME = "aegis-build-info.json"
 BUILD_INFO_SCHEMA = "aegis.resource-build-info"
 PACK_NAME = f"aegis_dict_pack_{DICT_LATEST_TAG}.zip"
@@ -250,7 +247,7 @@ def pinned_grammar(info):
         return None, "it references no grammar model"
     sha256 = normalize_sha256(asset.get("sha256"))
     size = asset.get("size_bytes")
-    if asset.get("url") not in (GRAMMAR_URL, PRE_RENAME_GRAMMAR_URL) or sha256 is None:
+    if asset.get("url") != GRAMMAR_URL or sha256 is None:
         return None, f"its grammar reference is not the expected {GRAMMAR_TAG} asset"
     if isinstance(size, bool) or not isinstance(size, int) or size <= 1024:
         return None, "its grammar reference carries an invalid asset size"
