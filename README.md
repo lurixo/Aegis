@@ -281,7 +281,9 @@ a release tag instead, `--source-dir` to use an existing checkout — builds the
 with `tools/DictBuilder` at `--min-freq 1` and no per-key cap. It also merges the game and anime terms
 of `tools/release/domain/aegis-domain.dict.yaml` into the three Chinese dictionaries, though not into
 the language model, after dropping every word the 7 tables already contain; `sources.json` beside
-that table lists where the terms come from. It writes an **intermediate** pack ZIP,
+that table lists where the terms come from. Each source's `rows` counts the table rows, one per
+reading, of the terms that source contributes; a term from several sources counts once for each,
+so the counts add up to more than the table's rows. It writes an **intermediate** pack ZIP,
 `aegis-build-info.json`, and `aegis-dictionary-update.json` under `build/release-dictionary/`. The
 intermediate pack contains four runtime components — three Chinese dictionaries and the character
 language model — and **must not be published**.

@@ -175,7 +175,7 @@ tools/release/build_dictionary_pack.py --release-tag dict-latest
 ```
 
 该命令克隆 `amzxyz/rime-wanxiang`（默认取 `wanxiang` 分支，用 `--source-tag` 改为固定到某个
-release tag，或用 `--source-dir` 指定已有的本地目录），用 `tools/DictBuilder` 以 `--min-freq 1`、无每键上限构建 7 张已核验表，并把 `tools/release/domain/aegis-domain.dict.yaml` 中的游戏与动漫词条并入三个中文词库（不进入语言模型），并入前剔除 7 张表已有的词；这些词条的来源列在同目录的 `sources.json`。它在
+release tag，或用 `--source-dir` 指定已有的本地目录），用 `tools/DictBuilder` 以 `--min-freq 1`、无每键上限构建 7 张已核验表，并把 `tools/release/domain/aegis-domain.dict.yaml` 中的游戏与动漫词条并入三个中文词库（不进入语言模型），并入前剔除 7 张表已有的词；这些词条的来源列在同目录的 `sources.json`，其中每个来源的 `rows` 是该来源贡献的词在补充表中的行数（每个读音一行），同一个词来自多个来源时按来源各计一次，因此各来源之和大于补充表的总行数。它在
 `build/release-dictionary/` 下写出**中间态**词库包 ZIP、`aegis-build-info.json` 与
 `aegis-dictionary-update.json`。该中间包包含三个中文词库与字级语言模型共四个运行时组件，**绝对不得直接发布**。
 
