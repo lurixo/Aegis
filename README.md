@@ -173,7 +173,11 @@ browser; Aegis only hands it the address.
 - **Calculator:** type an expression and the candidate strip offers its result; `+ - * / × ÷`,
   parentheses, signs and `%` are understood.
 - **Copy bar:** text you just copied or cut is offered back above the keyboard, either whole or
-  split into pieces you pick from.
+  split into pieces you pick from. When it is a Chinese word of two to 32 characters, *Add to
+  dictionary* adds it to your words, asking which reading you mean when it has more than one; a
+  clipboard item's long-press menu offers the same.
+- **Backspace swipe:** swipe up on the backspace key to clear what you are composing, or the field's
+  text when nothing is being composed; swipe down to bring back the text just cleared.
 - **Encrypted backup:** export your user dictionary, auto learning, saved phrases, clipboard
   history including images, symbol history, emoji history and all settings into a single encrypted
   file
