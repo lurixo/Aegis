@@ -82,21 +82,25 @@ Menu names vary slightly by device, but the flow is the standard Android one:
 **English typing works straight away; Chinese needs one download first.** The APK carries no Chinese
 dictionary, and the keyboard never fetches the dictionary pack on its own. When you type Chinese with
 no pack installed, the candidate strip offers the download — a transfer into the app's private
-storage — and it starts only when you tap there, or on the dictionary
-card in the settings screen. An interrupted transfer resumes where it
+storage — and it starts only when you tap there, or on the *Full dictionary pack* card under
+**Settings → Dictionaries & downloads**; the settings home page shows the same hint until you
+dismiss it. An interrupted transfer resumes where it
 stopped, and the pack is checked against its SHA-256 before it is installed. Until it finishes,
 Chinese input stays locked, while English and every panel keep working.
 
-The settings screen additionally offers an **optional** enhancement model (the octagram
+The same page additionally offers an **optional** enhancement model (the octagram
 grammar) for sharper next-word and whole-sentence ranking, and an **optional** reranking model
 (Qwen3-0.6B-Base) that reorders whole-sentence candidates on the device once the enhancement model is
-installed; each is fetched only when you tap to start it. Once a file is installed, its card offers a
-check-for-updates button, and a check that finds a newer file continues straight into the download.
+installed; each is fetched only when you tap to start it. Once a file is installed, its card offers
+check-for-updates and delete buttons, and a check that finds a newer file continues straight into the
+download. The reranking model's card also shows whether the model is loaded and, once it has run,
+how long reranking takes.
 Beyond those three downloads, the update checks that go with them (a small metadata file for the
 dictionary and for the reranking model, a `HEAD` request for the enhancement model),
 and the translate bar — which sends only the text you type into that bar to Google Translate while
 it is open — Aegis's own code makes no network requests, and nothing Aegis does reaches the network
-unless you ask it to.
+unless you ask it to. The source links on the download cards and on the licenses page open in your
+browser; Aegis only hands it the address.
 
 ## Features
 
