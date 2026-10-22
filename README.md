@@ -150,8 +150,8 @@ browser; Aegis only hands it the address.
   travel, activities, objects, symbols), with skin-tone and gender variants and a lock toggle for
   picking several in a row.
 - **Clipboard history:** text and image clips are kept for reuse, with previews, per-item and batch
-  delete, select all, and clear. Images can be pasted into supported editors. The history can also
-  be switched off entirely.
+  delete, select all, and clear. Images can be pasted into supported editors. Recording can be
+  paused from the panel and resumed later.
 - **Saved phrases (常用语):** the *Phrases* tab of the clipboard panel keeps reusable phrases in
   categories you name, reorder and move between, each with an optional note, importable and
   exportable as a plain text file.
@@ -163,7 +163,7 @@ browser; Aegis only hands it the address.
   math, Greek, arrows, super/subscript, numbers, IPA, pinyin and vertical categories and a lock
   toggle; and a text-editing panel with cursor movement, document start/end, selection controls,
   undo, Tab, backspace, forward delete, copy, cut and paste. Copy and paste also work through the
-  Android system clipboard when history is off. Cutting retains the selected content before deleting
+  Android system clipboard while history is paused. Cutting retains the selected content before deleting
   it. Large text edits use bounded reads and replay, while supported web editors use their native
   editing commands. Undo availability depends on the editor and the operations it accepts.
 - **Custom symbols:** choose which punctuation sits in the 9-key side column and which operators sit
