@@ -339,8 +339,8 @@
     <string name="licenses_footer">完整许可全文随源码发布</string>
     <string name="license_wanxiang_name">rime-wanxiang 词库</string>
     <string name="license_wanxiang_note">可下载的中文词库，重打包为 Aegis 二进制格式</string>
-    <string name="license_domain_name">社区游戏与动漫词源</string>
-    <string name="license_domain_note">并入可下载词库的游戏与动漫词条，取自社区词库、wiki 页面标题与游戏数据；各来源及其许可列于 THIRD_PARTY_LICENSES.md 第 11 节</string>
+    <string name="license_domain_name">游戏、动漫与钢结构词源</string>
+    <string name="license_domain_note">并入可下载词库的游戏、动漫与钢结构词条，取自社区词库、wiki 标题、游戏数据、标准术语表与软件帮助标签；各来源及其许可列于 THIRD_PARTY_LICENSES.md 第 11 节</string>
     <string name="license_octagram_name">万象 octagram 模型</string>
     <string name="license_octagram_note">可选的下一词排序模型，按原样使用</string>
     <string name="license_qwen_name">千问 Qwen3-0.6B-Base 模型</string>

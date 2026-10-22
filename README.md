@@ -300,9 +300,9 @@ tools/release/build_dictionary_pack.py --release-tag dict-latest
 
 The command clones `amzxyz/rime-wanxiang` — the `wanxiang` branch by default, `--source-tag` to pin
 a release tag instead, `--source-dir` to use an existing checkout — builds the 7 verified tables
-with `tools/DictBuilder` at `--min-freq 1` and no per-key cap. It also merges the game and anime terms
-of `tools/release/domain/aegis-domain.dict.yaml` into the three Chinese dictionaries, though not into
-the language model, after dropping every word the 7 tables already contain; `sources.json` beside
+with `tools/DictBuilder` at `--min-freq 1` and no per-key cap. It also merges the game, anime and
+structural steel terms of `tools/release/domain/aegis-domain.dict.yaml` into the three Chinese
+dictionaries, though not into the language model, after dropping every word the 7 tables already contain; `sources.json` beside
 that table lists where the terms come from. Each source's `rows` counts the table rows, one per
 reading, of the terms that source contributes; a term from several sources counts once for each,
 so the counts add up to more than the table's rows. It writes an **intermediate** pack ZIP,
@@ -373,21 +373,24 @@ stripped (`ü` -> `v`), syllables concatenated into toneless keys, traditional/v
 to Simplified (OpenCC tables), repacked into Aegis's binary format; the pack keeps every entry
 (`--min-freq 1`).
 
-**Community game and anime word sources:** `aegis_{dict,t9,jianpin}.bin` also contain game and anime
-terms taken from community dictionaries, wiki page titles and game data files, among them the
-Moegirlpedia dictionary published by [mw2fcitx](https://github.com/outloudvi/mw2fcitx)
-(**CC BY-NC-SA 3.0**), word lists and page titles from the PRTS, Mooncell, GFwiki, BWIKI, Oxygen Not
-Included and Terraria wikis (**CC BY-NC-SA 4.0**, except the Identity V BWIKI, for which no license
-was confirmed), page titles from the Stardew Valley Wiki (**CC BY-NC-SA 3.0** in its site API rights
-statement, **CC BY-SA 3.0** in its page footer), Rime dictionary repositories on GitHub, and Sogou
-cell dictionaries. Licenses differ per source, and for many of them none is stated or confirmed.
+**Game, anime and structural steel word sources:** `aegis_{dict,t9,jianpin}.bin` also contain terms
+from community dictionaries, wiki titles, game data, standards term lists and software help titles
+and labels. These include the Moegirlpedia dictionary published by
+[mw2fcitx](https://github.com/outloudvi/mw2fcitx) (**CC BY-NC-SA 3.0**), Moegirlpedia articles and
+PRTS, Mooncell, GFwiki and selected BWIKI pages (**CC BY-NC-SA 4.0**), Chinese Wikipedia articles
+(**CC BY-SA 4.0**), PokeAPI data (**BSD-3-Clause** repository notice), Rime dictionaries and Sogou,
+QQ and Baidu cell dictionaries. Steel terms come from standards term lists and headings,
+Tekla Structures help titles and labels, cell dictionaries and a maintainer seed list. Licenses
+differ per source; many sources state none or have no confirmed license. HearthstoneJSON states
+CC0 for its website while reserving Blizzard's rights in the JSON game data. The Stardew Valley
+Wiki states **CC BY-NC-SA 3.0** in its site API and **CC BY-SA 3.0** in its footer.
 [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md) (section 11),
-`tools/release/domain/sources.json` and each pack's `NOTICE.txt` list every source with its URL, the
-license it states and the version used. **Changes:** entries of two to eight Chinese characters
-selected, given toneless readings drawn from or checked against the rime-wanxiang character table
-and the rime-wanxiang words they contain, those written with eight rare forms that OpenCC derives
-from Japanese kanji left out, given the same weight, stripped of every word the 7 tables already
-contain, and repacked into Aegis's binary format; they do not feed `aegis_lm.bin`.
+`tools/release/domain/sources.json` and each pack's `NOTICE.txt` record source URLs, stated licenses
+and versions. **Changes:** entries of two to eight Chinese characters selected, given toneless
+readings drawn from or checked against the rime-wanxiang character table and the rime-wanxiang
+words they contain, those written with eight rare forms that OpenCC derives from Japanese kanji
+left out, given the same weight, stripped of every word the 7 tables already contain, and repacked
+into Aegis's binary format; they do not feed `aegis_lm.bin`.
 
 **wanxiang octagram model** (`wanxiang-lts-zh-hans.gram`): (c) amzxyz, **CC BY 4.0**
 ([rime-wanxiang-data](https://github.com/amzxyz/rime-wanxiang-data)). The optional top-tier context model behind next-word /

@@ -41,7 +41,7 @@ private data class LicenseItem(
 
 private val LICENSE_ITEMS = listOf(
     LicenseItem(R.string.license_wanxiang_name, "amzxyz", "CC BY 4.0", "https://github.com/amzxyz/rime-wanxiang", R.string.license_wanxiang_note, modified = true),
-    LicenseItem(R.string.license_domain_name, "Various authors", "Varies by source", "https://github.com/lurixo/Aegis/blob/dev/THIRD_PARTY_LICENSES.md#11-community-game-and-anime-word-sources--licenses-vary-by-source", R.string.license_domain_note, modified = true),
+    LicenseItem(R.string.license_domain_name, "Various authors", "Varies by source", "https://github.com/lurixo/Aegis/blob/dev/THIRD_PARTY_LICENSES.md#11-game-anime-and-structural-steel-word-sources--licenses-vary-by-source", R.string.license_domain_note, modified = true),
     LicenseItem(R.string.license_octagram_name, "amzxyz", "CC BY 4.0", "https://github.com/amzxyz/rime-wanxiang-data", R.string.license_octagram_note, modified = false),
     LicenseItem(R.string.license_qwen_name, "Qwen Team", "Apache-2.0", "https://huggingface.co/Qwen/Qwen3-0.6B-Base", R.string.license_qwen_note, modified = true),
     LicenseItem(R.string.license_opencc_name, "BYVoid", "Apache-2.0", "https://github.com/BYVoid/OpenCC", R.string.license_opencc_note, modified = true),

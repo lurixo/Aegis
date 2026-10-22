@@ -177,7 +177,7 @@ tools/release/build_dictionary_pack.py --release-tag dict-latest
 ```
 
 该命令克隆 `amzxyz/rime-wanxiang`（默认取 `wanxiang` 分支，用 `--source-tag` 改为固定到某个
-release tag，或用 `--source-dir` 指定已有的本地目录），用 `tools/DictBuilder` 以 `--min-freq 1`、无每键上限构建 7 张已核验表，并把 `tools/release/domain/aegis-domain.dict.yaml` 中的游戏与动漫词条并入三个中文词库（不进入语言模型），并入前剔除 7 张表已有的词；这些词条的来源列在同目录的 `sources.json`，其中每个来源的 `rows` 是该来源贡献的词在补充表中的行数（每个读音一行），同一个词来自多个来源时按来源各计一次，因此各来源之和大于补充表的总行数。它在
+release tag，或用 `--source-dir` 指定已有的本地目录），用 `tools/DictBuilder` 以 `--min-freq 1`、无每键上限构建 7 张已核验表，并把 `tools/release/domain/aegis-domain.dict.yaml` 中的游戏、动漫与钢结构词条并入三个中文词库（不进入语言模型），并入前剔除 7 张表已有的词；这些词条的来源列在同目录的 `sources.json`，其中每个来源的 `rows` 是该来源贡献的词在补充表中的行数（每个读音一行），同一个词来自多个来源时按来源各计一次，因此各来源之和大于补充表的总行数。它在
 `build/release-dictionary/` 下写出**中间态**词库包 ZIP、`aegis-build-info.json` 与
 `aegis-dictionary-update.json`。该中间包包含三个中文词库与字级语言模型共四个运行时组件，**绝对不得直接发布**。
 
@@ -215,8 +215,8 @@ Aegis 自身代码为 **GPL-3.0**（见 [`LICENSE`](LICENSE)）。Aegis 采用**
 [rime-wanxiang](https://github.com/amzxyz/rime-wanxiang)。可下载的 `aegis_{dict,t9,jianpin}.bin`
 与 `aegis_lm.bin` 是 7 张表（字 基础 错音 多音 地名 名人 异体）的衍生物。**改动：**去声调（ü→v），音节拼接为无调键，繁体与异体归并到简体（OpenCC 表），重新打包为 Aegis 的二进制格式；词库包保留每一条（`--min-freq 1`）。
 
-**社区游戏与动漫词源** —— `aegis_{dict,t9,jianpin}.bin` 还收录取自社区词库、wiki 页面标题与游戏数据文件的游戏与动漫词条，其中包括 [mw2fcitx](https://github.com/outloudvi/mw2fcitx) 发布的萌娘百科词库（**CC BY-NC-SA 3.0**），来自 PRTS、Mooncell、GFwiki、BWIKI、缺氧 Wiki 与泰拉瑞亚 Wiki 等 wiki 的词表和页面标题（**CC BY-NC-SA 4.0**，其中第五人格 BWIKI 的许可未能确认），星露谷物语 Wiki 的页面标题（站点 API 的权利声明为 **CC BY-NC-SA 3.0**，页脚写明 **CC BY-SA 3.0**），GitHub 上的 Rime 词库仓库，以及搜狗细胞词库。各来源许可不一，其中不少未声明或未能确认许可。
-每个来源的名称、URL、其声明的许可与所用版本，列在 [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md)
+**游戏、动漫与钢结构词源** —— `aegis_{dict,t9,jianpin}.bin` 还收录取自社区词库、wiki 标题、游戏数据、标准术语表以及软件帮助标题与标签的词条，包括 [mw2fcitx](https://github.com/outloudvi/mw2fcitx) 发布的萌娘百科词库（**CC BY-NC-SA 3.0**）、萌娘百科文章及 PRTS、Mooncell、GFwiki 与部分 BWIKI 页面（**CC BY-NC-SA 4.0**）、中文维基百科文章（**CC BY-SA 4.0**）、PokeAPI 数据（仓库声明 **BSD-3-Clause**）、Rime 词库以及搜狗、QQ 和百度细胞词库。钢结构词条取自标准术语表与章节标题、Tekla Structures 帮助标题与标签、细胞词库及维护者种子词表。各来源许可不一，其中不少未声明或未能确认许可。HearthstoneJSON 对网站声明 CC0，同时保留 Blizzard 对 JSON 游戏数据的权利。星露谷物语 Wiki 的站点 API 声明 **CC BY-NC-SA 3.0**，页脚声明 **CC BY-SA 3.0**。
+每个来源的 URL、其声明的许可与所用版本，列在 [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md)
 第 11 节、`tools/release/domain/sources.json` 以及每个词库包的 `NOTICE.txt` 中。**改动：**选取二至八个汉字的词条，读音为无调拼音，取自 rime-wanxiang 单字表或经其校验，并与词条中包含的 rime-wanxiang 词条核对，剔除含 OpenCC 由日文汉字转出的 8 个生僻字形的词条，统一赋予相同权重，剔除 7 张表已有的词，重新打包为 Aegis 的二进制格式；这些词条不进入 `aegis_lm.bin`。
 
 **万象八元语法模型**（`wanxiang-lts-zh-hans.gram`）—— © amzxyz，**CC BY 4.0**，见

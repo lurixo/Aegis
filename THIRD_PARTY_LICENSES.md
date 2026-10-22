@@ -175,86 +175,139 @@ APK is the sentence-reranking scorer, which statically links llama.cpp (section 
   (`--outtype bf16`), then quantized to Q8_0 with `llama-quantize`. No fine-tuning or other change
   to the weights.
 
-## 11. Community game and anime word sources — licenses vary by source
+## 11. Game, anime and structural steel word sources — licenses vary by source
 
-- **Used in:** the downloadable dictionary pack — `aegis_{dict,t9,jianpin}.bin` also contain game and
-  anime terms (names of characters, works, places, items and the like) taken from the community
-  dictionaries, wiki page titles and game data files listed below. They do not contribute to
+- **Used in:** the downloadable dictionary pack — `aegis_{dict,t9,jianpin}.bin` also contain game,
+  anime and structural steel terms taken from the community dictionaries, wiki titles, game data,
+  standards term lists and software help titles and labels listed below. They do not contribute to
   `aegis_lm.bin` or `aegis_english.bin`, and nothing derived from them ships inside the APK.
-- **Source:** the merged table is `tools/release/domain/aegis-domain.dict.yaml`, and
-  `tools/release/domain/sources.json` beside it is the list the table below repeats. Each pack's
-  `NOTICE.txt` carries the same list, and the `aegis-build-info.json` of every pack built with the
-  table records its hash and row statistics under `source.supplement`.
-- **License:** differs per source; the License column gives what each source states. `unknown` means
-  no license statement was confirmed for that source, and `none stated` means its repository carries
-  no license. Several sources are under Creative Commons BY-NC-SA or BY-NC terms
-  (<https://creativecommons.org/licenses/by-nc-sa/4.0/>,
-  <https://creativecommons.org/licenses/by-nc-sa/3.0/>), which allow non-commercial use only and, for
-  BY-NC-SA, require adaptations to be shared under the same terms. The Stardew Valley Wiki states
-  two licenses, CC BY-NC-SA 3.0 in its site API rights statement and CC BY-SA 3.0
-  (<https://creativecommons.org/licenses/by-sa/3.0/>) in its page footer; both are recorded as
-  stated. Appendix F reproduces CC BY-NC-SA 4.0 and Appendix G the unported CC BY-NC-SA 3.0 (the
-  statements recorded for the two sources marked CC BY-NC-SA 3.0 name no jurisdiction version);
-  Appendix H reproduces LGPL-3.0, which builds on the GPL-3.0 text in [`LICENSE`](LICENSE);
-  Appendices I and J carry the notices of the two MIT-licensed repositories; Appendix K reproduces
-  the unported CC BY-SA 3.0 that the Stardew Valley Wiki page footer names. No text is reproduced
-  for the source marked CC BY-NC, because it names no license version (the GPL-3.0 its repository
-  carries is the text in `LICENSE`), nor for sources marked `unknown` or `none stated`, which have
-  no license text to reproduce.
-- **Modifications:** Aegis selected entries of two to eight Chinese characters from each source, gave
-  them toneless pinyin readings drawn from or checked against the rime-wanxiang character table
-  and the rime-wanxiang words they contain (section 1) rather than taken from the source, left out
-  the entries written with eight rare forms that OpenCC derives from Japanese kanji, and assigned
-  every entry the same weight.
-  At build time every word the 7 tables of section 1 already contain is dropped and the rest is
-  repacked into Aegis's own binary format.
+- **Source:** the merged table is `tools/release/domain/aegis-domain.dict.yaml`. The table below
+  records source provenance; `tools/release/domain/sources.json` beside the merged table records
+  the sources represented by its selected terms. Each pack's `NOTICE.txt` carries those sources,
+  and its `aegis-build-info.json` records the table hash and row statistics under `source.supplement`.
+- **License:** differs per source; the License column records the source's stated terms or the
+  absence of a confirmed statement. `unknown` means no license statement was confirmed;
+  `none stated` means the collected source or its repository states none. Neither label grants
+  permission. Sources marked CC BY-NC-SA or CC BY-NC carry non-commercial restrictions; BY-NC-SA
+  also requires adaptations to be shared under the same terms. Chinese Wikipedia text states
+  CC BY-SA 4.0 (<https://creativecommons.org/licenses/by-sa/4.0/>). The Stardew Valley Wiki states
+  CC BY-NC-SA 3.0 in its site API and CC BY-SA 3.0 in its footer; both statements are recorded.
+  Appendix F reproduces CC BY-NC-SA 4.0; Appendix G the unported CC BY-NC-SA 3.0; Appendix H
+  LGPL-3.0 (which builds on the GPL-3.0 text in [`LICENSE`](LICENSE)); Appendices I and J the two
+  MIT notices; Appendix K CC BY-SA 3.0; Appendix L the PokeAPI BSD-3-Clause notice; and Appendix M
+  CC BY-SA 4.0. The GPL-3.0 text also covers the JinChanChanTool repository's stated license.
+  The Blue Archive dictionary states CC BY-NC without a version, so no version-specific text is
+  reproduced for it. No license text is available for sources marked `unknown` or `none stated`.
+- **Source-specific statements:** HearthstoneJSON licenses its website CC0 while stating that the
+  JSON data is Copyright (c) Blizzard Entertainment, All Rights Reserved; the website statement
+  does not identify the game data as CC0. PokeAPI's notice states that Pokémon and Pokémon character
+  names are trademarks of Nintendo. The Baldur's Gate 3 glossary is extracted from the game's
+  Simplified Chinese localization files; its repository mentions CC BY-SA 4.0 and/or CC BY-NC-SA 4.0
+  for wiki translations but states no license for the glossary itself. The structural steel sources
+  provide term names, headings and UI labels, rather than standards definitions or help prose;
+  their licenses remain unconfirmed. The steel seed list has no external source document.
+- **Modifications:** Aegis selected entries of two to eight Chinese characters, gave them toneless
+  pinyin readings drawn from or checked against the rime-wanxiang character table and the
+  rime-wanxiang words they contain (section 1), left out entries written with eight rare forms that
+  OpenCC derives from Japanese kanji, and assigned every entry the same weight. At build time every
+  word the 7 tables of section 1 already contain is dropped and the rest is repacked into Aegis's
+  own binary format.
 
 | Source | URL | License | Version |
 | --- | --- | --- | --- |
 | ACG dictionary (soryu-ryouji/rime-acg) | <https://github.com/soryu-ryouji/rime-acg> | none stated (repository has no license) | 2024-06-26 |
+| Arena Breakout BWIKI page titles (wiki.biligame.com/aqtw) | <https://wiki.biligame.com/aqtw/> | none stated | page titles fetched 2026-10-22 UTC |
+| Azur Lane BWIKI page titles (wiki.biligame.com/blhx) | <https://wiki.biligame.com/blhx/> | none stated | page titles fetched 2026-10-22 UTC |
+| BWIKI wiki directory game names (wiki.biligame.com) | <https://wiki.biligame.com/wiki/%E9%A6%96%E9%A1%B5> | none stated | directory page fetched 2026-10-22 UTC |
+| Baidu input cell dictionary: Chuanyue Huoxian (CrossFire) (innerid 4206107674) | <https://shurufa.baidu.com/dict_innerid_download?innerid=4206107674> | unknown | dictionary update 2016-06-16 |
+| Baidu input cell dictionary: Jiegou Gongcheng Zhuanye Ciku (structural engineering, innerid 2000133; steel subset) | <https://shurufa.baidu.com/dict_innerid_download?innerid=2000133> | unknown | dictionary update 2015-07-10 |
+| Baldur's Gate 3 English-Chinese glossary (jimbozhang/bg3-wiki-zh GLOSSARY.md) | <https://github.com/jimbozhang/bg3-wiki-zh> | none stated (repository has no license; terms are extracted from the game's Simplified Chinese localization files) | commit 66bdfd40f7af (2026-09-16) |
+| Black Myth: Wukong BWIKI page titles (wiki.biligame.com/wukong) | <https://wiki.biligame.com/wukong/> | none stated | page titles fetched 2026-10-22 UTC |
 | Blue Archive pinyin dictionary (ylhcqN/BlueArchive-PinyinDictionary) | <https://github.com/ylhcqN/BlueArchive-PinyinDictionary> | CC BY-NC (dictionary, per the repository README; no version stated); repository GPL-3.0 | commit cb3c4d1a6b5c (2025-06-28) |
+| Chinese Wikipedia anime character lists and season lists (zh.wikipedia.org: Spy x Family, Frieren, Fullmetal Alchemist, Kaiju No. 8, Yao-Chinese Folktales, One Piece, Bleach, Mushoku Tensei, 2025-2026 Japanese anime lists, 24 top-viewed summer/autumn 2026 TV anime) | <https://zh.wikipedia.org/> | CC BY-SA 4.0 | pages fetched 2026-10-22 UTC |
+| Chinese Wikipedia game articles and character lists (zh.wikipedia.org: Peacekeeper Elite, PUBG, Dream Star, Golden Spatula, Valorant, Honor of Kings, Elden Ring, Animal Crossing) | <https://zh.wikipedia.org/> | CC BY-SA 4.0 | pages fetched 2026-10-22 UTC |
+| CommunityDragon League of Legends data (rcp-be-lol-game-data zh_cn: champions, skins, items, perks, summoner spells, universes, arena augments) | <https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/zh_cn/v1/> | none stated | 16.21.8298620+branch.releases-16-21.content.release (latest/content-metadata.json) |
 | CommunityDragon Teamfight Tactics data (cdragon/tft/zh_cn.json) | <https://raw.communitydragon.org/latest/cdragon/tft/zh_cn.json> | unknown | 16.20.8248524+branch.releases-16-20.content.release |
 | Counter-Strike 2 item names in Chinese (ByMykel/CSGO-API, public/api/zh-CN) | <https://github.com/ByMykel/CSGO-API> | MIT (repository license; the data comes from game files) | commit 911bf565d5a3 (2026-10-09) |
 | Counter-Strike and Valorant dictionaries (xjkdev/RimeGameCellDicts) | <https://github.com/xjkdev/RimeGameCellDicts> | none stated (repository has no license) | commit 6c22306ce459 (2026-06-26) |
+| Elden Ring BWIKI page titles (wiki.biligame.com/eldenring) | <https://wiki.biligame.com/eldenring/> | none stated | page titles fetched 2026-10-22 UTC |
+| FFXIV Chinese client data (thewakingsands/ffxiv-datamining-cn: place, race, tribe, class, NPC, mount, minion, duty, item, action names) | <https://github.com/thewakingsands/ffxiv-datamining-cn> | none stated (repository has no license) | commit 2c6741cffe3c (2026-10-13) |
 | GFwiki Girls' Frontline wiki page titles (gfwiki.org) | <https://gfwiki.org/> | CC BY-NC-SA 4.0 | page titles fetched 2026-10-11 UTC |
 | Game dictionaries (QZGao/rime-dictionaries) | <https://github.com/QZGao/rime-dictionaries> | MIT (repository license; coverage of the word lists unknown) | HEAD at download; repository last updated 2025-08-12 |
 | GameKee wiki entry tree for Arknights: Endfield (game alias zmd) | <https://www.gamekee.com/v1/wiki/entry> | unknown | entry tree fetched 2026-10-11 UTC |
 | GameKee wiki entry tree for Where Winds Meet (Yanyun Shiliusheng; game alias yysls) | <https://www.gamekee.com/v1/wiki/entry> | unknown | entry tree fetched 2026-10-11 UTC |
+| Genshin Impact BWIKI page titles (wiki.biligame.com/ys) | <https://wiki.biligame.com/ys/> | CC BY-NC-SA 4.0 (home page statement) | page titles fetched 2026-10-11 UTC |
 | Genshin Impact word list (Mikachu2333/Genshin_Words) | <https://github.com/Mikachu2333/Genshin_Words> | none stated (repository has no license) | 7.1.0 |
 | Genshin Impact, Zenless Zone Zero and Dota 2 dictionaries (AnLazyOtter/rime-dict-Otter) | <https://github.com/AnLazyOtter/rime-dict-Otter> | none stated (repository has no license) | HEAD at download; repository last updated 2026-09-21 |
+| Golden Spatula official site season configuration (jcc.qq.com/data-js/basicConfig.js) | <https://jcc.qq.com/data-js/basicConfig.js> | unknown | fetched 2026-10-22 UTC (current season S19) |
+| Hearthstone BWIKI page titles (wiki.biligame.com/hearthstone) | <https://wiki.biligame.com/hearthstone/> | none stated | page titles fetched 2026-10-22 UTC |
+| HearthstoneJSON collectible cards (zhCN) | <https://api.hearthstonejson.com/v1/latest/zhCN/cards.collectible.json> | HearthstoneJSON.com is licensed CC0. The JSON files contain data that is Copyright (c) Blizzard Entertainment - All Rights Reserved | latest; fetched 2026-10-22 UTC |
+| Honkai Impact 3rd BWIKI page titles (wiki.biligame.com/bh3) | <https://wiki.biligame.com/bh3/> | none stated | page titles fetched 2026-10-22 UTC |
 | Honkai: Star Rail BWIKI page titles (wiki.biligame.com/sr) | <https://wiki.biligame.com/sr/> | CC BY-NC-SA 4.0 (home page statement) | page titles fetched 2026-10-11 UTC |
 | Honor of Kings official data files (herolist, item, ming, summoner) | <https://pvp.qq.com/web201605/js/herolist.json> | unknown | no version field; fetched 2026-10-11 UTC |
-| Identity V BWIKI page titles (wiki.biligame.com/dwrg) | <https://wiki.biligame.com/dwrg/> | unknown | partial page title list fetched 2026-10-11 UTC |
+| Identity V BWIKI page titles (wiki.biligame.com/dwrg) | <https://wiki.biligame.com/dwrg/> | none stated | page title list fetched 2026-10-11 to 2026-10-22 UTC |
+| Infinity Nikki BWIKI page titles (wiki.biligame.com/wxnn) | <https://wiki.biligame.com/wxnn/> | none stated | page titles fetched 2026-10-22 UTC |
+| Jian Lai encyclopedia headings (jianlai-wiki/jianlai) | <https://github.com/jianlai-wiki/jianlai> | none stated (repository has no license) | commit 31bf5c3d6125 (2020-01-06) |
+| JinChanChanTool Golden Spatula hero, trait and equipment data (XJYdemons/JinChanChanTool) | <https://github.com/XJYdemons/JinChanChanTool> | GPL-3.0 (repository license) | commit 11b0b556d540 (2026-09-26) |
+| League of Legends BWIKI page titles (wiki.biligame.com/lol) | <https://wiki.biligame.com/lol/> | none stated | page titles fetched 2026-10-22 UTC |
 | Love and Deepspace BWIKI page titles (wiki.biligame.com/lysk) | <https://wiki.biligame.com/lysk/> | CC BY-NC-SA 4.0 (home page statement) | page titles fetched 2026-10-11 UTC |
 | Minecraft pinyin dictionary (NorthZeroD/minecraft-pinyin) | <https://github.com/NorthZeroD/minecraft-pinyin> | LGPL-3.0 | commit d18966f2883b (2026-09-20) |
 | Minecraft: Java Edition language file minecraft/lang/zh_cn.json | <https://piston-meta.mojang.com/mc/game/version_manifest_v2.json> | unknown | 26.3 |
 | Moegirlpedia dictionary (outloudvi/mw2fcitx, branch pkg-moegirl) | <https://github.com/outloudvi/mw2fcitx> | CC BY-NC-SA 3.0 | 20260911 |
+| Moegirlpedia season anime lists, anime and game articles (zh.moegirl.org.cn: 2025-2026 Japanese TV anime season pages with cast lists, 134 anime and 27 game main articles) | <https://zh.moegirl.org.cn/> | CC BY-NC-SA 4.0 | pages fetched 2026-10-22 UTC |
 | Mooncell Fate/Grand Order wiki page titles (fgo.wiki) | <https://fgo.wiki/> | CC BY-NC-SA 4.0 | page titles fetched 2026-10-11 UTC |
 | Oxygen Not Included Wiki page titles (oxygennotincluded.wiki.gg/zh) | <https://oxygennotincluded.wiki.gg/zh/> | CC BY-NC-SA 4.0 (home page statement) | sitemap page titles fetched 2026-10-11 UTC |
 | PRTS wiki dictionary (WantChane/fcitx5-pinyin-arknights) | <https://github.com/WantChane/fcitx5-pinyin-arknights> | CC BY-NC-SA 4.0 (dictionary data derived from prts.wiki, per the repository README) | v26.10.09.a6df2b |
+| PUBG: Battlegrounds BWIKI page titles (wiki.biligame.com/pubg) | <https://wiki.biligame.com/pubg/> | none stated | page titles fetched 2026-10-22 UTC |
+| PokeAPI data CSVs, Simplified Chinese names (PokeAPI/pokeapi data/v2/csv) | <https://github.com/PokeAPI/pokeapi> | BSD-3-Clause (repository license) | commit 2bf639e55728 (2026-10-20) |
+| QQ Pinyin cell dictionaries: Guangyu (Sky: Children of the Light; id s158615, s124477) | <https://cdict.qq.pinyin.cn/detail?dict_id={s158615,s124477}> | none stated | s158615 updated 2023-02-10; s124477 updated 2022-09-15 |
+| Reverse: 1999 BWIKI page titles (wiki.biligame.com/reverse1999) | <https://wiki.biligame.com/reverse1999/> | none stated | page titles fetched 2026-10-22 UTC |
+| Roco Kingdom: World BWIKI page titles (wiki.biligame.com/nrc) | <https://wiki.biligame.com/nrc/> | none stated | page titles fetched 2026-10-22 UTC |
 | SchaleDB Blue Archive data (data/cn: students, items, localization) | <https://schaledb.com/data/cn/students.min.json> | unknown | no version field; fetched 2026-10-11 UTC |
+| Sky: Children of the Light BWIKI page titles (wiki.biligame.com/sky) | <https://wiki.biligame.com/sky/> | none stated | page titles fetched 2026-10-22 UTC |
+| Sogou cell dictionaries for steel structures (ids 74190, 70688, 132823, 30368, 10217, 15118; steel subset) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=74190> | unknown | latest dictionary update 2021-06-28 |
+| Sogou cell dictionaries: Aierdeng Fahuan (Elden Ring) (id 145767) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=145767> | unknown | latest dictionary update 2022-03-28 |
+| Sogou cell dictionaries: Bode zhi Men (Baldur's Gate, early series) (id 28656) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=28656> | unknown | latest dictionary update 2011-12-03 |
+| Sogou cell dictionaries: Chongfan Weilai: 1999 (Reverse: 1999) (id 168389, 160335) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=168389> | unknown | latest dictionary update 2026-01-15 |
+| Sogou cell dictionaries: Chuanyue Huoxian (CrossFire) (id 130523, 124357, 55361, 11149, 40712, 29931, 28391, 27919, 20619, 10220, 17542, 17511, 10570, 15267, 10755) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=130523> | unknown | latest dictionary update 2021-02-26 |
 | Sogou cell dictionaries: Danzai Paidui (id 175989) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=175989> | unknown | latest dictionary update 2025-12-19 |
+| Sogou cell dictionaries: Diwu Renge (Identity V) (id 83711) | <https://pinyin.sogou.com/d/dict/download_cell.php?id={83711}> | none stated | updated 2021-05-29 |
 | Sogou cell dictionaries: Douluo Dalu (id 76006, 30581, 116973) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=76006> | unknown | latest dictionary update 2022-07-02 |
 | Sogou cell dictionaries: Doupo Cangqiong (id 73236, 35262) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=73236> | unknown | latest dictionary update 2017-04-27 |
 | Sogou cell dictionaries: Fanren Xiuxian Zhuan (id 29987, 22730) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=29987> | unknown | latest dictionary update 2012-04-21 |
+| Sogou cell dictionaries: Guaiwu Lieren (Monster Hunter) (id 176761, 131857, 117399, 104301, 85703) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=176761> | unknown | latest dictionary update 2026-03-13 |
+| Sogou cell dictionaries: Haizeiwang (One Piece) (id 132585, 54873, 1637) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=132585> | unknown | latest dictionary update 2021-04-24 |
 | Sogou cell dictionaries: Huoying Renzhe (id 51677, 14234, 15212) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=51677> | unknown | latest dictionary update 2018-08-06 |
 | Sogou cell dictionaries: Huyao Xiao Hongniang (id 73756, 82865) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=73756> | unknown | latest dictionary update 2018-03-17 |
+| Sogou cell dictionaries: Jian Wang 3 (JX3 Online) (id 54030, 20628, 16542) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=54030> | unknown | latest dictionary update 2015-10-10 |
+| Sogou cell dictionaries: Jinchanchan zhi Zhan (Golden Spatula) (id 172302) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=172302> | unknown | latest dictionary update 2025-03-15 |
 | Sogou cell dictionaries: Juedi Qiusheng: Ciji Zhanchang, the predecessor of Heping Jingying (id 84637, 82077) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=84637> | unknown | latest dictionary update 2018-05-11 |
+| Sogou cell dictionaries: Lianyu Zhizuoren (Mr Love: Queen's Choice) (id 81172) | <https://pinyin.sogou.com/d/dict/download_cell.php?id={81172}> | none stated | updated 2018-01-10 |
 | Sogou cell dictionaries: Luo Xiaohei Zhanji (id 104607) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=104607> | unknown | latest dictionary update 2019-11-03 |
+| Sogou cell dictionaries: Luoke Wangguo (Roco Kingdom) (id 62445, 51655) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=62445> | unknown | latest dictionary update 2016-05-26 |
 | Sogou cell dictionaries: Menghuan Xiyou (id 15235, 14002, 12425) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=15235> | unknown | latest dictionary update 2017-05-10 |
 | Sogou cell dictionaries: Mingri Fangzhou: Zhongmodi (id 177728, 176049) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=177728> | unknown | latest dictionary update 2026-09-02 |
 | Sogou cell dictionaries: Modao Zushi (id 87994, 87217) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=87994> | unknown | latest dictionary update 2022-11-22 |
 | Sogou cell dictionaries: Nishuihan (id 88130, 166196, 166124) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=88130> | unknown | latest dictionary update 2023-08-22 |
+| Sogou cell dictionaries: Re: Cong Ling Kaishi de Yishijie Shenghuo (Re:Zero) (id 63607) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=63607> | unknown | latest dictionary update 2019-03-07 |
+| Sogou cell dictionaries: Sanjiaozhou Xingdong (Delta Force) (id 177368, 177369, 173912, 173865) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=177368> | unknown | latest dictionary update 2026-04-27 |
 | Sogou cell dictionaries: Tianguan Cifu (id 133417) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=133417> | unknown | latest dictionary update 2021-05-21 |
 | Sogou cell dictionaries: Tunshi Xingkong (id 154385) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=154385> | unknown | latest dictionary update 2023-03-04 |
+| Sogou cell dictionaries: Wangzhe Rongyao (Honor of Kings) (id 73918) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=73918> | unknown | latest dictionary update 2019-07-15 |
 | Sogou cell dictionaries: Wanmei Shijie (id 64813) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=64813> | unknown | latest dictionary update 2016-08-03 |
 | Sogou cell dictionaries: Wu Liuqi (id 115531) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=115531> | unknown | latest dictionary update 2020-03-19 |
+| Sogou cell dictionaries: Wuwei Qiyue (Valorant) (id 166657) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=166657> | unknown | latest dictionary update 2023-09-19 |
+| Sogou cell dictionaries: Yinyangshi (Onmyoji) (id 66902) | <https://pinyin.sogou.com/d/dict/download_cell.php?id={66902}> | none stated | updated 2020-03-10 |
 | Sogou cell dictionaries: Yiren Zhixia (id 80096) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=80096> | unknown | latest dictionary update 2017-12-04 |
 | Sogou cell dictionaries: Yongjie Wujian (id 135643, 165717) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=135643> | unknown | latest dictionary update 2023-08-07 |
 | Sogou cell dictionaries: Zhenhunjie (id 85243) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=85243> | unknown | latest dictionary update 2018-05-30 |
 | Sogou cell dictionaries: Zhetian (id 133327, 45298) | <https://pinyin.sogou.com/d/dict/download_cell.php?id=133327> | unknown | latest dictionary update 2021-05-19 |
 | Stardew Valley Wiki page titles (zh.stardewvalleywiki.com) | <https://zh.stardewvalleywiki.com/> | CC BY-NC-SA 3.0 (site API rights statement; the page footer states CC BY-SA 3.0) | page titles fetched 2026-10-11 UTC |
+| Steel structure seed words checked against rime-wanxiang | none (word list from a rime-wanxiang gap check by the maintainer) | not applicable (no external document) | 2026-10-22 |
+| Steel structure standards term tables and section headings (gongbiaoku.com book pages; GB 50205-2001 text) | <https://www.gongbiaoku.com/book/05i22689p4r> | unknown | 15 standards (GB 50017-2017, GB 50205-2020, GB 50661-2011, GB 50755-2012, T/CECS 606-2019 and others); fetched 2026-10-22 UTC |
+| Tekla Structures 2025 Simplified Chinese user assistance (navigation titles, component names, UI labels) | <https://support.tekla.com/zh-hans/doc/tekla-structures/2025/section_create_models> | unknown | Tekla Structures 2025 help pages fetched 2026-10-22 UTC |
 | Terraria Wiki page titles (terraria.wiki.gg/zh) | <https://terraria.wiki.gg/zh/> | CC BY-NC-SA 4.0 (page footer statement; pages created before 2022-03-14 are adapted from the Fandom Terraria Wiki) | sitemap page titles fetched 2026-10-11 UTC |
+| Umamusume: Pretty Derby BWIKI page titles (wiki.biligame.com/umamusume) | <https://wiki.biligame.com/umamusume/> | none stated | page titles fetched 2026-10-22 UTC |
 
 ## Other references (not vendored, no source copied)
 
@@ -2382,4 +2435,452 @@ Creative Commons Notice
     this trademark restriction does not form part of the License.
 
     Creative Commons may be contacted at https://creativecommons.org/.
+```
+
+## Appendix L — BSD 3-Clause License (PokeAPI)
+
+Copyright (c) © 2013–2023 Paul Hallett and PokéAPI contributors (https://github.com/PokeAPI/pokeapi#contributing). Pokémon and Pokémon character names are trademarks of Nintendo.
+
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
+
+* Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
+
+* Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
+
+* Neither the name of PokéAPI nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+## Appendix M — Creative Commons Attribution-ShareAlike 4.0 International (full text)
+
+```
+Attribution-ShareAlike 4.0 International
+
+=======================================================================
+
+Creative Commons Corporation ("Creative Commons") is not a law firm and
+does not provide legal services or legal advice. Distribution of
+Creative Commons public licenses does not create a lawyer-client or
+other relationship. Creative Commons makes its licenses and related
+information available on an "as-is" basis. Creative Commons gives no
+warranties regarding its licenses, any material licensed under their
+terms and conditions, or any related information. Creative Commons
+disclaims all liability for damages resulting from their use to the
+fullest extent possible.
+
+Using Creative Commons Public Licenses
+
+Creative Commons public licenses provide a standard set of terms and
+conditions that creators and other rights holders may use to share
+original works of authorship and other material subject to copyright
+and certain other rights specified in the public license below. The
+following considerations are for informational purposes only, are not
+exhaustive, and do not form part of our licenses.
+
+     Considerations for licensors: Our public licenses are
+     intended for use by those authorized to give the public
+     permission to use material in ways otherwise restricted by
+     copyright and certain other rights. Our licenses are
+     irrevocable. Licensors should read and understand the terms
+     and conditions of the license they choose before applying it.
+     Licensors should also secure all rights necessary before
+     applying our licenses so that the public can reuse the
+     material as expected. Licensors should clearly mark any
+     material not subject to the license. This includes other CC-
+     licensed material, or material used under an exception or
+     limitation to copyright. More considerations for licensors:
+    wiki.creativecommons.org/Considerations_for_licensors
+
+     Considerations for the public: By using one of our public
+     licenses, a licensor grants the public permission to use the
+     licensed material under specified terms and conditions. If
+     the licensor's permission is not necessary for any reason--for
+     example, because of any applicable exception or limitation to
+     copyright--then that use is not regulated by the license. Our
+     licenses grant only permissions under copyright and certain
+     other rights that a licensor has authority to grant. Use of
+     the licensed material may still be restricted for other
+     reasons, including because others have copyright or other
+     rights in the material. A licensor may make special requests,
+     such as asking that all changes be marked or described.
+     Although not required by our licenses, you are encouraged to
+     respect those requests where reasonable. More considerations
+     for the public:
+    wiki.creativecommons.org/Considerations_for_licensees
+
+=======================================================================
+
+Creative Commons Attribution-ShareAlike 4.0 International Public
+License
+
+By exercising the Licensed Rights (defined below), You accept and agree
+to be bound by the terms and conditions of this Creative Commons
+Attribution-ShareAlike 4.0 International Public License ("Public
+License"). To the extent this Public License may be interpreted as a
+contract, You are granted the Licensed Rights in consideration of Your
+acceptance of these terms and conditions, and the Licensor grants You
+such rights in consideration of benefits the Licensor receives from
+making the Licensed Material available under these terms and
+conditions.
+
+
+Section 1 -- Definitions.
+
+  a. Adapted Material means material subject to Copyright and Similar
+     Rights that is derived from or based upon the Licensed Material
+     and in which the Licensed Material is translated, altered,
+     arranged, transformed, or otherwise modified in a manner requiring
+     permission under the Copyright and Similar Rights held by the
+     Licensor. For purposes of this Public License, where the Licensed
+     Material is a musical work, performance, or sound recording,
+     Adapted Material is always produced where the Licensed Material is
+     synched in timed relation with a moving image.
+
+  b. Adapter's License means the license You apply to Your Copyright
+     and Similar Rights in Your contributions to Adapted Material in
+     accordance with the terms and conditions of this Public License.
+
+  c. BY-SA Compatible License means a license listed at
+     creativecommons.org/compatiblelicenses, approved by Creative
+     Commons as essentially the equivalent of this Public License.
+
+  d. Copyright and Similar Rights means copyright and/or similar rights
+     closely related to copyright including, without limitation,
+     performance, broadcast, sound recording, and Sui Generis Database
+     Rights, without regard to how the rights are labeled or
+     categorized. For purposes of this Public License, the rights
+     specified in Section 2(b)(1)-(2) are not Copyright and Similar
+     Rights.
+
+  e. Effective Technological Measures means those measures that, in the
+     absence of proper authority, may not be circumvented under laws
+     fulfilling obligations under Article 11 of the WIPO Copyright
+     Treaty adopted on December 20, 1996, and/or similar international
+     agreements.
+
+  f. Exceptions and Limitations means fair use, fair dealing, and/or
+     any other exception or limitation to Copyright and Similar Rights
+     that applies to Your use of the Licensed Material.
+
+  g. License Elements means the license attributes listed in the name
+     of a Creative Commons Public License. The License Elements of this
+     Public License are Attribution and ShareAlike.
+
+  h. Licensed Material means the artistic or literary work, database,
+     or other material to which the Licensor applied this Public
+     License.
+
+  i. Licensed Rights means the rights granted to You subject to the
+     terms and conditions of this Public License, which are limited to
+     all Copyright and Similar Rights that apply to Your use of the
+     Licensed Material and that the Licensor has authority to license.
+
+  j. Licensor means the individual(s) or entity(ies) granting rights
+     under this Public License.
+
+  k. Share means to provide material to the public by any means or
+     process that requires permission under the Licensed Rights, such
+     as reproduction, public display, public performance, distribution,
+     dissemination, communication, or importation, and to make material
+     available to the public including in ways that members of the
+     public may access the material from a place and at a time
+     individually chosen by them.
+
+  l. Sui Generis Database Rights means rights other than copyright
+     resulting from Directive 96/9/EC of the European Parliament and of
+     the Council of 11 March 1996 on the legal protection of databases,
+     as amended and/or succeeded, as well as other essentially
+     equivalent rights anywhere in the world.
+
+  m. You means the individual or entity exercising the Licensed Rights
+     under this Public License. Your has a corresponding meaning.
+
+
+Section 2 -- Scope.
+
+  a. License grant.
+
+       1. Subject to the terms and conditions of this Public License,
+          the Licensor hereby grants You a worldwide, royalty-free,
+          non-sublicensable, non-exclusive, irrevocable license to
+          exercise the Licensed Rights in the Licensed Material to:
+
+            a. reproduce and Share the Licensed Material, in whole or
+               in part; and
+
+            b. produce, reproduce, and Share Adapted Material.
+
+       2. Exceptions and Limitations. For the avoidance of doubt, where
+          Exceptions and Limitations apply to Your use, this Public
+          License does not apply, and You do not need to comply with
+          its terms and conditions.
+
+       3. Term. The term of this Public License is specified in Section
+          6(a).
+
+       4. Media and formats; technical modifications allowed. The
+          Licensor authorizes You to exercise the Licensed Rights in
+          all media and formats whether now known or hereafter created,
+          and to make technical modifications necessary to do so. The
+          Licensor waives and/or agrees not to assert any right or
+          authority to forbid You from making technical modifications
+          necessary to exercise the Licensed Rights, including
+          technical modifications necessary to circumvent Effective
+          Technological Measures. For purposes of this Public License,
+          simply making modifications authorized by this Section 2(a)
+          (4) never produces Adapted Material.
+
+       5. Downstream recipients.
+
+            a. Offer from the Licensor -- Licensed Material. Every
+               recipient of the Licensed Material automatically
+               receives an offer from the Licensor to exercise the
+               Licensed Rights under the terms and conditions of this
+               Public License.
+
+            b. Additional offer from the Licensor -- Adapted Material.
+               Every recipient of Adapted Material from You
+               automatically receives an offer from the Licensor to
+               exercise the Licensed Rights in the Adapted Material
+               under the conditions of the Adapter's License You apply.
+
+            c. No downstream restrictions. You may not offer or impose
+               any additional or different terms or conditions on, or
+               apply any Effective Technological Measures to, the
+               Licensed Material if doing so restricts exercise of the
+               Licensed Rights by any recipient of the Licensed
+               Material.
+
+       6. No endorsement. Nothing in this Public License constitutes or
+          may be construed as permission to assert or imply that You
+          are, or that Your use of the Licensed Material is, connected
+          with, or sponsored, endorsed, or granted official status by,
+          the Licensor or others designated to receive attribution as
+          provided in Section 3(a)(1)(A)(i).
+
+  b. Other rights.
+
+       1. Moral rights, such as the right of integrity, are not
+          licensed under this Public License, nor are publicity,
+          privacy, and/or other similar personality rights; however, to
+          the extent possible, the Licensor waives and/or agrees not to
+          assert any such rights held by the Licensor to the limited
+          extent necessary to allow You to exercise the Licensed
+          Rights, but not otherwise.
+
+       2. Patent and trademark rights are not licensed under this
+          Public License.
+
+       3. To the extent possible, the Licensor waives any right to
+          collect royalties from You for the exercise of the Licensed
+          Rights, whether directly or through a collecting society
+          under any voluntary or waivable statutory or compulsory
+          licensing scheme. In all other cases the Licensor expressly
+          reserves any right to collect such royalties.
+
+
+Section 3 -- License Conditions.
+
+Your exercise of the Licensed Rights is expressly made subject to the
+following conditions.
+
+  a. Attribution.
+
+       1. If You Share the Licensed Material (including in modified
+          form), You must:
+
+            a. retain the following if it is supplied by the Licensor
+               with the Licensed Material:
+
+                 i. identification of the creator(s) of the Licensed
+                    Material and any others designated to receive
+                    attribution, in any reasonable manner requested by
+                    the Licensor (including by pseudonym if
+                    designated);
+
+                ii. a copyright notice;
+
+               iii. a notice that refers to this Public License;
+
+                iv. a notice that refers to the disclaimer of
+                    warranties;
+
+                 v. a URI or hyperlink to the Licensed Material to the
+                    extent reasonably practicable;
+
+            b. indicate if You modified the Licensed Material and
+               retain an indication of any previous modifications; and
+
+            c. indicate the Licensed Material is licensed under this
+               Public License, and include the text of, or the URI or
+               hyperlink to, this Public License.
+
+       2. You may satisfy the conditions in Section 3(a)(1) in any
+          reasonable manner based on the medium, means, and context in
+          which You Share the Licensed Material. For example, it may be
+          reasonable to satisfy the conditions by providing a URI or
+          hyperlink to a resource that includes the required
+          information.
+
+       3. If requested by the Licensor, You must remove any of the
+          information required by Section 3(a)(1)(A) to the extent
+          reasonably practicable.
+
+  b. ShareAlike.
+
+     In addition to the conditions in Section 3(a), if You Share
+     Adapted Material You produce, the following conditions also apply.
+
+       1. The Adapter's License You apply must be a Creative Commons
+          license with the same License Elements, this version or
+          later, or a BY-SA Compatible License.
+
+       2. You must include the text of, or the URI or hyperlink to, the
+          Adapter's License You apply. You may satisfy this condition
+          in any reasonable manner based on the medium, means, and
+          context in which You Share Adapted Material.
+
+       3. You may not offer or impose any additional or different terms
+          or conditions on, or apply any Effective Technological
+          Measures to, Adapted Material that restrict exercise of the
+          rights granted under the Adapter's License You apply.
+
+
+Section 4 -- Sui Generis Database Rights.
+
+Where the Licensed Rights include Sui Generis Database Rights that
+apply to Your use of the Licensed Material:
+
+  a. for the avoidance of doubt, Section 2(a)(1) grants You the right
+     to extract, reuse, reproduce, and Share all or a substantial
+     portion of the contents of the database;
+
+  b. if You include all or a substantial portion of the database
+     contents in a database in which You have Sui Generis Database
+     Rights, then the database in which You have Sui Generis Database
+     Rights (but not its individual contents) is Adapted Material,
+     including for purposes of Section 3(b); and
+
+  c. You must comply with the conditions in Section 3(a) if You Share
+     all or a substantial portion of the contents of the database.
+
+For the avoidance of doubt, this Section 4 supplements and does not
+replace Your obligations under this Public License where the Licensed
+Rights include other Copyright and Similar Rights.
+
+
+Section 5 -- Disclaimer of Warranties and Limitation of Liability.
+
+  a. UNLESS OTHERWISE SEPARATELY UNDERTAKEN BY THE LICENSOR, TO THE
+     EXTENT POSSIBLE, THE LICENSOR OFFERS THE LICENSED MATERIAL AS-IS
+     AND AS-AVAILABLE, AND MAKES NO REPRESENTATIONS OR WARRANTIES OF
+     ANY KIND CONCERNING THE LICENSED MATERIAL, WHETHER EXPRESS,
+     IMPLIED, STATUTORY, OR OTHER. THIS INCLUDES, WITHOUT LIMITATION,
+     WARRANTIES OF TITLE, MERCHANTABILITY, FITNESS FOR A PARTICULAR
+     PURPOSE, NON-INFRINGEMENT, ABSENCE OF LATENT OR OTHER DEFECTS,
+     ACCURACY, OR THE PRESENCE OR ABSENCE OF ERRORS, WHETHER OR NOT
+     KNOWN OR DISCOVERABLE. WHERE DISCLAIMERS OF WARRANTIES ARE NOT
+     ALLOWED IN FULL OR IN PART, THIS DISCLAIMER MAY NOT APPLY TO YOU.
+
+  b. TO THE EXTENT POSSIBLE, IN NO EVENT WILL THE LICENSOR BE LIABLE
+     TO YOU ON ANY LEGAL THEORY (INCLUDING, WITHOUT LIMITATION,
+     NEGLIGENCE) OR OTHERWISE FOR ANY DIRECT, SPECIAL, INDIRECT,
+     INCIDENTAL, CONSEQUENTIAL, PUNITIVE, EXEMPLARY, OR OTHER LOSSES,
+     COSTS, EXPENSES, OR DAMAGES ARISING OUT OF THIS PUBLIC LICENSE OR
+     USE OF THE LICENSED MATERIAL, EVEN IF THE LICENSOR HAS BEEN
+     ADVISED OF THE POSSIBILITY OF SUCH LOSSES, COSTS, EXPENSES, OR
+     DAMAGES. WHERE A LIMITATION OF LIABILITY IS NOT ALLOWED IN FULL OR
+     IN PART, THIS LIMITATION MAY NOT APPLY TO YOU.
+
+  c. The disclaimer of warranties and limitation of liability provided
+     above shall be interpreted in a manner that, to the extent
+     possible, most closely approximates an absolute disclaimer and
+     waiver of all liability.
+
+
+Section 6 -- Term and Termination.
+
+  a. This Public License applies for the term of the Copyright and
+     Similar Rights licensed here. However, if You fail to comply with
+     this Public License, then Your rights under this Public License
+     terminate automatically.
+
+  b. Where Your right to use the Licensed Material has terminated under
+     Section 6(a), it reinstates:
+
+       1. automatically as of the date the violation is cured, provided
+          it is cured within 30 days of Your discovery of the
+          violation; or
+
+       2. upon express reinstatement by the Licensor.
+
+     For the avoidance of doubt, this Section 6(b) does not affect any
+     right the Licensor may have to seek remedies for Your violations
+     of this Public License.
+
+  c. For the avoidance of doubt, the Licensor may also offer the
+     Licensed Material under separate terms or conditions or stop
+     distributing the Licensed Material at any time; however, doing so
+     will not terminate this Public License.
+
+  d. Sections 1, 5, 6, 7, and 8 survive termination of this Public
+     License.
+
+
+Section 7 -- Other Terms and Conditions.
+
+  a. The Licensor shall not be bound by any additional or different
+     terms or conditions communicated by You unless expressly agreed.
+
+  b. Any arrangements, understandings, or agreements regarding the
+     Licensed Material not stated herein are separate from and
+     independent of the terms and conditions of this Public License.
+
+
+Section 8 -- Interpretation.
+
+  a. For the avoidance of doubt, this Public License does not, and
+     shall not be interpreted to, reduce, limit, restrict, or impose
+     conditions on any use of the Licensed Material that could lawfully
+     be made without permission under this Public License.
+
+  b. To the extent possible, if any provision of this Public License is
+     deemed unenforceable, it shall be automatically reformed to the
+     minimum extent necessary to make it enforceable. If the provision
+     cannot be reformed, it shall be severed from this Public License
+     without affecting the enforceability of the remaining terms and
+     conditions.
+
+  c. No term or condition of this Public License will be waived and no
+     failure to comply consented to unless expressly agreed to by the
+     Licensor.
+
+  d. Nothing in this Public License constitutes or may be interpreted
+     as a limitation upon, or waiver of, any privileges and immunities
+     that apply to the Licensor or You, including from the legal
+     processes of any jurisdiction or authority.
+
+
+=======================================================================
+
+Creative Commons is not a party to its public
+licenses. Notwithstanding, Creative Commons may elect to apply one of
+its public licenses to material it publishes and in those instances
+will be considered the “Licensor.” The text of the Creative Commons
+public licenses is dedicated to the public domain under the CC0 Public
+Domain Dedication. Except for the limited purpose of indicating that
+material is shared under a Creative Commons public license or as
+otherwise permitted by the Creative Commons policies published at
+creativecommons.org/policies, Creative Commons does not authorize the
+use of the trademark "Creative Commons" or any other trademark or logo
+of Creative Commons without its prior written consent including,
+without limitation, in connection with any unauthorized modifications
+to any of its public licenses or any other arrangements,
+understandings, or agreements concerning use of licensed material. For
+the avoidance of doubt, this paragraph does not form part of the
+public licenses.
+
+Creative Commons may be contacted at creativecommons.org.
 ```
