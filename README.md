@@ -105,20 +105,27 @@ browser; Aegis only hands it the address.
 ## Features
 
 - **Keyboards:** **26-key full pinyin**, **9-key T9** and an **English 26-key** layout, plus
-  **number**, **symbol** and **numeric-keypad** layouts, on a self-drawn View+Canvas keyboard. With
-  English suggestions on, typing on the English layout also gets word completions from the
-  English table in the dictionary pack. In landscape the keyboard keeps its portrait width and docks
-  to one side, so the app behind it stays reachable.
+  **number**, **symbol** and **numeric-keypad** layouts, on a self-drawn View+Canvas keyboard. The
+  toolbar's keyboard key switches among the three main layouts; keyboard settings choose which
+  pinyin keyboard Chinese input starts on and whether key labels follow Shift or always show upper
+  or lower case. With English suggestions on, typing on the English layout also gets word
+  completions from the English table in the dictionary pack. In landscape the keyboard keeps its
+  portrait width and docks to one side, so the app behind it stays reachable.
+- **Toolbar:** when the candidate strip has nothing to show, it turns into a toolbar with the Aegis
+  key (settings shortcuts), the emoji panel, the keyboard-layout panel, the text-editing panel, the
+  clipboard panel and the translate bar; the chevron at its end hides the keyboard.
 - **Key feedback:** mechanical keyboard sounds from nine switch recordings with adjustable volume,
-  key vibration in seven styles with adjustable strength, and an enlarged key-press preview that
-  can be turned on for the 9-key and 26-key layouts separately, all under keyboard settings.
+  key vibration in seven styles with adjustable strength, and an enlarged key-press preview, off
+  until you turn it on, with separate switches for the 9-key and 26-key layouts, all under keyboard
+  settings.
 - **Lattice Viterbi decoder:** over a memory-mapped dictionary, scored by unigram log-probability
   plus a **character-bigram** context model; with the enhancement model installed, a further
   next-word and whole-sentence reranking pass runs on top.
 - **Fuzzy pinyin:** twenty rules — initials `zh/z`, `ch/c`, `sh/s`, `n/l`, `f/h`, `l/r`, `k/g`;
   finals `ang/an`, `eng/en`, `ing/in`, `iang/ian`, `uang/uan`, `un/ong`, `on/ong`, `un/iong`,
   `eng/ong`, `an/ai`; whole syllables `hui/fei`, `hu/fu`, `huang/wang`. The master switch is off
-  until you turn it on, and each rule then has a switch of its own; changes take effect immediately.
+  until you turn it on, and each rule then has a switch of its own, with `zh/z`, `ch/c`, `sh/s`,
+  `ang/an`, `eng/en` and `ing/in` on to begin with; changes take effect immediately.
 - **Jianpin** (initials abbreviation): `zg` -> 中国, `bjdx` -> 北京大学.
 - **Syllable control:** on the 9-key keyboard a side column lists the readings for what you typed
   and locks the one you pick; picking a locked reading again offers the characters that share it.
@@ -174,8 +181,11 @@ browser; Aegis only hands it the address.
   and variant character forms from the upstream data are folded to their Simplified image (with
   frequency merging) when the dictionary pack is built, using the OpenCC tables in
   `tools/t2s-data`. That happens on the build host; no conversion table ships in the APK.
-- **Material 3** settings screens: input settings, keyboard settings, dictionaries & downloads, user
-  dictionary, data backup, about & enable, and an open-source licenses page.
+- **Material 3** settings screens: input settings (default input language, fuzzy pinyin,
+  suggestions, auto learning), keyboard settings (full pinyin keyboard, letter case, keyboard sound,
+  key vibration, key press preview, UI language), dictionaries & downloads, user dictionary, data
+  backup, about & enable, and an open-source licenses page. The UI language follows the system or is
+  set to Simplified Chinese or English, for the settings and the keyboard alike.
 
 ## Privacy & permissions
 
