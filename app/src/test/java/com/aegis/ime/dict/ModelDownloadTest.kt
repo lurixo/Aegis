@@ -166,8 +166,6 @@ class ModelDownloadTest {
         }
         ModelDownload.partFile(base).writeBytes(ByteArray(3_000))
         ModelDownload.dictPartFile(base).writeBytes(ByteArray(5_000))
-        File(downloaded, "aegis_dict_pack_debug13.zip").writeBytes(ByteArray(6_000))
-        File(downloaded, "aegis_dict_pack_debug13.zip.part").writeBytes(ByteArray(7_000))
         ModelDownload.DICT_PACK_FILES.forEach { name ->
             File(downloaded, "$name.part").writeBytes(ByteArray(1_500))
         }
@@ -185,8 +183,6 @@ class ModelDownloadTest {
         assertFalse(ModelDownload.partFile(base).exists())
         assertFalse(ModelDownload.dictZipFile(base).exists())
         assertFalse(ModelDownload.dictPartFile(base).exists())
-        assertFalse(File(downloaded, "aegis_dict_pack_debug13.zip").exists())
-        assertFalse(File(downloaded, "aegis_dict_pack_debug13.zip.part").exists())
         assertFalse(File(downloaded, "dict-install").exists())
 
         base.deleteRecursively()

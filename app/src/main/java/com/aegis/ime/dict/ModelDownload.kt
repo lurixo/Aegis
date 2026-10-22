@@ -455,7 +455,6 @@ object ModelDownload {
     const val DICT_NAME = "aegis_dict_pack.zip"
     internal const val DICT_INSTALLED_SHA_NAME = "aegis_dict_pack.sha256"
     internal const val DICT_PENDING_SHA_NAME = "aegis_dict_pack.pending.sha256"
-    private const val LEGACY_DICT_ZIP_NAME = "aegis_dict_pack_debug13.zip"
 
     const val LM_NAME = "aegis_lm.bin"
 
@@ -513,8 +512,6 @@ object ModelDownload {
     private fun downloadedDir(filesDir: File) = File(filesDir, "downloaded")
     fun dictZipFile(filesDir: File): File = File(downloadedDir(filesDir), DICT_NAME)
     fun dictPartFile(filesDir: File): File = File(downloadedDir(filesDir), "$DICT_NAME.part")
-    private fun legacyDictZipFile(filesDir: File): File = File(downloadedDir(filesDir), LEGACY_DICT_ZIP_NAME)
-    private fun legacyDictPartFile(filesDir: File): File = File(downloadedDir(filesDir), "$LEGACY_DICT_ZIP_NAME.part")
     private fun dictStagingDir(filesDir: File) = File(downloadedDir(filesDir), "dict-install")
     private fun dictBackupFile(filesDir: File, name: String) = File(downloadedDir(filesDir), "$name.backup")
     private fun dictInstalledShaFile(filesDir: File) = File(downloadedDir(filesDir), DICT_INSTALLED_SHA_NAME)
@@ -634,8 +631,6 @@ object ModelDownload {
             if (completeNewGeneration || recoveryRequired) dictZipFile(filesDir).delete()
             if (!dictZipFile(filesDir).exists()) clearPendingDictionarySha(filesDir)
             discardUnresumablePartial(dictPartFile(filesDir))
-            if (isDictDownloaded(filesDir)) legacyDictZipFile(filesDir).delete()
-            legacyDictPartFile(filesDir).delete()
         } finally {
             dictionaryRecoveryLock.unlock()
         }
@@ -646,8 +641,6 @@ object ModelDownload {
             reconcileInterruptedDownloads(filesDir)
             val key = filesDir.absolutePath
             val zip = dictZipFile(filesDir)
-            legacyDictZipFile(filesDir).delete()
-            legacyDictPartFile(filesDir).delete()
             if (!zip.exists()) return
             if (zip.absolutePath in inFlight || key in installingDicts) return
             recoveringDicts.add(key)
@@ -950,8 +943,6 @@ object ModelDownload {
             dictZipFile(filesDir).delete()
             dictPartFile(filesDir).delete()
             partMetaOf(dictPartFile(filesDir)).delete()
-            legacyDictZipFile(filesDir).delete()
-            legacyDictPartFile(filesDir).delete()
             deleteBundledDictCache(filesDir)
             return DICT_MANAGED_FILES.none {
                 File(downloadedDir(filesDir), it).exists() ||
@@ -964,9 +955,7 @@ object ModelDownload {
                 !dictStagingDir(filesDir).exists() &&
                 !dictZipFile(filesDir).exists() &&
                 !dictPartFile(filesDir).exists() &&
-                !partMetaOf(dictPartFile(filesDir)).exists() &&
-                !legacyDictZipFile(filesDir).exists() &&
-                !legacyDictPartFile(filesDir).exists()
+                !partMetaOf(dictPartFile(filesDir)).exists()
         } finally {
             dictionaryRecoveryLock.unlock()
         }
