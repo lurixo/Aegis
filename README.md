@@ -414,5 +414,6 @@ scope only, not distributed). Algorithm references (not vendored): AOSP PinyinIM
 darts-clone (BSD-2-Clause).
 
 The full list, with the modifications made to each work, is in
-[`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md); the app shows the same list, except the
-community word sources, under **Settings → About & enable → Open-source licenses**.
+[`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md); the app shows the same list under
+**Settings → About & enable → Open-source licenses**, where the community word sources are one entry
+that links to section 11 of that file.

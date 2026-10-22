@@ -239,4 +239,4 @@ Aegis 自身代码为 **GPL-3.0**（见 [`LICENSE`](LICENSE)）。Aegis 采用**
 darts-clone（BSD-2-Clause）。
 
 完整清单及各自的改动记录见 [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md)；应用内
-**设置 → 关于与启用 → 开源许可** 展示同一份清单（社区词源除外）。
+**设置 → 关于与启用 → 开源许可** 展示同一份清单，其中社区词源合为一项，链接到该文件第 11 节。
