@@ -4,307 +4,643 @@
     "url": "https://github.com/soryu-ryouji/rime-acg",
     "license": "none stated (repository has no license)",
     "version": "2024-06-26",
-    "rows": 5859
+    "rows": 9609
+  },
+  {
+    "name": "Arena Breakout BWIKI page titles (wiki.biligame.com/aqtw)",
+    "url": "https://wiki.biligame.com/aqtw/",
+    "license": "none stated",
+    "version": "page titles fetched 2026-10-22 UTC",
+    "rows": 35
+  },
+  {
+    "name": "Azur Lane BWIKI page titles (wiki.biligame.com/blhx)",
+    "url": "https://wiki.biligame.com/blhx/",
+    "license": "none stated",
+    "version": "page titles fetched 2026-10-22 UTC",
+    "rows": 4744
+  },
+  {
+    "name": "BWIKI wiki directory game names (wiki.biligame.com)",
+    "url": "https://wiki.biligame.com/wiki/%E9%A6%96%E9%A1%B5",
+    "license": "none stated",
+    "version": "directory page fetched 2026-10-22 UTC",
+    "rows": 957
+  },
+  {
+    "name": "Baidu input cell dictionary: Chuanyue Huoxian (CrossFire) (innerid 4206107674)",
+    "url": "https://shurufa.baidu.com/dict_innerid_download?innerid=4206107674",
+    "license": "unknown",
+    "version": "dictionary update 2016-06-16",
+    "rows": 432
+  },
+  {
+    "name": "Baidu input cell dictionary: Jiegou Gongcheng Zhuanye Ciku (structural engineering, innerid 2000133; steel subset)",
+    "url": "https://shurufa.baidu.com/dict_innerid_download?innerid=2000133",
+    "license": "unknown",
+    "version": "dictionary update 2015-07-10",
+    "rows": 5
+  },
+  {
+    "name": "Baldur's Gate 3 English-Chinese glossary (jimbozhang/bg3-wiki-zh GLOSSARY.md)",
+    "url": "https://github.com/jimbozhang/bg3-wiki-zh",
+    "license": "none stated (repository has no license; terms are extracted from the game's Simplified Chinese localization files)",
+    "version": "commit 66bdfd40f7af (2026-09-16)",
+    "rows": 3993
+  },
+  {
+    "name": "Black Myth: Wukong BWIKI page titles (wiki.biligame.com/wukong)",
+    "url": "https://wiki.biligame.com/wukong/",
+    "license": "none stated",
+    "version": "page titles fetched 2026-10-22 UTC",
+    "rows": 954
   },
   {
     "name": "Blue Archive pinyin dictionary (ylhcqN/BlueArchive-PinyinDictionary)",
     "url": "https://github.com/ylhcqN/BlueArchive-PinyinDictionary",
     "license": "CC BY-NC (dictionary, per the repository README; no version stated); repository GPL-3.0",
     "version": "commit cb3c4d1a6b5c (2025-06-28)",
-    "rows": 153
+    "rows": 265
+  },
+  {
+    "name": "Chinese Wikipedia anime character lists and season lists (zh.wikipedia.org: Spy x Family, Frieren, Fullmetal Alchemist, Kaiju No. 8, Yao-Chinese Folktales, One Piece, Bleach, Mushoku Tensei, 2025-2026 Japanese anime lists, 24 top-viewed summer/autumn 2026 TV anime)",
+    "url": "https://zh.wikipedia.org/",
+    "license": "CC BY-SA 4.0",
+    "version": "pages fetched 2026-10-22 UTC",
+    "rows": 2509
+  },
+  {
+    "name": "Chinese Wikipedia game articles and character lists (zh.wikipedia.org: Peacekeeper Elite, PUBG, Dream Star, Golden Spatula, Valorant, Honor of Kings, Elden Ring, Animal Crossing)",
+    "url": "https://zh.wikipedia.org/",
+    "license": "CC BY-SA 4.0",
+    "version": "pages fetched 2026-10-22 UTC",
+    "rows": 447
+  },
+  {
+    "name": "CommunityDragon League of Legends data (rcp-be-lol-game-data zh_cn: champions, skins, items, perks, summoner spells, universes, arena augments)",
+    "url": "https://raw.communitydragon.org/latest/plugins/rcp-be-lol-game-data/global/zh_cn/v1/",
+    "license": "none stated",
+    "version": "16.21.8298620+branch.releases-16-21.content.release (latest/content-metadata.json)",
+    "rows": 4080
   },
   {
     "name": "CommunityDragon Teamfight Tactics data (cdragon/tft/zh_cn.json)",
     "url": "https://raw.communitydragon.org/latest/cdragon/tft/zh_cn.json",
     "license": "unknown",
     "version": "16.20.8248524+branch.releases-16-20.content.release",
-    "rows": 2063
+    "rows": 2746
   },
   {
     "name": "Counter-Strike 2 item names in Chinese (ByMykel/CSGO-API, public/api/zh-CN)",
     "url": "https://github.com/ByMykel/CSGO-API",
     "license": "MIT (repository license; the data comes from game files)",
     "version": "commit 911bf565d5a3 (2026-10-09)",
-    "rows": 1715
+    "rows": 2655
   },
   {
     "name": "Counter-Strike and Valorant dictionaries (xjkdev/RimeGameCellDicts)",
     "url": "https://github.com/xjkdev/RimeGameCellDicts",
     "license": "none stated (repository has no license)",
     "version": "commit 6c22306ce459 (2026-06-26)",
-    "rows": 129
+    "rows": 214
+  },
+  {
+    "name": "Elden Ring BWIKI page titles (wiki.biligame.com/eldenring)",
+    "url": "https://wiki.biligame.com/eldenring/",
+    "license": "none stated",
+    "version": "page titles fetched 2026-10-22 UTC",
+    "rows": 1989
+  },
+  {
+    "name": "FFXIV Chinese client data (thewakingsands/ffxiv-datamining-cn: place, race, tribe, class, NPC, mount, minion, duty, item, action names)",
+    "url": "https://github.com/thewakingsands/ffxiv-datamining-cn",
+    "license": "none stated (repository has no license)",
+    "version": "commit 2c6741cffe3c (2026-10-13)",
+    "rows": 72875
   },
   {
     "name": "GFwiki Girls' Frontline wiki page titles (gfwiki.org)",
     "url": "https://gfwiki.org/",
     "license": "CC BY-NC-SA 4.0",
     "version": "page titles fetched 2026-10-11 UTC",
-    "rows": 758
+    "rows": 991
   },
   {
     "name": "Game dictionaries (QZGao/rime-dictionaries)",
     "url": "https://github.com/QZGao/rime-dictionaries",
     "license": "MIT (repository license; coverage of the word lists unknown)",
     "version": "HEAD at download; repository last updated 2025-08-12",
-    "rows": 21474
+    "rows": 25610
   },
   {
     "name": "GameKee wiki entry tree for Arknights: Endfield (game alias zmd)",
     "url": "https://www.gamekee.com/v1/wiki/entry",
     "license": "unknown",
     "version": "entry tree fetched 2026-10-11 UTC",
-    "rows": 708
+    "rows": 769
   },
   {
     "name": "GameKee wiki entry tree for Where Winds Meet (Yanyun Shiliusheng; game alias yysls)",
     "url": "https://www.gamekee.com/v1/wiki/entry",
     "license": "unknown",
     "version": "entry tree fetched 2026-10-11 UTC",
-    "rows": 3244
+    "rows": 4128
   },
   {
     "name": "Genshin Impact word list (Mikachu2333/Genshin_Words)",
     "url": "https://github.com/Mikachu2333/Genshin_Words",
     "license": "none stated (repository has no license)",
     "version": "7.1.0",
-    "rows": 20182
+    "rows": 21324
   },
   {
     "name": "Genshin Impact, Zenless Zone Zero and Dota 2 dictionaries (AnLazyOtter/rime-dict-Otter)",
     "url": "https://github.com/AnLazyOtter/rime-dict-Otter",
     "license": "none stated (repository has no license)",
     "version": "HEAD at download; repository last updated 2026-09-21",
-    "rows": 13124
+    "rows": 15287
+  },
+  {
+    "name": "Golden Spatula official site season configuration (jcc.qq.com/data-js/basicConfig.js)",
+    "url": "https://jcc.qq.com/data-js/basicConfig.js",
+    "license": "unknown",
+    "version": "fetched 2026-10-22 UTC (current season S19)",
+    "rows": 40
+  },
+  {
+    "name": "Hearthstone BWIKI page titles (wiki.biligame.com/hearthstone)",
+    "url": "https://wiki.biligame.com/hearthstone/",
+    "license": "none stated",
+    "version": "page titles fetched 2026-10-22 UTC",
+    "rows": 3
+  },
+  {
+    "name": "HearthstoneJSON collectible cards (zhCN)",
+    "url": "https://api.hearthstonejson.com/v1/latest/zhCN/cards.collectible.json",
+    "license": "HearthstoneJSON.com is licensed CC0. The JSON files contain data that is Copyright (c) Blizzard Entertainment - All Rights Reserved",
+    "version": "latest; fetched 2026-10-22 UTC",
+    "rows": 6478
+  },
+  {
+    "name": "Honkai Impact 3rd BWIKI page titles (wiki.biligame.com/bh3)",
+    "url": "https://wiki.biligame.com/bh3/",
+    "license": "none stated",
+    "version": "page titles fetched 2026-10-22 UTC",
+    "rows": 1058
   },
   {
     "name": "Honkai: Star Rail BWIKI page titles (wiki.biligame.com/sr)",
     "url": "https://wiki.biligame.com/sr/",
     "license": "CC BY-NC-SA 4.0 (home page statement)",
     "version": "page titles fetched 2026-10-11 UTC",
-    "rows": 5049
+    "rows": 5910
   },
   {
     "name": "Honor of Kings official data files (herolist, item, ming, summoner)",
     "url": "https://pvp.qq.com/web201605/js/herolist.json",
     "license": "unknown",
     "version": "no version field; fetched 2026-10-11 UTC",
-    "rows": 717
+    "rows": 1226
   },
   {
     "name": "Identity V BWIKI page titles (wiki.biligame.com/dwrg)",
     "url": "https://wiki.biligame.com/dwrg/",
-    "license": "unknown",
-    "version": "partial page title list fetched 2026-10-11 UTC",
-    "rows": 3081
+    "license": "none stated",
+    "version": "page title list fetched 2026-10-11 to 2026-10-22 UTC",
+    "rows": 7962
+  },
+  {
+    "name": "Infinity Nikki BWIKI page titles (wiki.biligame.com/wxnn)",
+    "url": "https://wiki.biligame.com/wxnn/",
+    "license": "none stated",
+    "version": "page titles fetched 2026-10-22 UTC",
+    "rows": 1310
+  },
+  {
+    "name": "Jian Lai encyclopedia headings (jianlai-wiki/jianlai)",
+    "url": "https://github.com/jianlai-wiki/jianlai",
+    "license": "none stated (repository has no license)",
+    "version": "commit 31bf5c3d6125 (2020-01-06)",
+    "rows": 56
+  },
+  {
+    "name": "JinChanChanTool Golden Spatula hero, trait and equipment data (XJYdemons/JinChanChanTool)",
+    "url": "https://github.com/XJYdemons/JinChanChanTool",
+    "license": "GPL-3.0 (repository license)",
+    "version": "commit 11b0b556d540 (2026-09-26)",
+    "rows": 470
+  },
+  {
+    "name": "League of Legends BWIKI page titles (wiki.biligame.com/lol)",
+    "url": "https://wiki.biligame.com/lol/",
+    "license": "none stated",
+    "version": "page titles fetched 2026-10-22 UTC",
+    "rows": 2283
   },
   {
     "name": "Love and Deepspace BWIKI page titles (wiki.biligame.com/lysk)",
     "url": "https://wiki.biligame.com/lysk/",
     "license": "CC BY-NC-SA 4.0 (home page statement)",
     "version": "page titles fetched 2026-10-11 UTC",
-    "rows": 6236
+    "rows": 7712
   },
   {
     "name": "Minecraft pinyin dictionary (NorthZeroD/minecraft-pinyin)",
     "url": "https://github.com/NorthZeroD/minecraft-pinyin",
     "license": "LGPL-3.0",
     "version": "commit d18966f2883b (2026-09-20)",
-    "rows": 2268
+    "rows": 2703
   },
   {
     "name": "Minecraft: Java Edition language file minecraft/lang/zh_cn.json",
     "url": "https://piston-meta.mojang.com/mc/game/version_manifest_v2.json",
     "license": "unknown",
     "version": "26.3",
-    "rows": 2305
+    "rows": 2737
   },
   {
     "name": "Moegirlpedia dictionary (outloudvi/mw2fcitx, branch pkg-moegirl)",
     "url": "https://github.com/outloudvi/mw2fcitx",
     "license": "CC BY-NC-SA 3.0",
     "version": "20260911",
-    "rows": 95755
+    "rows": 121748
+  },
+  {
+    "name": "Moegirlpedia season anime lists, anime and game articles (zh.moegirl.org.cn: 2025-2026 Japanese TV anime season pages with cast lists, 134 anime and 27 game main articles)",
+    "url": "https://zh.moegirl.org.cn/",
+    "license": "CC BY-NC-SA 4.0",
+    "version": "pages fetched 2026-10-22 UTC",
+    "rows": 14393
   },
   {
     "name": "Mooncell Fate/Grand Order wiki page titles (fgo.wiki)",
     "url": "https://fgo.wiki/",
     "license": "CC BY-NC-SA 4.0",
     "version": "page titles fetched 2026-10-11 UTC",
-    "rows": 3116
+    "rows": 3834
   },
   {
     "name": "Oxygen Not Included Wiki page titles (oxygennotincluded.wiki.gg/zh)",
     "url": "https://oxygennotincluded.wiki.gg/zh/",
     "license": "CC BY-NC-SA 4.0 (home page statement)",
     "version": "sitemap page titles fetched 2026-10-11 UTC",
-    "rows": 1052
+    "rows": 1411
   },
   {
     "name": "PRTS wiki dictionary (WantChane/fcitx5-pinyin-arknights)",
     "url": "https://github.com/WantChane/fcitx5-pinyin-arknights",
     "license": "CC BY-NC-SA 4.0 (dictionary data derived from prts.wiki, per the repository README)",
     "version": "v26.10.09.a6df2b",
-    "rows": 5966
+    "rows": 7498
+  },
+  {
+    "name": "PUBG: Battlegrounds BWIKI page titles (wiki.biligame.com/pubg)",
+    "url": "https://wiki.biligame.com/pubg/",
+    "license": "none stated",
+    "version": "page titles fetched 2026-10-22 UTC",
+    "rows": 65
+  },
+  {
+    "name": "PokeAPI data CSVs, Simplified Chinese names (PokeAPI/pokeapi data/v2/csv)",
+    "url": "https://github.com/PokeAPI/pokeapi",
+    "license": "BSD-3-Clause (repository license)",
+    "version": "commit 2bf639e55728 (2026-10-20)",
+    "rows": 3999
+  },
+  {
+    "name": "QQ Pinyin cell dictionaries: Guangyu (Sky: Children of the Light; id s158615, s124477)",
+    "url": "https://cdict.qq.pinyin.cn/detail?dict_id={s158615,s124477}",
+    "license": "none stated",
+    "version": "s158615 updated 2023-02-10; s124477 updated 2022-09-15",
+    "rows": 421
+  },
+  {
+    "name": "Reverse: 1999 BWIKI page titles (wiki.biligame.com/reverse1999)",
+    "url": "https://wiki.biligame.com/reverse1999/",
+    "license": "none stated",
+    "version": "page titles fetched 2026-10-22 UTC",
+    "rows": 1601
+  },
+  {
+    "name": "Roco Kingdom: World BWIKI page titles (wiki.biligame.com/nrc)",
+    "url": "https://wiki.biligame.com/nrc/",
+    "license": "none stated",
+    "version": "page titles fetched 2026-10-22 UTC",
+    "rows": 2287
   },
   {
     "name": "SchaleDB Blue Archive data (data/cn: students, items, localization)",
     "url": "https://schaledb.com/data/cn/students.min.json",
     "license": "unknown",
     "version": "no version field; fetched 2026-10-11 UTC",
-    "rows": 1717
+    "rows": 2038
+  },
+  {
+    "name": "Sky: Children of the Light BWIKI page titles (wiki.biligame.com/sky)",
+    "url": "https://wiki.biligame.com/sky/",
+    "license": "none stated",
+    "version": "page titles fetched 2026-10-22 UTC",
+    "rows": 797
+  },
+  {
+    "name": "Sogou cell dictionaries for steel structures (ids 74190, 70688, 132823, 30368, 10217, 15118; steel subset)",
+    "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=74190",
+    "license": "unknown",
+    "version": "latest dictionary update 2021-06-28",
+    "rows": 908
+  },
+  {
+    "name": "Sogou cell dictionaries: Aierdeng Fahuan (Elden Ring) (id 145767)",
+    "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=145767",
+    "license": "unknown",
+    "version": "latest dictionary update 2022-03-28",
+    "rows": 67
+  },
+  {
+    "name": "Sogou cell dictionaries: Bode zhi Men (Baldur's Gate, early series) (id 28656)",
+    "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=28656",
+    "license": "unknown",
+    "version": "latest dictionary update 2011-12-03",
+    "rows": 10
+  },
+  {
+    "name": "Sogou cell dictionaries: Chongfan Weilai: 1999 (Reverse: 1999) (id 168389, 160335)",
+    "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=168389",
+    "license": "unknown",
+    "version": "latest dictionary update 2026-01-15",
+    "rows": 908
+  },
+  {
+    "name": "Sogou cell dictionaries: Chuanyue Huoxian (CrossFire) (id 130523, 124357, 55361, 11149, 40712, 29931, 28391, 27919, 20619, 10220, 17542, 17511, 10570, 15267, 10755)",
+    "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=130523",
+    "license": "unknown",
+    "version": "latest dictionary update 2021-02-26",
+    "rows": 325
   },
   {
     "name": "Sogou cell dictionaries: Danzai Paidui (id 175989)",
     "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=175989",
     "license": "unknown",
     "version": "latest dictionary update 2025-12-19",
-    "rows": 83
+    "rows": 96
+  },
+  {
+    "name": "Sogou cell dictionaries: Diwu Renge (Identity V) (id 83711)",
+    "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id={83711}",
+    "license": "none stated",
+    "version": "updated 2021-05-29",
+    "rows": 266
   },
   {
     "name": "Sogou cell dictionaries: Douluo Dalu (id 76006, 30581, 116973)",
     "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=76006",
     "license": "unknown",
     "version": "latest dictionary update 2022-07-02",
-    "rows": 264
+    "rows": 370
   },
   {
     "name": "Sogou cell dictionaries: Doupo Cangqiong (id 73236, 35262)",
     "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=73236",
     "license": "unknown",
     "version": "latest dictionary update 2017-04-27",
-    "rows": 644
+    "rows": 790
   },
   {
     "name": "Sogou cell dictionaries: Fanren Xiuxian Zhuan (id 29987, 22730)",
     "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=29987",
     "license": "unknown",
     "version": "latest dictionary update 2012-04-21",
-    "rows": 1397
+    "rows": 1632
+  },
+  {
+    "name": "Sogou cell dictionaries: Guaiwu Lieren (Monster Hunter) (id 176761, 131857, 117399, 104301, 85703)",
+    "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=176761",
+    "license": "unknown",
+    "version": "latest dictionary update 2026-03-13",
+    "rows": 799
+  },
+  {
+    "name": "Sogou cell dictionaries: Haizeiwang (One Piece) (id 132585, 54873, 1637)",
+    "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=132585",
+    "license": "unknown",
+    "version": "latest dictionary update 2021-04-24",
+    "rows": 165
   },
   {
     "name": "Sogou cell dictionaries: Huoying Renzhe (id 51677, 14234, 15212)",
     "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=51677",
     "license": "unknown",
     "version": "latest dictionary update 2018-08-06",
-    "rows": 1188
+    "rows": 1827
   },
   {
     "name": "Sogou cell dictionaries: Huyao Xiao Hongniang (id 73756, 82865)",
     "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=73756",
     "license": "unknown",
     "version": "latest dictionary update 2018-03-17",
-    "rows": 101
+    "rows": 141
+  },
+  {
+    "name": "Sogou cell dictionaries: Jian Wang 3 (JX3 Online) (id 54030, 20628, 16542)",
+    "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=54030",
+    "license": "unknown",
+    "version": "latest dictionary update 2015-10-10",
+    "rows": 9461
+  },
+  {
+    "name": "Sogou cell dictionaries: Jinchanchan zhi Zhan (Golden Spatula) (id 172302)",
+    "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=172302",
+    "license": "unknown",
+    "version": "latest dictionary update 2025-03-15",
+    "rows": 439
   },
   {
     "name": "Sogou cell dictionaries: Juedi Qiusheng: Ciji Zhanchang, the predecessor of Heping Jingying (id 84637, 82077)",
     "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=84637",
     "license": "unknown",
     "version": "latest dictionary update 2018-05-11",
-    "rows": 101
+    "rows": 261
+  },
+  {
+    "name": "Sogou cell dictionaries: Lianyu Zhizuoren (Mr Love: Queen's Choice) (id 81172)",
+    "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id={81172}",
+    "license": "none stated",
+    "version": "updated 2018-01-10",
+    "rows": 73
   },
   {
     "name": "Sogou cell dictionaries: Luo Xiaohei Zhanji (id 104607)",
     "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=104607",
     "license": "unknown",
     "version": "latest dictionary update 2019-11-03",
-    "rows": 96
+    "rows": 146
+  },
+  {
+    "name": "Sogou cell dictionaries: Luoke Wangguo (Roco Kingdom) (id 62445, 51655)",
+    "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=62445",
+    "license": "unknown",
+    "version": "latest dictionary update 2016-05-26",
+    "rows": 43
   },
   {
     "name": "Sogou cell dictionaries: Menghuan Xiyou (id 15235, 14002, 12425)",
     "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=15235",
     "license": "unknown",
     "version": "latest dictionary update 2017-05-10",
-    "rows": 3798
+    "rows": 6301
   },
   {
     "name": "Sogou cell dictionaries: Mingri Fangzhou: Zhongmodi (id 177728, 176049)",
     "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=177728",
     "license": "unknown",
     "version": "latest dictionary update 2026-09-02",
-    "rows": 1753
+    "rows": 2115
   },
   {
     "name": "Sogou cell dictionaries: Modao Zushi (id 87994, 87217)",
     "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=87994",
     "license": "unknown",
     "version": "latest dictionary update 2022-11-22",
-    "rows": 105
+    "rows": 171
   },
   {
     "name": "Sogou cell dictionaries: Nishuihan (id 88130, 166196, 166124)",
     "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=88130",
     "license": "unknown",
     "version": "latest dictionary update 2023-08-22",
-    "rows": 486
+    "rows": 613
+  },
+  {
+    "name": "Sogou cell dictionaries: Re: Cong Ling Kaishi de Yishijie Shenghuo (Re:Zero) (id 63607)",
+    "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=63607",
+    "license": "unknown",
+    "version": "latest dictionary update 2019-03-07",
+    "rows": 23
+  },
+  {
+    "name": "Sogou cell dictionaries: Sanjiaozhou Xingdong (Delta Force) (id 177368, 177369, 173912, 173865)",
+    "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=177368",
+    "license": "unknown",
+    "version": "latest dictionary update 2026-04-27",
+    "rows": 341
   },
   {
     "name": "Sogou cell dictionaries: Tianguan Cifu (id 133417)",
     "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=133417",
     "license": "unknown",
     "version": "latest dictionary update 2021-05-21",
-    "rows": 40
+    "rows": 54
   },
   {
     "name": "Sogou cell dictionaries: Tunshi Xingkong (id 154385)",
     "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=154385",
     "license": "unknown",
     "version": "latest dictionary update 2023-03-04",
-    "rows": 307
+    "rows": 427
+  },
+  {
+    "name": "Sogou cell dictionaries: Wangzhe Rongyao (Honor of Kings) (id 73918)",
+    "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=73918",
+    "license": "unknown",
+    "version": "latest dictionary update 2019-07-15",
+    "rows": 549
   },
   {
     "name": "Sogou cell dictionaries: Wanmei Shijie (id 64813)",
     "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=64813",
     "license": "unknown",
     "version": "latest dictionary update 2016-08-03",
-    "rows": 18
+    "rows": 33
   },
   {
     "name": "Sogou cell dictionaries: Wu Liuqi (id 115531)",
     "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=115531",
     "license": "unknown",
     "version": "latest dictionary update 2020-03-19",
-    "rows": 20
+    "rows": 33
+  },
+  {
+    "name": "Sogou cell dictionaries: Wuwei Qiyue (Valorant) (id 166657)",
+    "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=166657",
+    "license": "unknown",
+    "version": "latest dictionary update 2023-09-19",
+    "rows": 215
+  },
+  {
+    "name": "Sogou cell dictionaries: Yinyangshi (Onmyoji) (id 66902)",
+    "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id={66902}",
+    "license": "none stated",
+    "version": "updated 2020-03-10",
+    "rows": 189
   },
   {
     "name": "Sogou cell dictionaries: Yiren Zhixia (id 80096)",
     "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=80096",
     "license": "unknown",
     "version": "latest dictionary update 2017-12-04",
-    "rows": 66
+    "rows": 107
   },
   {
     "name": "Sogou cell dictionaries: Yongjie Wujian (id 135643, 165717)",
     "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=135643",
     "license": "unknown",
     "version": "latest dictionary update 2023-08-07",
-    "rows": 94
+    "rows": 173
   },
   {
     "name": "Sogou cell dictionaries: Zhenhunjie (id 85243)",
     "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=85243",
     "license": "unknown",
     "version": "latest dictionary update 2018-05-30",
-    "rows": 103
+    "rows": 139
   },
   {
     "name": "Sogou cell dictionaries: Zhetian (id 133327, 45298)",
     "url": "https://pinyin.sogou.com/d/dict/download_cell.php?id=133327",
     "license": "unknown",
     "version": "latest dictionary update 2021-05-19",
-    "rows": 728
+    "rows": 903
   },
   {
     "name": "Stardew Valley Wiki page titles (zh.stardewvalleywiki.com)",
     "url": "https://zh.stardewvalleywiki.com/",
     "license": "CC BY-NC-SA 3.0 (site API rights statement; the page footer states CC BY-SA 3.0)",
     "version": "page titles fetched 2026-10-11 UTC",
-    "rows": 1262
+    "rows": 1849
+  },
+  {
+    "name": "Steel structure seed words checked against rime-wanxiang",
+    "url": "none (word list from a rime-wanxiang gap check by the maintainer)",
+    "license": "not applicable (no external document)",
+    "version": "2026-10-22",
+    "rows": 11
+  },
+  {
+    "name": "Steel structure standards term tables and section headings (gongbiaoku.com book pages; GB 50205-2001 text)",
+    "url": "https://www.gongbiaoku.com/book/05i22689p4r",
+    "license": "unknown",
+    "version": "15 standards (GB 50017-2017, GB 50205-2020, GB 50661-2011, GB 50755-2012, T/CECS 606-2019 and others); fetched 2026-10-22 UTC",
+    "rows": 194
+  },
+  {
+    "name": "Tekla Structures 2025 Simplified Chinese user assistance (navigation titles, component names, UI labels)",
+    "url": "https://support.tekla.com/zh-hans/doc/tekla-structures/2025/section_create_models",
+    "license": "unknown",
+    "version": "Tekla Structures 2025 help pages fetched 2026-10-22 UTC",
+    "rows": 603
   },
   {
     "name": "Terraria Wiki page titles (terraria.wiki.gg/zh)",
     "url": "https://terraria.wiki.gg/zh/",
     "license": "CC BY-NC-SA 4.0 (page footer statement; pages created before 2022-03-14 are adapted from the Fandom Terraria Wiki)",
     "version": "sitemap page titles fetched 2026-10-11 UTC",
-    "rows": 2512
+    "rows": 3437
+  },
+  {
+    "name": "Umamusume: Pretty Derby BWIKI page titles (wiki.biligame.com/umamusume)",
+    "url": "https://wiki.biligame.com/umamusume/",
+    "license": "none stated",
+    "version": "page titles fetched 2026-10-22 UTC",
+    "rows": 4593
   }
 ]
