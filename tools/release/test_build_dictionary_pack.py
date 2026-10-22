@@ -81,6 +81,21 @@ SUPPLEMENT_SOURCES = [
 
 
 class AttributionTextTest(unittest.TestCase):
+    def test_pokeapi_binary_notice_keeps_the_copyright_conditions_and_disclaimer(self):
+        sources = [{"name": "PokeAPI", "url": "https://github.com/PokeAPI/pokeapi", "license": "BSD-3-Clause", "version": COMMIT}]
+        notice = bp.attribution_text(REPO, "v18.1.7", "wanxiang", COMMIT, sources)
+        for required in (
+            "Copyright (c) © 2013–2023 Paul Hallett and PokéAPI contributors",
+            "Pokémon and Pokémon character names are trademarks of Nintendo.",
+            "Redistributions of source code must retain the above copyright notice",
+            "Redistributions in binary form must reproduce the above copyright notice",
+            "Neither the name of PokéAPI nor the names of its contributors",
+            'THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"',
+            "EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.",
+        ):
+            self.assertIn(required, notice)
+        self.assertEqual(notice, bp.attribution_text(REPO, "v18.1.7", "wanxiang", COMMIT, sources))
+
     def notice(self, tag="v16.0.1", branch="wanxiang", commit=COMMIT):
         return bp.attribution_text(REPO, tag, branch, commit)
 

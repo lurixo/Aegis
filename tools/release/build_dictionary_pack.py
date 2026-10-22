@@ -63,7 +63,7 @@ GRAMMAR_RELEASE_API = "https://api.github.com/repos/amzxyz/rime-wanxiang-data/re
 
 def attribution_text(repo_https, source_tag, source_branch, source_commit, supplement_sources=None):
     """The pack's third-party attribution, deterministic (no timestamps — only the pinned source
-    coordinates vary), so the ZIP stays byte-reproducible. ASCII-only for maximum unzip compatibility.
+    coordinates vary), so the ZIP stays byte-reproducible. Source license notices retain UTF-8 text.
     Wording mirrors the repository README's acknowledgments."""
     ref = f"tag {source_tag}" if source_tag else f"branch {source_branch}"
     tables = " ".join(TABLES)
@@ -116,6 +116,13 @@ def attribution_text(repo_https, source_tag, source_branch, source_commit, suppl
             f"  License:  {source['license']}\n"
             f"  Version:  {source['version']}\n"
         )
+    if any(source["url"].rstrip("/") == "https://github.com/PokeAPI/pokeapi" for source in supplement_sources):
+        licenses = (Path(__file__).resolve().parents[2] / "THIRD_PARTY_LICENSES.md").read_text(encoding="utf-8")
+        heading = "## Appendix L — BSD 3-Clause License (PokeAPI)\n\n"
+        if heading not in licenses or "\n## Appendix M — " not in licenses.split(heading, 1)[1]:
+            raise ValueError("the PokeAPI copyright and full license notice are missing")
+        notice = licenses.split(heading, 1)[1].split("\n## Appendix M — ", 1)[0].rstrip()
+        text += "\nPokeAPI copyright and license\n----------------------------\n\n" + notice + "\n"
     return text
 
 
