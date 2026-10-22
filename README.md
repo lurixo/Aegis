@@ -139,9 +139,13 @@ browser; Aegis only hands it the address.
   all off until you turn them on. Automatically learned entries fade out after
   months of disuse; words you add yourself are never forgotten. No word is learned in a field that
   asks for no personalized learning; in those fields the symbol and emoji panels do not count what
-  you pick either. Everything lives in the
-  app's private `filesDir` (`userdb.txt` and `userlearn.txt`), and the user-dictionary screen lets
-  you search, add, delete, import, export and clear it.
+  you pick either. Chinese words live in the app's private `filesDir` (`userdb.txt` and
+  `userlearn.txt`), English words and email suffixes in its private preferences. The
+  user-dictionary screen has *Chinese*, *English* and *Email suffixes* tabs where you search, add
+  and delete entries, several at once if you like, and its *Tools* export the three together or
+  separately and import them back; the email tab lists the suffixes offered after `@`, most-picked
+  first, and can restore the ten defaults. The *Auto learning* card in input settings shows how many
+  words were learned and clears them.
 - **Emoji panel:** a *Common* tab plus categories (smileys, gestures, flags, animals, plants, food,
   travel, activities, objects, symbols), with skin-tone and gender variants and a lock toggle for
   picking several in a row.
