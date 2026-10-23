@@ -147,6 +147,37 @@ class AssembledCandidateOrderTest {
         }
     }
 
+    @Test fun aStoredWordReachedThroughInputAliasesIsNotDemotedAsAnAssembly() {
+        val rows = listOf(
+            EngineFixture.Row("ng", "嗯", 900_000),
+            EngineFixture.Row("ngng", "嗯嗯", 1400),
+            EngineFixture.Row("foen", "佛恩", 1),
+        )
+        val decoder = PinyinDecoder(
+            EngineFixture.build(rows.map { it.copy(key = T9Pinyin.toT9(it.key)) }),
+            aliasDict = EngineFixture.build(rows),
+        )
+        val got = words(decoder.decodeCovered("3636", 80))
+        assertEquals("the stored alias word keeps its rank, was $got", "嗯嗯", got.first())
+        assertTrue("the colliding dictionary word stays reachable", "佛恩" in got)
+    }
+
+    @Test fun anAliasAssemblyWithoutAStoredWholeWordStillYieldsToTheDictionaryWord() {
+        val rows = listOf(
+            EngineFixture.Row("ng", "嗯", 900_000),
+            EngineFixture.Row("foen", "佛恩", 1),
+        )
+        val decoder = PinyinDecoder(
+            EngineFixture.build(rows.map { it.copy(key = T9Pinyin.toT9(it.key)) }),
+            aliasDict = EngineFixture.build(rows),
+        )
+        val runs = paths(decoder, "3636", setOf(2))
+        assertTrue("the free path contains the competing assembly", "嗯嗯" in runs.first().second)
+        for ((path, got) in runs) {
+            assertEquals("$path: the alias assembly still yields, was $got", "佛恩", got.first())
+        }
+    }
+
     @Test fun theSentenceStillLeadsWhenTheDictionaryHasNoWordForTheReading() {
         assets()
         assertTrue("the reading has no dictionary word", BinaryDict.fromFile(dictFile).exact("nidepingguo").none { it.word.length > 1 })

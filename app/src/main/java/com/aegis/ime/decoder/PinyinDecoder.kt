@@ -318,10 +318,37 @@ class PinyinDecoder(
         val kept = manualWordsFor(key)
         val out = HashSet<String>()
         for (word in userWordsFor(key)) {
-            if (word !in kept && dict.exactWordFreq(key, word) == null) out.add(word)
+            if (word !in kept && dict.exactWordFreq(key, word) == null && !isStoredAliasWord(key, word)) out.add(word)
         }
-        if (best != null && best !in kept && dict.exactWordFreq(key, best) == null) out.add(best)
+        if (best != null && best !in kept && dict.exactWordFreq(key, best) == null && !isStoredAliasWord(key, best)) out.add(best)
         return out
+    }
+
+    private fun isStoredAliasWord(input: String, word: String): Boolean {
+        val t9 = input.firstOrNull() in '2'..'9'
+        val aliasKeys = if (t9) T9_INPUT_ALIASES.keys else INPUT_ALIASES.keys
+        if (aliasKeys.none { it in input }) return false
+        val spellings = ReadingLookup(aliasSource)
+        data class Path(val covered: Int, val stored: String, val aliased: Boolean)
+        var paths = setOf(Path(0, "", false))
+        for (cp in word.codePoints().toArray()) {
+            val char = String(Character.toChars(cp))
+            paths = buildSet {
+                for (path in paths) {
+                    DecodeCancellation.checkpoint()
+                    for ((reading, key) in spellings.matching(input.substring(path.covered), t9, false)) {
+                        for (storedReading in listOf(reading) + INPUT_ALIASES[reading].orEmpty()) {
+                            if (partReadings.frequency(storedReading, char) == null) continue
+                            val stored = path.stored + storedReading
+                            if (aliasSource.prefixStart(stored) < 0) continue
+                            add(Path(path.covered + key.length, stored, path.aliased || storedReading != reading))
+                        }
+                    }
+                }
+            }
+            if (paths.isEmpty()) return false
+        }
+        return paths.any { it.covered == input.length && it.aliased && aliasSource.containsExactWord(it.stored, word) }
     }
 
     private fun demoteBelowExact(
