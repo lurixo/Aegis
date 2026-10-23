@@ -20,6 +20,7 @@ import com.aegis.ime.decoder.FullDictTestAssets
 import com.aegis.ime.decoder.T9Pinyin
 import com.aegis.ime.dict.BinaryDict
 import com.aegis.ime.dict.CharBigramLM
+import com.aegis.ime.dict.OctagramReader
 import com.aegis.ime.engine.CandidateEngine
 import com.aegis.ime.engine.DictEngine
 import com.aegis.ime.layout.Key
@@ -645,6 +646,33 @@ class NinePreeditTopReadingTest {
             assertTrue("ng" !in c.expandedReadings())
             c.onKey(enter)
             assertEquals(listOf(lettersOf(label)), host.commits)
+        }
+    }
+
+    @Test fun grammar_backed_alias_words_keep_their_rank_and_typed_preedit_on_both_layouts() {
+        assumeFullAssets()
+        val gram = System.getenv("AEGIS_GRAM")?.takeIf { it.isNotBlank() }?.let(::File)
+        assumeTrue("AEGIS_GRAM points to a current grammar snapshot", gram?.isFile == true)
+        val engine = DictEngine(
+            fullDict,
+            BinaryDict.fromFile(File(fullAssets, FullDictTestAssets.T9)),
+            CharBigramLM.fromFile(File(fullAssets, FullDictTestAssets.LM)),
+            initialsDict = BinaryDict.fromFile(File(fullAssets, FullDictTestAssets.JIANPIN)),
+            octagram = OctagramReader.fromFile(requireNotNull(gram)),
+        )
+        assertTrue(fullDict.exact("ngng").any { it.word == "嗯嗯" })
+        assertTrue(fullDict.exact("foen").any { it.word == "佛恩" })
+        for ((nine, input) in listOf(true to "3636", false to "enen")) {
+            val c = controller(engine, nine = nine)
+            c.type(input)
+            assertEquals("$input: the stored alias word leads with grammar and empty context", "嗯嗯", firstCandidate(c)?.word)
+            if (nine) {
+                assertEquals("en'en", c.preeditForTest())
+                assertTrue("the colliding exact word remains available", "佛恩" in c.candidateWords())
+            } else {
+                assertEquals(T9Pinyin.preeditLetters(input), c.preeditForTest())
+                assertEquals(input, lettersOf(c.preeditForTest()))
+            }
         }
     }
 

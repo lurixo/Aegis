@@ -178,6 +178,77 @@ class AssembledCandidateOrderTest {
         }
     }
 
+    @Test fun completeAliasWordsUseTheirStoredFrequencyOnBothKeyboards() {
+        val rows = listOf(
+            EngineFixture.Row("ng", "嗯", 1),
+            EngineFixture.Row("en", "恩", 1),
+            EngineFixture.Row("ngng", "嗯嗯", 900_000),
+            EngineFixture.Row("enen", "恩恩", 100),
+        )
+        for ((input, decoder) in listOf(
+            "enen" to PinyinDecoder(EngineFixture.build(rows)),
+            "3636" to PinyinDecoder(
+                EngineFixture.build(rows.map { it.copy(key = T9Pinyin.toT9(it.key)) }),
+                aliasDict = EngineFixture.build(rows),
+            ),
+        )) {
+            val got = words(decoder.decodeCovered(input, 80))
+            assertEquals("$input: the stored whole word outranks the weak exact word, was $got", "嗯嗯", got.first())
+            assertTrue("$input: the exact word remains reachable", "恩恩" in got)
+        }
+    }
+
+    @Test fun completeAliasWordsCanMixTypedAliasesAndStoredReadings() {
+        val rows = listOf(
+            EngineFixture.Row("ng", "嗯", 1),
+            EngineFixture.Row("ne", "呢", 1),
+            EngineFixture.Row("en", "恩", 1),
+            EngineFixture.Row("ngng", "嗯嗯", 900_000),
+            EngineFixture.Row("ngne", "嗯呢", 900_000),
+            EngineFixture.Row("ngen", "嗯恩", 100),
+            EngineFixture.Row("enne", "恩呢", 100),
+        )
+        for ((reading, expected) in listOf("ngen" to "嗯嗯", "enng" to "嗯嗯", "enne" to "嗯呢")) {
+            for (nine in listOf(false, true)) {
+                val input = if (nine) T9Pinyin.toT9(reading) else reading
+                val decoder = if (nine) PinyinDecoder(
+                    EngineFixture.build(rows.map { it.copy(key = T9Pinyin.toT9(it.key)) }),
+                    aliasDict = EngineFixture.build(rows),
+                ) else PinyinDecoder(EngineFixture.build(rows))
+                val got = words(decoder.decodeCovered(input, 80))
+                assertEquals("$reading/$nine: the complete mixed reading uses its stored word, was $got", expected, got.first())
+            }
+        }
+    }
+
+    @Test fun aliasExpansionDoesNotAcceptAnUnrelatedReadingWithTheSameT9Digits() {
+        val rows = listOf(
+            EngineFixture.Row("ng", "嗯", 1),
+            EngineFixture.Row("mi", "咪", 1),
+            EngineFixture.Row("ngng", "嗯嗯", 900_000),
+            EngineFixture.Row("mimi", "咪咪", 1_000_000),
+        )
+        assertEquals(T9Pinyin.toT9("ngng"), T9Pinyin.toT9("mimi"))
+        val decoder = PinyinDecoder(
+            EngineFixture.build(rows.map { it.copy(key = T9Pinyin.toT9(it.key)) }),
+            aliasDict = EngineFixture.build(rows),
+        )
+        val got = words(decoder.decodeCovered("3636", 80))
+        assertTrue("the complete alias word remains reachable, was $got", "嗯嗯" in got)
+        assertTrue("matching the rewritten digits alone is insufficient, was $got", "咪咪" !in got)
+    }
+
+    @Test fun anAlphabetAliasAssemblyWithoutAStoredWholeWordStillYieldsToTheExactWord() {
+        val rows = listOf(
+            EngineFixture.Row("ng", "嗯", 900_000),
+            EngineFixture.Row("en", "恩", 1),
+            EngineFixture.Row("enen", "恩恩", 1),
+        )
+        for ((path, got) in paths(PinyinDecoder(EngineFixture.build(rows)), "enen", setOf(2))) {
+            assertEquals("$path: the alias assembly is not a stored whole word, was $got", "恩恩", got.first())
+        }
+    }
+
     @Test fun theSentenceStillLeadsWhenTheDictionaryHasNoWordForTheReading() {
         assets()
         assertTrue("the reading has no dictionary word", BinaryDict.fromFile(dictFile).exact("nidepingguo").none { it.word.length > 1 })

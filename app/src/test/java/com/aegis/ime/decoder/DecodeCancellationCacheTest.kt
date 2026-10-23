@@ -138,14 +138,14 @@ class DecodeCancellationCacheTest {
 
     @Test fun cancelling_a_26key_decode_at_any_checkpoint_leaves_every_cache_clean() {
         assumeAssets()
-        for (input in listOf("nihaoya", "shijie", "zhongguoren", "wodemingzi", "zhognguo")) {
+        for (input in listOf("nihaoya", "shijie", "zhongguoren", "wodemingzi", "zhognguo", "enen")) {
             cancellingAnywhereLeavesNoTrace(::letters) { it.decodeCovered(input, 30, emptySet(), "今天") }
         }
     }
 
     @Test fun cancelling_a_9key_decode_at_any_checkpoint_leaves_every_cache_clean() {
         assumeAssets()
-        for (input in listOf("nihaoya", "shijie", "zhongguoren")) {
+        for (input in listOf("nihaoya", "shijie", "zhongguoren", "enen")) {
             val keys = T9Pinyin.toT9(input)
             cancellingAnywhereLeavesNoTrace(::digits) { it.decodeCovered(keys, 30, emptySet(), "我们") }
         }

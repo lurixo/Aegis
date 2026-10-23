@@ -51,6 +51,39 @@ class SharedSentencePathsTest {
         }
     }
 
+    @Test fun grammarBackedCompleteAliasWordsLeadCandidatesAndSentencePathsWithoutContext() {
+        val gram = System.getenv("AEGIS_GRAM")?.takeIf { it.isNotBlank() }?.let(::File)
+        assumeTrue("AEGIS_GRAM points to a current grammar snapshot", gram?.isFile == true)
+        val dictFile = FullDictTestAssets.file(FullDictTestAssets.DICT)
+        val t9File = FullDictTestAssets.file(FullDictTestAssets.T9)
+        val lmFile = FullDictTestAssets.file(FullDictTestAssets.LM)
+        val jianpinFile = FullDictTestAssets.file(FullDictTestAssets.JIANPIN)
+        assumeTrue(
+            "production dictionary, T9 table, language model and jianpin table present",
+            FullDictTestAssets.available(dictFile, t9File, lmFile, jianpinFile),
+        )
+        val engine = DictEngine(
+            BinaryDict.fromFile(dictFile),
+            BinaryDict.fromFile(t9File),
+            CharBigramLM.fromFile(lmFile),
+            initialsDict = BinaryDict.fromFile(jianpinFile),
+            octagram = OctagramReader.fromFile(requireNotNull(gram)),
+        )
+        for ((nine, input) in listOf(true to "3636", false to "enen")) {
+            val candidates = engine.candidatesCovered(input, nine, emptySet(), "")
+            val ranked = engine.rankedSentences(input, nine, "", RANKED_LIMIT)
+            val shared = engine.candidatesCoveredWithSentences(input, nine, "", RANKED_LIMIT)
+            assertEquals("$input: the complete alias word leads candidates", "嗯嗯", candidates.first().word)
+            assertEquals("$input: the complete alias word is a leading sentence path", "嗯嗯", ranked.first().first)
+            assertEquals(candidates, shared.first)
+            assertEquals(ranked, shared.second)
+            if (nine) {
+                assertTrue("the colliding dictionary word remains a candidate", candidates.any { it.word == "佛恩" })
+                assertTrue("the colliding dictionary word remains a sentence path", ranked.any { it.first == "佛恩" })
+            }
+        }
+    }
+
     @Test fun oneDecodeYieldsTheCandidatesAndTheRankedPathsOfSeparateRuns() {
         val gram = System.getenv("AEGIS_GRAM")?.takeIf { it.isNotBlank() }?.let(::File)
         assumeTrue("AEGIS_GRAM points to a current grammar snapshot", gram?.isFile == true)

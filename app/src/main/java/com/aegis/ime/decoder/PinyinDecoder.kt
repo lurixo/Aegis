@@ -111,13 +111,63 @@ class PinyinDecoder(
         return false
     }
 
-    private fun inputAliasWordFreqs(input: String): List<BinaryDict.WordFreq> {
-        val out = ArrayList<BinaryDict.WordFreq>()
-        val seen = HashSet<String>()
-        for (alias in inputAliases(input)) {
-            for (wf in cachedExact(aliasSource, alias)) if (seen.add(wf.word)) out.add(wf)
+    private class AliasWord(val entry: BinaryDict.WordFreq, val substitutions: Int) {
+        val penalty: Double get() = substitutions * ALIAS_PENALTY
+    }
+
+    private val aliasWordResults = BoundedLru<String, List<AliasWord>>(DICT_CACHE_WEIGHT) { it.size + 1 }
+
+    private fun inputAliasWords(input: String): List<AliasWord> = aliasWordResults.getOrPut(input) {
+        val t9 = input.firstOrNull() in '2'..'9'
+        val aliasKeys = if (t9) T9_INPUT_ALIASES.keys else INPUT_ALIASES.keys
+        if (aliasKeys.none { it in input }) return@getOrPut emptyList()
+        val out = LinkedHashMap<String, AliasWord>()
+        fun offer(wf: BinaryDict.WordFreq, substitutions: Int) {
+            val previous = out[wf.word]
+            val candidate = AliasWord(wf, substitutions)
+            if (previous == null || ln(wf.freq.toDouble().coerceAtLeast(1.0)) - candidate.penalty >
+                ln(previous.entry.freq.toDouble().coerceAtLeast(1.0)) - previous.penalty) out[wf.word] = candidate
         }
-        return preferredWordFreqs(out)
+        for (alias in inputAliases(input)) {
+            for (wf in cachedExact(aliasSource, alias)) offer(wf, 1)
+        }
+        val spellings = ReadingLookup(aliasSource)
+        val syllables = ArrayList<String>()
+        data class PathKey(val covered: Int, val readings: List<String>)
+        val visited = HashMap<PathKey, Int>()
+        fun visit(covered: Int, stored: String, substitutions: Int) {
+            DecodeCancellation.checkpoint()
+            val path = PathKey(covered, syllables.toList())
+            if (visited[path]?.let { it <= substitutions } == true) return
+            visited[path] = substitutions
+            val remaining = input.substring(covered)
+            if (substitutions == 0 && aliasKeys.none { it in remaining }) return
+            if (covered == input.length) {
+                if (substitutions == 0 || syllables.size < 2) return
+                for (wf in cachedExact(aliasSource, stored)) {
+                    val chars = wf.word.codePoints().toArray()
+                    if (chars.size != syllables.size) continue
+                    if (chars.indices.all { index ->
+                            spellings.frequency(syllables[index], String(Character.toChars(chars[index]))) != null
+                        }) offer(wf, substitutions)
+                }
+                return
+            }
+            for ((reading, key) in spellings.matching(remaining, t9, false)) {
+                for (storedReading in listOf(reading) + INPUT_ALIASES[reading].orEmpty()) {
+                    val next = stored + storedReading
+                    if (aliasSource.prefixStart(next) < 0) continue
+                    syllables.add(storedReading)
+                    visit(covered + key.length, next, substitutions + if (storedReading == reading) 0 else 1)
+                    syllables.removeAt(syllables.lastIndex)
+                }
+            }
+        }
+        visit(0, "", 0)
+        out.values.sortedWith(
+            compareByDescending<AliasWord> { ln(it.entry.freq.toDouble().coerceAtLeast(1.0)) - it.penalty }
+                .thenBy { supplementarySingleTieRank(it.entry.word) },
+        )
     }
 
     private fun refreshUserIndex() {
@@ -430,10 +480,12 @@ class PinyinDecoder(
                 out.add(Edge(uw, userWordFreq(uw, sub).toInt().coerceAtLeast(1), (n - 1).coerceAtLeast(0) * lnTotal, userOnly = true))
             }
         }
-        for (alias in inputAliases(sub)) {
-            var added = 0
-            for (wf in preferredExact(aliasSource, alias, edgeN + seen.size)) {
-                if (seen.add(wf.word)) { out.add(Edge(wf.word, wf.freq, ALIAS_PENALTY)); if (++added >= edgeN) break }
+        var aliasCount = 0
+        for (alias in inputAliasWords(sub)) {
+            val wf = alias.entry
+            if (seen.add(wf.word)) {
+                out.add(Edge(wf.word, wf.freq, alias.penalty))
+                if (++aliasCount >= edgeN) break
             }
         }
         if (exactFull || out.size >= edgeN) return out
@@ -964,7 +1016,7 @@ class PinyinDecoder(
             if (!isSingleChar(wf.word)) exactWords.add(wf.word)
             offer(wf, 0.0)
         }
-        inputAliasWordFreqs(input).forEach { offer(it, ALIAS_PENALTY) }
+        inputAliasWords(input).forEach { offer(it.entry, it.penalty) }
         cachedPrefix(dict, input, completionCap).forEach { offer(it, 0.0) }
         for (uw in userWordsFor(input)) offer(BinaryDict.WordFreq(uw, userWordFreq(uw, input).toInt().coerceAtLeast(1)), 0.0)
         val fuzzyExactWords = HashSet<String>()
@@ -1711,8 +1763,9 @@ class PinyinDecoder(
         for (wf in preferredExact(dict, key)) {
             if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word to wf.freq.toDouble())
         }
-        for (wf in inputAliasWordFreqs(key)) {
-            if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word to wf.freq * ALIAS_FREQ_DISCOUNT)
+        for (alias in inputAliasWords(key)) {
+            val wf = alias.entry
+            if (isSingleChar(wf.word) && seen.add(wf.word)) out.add(wf.word to wf.freq * exp(-alias.penalty))
         }
         out.sortWith(
             compareByDescending<Pair<String, Double>> { it.second }
